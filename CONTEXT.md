@@ -143,6 +143,11 @@ only when a field is removed or renamed, never for an added one. Not the
 [history format](#history-format) and not the package version. _Avoid_: wire
 version, protocol version
 
+**Context limit**: The shares of the model's context window an agent turn may
+use — `soft`, where the agent is asked to wrap up with a handoff note, and
+`hard`, where the driver stops the turn and lands nothing. A step's `context`.
+_Avoid_: token budget, context budget
+
 **Stall**: HEAD is an empty [attempt](#attempt) at the resting agent step, the
 tree is clean, and another dispatch would just repeat it — derived from history,
 not tracked by any marker, so it survives a restart and reads the same whether

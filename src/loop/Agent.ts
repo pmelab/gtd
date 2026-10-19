@@ -1,3 +1,4 @@
+import { usageTokens } from "../wire/index.js"
 import type { AgentName } from "./Settings.js"
 import type { Exit } from "./Host.js"
 
@@ -8,6 +9,8 @@ interface Turn {
   readonly sessionId: string
   readonly model: string | undefined
   readonly system: string | undefined
+  /** The shell command of the context-limit hook the turn runs under. */
+  readonly hook: string
 }
 
 /** What one agent run reports once its own envelope is read. */
@@ -17,12 +20,16 @@ export interface TurnResult {
   readonly text: string
   /** USD; 0 when the agent reported none. */
   readonly cost: number
+  /** The turn was stopped at its context limit, by the hook or by the loop. */
+  readonly contextLimit: boolean
 }
 
 interface AgentCli {
   readonly command: string
   readonly args: (turn: Turn) => readonly string[]
   readonly read: (exit: Exit) => TurnResult
+  /** A stdout line → the context it shows in use, for the loop's own hard stop; absent where the agent streams none. */
+  readonly contextTokens?: (line: string) => number | undefined
 }
 
 const optional = (flag: string, value: string | undefined): readonly string[] =>
@@ -41,11 +48,13 @@ const field = (value: unknown, key: string): unknown =>
 
 const costOf = (value: unknown): number => (typeof value === "number" && value > 0 ? value : 0)
 
-// `--output-format json` is what reports the turn's cost at all. Live context
-// size (the latest assistant message's input + cache tokens) needs
-// `stream-json`, which `-p` refuses without `--verbose`. An
-// `is_error` envelope is a failed turn even at exit 0 (max turns hit, an
-// execution error mid-turn) — landing it would land the failure as work.
+// `stream-json` (which `-p` refuses without `--verbose`) carries each
+// assistant message's usage as it happens — the loop's own hard stop, should
+// the hook not fire — and ends in the same `result` envelope `json` prints.
+// An `is_error` envelope is a failed turn even at exit 0 (max turns hit, an
+// execution error mid-turn) — landing it would land the failure as work. A
+// hook's `stopReason` never reaches stdout; `hook_stopped` is the only trace,
+// and the context-limit hook is the only one the loop installs.
 const claude: AgentCli = {
   command: "claude",
   args: (turn) => [
@@ -54,19 +63,40 @@ const claude: AgentCli = {
     turn.sessionId,
     ...optional("--model", turn.model),
     ...optional("--system-prompt", turn.system),
+    "--settings",
+    JSON.stringify(hookSettings(turn.hook)),
     "--output-format",
-    "json",
+    "stream-json",
+    "--verbose",
     "--dangerously-skip-permissions",
   ],
   read: (exit) => {
-    const envelope = parseJson(exit.stdout)
+    const envelope = exit.stdout
+      .split("\n")
+      .map(parseJson)
+      .findLast((event) => field(event, "result") !== undefined)
     const result = field(envelope, "result")
+    const contextLimit =
+      exit.stopped === true || field(envelope, "terminal_reason") === "hook_stopped"
     return {
-      ok: exit.code === 0 && field(envelope, "is_error") !== true,
+      ok: exit.code === 0 && field(envelope, "is_error") !== true && !contextLimit,
       text: typeof result === "string" ? result : exit.stdout,
       cost: costOf(field(envelope, "total_cost_usd")),
+      contextLimit,
     }
   },
+  // A subagent's message (`parent_tool_use_id` set) fills its own context, not the turn's.
+  contextTokens: (line) => {
+    const event = parseJson(line)
+    if (field(event, "type") !== "assistant") return undefined
+    if (field(event, "parent_tool_use_id") != null) return undefined
+    return usageTokens(field(field(event, "message"), "usage"))
+  },
+}
+
+const hookSettings = (command: string) => {
+  const hook = [{ hooks: [{ type: "command", command }] }]
+  return { hooks: { PostToolUse: hook, PreCompact: hook } }
 }
 
 // pi's `--mode json` streams one event per line; the answer and its cost sit
@@ -105,6 +135,7 @@ const pi: AgentCli = {
       ok: exit.code === 0 && !events.some((event) => field(event, "type") === "error"),
       text: text === "" ? exit.stdout : text,
       cost: costOf(field(field(field(message, "usage"), "cost"), "total")),
+      contextLimit: false,
     }
   },
 }

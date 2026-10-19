@@ -206,6 +206,7 @@ const missingToolCommands: ToolCommands["Type"] = {
   ui: missingTool("ui"),
   lsp: missingTool("lsp"),
   loop: missingTool("loop"),
+  contextHook: missingTool("context-hook"),
   judge: () =>
     Promise.reject(
       new Error("gtd judge run: ToolCommands has no test double wired into testLayers()"),

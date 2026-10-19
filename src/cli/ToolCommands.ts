@@ -25,6 +25,14 @@ interface JudgeRequest {
   readonly input: string
 }
 
+/** `gtd context-hook`'s input: the hook's stdin and the limits its flags set. */
+interface ContextHookRequest {
+  readonly input: string
+  readonly soft?: number
+  readonly hard?: number
+  readonly window?: number
+}
+
 /**
  * The subcommands backed by a driver or tool. Core may not import those
  * units, so the composition root provides them here.
@@ -38,6 +46,8 @@ export class ToolCommands extends Context.Tag("ToolCommands")<
     ) => Effect.Effect<void, Error>
     readonly lsp: (gtd: SelfGtd) => Effect.Effect<void, Error>
     readonly loop: (gtd: SelfGtd) => Effect.Effect<void, Error>
+    /** The hook's stdout: a JSON document, or empty to let the turn go on. */
+    readonly contextHook: (request: ContextHookRequest) => Effect.Effect<string, Error>
     readonly judge: (request: JudgeRequest) => Promise<string>
   }
 >() {}

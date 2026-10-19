@@ -1,5 +1,6 @@
 import { resolve } from "node:path"
 import { Effect, Either } from "effect"
+import { DEFAULT_CONTEXT_LIMIT, contextWindowFor, type ContextLimit } from "../wire/index.js"
 import { agentCli, type SessionFlag, type TurnResult } from "./Agent.js"
 import { decodeBeat, decodeLand, type Beat } from "./Documents.js"
 import { LoopHost, type Exit } from "./Host.js"
@@ -112,14 +113,40 @@ const agentFailed = (ctx: Ctx, exit: Exit, result: TurnResult): Effect.Effect<vo
     ].join("\n") + "\n",
   )
 
+const quote = (arg: string): string => `'${arg.replaceAll("'", "'\\''")}'`
+
+// The hook stops the turn from inside; reading the stream for the same hard
+// limit is the loop's own stop, for when no hook fired (hooks disabled, one
+// long reply with no tool call).
+const contextGuard = (ctx: Ctx, doc: Beat, model: string | undefined) => {
+  const limit: ContextLimit = { ...DEFAULT_CONTEXT_LIMIT, ...doc.context }
+  const window = ctx.settings.contextWindow ?? contextWindowFor(model)
+  const hook = [...ctx.gtd, "context-hook"]
+    .concat([
+      "--soft",
+      String(limit.soft),
+      "--hard",
+      String(limit.hard),
+      "--window",
+      String(window),
+    ])
+    .map(quote)
+    .join(" ")
+  return { limit, window, hook }
+}
+
 // The prompt goes over stdin, never argv: it embeds a full diff, and argv is
 // capped (~1 MB on macOS, 4 KB guaranteed). A turn that backgrounds a shell
-// command would land while that command is still writing the tree.
+// command would land while that command is still writing the tree. A turn
+// stopped at its context limit fails the beat outright: retrying it, or
+// fixing its validation, would only run into the same limit.
 const agentTurn =
   (ctx: Ctx, doc: Beat, model: string | undefined) =>
   (prompt: string, sessionFlag: SessionFlag): Effect.Effect<TurnResult, Error> =>
     Effect.gen(function* () {
       const cli = agentCli(ctx.settings.agent)
+      const guard = contextGuard(ctx, doc, model)
+      const tokensOf = cli.contextTokens
       const exit = yield* ctx.host.spawn({
         command: cli.command,
         args: cli.args({
@@ -127,14 +154,25 @@ const agentTurn =
           sessionId: doc.session?.id ?? "",
           model,
           system: doc.system,
+          hook: guard.hook,
         }),
         cwd: ctx.root,
         stdin: prompt,
         env: { CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" },
         output: "capture",
+        ...(tokensOf === undefined
+          ? {}
+          : { stopAt: (line) => (tokensOf(line) ?? 0) >= guard.limit.hard * guard.window }),
       })
       const result = cli.read(exit)
       yield* ctx.host.appendLog(ctx.log, `${exit.stderr}${result.text}\n`)
+      if (result.contextLimit) {
+        return yield* Effect.fail(
+          new Error(
+            `context limit: the agent turn at "${doc.state}" was stopped at its context limit (hard ${Math.round(guard.limit.hard * 100)}% of ${guard.window} tokens) — nothing landed; see ${ctx.log}`,
+          ),
+        )
+      }
       if (!result.ok) yield* agentFailed(ctx, exit, result)
       return result
     })
