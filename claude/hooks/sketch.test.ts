@@ -13,12 +13,12 @@ describe("withRequirements", () => {
     expect(withRequirements(notes, "add a greeting")).toBe(`add a greeting\n\n${notes}`)
   })
 
-  test("the requirements are trimmed", () => {
-    expect(withRequirements("notes\n", "x\n\n")).toBe("x\n\nnotes\n")
+  test("the requirements lose trailing, never leading, whitespace", () => {
+    expect(withRequirements("notes\n", "    code\n\n")).toBe("    code\n\nnotes\n")
   })
 
   test("existing content is kept byte for byte", () => {
     expect(withRequirements("  indented\n\n\n", "x")).toBe("x\n\n  indented\n\n\n")
-    expect(withRequirements("no newline", "x")).toBe("x\n\nno newline\n")
+    expect(withRequirements("no newline", "x")).toBe("x\n\nno newline")
   })
 })
