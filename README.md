@@ -418,7 +418,12 @@ noted in steps 3 and 4 below.
    with `- A: <reply>` and the process stops at the same gate again. Close a
    thread by replying with a conclusion or deleting it. While a thread's last
    entry is the agent's, moving on is refused. Leave the file untouched and
-   start the loop to accept the plan as-is, unanswered questions and all.
+   start the loop to accept the plan as-is, unanswered questions and all. The
+   file lists numbered acceptance criteria (`AC-1`, `AC-2`, …) that bind the
+   build. Sketch your own under an `Acceptance criteria` heading and, when a
+   judge finds every one clear and checkable, they are recorded as they are and
+   this moment is skipped; one vague criterion brings it back. See
+   [Acceptance criteria](docs/configuration.md#acceptance-criteria).
 
 3. **You wait.** The agent first implements the requirements the quickest way
    that works — the naive pass — and a judge reads where it changed code (see

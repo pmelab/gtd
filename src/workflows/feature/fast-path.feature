@@ -48,6 +48,10 @@ Feature: a trivial change takes the same few beats at either risk tier, flag-fre
       ## Risk Tier
 
       <tier> — one-line copy fix
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When the process is driven
     Then the process rests at "seam.naive"

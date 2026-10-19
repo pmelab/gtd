@@ -33,6 +33,10 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
       ### Subtract
 
       - `subtract(a, b)` returns `a - b`.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And step "design.gate.answer" changes nothing
 
@@ -77,6 +81,10 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
       ### Subtract
 
       - `subtract(a, b)` returns `a - b`, in the calculator module.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And step "seam.naive" from now on changes nothing
     And step "seam.naive" writes "src/calc.ts" with:

@@ -28,6 +28,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       ## Greeting export
 
       Add a `greet()` export. No open questions.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -46,6 +50,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       [^why]:
           - H: why a function?
           - A: a constant cannot take a name later.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     When I run gtd land
@@ -67,6 +75,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       - [ ] plain
       - [ ] fancy
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:
@@ -84,6 +96,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       - [ ] plain
       - [ ] fancy
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -104,6 +120,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       - [ ] plain
       - [ ] fancy
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -118,6 +138,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       [^why]:
           - H: why a function?
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it fails
@@ -130,6 +154,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       ## Greeting export
 
       Add a `greet()` export.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:
@@ -137,6 +165,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       ## Greeting export
 
       Add a `greet()` export. Keep it tiny.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds
@@ -155,6 +187,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       - [ ] plain
       - [ ] fancy
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:
@@ -169,6 +205,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       - [ ] plain
       - [ ] fancy
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it fails
@@ -188,6 +228,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       [^b]:
           - H: why exported?
           - A: callers need it.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:
@@ -204,6 +248,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       [^b]:
           - H: why exported?
           - A: callers need it.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it fails
@@ -223,6 +271,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       - [ ] plain
       - [ ] fancy
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     Given a file "src/calc.ts" with:
@@ -245,6 +297,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       - [ ] plain
       - [ ] fancy
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it fails
@@ -264,6 +320,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       - [ ] plain
       - [ ] fancy
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     Given a file "src/calc.ts" with:

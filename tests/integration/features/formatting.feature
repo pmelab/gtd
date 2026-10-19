@@ -126,6 +126,10 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     And the shell command "wrap-prose $GTD_FILE" rewrites "$GTD_FILE" to:
       """
       A plan, wrapped by the project's formatter.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And the file "gtd.config.ts" ends with:
       """
@@ -140,6 +144,10 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       This is a deliberately long single prose line for the requirements file that clearly exceeds the eighty character print width.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And a file "NOTE.md" with:
       """
@@ -201,12 +209,20 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
 
       - [ ] REST
       - [ ] GraphQL
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     # the open question sends the flow to the human answer gate
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And ".gtd/REQUIREMENTS.md" is modified to:
       """
       A plan. This edited line is deliberately far longer than eighty characters so the formatter has to rewrap it before the turn is captured.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd with args "validate"
     Then it succeeds

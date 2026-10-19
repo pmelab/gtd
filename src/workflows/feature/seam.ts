@@ -16,6 +16,7 @@ import { healthy } from "../shared/health.js"
 import { coder, FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
+import { requireCriteria, requireCriteriaFrozen } from "./criteria.js"
 import { refactorStrays, reviewedRefactor } from "./refactor.js"
 import { flagModeOn } from "../shared/options.js"
 import type { RiskTier } from "./tier.js"
@@ -81,13 +82,16 @@ export function implement(
         ...(options.afterRefactor === true ? { allowEmpty: true } : {}),
       },
     )
-    await healthy(() =>
-      t.agentWithSkills("fix.suite.fixing", t.implementFixPrompt(), {
-        label: "Fixing the check",
-        file: FEEDBACK,
-        model: coder(),
-        system: t.builderSystem(),
-      }),
+    requireCriteriaFrozen(REQUIREMENTS)
+    await healthy(
+      () =>
+        t.agentWithSkills("fix.suite.fixing", t.implementFixPrompt(), {
+          label: "Fixing the check",
+          file: FEEDBACK,
+          model: coder(),
+          system: t.builderSystem(),
+        }),
+      { guard: () => requireCriteriaFrozen(REQUIREMENTS), guardRests: false },
     )
     await run("closing", removeScript([REQUIREMENTS]), { label: "Closing out the implementation" })
   })
@@ -124,6 +128,7 @@ const decide = (): Promise<Decision> =>
       })
       // Any edit steers, with a fresh budget and no stale rejection; clean overrules.
       if (changes().length === 0) return { reference: tip.hash }
+      requireCriteria(REQUIREMENTS)
       rejection = undefined
       retries = 0
     }

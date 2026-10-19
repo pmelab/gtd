@@ -123,6 +123,10 @@ Feature: a gtd.config.ts builds on the shipped workflows through @pmelab/gtd/wor
       ## Subtract
 
       Export `subtract()`.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And ".gtd/REVIEW.md" is modified to:
       """
@@ -169,6 +173,10 @@ Feature: a gtd.config.ts builds on the shipped workflows through @pmelab/gtd/wor
       # Requirements
 
       - subtract
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     When I run gtd land

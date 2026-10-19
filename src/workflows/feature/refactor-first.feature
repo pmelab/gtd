@@ -34,6 +34,10 @@ Feature: a refactor-first judgment walks one fixed path to idle
       ### Subtract
 
       - `subtract(a, b)` returns `a - b`.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And step "design.gate.answer" changes nothing
 

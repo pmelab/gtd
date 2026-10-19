@@ -33,6 +33,10 @@ Feature: a process keeps the risk tier setting it started with when GTD_FLAG_RIS
       ## Risk Tier
 
       low — a new pure function
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
 
   Scenario: a process started with the flag off records no tier after the flag turns on

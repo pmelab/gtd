@@ -49,6 +49,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Risk Tier
 
         low — trivial copy change
+
+        ## Acceptance Criteria
+
+        - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
       When the process is driven
@@ -64,6 +68,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Risk Tier
 
         high — touches payments
+
+        ## Acceptance Criteria
+
+        - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
       When the process is driven
@@ -80,6 +88,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Concerns
 
         ### Subtract
+
+        ## Acceptance Criteria
+
+        - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
       When the process is driven
@@ -105,6 +117,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
 
         - error rate on /subtract stays flat
         - p95 latency
+
+        ## Acceptance Criteria
+
+        - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
       When the process is driven
@@ -125,6 +141,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Risk Tier
 
         low — trivial copy change
+
+        ## Acceptance Criteria
+
+        - AC-1: the change behaves as described.
         """
       And step "seam.naive" writes "src/calc.ts" with:
         """
@@ -157,6 +177,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Concerns
 
         ### Subtract
+
+        ## Acceptance Criteria
+
+        - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
       When the process is driven
@@ -199,6 +223,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Production Signals
 
         - error rate stays flat
+
+        ## Acceptance Criteria
+
+        - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
       When the process is driven
@@ -220,6 +248,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Risk Tier
 
         low — trivial
+
+        ## Acceptance Criteria
+
+        - AC-1: the change behaves as described.
         """
       And step "design.gate.answer" changes nothing
       And step "seam.naive" writes "src/calc.ts" with:

@@ -34,6 +34,10 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     Given a file ".gtd/REQUIREMENTS.md" with:
       """
       Add a feature. No open questions.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it succeeds

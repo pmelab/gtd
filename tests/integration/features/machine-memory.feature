@@ -44,6 +44,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       - [ ] SQLite — zero-config, file-based
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     When I run gtd next with "--json"
@@ -62,6 +66,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       - [x] SQLite — zero-config, file-based
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(human): design.gate.answer → design.triage"
     When I run gtd next with "--json"
@@ -164,6 +172,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build the widget. No open questions.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And gtd lands "gtd(human): design.gate.answer → seam.naive"
@@ -274,6 +286,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       ## Doc comment
 
       Add a doc comment above the widget export.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): build.review.collecting → re-unwind"
     And the file "src/greet.ts" is deleted
@@ -283,6 +299,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       ## Doc comment
 
       Add a doc comment above the widget export. No open questions.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And gtd lands "gtd(human): design.gate.answer → implement.building"
@@ -487,6 +507,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       ## Doc comment
 
       Add a doc comment above the widget export.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): build.review.collecting → re-unwind"
     And the file "src/greet.ts" is deleted
@@ -496,6 +520,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       ## Doc comment
 
       Add a doc comment above the widget export. No open questions.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And gtd lands "gtd(human): design.gate.answer → implement.building"
@@ -599,6 +627,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       ## Doc comment
 
       Add a doc comment above the widget export.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): build.review.collecting → re-unwind"
     And the file "src/greet.ts" is deleted
@@ -608,6 +640,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       ## Doc comment
 
       Add a doc comment above the widget export. No open questions.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And gtd lands "gtd(human): design.gate.answer → implement.building"
@@ -786,6 +822,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Given a file ".gtd/REQUIREMENTS.md" with:
       """
       Build the widget. No open questions.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And gtd lands "gtd(human): design.gate.answer → seam.naive"
@@ -830,6 +870,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build the widget. No open questions.
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     And gtd lands "gtd(human): design.gate.answer → seam.naive"

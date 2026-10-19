@@ -274,6 +274,10 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       - [ ] REST
       - [ ] GraphQL
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:
@@ -324,6 +328,10 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       - [ ] REST
       - [ ] GraphQL
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:

@@ -13,6 +13,7 @@ import { flagModeOn, shipped } from "../shared/options.js"
 import { FEEDBACK } from "../shared/steps.js"
 import { refusePendingHandOff } from "../shared/tail.js"
 import * as t from "../shared/text.js"
+import { skipDesign, statedCriteria, type StatedCriteria } from "./criteria.js"
 import { design } from "./planning.js"
 import { buildTail, isCode, reUnwind, type ReviewOutcome } from "./review.js"
 import { implement, seamBuild, type SeamOutcome } from "./seam.js"
@@ -54,9 +55,10 @@ export const buildFeature = async (firstBase: string): Promise<void> => {
   })
 }
 
-/** Design, then `buildFeature`. */
-export const planAndBuild = async (firstBase: string): Promise<void> => {
-  await design(firstBase)
+/** Design — skipped when the sketch's own criteria are judged clear — then `buildFeature`. */
+export const planAndBuild = async (firstBase: string, stated?: StatedCriteria): Promise<void> => {
+  // GTD_FLAG_RISK_TIER: the tier is proposed at triage and set at the design gate, so no skip.
+  if (!(await skipDesign(riskTierOn() ? undefined : stated))) await design(firstBase)
   await buildFeature(firstBase)
 }
 
@@ -80,6 +82,7 @@ export const ordinaryStart = async (): Promise<void> => {
   refusePendingHandOff()
   // Read right after idle, so a bad value refuses the landing that would pin it.
   flagModeOn()
+  const stated = statedCriteria(changes(), head())
   await unwind()
   if (changes(FEEDBACK).some((c) => c.status !== "deleted")) {
     await human("unwind-failed", {
@@ -89,7 +92,7 @@ export const ordinaryStart = async (): Promise<void> => {
     })
   }
   await gate("start-gate", t.startGateBlockedMessage())
-  await planAndBuild(start())
+  await planAndBuild(start(), stated)
 }
 
 export const feature = shipped(ordinaryStart)

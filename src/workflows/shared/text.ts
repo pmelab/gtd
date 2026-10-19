@@ -9,6 +9,7 @@ import {
   skillsFor,
   start,
   type AgentOptions,
+  type JudgeQuestion,
   type SummaryContext,
 } from "../../flows/index.js"
 import { escapeRegExp } from "./registry.js"
@@ -115,6 +116,22 @@ const codeThreadReplies = (): string => {
 ${list}`
 }
 
+const acceptanceCriteriaBlock = `
+## Acceptance criteria
+
+Whichever lap this is, \`.gtd/REQUIREMENTS.md\` carries a
+\`## Acceptance Criteria\` section: one \`- AC-<n>: <criterion>\` line
+per criterion, numbered from \`AC-1\`. They bind every later step —
+the build is done when each one holds — so each must be checkable: a
+test or a command shows it holds or not. A later lap keeps every ID:
+reword a criterion in place, append a new one with the next unused
+number, delete a dropped one — never renumber, never reuse an ID. On a
+review loop-back the build already removed the file: recover the last
+settled list from history (\`git log -p -- .gtd/REQUIREMENTS.md\`) and
+carry its IDs over. Landing is refused while a criterion has no ID or
+two share one.
+`
+
 const riskTierBlock = `
 ## Risk tier and production signals
 
@@ -160,7 +177,7 @@ ${footnoteFoldIn}${codeThreadReplies()}
   or both
 - Whichever lap this is, leave \`.gtd/REQUIREMENTS.md\`
   uncommitted and finish once it reflects this lap's own work
-
+${acceptanceCriteriaBlock}
 ## First lap
 
 \`.gtd/REQUIREMENTS.md\` does not exist yet (or holds whatever the
@@ -215,6 +232,47 @@ ${questionBarReturn}
   made). If red, make that breakage the first concern, ahead of
   everything else — the build assumes the suite started green
 ${riskTier ? riskTierBlock : ""}`
+
+export const clearCriteriaQuestion: JudgeQuestion = {
+  id: "clear",
+  primitive: "noul",
+  instructions:
+    "state.criteria lists the acceptance criteria the human's sketch (state.sketch) stated, as gtd numbered them. Decide whether they can stand as the binding definition of done, with no design conversation.",
+  criteria:
+    "yes: every criterion is clear and checkable — a test or a command can show it holds or not — and together they say what to build. no: any one criterion is vague, subjective or untestable, or the sketch leaves an open product question. Unsure means no.",
+}
+
+export const clearCriteriaMessage = (): string =>
+  `The sketch stated its own acceptance criteria. Run \`gtd judge answer\` and
+pipe \`yes\` when every one is clear and checkable, so design is skipped and
+they are recorded as they are — or land without a verdict to run the
+ordinary design conversation.
+`
+
+export const criterionLine = (c: { readonly id: string; readonly text: string }): string =>
+  `- ${c.id}: ${c.text.replace(/\s+/g, " ")}`
+
+/** Writes \`.gtd/REQUIREMENTS.md\` from criteria the sketch stated, wrapped the way oxfmt writes it. */
+export const normaliseCriteriaScript = (stated: {
+  readonly path: string
+  readonly commit: string
+  readonly criteria: readonly { readonly id: string; readonly text: string }[]
+}): string => {
+  const lines = [
+    "# Requirements",
+    "",
+    `Stated in \`${stated.path}\` by the sketch:`,
+    "",
+    `\`git show ${stated.commit}:${stated.path}\``,
+    "",
+    "## Acceptance Criteria",
+    "",
+    ...stated.criteria.flatMap((c) => wrapItem(criterionLine(c))),
+  ]
+  return `mkdir -p .gtd
+printf '%s\\n' ${lines.map(quote).join(" ")} > ${quote(".gtd/REQUIREMENTS.md")}
+`
+}
 
 export const designSystem = (): string =>
   `${designPersona}
@@ -650,7 +708,17 @@ What each change does next (then run \`gtd land\`):
 const wrapItem = (item: string): string[] => {
   const out: string[] = []
   let line = ""
-  for (const word of item.split(" ")) {
+  // A word that would read as a list marker or heading at a line start stays on the line before.
+  const words = item
+    .split(" ")
+    .reduce<string[]>(
+      (acc, word) =>
+        acc.length > 0 && /^([-+*>#]|\d+[.)])$/.test(word)
+          ? [...acc.slice(0, -1), `${acc.at(-1)!} ${word}`]
+          : [...acc, word],
+      [],
+    )
+  for (const word of words) {
     if (line !== "" && line.length + 1 + word.length > 80) {
       out.push(line)
       line = `  ${word}`
@@ -1066,9 +1134,15 @@ export interface SeamRejection {
   readonly p: number
 }
 
+const criteriaBinding = (refused: boolean): string =>
+  `- Its \`## Acceptance Criteria\` (\`AC-<n>\`) bind this turn: re-read them from
+  the file, never from memory, and stop only when each one holds. They are
+  settled — ${refused ? "a turn that changes them is refused" : "leave them as they are"}`
+
 export const naivePassPrompt = (rejection?: SeamRejection): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
+${criteriaBinding(false)}
 - Implement them the quickest way that works — the naive version. Do not
   restructure, abstract or refactor around the change; a later step judges
   the shape of your diff and a reviewer makes it fit
@@ -1095,6 +1169,7 @@ export const implementBuildingPrompt = (
 ): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
+${criteriaBinding(true)}
 ${
   afterRefactor === true
     ? `- A reviewed refactor has just landed and may already carry part of the change,

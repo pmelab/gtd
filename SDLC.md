@@ -39,7 +39,9 @@ per design round: a review-feedback round re-runs design.
 - `feature`: design and review sign-off; a refactor review sign-off only on
   judge `refactor-first`. **2 gates, or 3 on `refactor-first`** (design,
   refactor review, feature review). Overrule at `seam.steer` passes no seam
-  gate.
+  gate. **A sketch whose own acceptance criteria `design.clear` judges clear and
+  checkable passes no design gate** on its first lap: one gate fewer, and the
+  criteria's author is whoever wrote the sketch.
 - `cleanup`, `fix`, `review`: review sign-off only.
 - `rollout`: **no human gate** — the green suite and the `rollout-only` refusal
   are its only control.
@@ -49,7 +51,7 @@ record carries the commit author only, no approver trailer, unless stated.
 
 | Gate                                                | Who approved                         | What was tested                                 | Where the record lives               |
 | --------------------------------------------------- | ------------------------------------ | ----------------------------------------------- | ------------------------------------ |
-| `design.gate.answer`                                | the person who answers the questions | the design questions, answered before build     | step commit and `.gtd/` file history |
+| `design.gate.answer`                                | the person who answers the questions | the design questions and the `AC-<n>` criteria  | step commit and `.gtd/` file history |
 | review gate sign-off                                | the reviewer who signs off           | the diff, against the review checklist          | the sign-off commit                  |
 | refactor review sign-off (only on `refactor-first`) | the reviewer who signs off           | the refactor diff, against the review checklist | the sign-off commit                  |
 
@@ -88,6 +90,9 @@ Each path has a `.feature` file:
   three rejects ending at `seam.steer`
 - [`src/workflows/cleanup/cleanup-path.feature`](src/workflows/cleanup/cleanup-path.feature):
   cleanup's refusal clears once no `GTD_FLAG_<NAME>` is left
+- [`src/workflows/feature/acceptance-criteria.feature`](src/workflows/feature/acceptance-criteria.feature):
+  ID'd acceptance criteria, and the skip path for a sketch that states clear
+  ones
 - [`src/workflows/feature/fast-path.feature`](src/workflows/feature/fast-path.feature):
   a trivial fix takes the same few beats at either risk tier
 

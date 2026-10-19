@@ -173,6 +173,11 @@ took it (`requireProgress`, `requireAnswers`, `requireRevert`, or any
 `refuse()`). The opposite of a gate: a gate waits for someone, a guard turns
 them away.
 
+**Acceptance criterion**: One `- AC-<n>: …` line under `## Acceptance Criteria`
+in `.gtd/REQUIREMENTS.md` — a checkable statement the build must make true. A
+lap keeps the IDs the file already holds; only a design lap changes the list.
+_Avoid_: requirement (the whole file), story, done-when
+
 **Steering file**: A file a step declares via `file` (+ `mode`) — how a human or
 an agent steers the process by editing prose rather than talking to it. _Avoid_:
 state file, gate file, doc

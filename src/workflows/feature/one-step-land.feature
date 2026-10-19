@@ -34,6 +34,10 @@ Feature: a naive pass the judge rules land goes straight to implement with no se
       ### Typo
 
       - greeting reads "Hello, world".
+
+      ## Acceptance Criteria
+
+      - AC-1: the change behaves as described.
       """
     And step "design.gate.answer" changes nothing
     And step "seam.naive" writes "src/greeting.ts" with:
