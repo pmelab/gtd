@@ -746,12 +746,12 @@ goes straight to `implement.*`. After design it runs, in order:
    attempt up. Tests outside those globs never count: such a project reaches
    `seam.steer` and overrules there.
 2. `seam.check` — runs [`testCommand`](#the-bundled-workflows-settings) with the
-   kept pass applied to the tree, then resets the tree outside `.gtd/` to `HEAD`
-   (`git checkout HEAD -- :/`, `git clean -fd`, before the run too, so an
-   interrupted one is cleaned up): anything the run wrote that is not ignored, a
-   new snapshot included, is dropped. Red writes `.gtd/FEEDBACK.md` and runs
-   `seam.naive` again, told to pick the last attempt up and fix it; green goes
-   on.
+   kept pass applied to the tree, then puts the pass's paths, and every other
+   path the run changed or added that was not already dirty or untracked, back
+   as `HEAD` has them (the pass's paths before the run too, so an interrupted
+   one is cleaned up). Red — or a pass that no longer applies — writes
+   `.gtd/FEEDBACK.md` and runs `seam.naive` again, told to pick the last attempt
+   up and fix it; green goes on.
 3. `seam.judge` — a judge rules on the shape of that diff (see
    [Judges](#judges)): `land`, `refactor-first` or `reject`.
 4. `land` goes straight to `implement.*`. `refactor-first` runs the refactor and
@@ -854,8 +854,9 @@ at `seam.steer`. Two ways forward, then `gtd land`:
 - **Steer** — edit `.gtd/REQUIREMENTS.md`; `seam.naive` runs again with a fresh
   retry budget. An edit together with an approval counts as steer.
 - **Overrule** — land a clean tree. After a test fault the last attempt goes on
-  to `seam.check` as it is, with a fresh retry budget: **a criterion may have no
-  test that survives a refactor**. After a `reject` the implementation is built
+  to `seam.check` as it is, with a fresh retry budget, and later passes of this
+  seam are not checked for test faults again: **a criterion may have no test
+  that survives a refactor**. After a `reject` the implementation is built
   against the last attempt with no refactor: **overrule ships the seam the judge
   objected to**, unaddressed. After a red check the last attempt goes on to
   `seam.judge` as it is, with a fresh retry budget: **its acceptance tests never

@@ -128,26 +128,40 @@ export const acceptanceFault = (file: string, tip: KeptTip): string | undefined 
   return undefined
 }
 
-// The kept turn leaves the tree at HEAD, so putting all of it back (`.gtd/`
-// aside: the report is written there) drops only what the apply and the run did.
-const RESTORE = ["git checkout -q HEAD -- :/", "git clean -fdq -e .gtd"]
+const restore = (path: string): string =>
+  `if git cat-file -e ${quote(`HEAD:${path}`)} 2>/dev/null; then git checkout -q HEAD -- ${quote(path)}; else rm -f -- ${quote(path)}; fi`
 
-/** Run the suite with `tip`'s diff applied, then take it out again; resolves `true` when green. */
-const naiveGreen = (tip: KeptTip): Promise<boolean> =>
-  check(
+/**
+ * Run the suite with `tip`'s diff applied, then take it out again; resolves
+ * `true` when green. The pass's paths go back to HEAD before (an interrupted
+ * run left them applied) and after; afterwards so does anything else the run
+ * changed, judged against what was already dirty, which is left alone.
+ */
+const naiveGreen = (tip: KeptTip): Promise<boolean> => {
+  const paths = tip.changes.map((c) => restore(c.path))
+  return check(
     "check",
     [
-      ...RESTORE,
-      `git diff --binary ${quote(`${tip.hash}^`)} ${quote(tip.hash)} -- | git apply || exit $?`,
+      ...paths,
+      "dirty=$(git -c core.quotePath=false ls-files -m -d -o --exclude-standard)",
+      `if ! git diff --binary ${quote(`${tip.hash}^`)} ${quote(tip.hash)} -- | git apply; then`,
+      "  echo 'gtd: the kept naive pass no longer applies to HEAD; no test ran'",
+      "  exit 1",
+      "fi",
       "(",
       env.testCommand ?? "",
       ")",
       "code=$?",
-      ...RESTORE,
+      ...paths,
+      "git -c core.quotePath=false ls-files -m -d -o --exclude-standard | while IFS= read -r path; do",
+      '  printf \'%s\\n\' "$dirty" | grep -qxF -- "$path" && continue',
+      '  if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else rm -f -- "$path"; fi',
+      "done",
       'exit "$code"',
     ].join("\n"),
     { report: FEEDBACK, label: "Running the naive pass's tests" },
   )
+}
 
 export interface ImplementOptions {
   readonly reference?: string | undefined
@@ -222,56 +236,66 @@ const steer = async (retry: t.NaiveRetry): Promise<boolean> => {
   return true
 }
 
-/** The next attempt's retry (`undefined` after a steer: a fresh start), or `undefined` itself on an overrule. */
-type Again = (
-  next: t.NaiveRetry,
-) => Promise<{ readonly retry: t.NaiveRetry | undefined } | undefined>
+type Verdict =
+  | { readonly kind: "retry"; readonly retry: t.NaiveRetry }
+  | { readonly kind: "steered" }
+  | { readonly kind: "overruled" }
 
 /** Rejects, test faults and red checks share one budget; a steer or an overrule refills it. */
-const budget = (): Again => {
+const budget = (): ((next: t.NaiveRetry) => Promise<Verdict>) => {
   let retries = 0
   return async (next) => {
     if (retries < NAIVE_RETRIES) {
       retries++
-      return { retry: next }
+      return { kind: "retry", retry: next }
     }
     const steered = await steer(next)
     retries = 0
     // A steered or overruled red pass leaves its report behind: nothing reads it any more.
     if (read(FEEDBACK) !== undefined)
       await run("clear", removeScript([FEEDBACK]), { label: "Clearing the red check" })
-    return steered ? { retry: undefined } : undefined
+    return { kind: steered ? "steered" : "overruled" }
   }
 }
 
-/** Sends a pass whose tests fall short or run red back; an overruled one goes on as it is. */
-const vetted: (tip: KeptTip, again: Again) => ReturnType<Again> = async (tip, again) => {
-  const fault = acceptanceFault(REQUIREMENTS, tip)
-  const sent = fault === undefined ? undefined : await again({ fault, hash: tip.hash })
-  if (sent !== undefined) return sent
-  return (await naiveGreen(tip)) ? undefined : again({ red: tip.hash })
+interface Vetting {
+  readonly again: ReturnType<typeof budget>
+  /** Set once a human overrules a test fault: the rule does not fit this change, so later passes skip it. */
+  waived: boolean
+}
+
+/** Sends a pass whose tests fall short or run red back (`undefined`: it goes on, an overruled one as it is). */
+const vetted = async (tip: KeptTip, vetting: Vetting): Promise<Verdict | undefined> => {
+  const fault = vetting.waived ? undefined : acceptanceFault(REQUIREMENTS, tip)
+  if (fault !== undefined) {
+    const verdict = await vetting.again({ fault, hash: tip.hash })
+    if (verdict.kind !== "overruled") return verdict
+    vetting.waived = true
+  }
+  if (await naiveGreen(tip)) return undefined
+  const verdict = await vetting.again({ red: tip.hash })
+  return verdict.kind === "overruled" ? undefined : verdict
+}
+
+/** The judge's ruling on a vetted pass: the decision, or the next attempt's verdict. */
+const ruled = async (tip: KeptTip, again: Vetting["again"]): Promise<Decision | Verdict> => {
+  const shape = await judgeSeam(tip)
+  if (shape.choice === "land") return { reference: tip.hash }
+  if (shape.choice === "refactor-first") return { reference: tip.hash, shape }
+  const next = await again({ strays: shape.strays, p: shape.judgment?.answers.shape?.p ?? 0 })
+  return next.kind === "overruled" ? { reference: tip.hash } : next
 }
 
 const decide = (): Promise<Decision> =>
   scope("seam", async () => {
-    const again = budget()
+    const vetting: Vetting = { again: budget(), waived: false }
     let retry: t.NaiveRetry | undefined
     for (;;) {
       await naivePass(retry)
       const tip = kept("naive")!
-      const sent = await vetted(tip, again)
-      if (sent !== undefined) {
-        retry = sent.retry
-        continue
-      }
-      const shape = await judgeSeam(tip)
-      if (shape.choice === "land") return { reference: tip.hash }
-      if (shape.choice === "refactor-first") {
-        return { reference: tip.hash, shape }
-      }
-      const next = await again({ strays: shape.strays, p: shape.judgment?.answers.shape?.p ?? 0 })
-      if (next === undefined) return { reference: tip.hash }
-      retry = next.retry
+      const outcome = (await vetted(tip, vetting)) ?? (await ruled(tip, vetting.again))
+      if (!("kind" in outcome)) return outcome
+      retry = outcome.kind === "retry" ? outcome.retry : undefined
     }
   })
 

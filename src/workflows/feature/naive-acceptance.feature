@@ -40,7 +40,7 @@ Feature: a naive pass ends only when a test names every criterion and the suite 
       export const subtract = (a: number, b: number) => a - b
       """
 
-  Scenario: a pass whose tests leave a criterion's ID out is sent back, and overruling it runs the check
+  Scenario: a pass whose tests leave a criterion's ID out is sent back, and an overrule runs the check and sticks
     Given step "seam.naive" writes "tests/calc.test.ts" with:
       """
       import { add, subtract } from "../src/calc.js"
@@ -62,6 +62,25 @@ Feature: a naive pass ends only when a test names every criterion and the suite 
       gtd(agent): seam.naive → seam.steer
       gtd(human): seam.steer → seam.check
       gtd(check): seam.check → seam.judge
+      """
+
+    Given judge step "seam.judge" answers:
+      """
+      [{"id":"shape","answer":"reject","p":0.9}]
+      """
+    When the process is driven
+    Then the process rests at "seam.steer"
+    And the resting step's content contains "rejected the last attempt"
+    And the commit subjects end with:
+      """
+      gtd(check): seam.check → seam.judge
+      gtd(judge): seam.judge → seam.naive
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
+      gtd(judge): seam.judge → seam.naive
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → seam.judge
+      gtd(judge): seam.judge → seam.steer
       """
 
   Scenario: a test importing a file the pass added is sent back
