@@ -1,0 +1,6 @@
+// New requirements go above what the steering file already holds, untouched:
+// a deferred review note the start diff alters reads as the human's edit.
+export function withRequirements(existing: string, requirements: string): string {
+  const head = `${requirements.trimEnd()}\n`
+  return existing.trim() ? `${head}\n${existing}` : head
+}

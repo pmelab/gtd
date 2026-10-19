@@ -10,7 +10,7 @@ export function pastedCommand(text: string): Pasted | undefined {
   if (!arg) return undefined
   if (PLACEHOLDER.test(arg)) {
     return {
-      lost: "The pasted requirements did not arrive whole. Write them to .gtd/TODO.md and run /gtd.",
+      lost: "The pasted requirements did not arrive whole. Add them to the top of .gtd/TODO.md and run /gtd.",
     }
   }
   return { arg }
