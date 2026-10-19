@@ -916,6 +916,37 @@ describe("BuildTailOptions.lensBase", () => {
       expect(names).toEqual([])
     })
 
+    const fitsNeither: [string, () => Promise<unknown>][] = [
+      ["a boolean with no base", () => buildTail(true as never)],
+      ["false followed by an options object", () => buildTail(false as never, {} as never)],
+      ["a base followed by a boolean", () => buildTail("base", true as never)],
+      ["a base followed by a string array", () => buildTail("base", ["x"] as never)],
+      ["a base followed by null", () => buildTail("base", null as never)],
+      [
+        "a base with a third argument",
+        () => (buildTail as (...args: unknown[]) => Promise<unknown>)("base", {}, true),
+      ],
+      ["a number followed by a base", () => buildTail(1 as never, "base")],
+      ["a string fixFirst followed by a base", () => buildTail("x" as never, "base")],
+      ["a legacy call with a non-boolean green", () => buildTail(false, "base", 1 as never)],
+      ["a legacy call with non-object options", () => buildTail(false, "base", true, 1 as never)],
+    ]
+    for (const [label, call] of fitsNeither) {
+      it(`rejects ${label} before any step runs`, async () => {
+        const names: string[] = []
+        const rejected = expect(requestNames(call, names)).rejects
+        await rejected.toThrow("buildTail(base, options?)")
+        await rejected.toThrow("buildTail(fixFirst, base, green?, options?)")
+        expect(names).toEqual([])
+      })
+    }
+
+    it("accepts a null-prototype options object", async () => {
+      expect(await requestNames(() => buildTail("base", Object.create(null) as never))).toEqual(
+        await requestNames(() => buildTail("base")),
+      )
+    })
+
     it("still runs buildTail(undefined, base) as a legacy call", async () => {
       const names: string[] = []
       await requestNames(() => buildTail(undefined as never, "base"), names)
