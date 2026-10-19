@@ -262,7 +262,7 @@ describe("implement", () => {
   it("without a refactor, an empty turn stays an attempt", async () => {
     const prompt = await building("abc")
     expect(lastOptions?.allowEmpty).toBeUndefined()
-    expect(prompt).not.toContain("change nothing")
+    expect(prompt).not.toMatch(/change\s+nothing/)
   })
 
   it("the deprecated positional form renders the same prompt as the options form", async () => {

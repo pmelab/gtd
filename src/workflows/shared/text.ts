@@ -1296,10 +1296,9 @@ export const implementBuildingPrompt = (
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
 ${
   afterRefactor === true
-    ? `- A reviewed refactor has just landed and may already carry part of the change.
-  Build only what is still missing, held to every rule below. If nothing is
-  missing — the behaviour, its tests and its release flag all exist — change
-  nothing and finish your turn
+    ? `- A reviewed refactor has just landed and may already carry part of the change,
+  though never a release flag. Build only what is still missing, held to every
+  rule below; if nothing is, change nothing and finish your turn
 `
     : ""
 }${

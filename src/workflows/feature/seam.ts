@@ -132,7 +132,6 @@ export interface SeamOutcome {
   readonly reference: string
   /** The feature review's base: HEAD after the refactor on refactor-first, else the caller's base. */
   readonly base: string
-  /** A reviewed refactor ran before the implementation. */
   readonly refactored?: boolean
 }
 
