@@ -397,3 +397,44 @@ describe("an in-flight process from before the architecture path was removed", (
     await expect(repo.next()).rejects.toThrow("the workflow changed under this process")
   })
 })
+
+describe("flagMode", () => {
+  const config = (workflow: string): string =>
+    [
+      'import { feature } from "@pmelab/gtd/workflows/feature"',
+      'export { summary, steering, skills, access } from "@pmelab/gtd/workflows/feature"',
+      `export default ${workflow}`,
+      "",
+    ].join("\n")
+
+  const designed = async (workflow: string, env: Record<string, string> = {}) => {
+    const repo = testRepo({ workflow, env: { GTD_QUALITYREVIEWS: "", ...env } })
+    repo.write("src/calc.ts", CALC)
+    repo.commit("feat: add calculator")
+    repo.write("TODO.md", "# Add subtract\n")
+    return repo.drive({
+      unwind: () => undefined,
+      "start-gate.check": () => undefined,
+      "design.triage": (_, r) =>
+        r.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n"),
+      "design.gate.answer": () => undefined,
+    })
+  }
+
+  it("set on explicitly, runs the naive pass like the default", async () => {
+    expect((await designed(config("feature({ flagMode: true })"))).state).toBe("seam.naive")
+  })
+
+  it("off through GTD_FLAGMODE=false, skips the naive pass and the seam judge", async () => {
+    const rest = await designed(CONFIG_SCAFFOLD, { GTD_FLAGMODE: "false" })
+    expect(rest.state).toBe("implement.building")
+    expect(rest.content).toContain("this project ships without release flags")
+  })
+
+  it("refuses a value other than true or false before the process starts", async () => {
+    const repo = testRepo({ workflow: CONFIG_SCAFFOLD, env: { GTD_FLAGMODE: "off" } })
+    repo.write("TODO.md", "# Add subtract\n")
+    await expect(repo.drive({})).rejects.toThrow('flagMode must be "true" or "false", got "off"')
+    expect(repo.subjects()).toEqual(["chore: initial commit"])
+  })
+})

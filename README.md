@@ -422,14 +422,15 @@ noted in steps 3 and 4 below.
 
 3. **You wait.** The agent first implements the requirements the quickest way
    that works — the naive pass — and a judge reads where it changed code (see
-   [the naive pass](#the-naive-pass) below). Then the change is built
-   test-first, checked against the full suite (`testCommand`) and fixed until it
-   passes — so keep that suite fast; gtd has no lighter one. Scenario wording is
-   not frozen: you sign the scenarios off once, in the review's `## Scenarios`
-   chunk, where any assertion an existing scenario lost is marked `Weakened:`.
-   After the build the quality lap runs. Three points along the process are
-   judged rather than always asking you outright — each stops and hands you a
-   verdict to make (`gtd judge answer`, or land with a clean tree to accept the
+   [the naive pass](#the-naive-pass) below; with [flag mode](#the-naive-pass)
+   off, neither runs). Then the change is built test-first, checked against the
+   full suite (`testCommand`) and fixed until it passes — so keep that suite
+   fast; gtd has no lighter one. Scenario wording is not frozen: you sign the
+   scenarios off once, in the review's `## Scenarios` chunk, where any assertion
+   an existing scenario lost is marked `Weakened:`. After the build the quality
+   lap runs. Three points along the process (two with flag mode off) are judged
+   rather than always asking you outright — each stops and hands you a verdict
+   to make (`gtd judge answer`, or land with a clean tree to accept the
    conservative default, which never skips work;
    `gtd judge run --provider fixed --answers <path>` — or the
    `GTD_JUDGE_ANSWERS` env var, inline JSON — answers one from a file, piped
@@ -594,6 +595,14 @@ out is `gtd abandon`. A process from 27.5.0 or later whose judge ruled
 `refactor-first` must `gtd abandon` too. Each slice's quality lap reviews only
 that slice. Details in
 [the naive-pass path](docs/configuration.md#the-naive-pass-path).
+
+**Flag mode (`flagMode`, on by default).** On, the implementation is asked for a
+new release flag (none at a `low` risk tier) and the naive pass and its judge
+run as above. A project that is not publicly released turns it off explicitly —
+`feature({ flagMode: false })` in `gtd.config.ts`, it is never detected: then no
+flag is asked for, no seam judge or refactor runs, and the implementation is the
+naive version, straight through the health loop and the quality lap. See
+[`flagMode`](docs/configuration.md#the-bundled-workflows-settings).
 
 **Risk tier (flag `GTD_FLAG_RISK_TIER=1`, off by default).** Triage proposes a
 risk tier, `low` or `high`, and the production signals to watch after merge.
