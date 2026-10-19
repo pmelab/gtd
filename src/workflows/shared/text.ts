@@ -465,9 +465,11 @@ ${fixFeedbackPrompt}
 
 export const refactorRules = (strays: readonly string[], pattern: string): string =>
   `- Behaviour-neutral: the suite's outcome must not change
-- Change only these paths, nothing else, and never a test file even
-  when it is one of them:
+- Change only these paths, nothing else:
 ${strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
+- An existing test file only where a changed call shape reaches it:
+  update its call sites; never add or delete a test file, and
+  never add, remove or alter a test or an assertion
 - Introduce no new flag read and add no second read of an existing one:
   every match of \`${pattern}\` may move, never increase in number`
 
@@ -501,6 +503,10 @@ ${
     : `- Reference only: \`git show ${reference} -- ${strays.map(quote).join(" ")}\` shows an
   earlier attempt at this change. Read it for ideas; never apply,
   cherry-pick or check it out — write a fresh refactor
+- Its changes to these paths' existing code are the seam: land that
+  restructuring here, minus the feature's own behaviour. A refactor
+  that touches none of it is wrong, however clean — never swap in an
+  unrelated tidy-up
 `
 }- Leave everything uncommitted and finish your turn — do not commit
 `
@@ -920,11 +926,11 @@ export const buildReviewCollectingPrompt = (
 ): string => {
   const target = refactor ? ".gtd/REFACTOR.md" : ".gtd/REQUIREMENTS.md"
   const fence = refactor
-    ? `- The next refactor may change only these paths, and never a test file
-  or a flag read:
+    ? `- The next refactor may change only these paths, plus an existing test
+  file's call sites, and never a flag read:
 ${refactor.strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
-  A concern needing any other path, a test file, a new or added flag
-  read, or a change in behaviour (that belongs to the feature, not this
+  A concern needing any other path, a new or changed test or assertion,
+  a new or added flag read, or a change in behaviour (that belongs to the feature, not this
   refactor) cannot be built: do not fold it
 `
     : ""

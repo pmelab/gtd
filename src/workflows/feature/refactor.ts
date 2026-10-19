@@ -30,26 +30,28 @@ export interface RefactorOptions {
 
 const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
 
+// A fixed list, not `seamAllow`: narrowing that setting must not move the test-file rules.
+const isTestFile = (path: string): boolean => testFileGlobs.some((glob) => matches(path, glob))
+
+// An existing test file is exempt: a seam that changes a call shape must reach its callers there.
 export const requireWithin = (allowed: readonly string[]): void => {
   const outside = changes()
     .map((c) => c.path)
-    .filter((path) => isCode(path) && !allowed.includes(path))
+    .filter((path) => isCode(path) && !isTestFile(path) && !allowed.includes(path))
   if (outside.length === 0) return
   refuse(
     `gtd land: refactor-scope: the refactor may change only its stray paths — revert these:\n${outside.map((path) => `  - ${path}`).join("\n")}`,
   )
 }
 
-// A fixed list, not `seamAllow`: narrowing that setting must not let a test file through.
-const isTestFile = (path: string): boolean => testFileGlobs.some((glob) => matches(path, glob))
-
-export const requireNoTestFiles = (): void => {
+// Only a test's call sites may follow the seam; whether its assertions stayed put is the review's call.
+export const requireNoNewTestFiles = (): void => {
   const tests = changes()
+    .filter((c) => isCode(c.path) && isTestFile(c.path) && c.status !== "modified")
     .map((c) => c.path)
-    .filter((path) => isCode(path) && isTestFile(path))
   if (tests.length === 0) return
   refuse(
-    `gtd land: refactor-tests: the refactor may not change a test file — revert these:\n${tests.map((path) => `  - ${path}`).join("\n")}`,
+    `gtd land: refactor-tests: the refactor may update an existing test file's call sites, never add or delete one — revert these:\n${tests.map((path) => `  - ${path}`).join("\n")}`,
   )
 }
 
@@ -133,14 +135,18 @@ const packageLines = (
   "## Rules",
   "",
   "- The suite's outcome must not change",
-  "- Change only the paths above, and never a test file",
+  "- Change only the paths above, plus an existing test file where a changed call shape reaches it: never add or delete a test file, and never add, remove or alter a test or an assertion",
   `- Introduce no flag read and add no second read of an existing one (\`${pattern}\`)`,
   "",
   "## Reference",
   "",
-  reference === undefined
-    ? "None."
-    : `Reading material only, never applied: \`git show ${reference} -- ${strays.map(quote).join(" ")}\``,
+  ...(reference === undefined
+    ? ["None."]
+    : [
+        `Reading material only, never applied: \`git show ${reference} -- ${strays.map(quote).join(" ")}\``,
+        "",
+        "Its changes to the existing code above are the seam this refactor exists to land, minus the feature's own behaviour.",
+      ]),
   "",
 ]
 
@@ -195,8 +201,7 @@ const plan = (shape: DiffShapeResult, options: RefactorOptions): Plan | undefine
 const guardOf =
   ({ pattern, strays }: Plan, entry: string): Guard =>
   () => {
-    // Tests first: a test file is never a stray here, so the scope refusal would mask it.
-    requireNoTestFiles()
+    requireNoNewTestFiles()
     requireWithin(strays)
     requireNoNewFlags(pattern, entry)
   }
@@ -241,7 +246,9 @@ const refactorLap = async (p: Plan, guard: Guard, feedback?: string): Promise<vo
   await run("closing", removeScript([REFACTOR_PACKAGE]), { label: "Closing out the refactor" })
 }
 
-const strayAccess = (strays: readonly string[]) => ({ write: [...strays, ".gtd/**"] })
+const strayAccess = (strays: readonly string[]) => ({
+  write: [...strays, ...testFileGlobs, ".gtd/**"],
+})
 
 export const refactorFirst = async (
   shape: DiffShapeResult,

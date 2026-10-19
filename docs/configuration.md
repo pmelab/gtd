@@ -593,10 +593,12 @@ behaviour-neutral refactor of its `strays`, minus any test file, and resolves
 unless `shape.choice` is `refactor-first`, `shape.unreadable` is empty and a
 non-test stray remains — a stray whose content cannot be read goes to a human
 instead, and a `refactor-first` whose strays are all test files goes straight to
-`implement.*`, since a refactor never changes a test file. `reference` is the
+`implement.*`, since a refactor never refactors a test file. `reference` is the
 naive pass's kept tip (`kept(name)?.hash`; blank counts as none): the building
 prompt names `git show <reference> -- <strays>` as reading material only and
-forbids applying it; omitted, it carries no reference line.
+forbids applying it, and names that diff's changes to existing code as the seam
+the refactor must land — a refactor touching none of it is wrong; omitted, it
+carries no reference line.
 
 `refactorFirst` is the refactor alone. The shipped flow runs `reviewedRefactor`,
 which is `refactorFirst` plus the refactor's quality lap and review inside the
@@ -612,13 +614,14 @@ note after a hand-edit round, each note that asks for a change after a notes
 round, each `edit`-judged note after a triaged round. It carries no
 reply-in-place rules; those belong to the in-gate reply turn.
 
-It runs inside the scope `refactor`, whose write access is the strays plus
-`.gtd/**`, in these steps: `refactor.deriving` (writes `.gtd/REFACTOR.md`, a
-file a person can read and edit), `refactor.building`, the shared health loop
-(`refactor.health.check`, `refactor.health.judge`, `refactor.health.describe`,
-`refactor.health.stop`, `refactor.health.exhausted`) with
-`refactor.fix.suite.fixing`, and `refactor.closing`, which removes only the
-package file. A red suite goes to the fix loop, never to a refusal.
+It runs inside the scope `refactor`, whose write access is the strays, the test
+files (the list below) and `.gtd/**`, in these steps: `refactor.deriving`
+(writes `.gtd/REFACTOR.md`, a file a person can read and edit),
+`refactor.building`, the shared health loop (`refactor.health.check`,
+`refactor.health.judge`, `refactor.health.describe`, `refactor.health.stop`,
+`refactor.health.exhausted`) with `refactor.fix.suite.fixing`, and
+`refactor.closing`, which removes only the package file. A red suite goes to the
+fix loop, never to a refusal.
 
 The package file's `## Scope (read-only)` list is for reading: the guards use
 the strays as fixed when the package was derived, so editing the list widens or
@@ -626,16 +629,17 @@ narrows nothing. After the building turn, after every fix turn and after the
 escalation describe turn (`refactor.health.describe`), `gtd land` refuses the
 turn when:
 
-- it changed a test file: any changed path matching `**/*.test.*`,
-  `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**` or
-  `**/__tests__/**`. A test file the judge listed as a stray is never in the
-  refactor's write access, so the refusal is the write-access one ("this turn
-  wrote outside its write access"). The list is fixed — `seamAllow` does not
-  narrow it — and `*_test.go`, `test_*.py` and other namings are not refused, or
-- it changed a path outside `.gtd/` that is not exactly one of the strays
-  (`refactor-scope`; a fix turn is judged on its own changes, so a person's edit
-  at an escalation stop does not block it; no globs: a stray `src/*.ts` does not
-  admit `src/a.ts`), or
+- it added or deleted a test file (`refactor-tests`): any path matching
+  `**/*.test.*`, `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**` or
+  `**/__tests__/**`. An existing test file may be modified, so a seam that
+  changes a call shape can update its callers there; the prompts forbid adding,
+  removing or altering a test or an assertion, and the refactor review is where
+  that is checked. The list is fixed — `seamAllow` does not narrow it — and
+  `*_test.go`, `test_*.py` and other namings are not test files here, or
+- it changed a path outside `.gtd/` that is neither a test file nor exactly one
+  of the strays (`refactor-scope`; a fix turn is judged on its own changes, so a
+  person's edit at an escalation stop does not block it; no globs: a stray
+  `src/*.ts` does not admit `src/a.ts`), or
 - it raised the number of reads of any one flag, or added a flag, across the
   changed files outside `.gtd/`. A flag is a match of the `refactorFlagPattern`
   setting; moving a read passes, and so does a swap that leaves every per-name
@@ -696,8 +700,9 @@ unrefactored; a wrong or missing refactor means `gtd abandon` and a restart.
 
 A review note at the refactor review is collected into `.gtd/REFACTOR.md`, and
 `refactor.deriving` runs again with the notes under `## Review feedback` — never
-`design.triage`. A concern that needs a path outside the strays, a test file or
-a new flag read cannot be built: abandon and restart.
+`design.triage`. A concern that needs a path outside the strays, a new or
+changed test or assertion, or a new flag read cannot be built: abandon and
+restart.
 
 A refactor-review round carrying an `edit` note or a code hand-edit whose
 collecting turn writes no `.gtd/REFACTOR.md` and changes nothing is never signed

@@ -13,7 +13,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
     And an environment variable "GTD_FLAG_NAIVE_PASS" set to "1"
     And an environment variable "GTD_FLAG_RISK_TIER" set to "0"
 
-  Scenario: with a narrowed seamAllow a test-named file written by the refactor is refused
+  Scenario: with a narrowed seamAllow a test file added by the refactor is refused
     Given an environment variable "GTD_REFACTORQUALITYREVIEWS" set to ""
     And an environment variable "GTD_SEAMALLOW" set to "docs/**"
     And a file "src/calc.ts" with:
@@ -85,12 +85,12 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       import { expect, it } from "vitest"
       it("adds", () => expect(2 + 2).toBe(4))
       """
-    And step "refactor.building" writes "src/calc.test.ts" with:
+    And step "refactor.building" writes "src/calc.spec.ts" with:
       """
       import { expect, it } from "vitest"
       it("adds", () => expect(3 + 3).toBe(6))
       """
-    Then driving the process is refused with "outside its write access"
+    Then driving the process is refused with "refactor-tests"
 
 
   Scenario: refactorQualityReviews picks the refactor's lenses and qualityReviews does not reach them
@@ -1606,6 +1606,26 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       Then the process rests at "refactor.building"
       And ".gtd/REFACTOR.md" contains "src/calc.ts"
       And ".gtd/REFACTOR.md" does not contain "src/calc.test.ts"
+
+    Scenario: the refactor updates an existing test's call sites to the seam's new shape
+      Given step "seam.naive" writes "src/calc.ts" with:
+        """
+        export const add = ({ a, b }: { a: number; b: number }) => a + b
+        export const subtract = ({ a, b }: { a: number; b: number }) => a - b
+        """
+      And step "refactor.deriving" runs its script
+      And step "refactor.building" writes "src/calc.ts" with:
+        """
+        export const add = ({ a, b }: { a: number; b: number }) => a + b
+        """
+      And step "refactor.building" writes "src/calc.test.ts" with:
+        """
+        import { expect, it } from "vitest"
+        it("adds", () => expect(1 + 1).toBe(2))
+        // the call site follows the seam
+        """
+      When the process is driven
+      Then the process rests at "refactor.health.check"
 
     Scenario: a refactor-first whose strays are all test files goes straight to implement
       Given step "seam.naive" writes "src/calc.test.ts" with:

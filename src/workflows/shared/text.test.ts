@@ -1061,14 +1061,23 @@ describe("the refactor prompts", () => {
   const strays = ["src/a.ts", "src/b.ts"]
   const pattern = "\\bGTD_FLAG_\\w+"
 
-  it("building and fix rules forbid every test file, with no stray exception", () => {
+  it("building and fix rules admit only call-site updates in existing test files", () => {
     for (const prompt of renderText(() => [
       refactorBuildingPrompt({ pkg: ".gtd/REFACTOR.md", strays, pattern }),
       refactorFixPrompt(strays, pattern),
     ])) {
-      expect(prompt).toContain("never a test file")
-      expect(prompt).not.toContain("only when it is")
+      expect(prompt).toContain("never add or delete a test file")
+      expect(prompt).toContain("never add, remove or alter a test or an assertion")
     }
+  })
+
+  it("building names the reference's seam only when there is a reference", () => {
+    const [bare, ref] = renderText(() => [
+      refactorBuildingPrompt({ pkg: ".gtd/REFACTOR.md", strays, pattern }),
+      refactorBuildingPrompt({ pkg: ".gtd/REFACTOR.md", strays, pattern, reference: "abc1234" }),
+    ])
+    expect(bare).not.toContain("touches none of it")
+    expect(ref).toContain("touches none of it")
   })
 
   it("building adds the act-on-review-feedback line only when asked", () => {
@@ -1091,11 +1100,11 @@ describe("the refactor prompts", () => {
       expect(prompt).toContain("capture-text")
     })
 
-    it("lists the strays and says a non-stray, test-file or flag concern cannot be built", () => {
+    it("lists the strays and says a non-stray, test or flag concern cannot be built", () => {
       expect(prompt).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
       expect(prompt).toContain("`src/b.ts`") // gtd-path-exempt: fixture paths
       expect(prompt).toMatch(/cannot be built/)
-      expect(prompt).toMatch(/test file/)
+      expect(prompt).toMatch(/test or assertion/)
       expect(prompt).toMatch(/flag/)
       expect(prompt).toMatch(/behaviour/)
       expect(prompt).not.toMatch(/say in the reply/i)
@@ -1226,7 +1235,7 @@ describe("the rules-taking fix prompts", () => {
     (k) => {
       const [bare] = renderText(() => [prompts[k]!()])
       expect(bare).not.toContain("Change only these paths")
-      expect(bare).not.toContain("never a test file")
+      expect(bare).not.toContain("never add or delete a test file")
     },
   )
 
@@ -1237,7 +1246,7 @@ describe("the rules-taking fix prompts", () => {
     })
     expect(prompt).toContain(rules)
     for (const stray of strays) expect(prompt).toContain(`\`${stray}\``)
-    expect(prompt).toContain("never a test file")
+    expect(prompt).toContain("never add or delete a test file")
     expect(prompt).toContain("no new flag read")
   })
 
