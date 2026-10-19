@@ -4,6 +4,9 @@ import { ACCESS_REFUSAL } from "../../src/wire/constants.js"
 import { afterReload, drive } from "./drive"
 import type { Beat, Io, Landing, Turn } from "./drive"
 
+const LOST =
+  "An earlier subagent working on this step was lost; what it did is in the working tree. Continue from there with this:"
+
 const fake = (beats: Beat[], landings: Landing[] = [], over: Partial<Io> = {}) => {
   const calls: string[] = []
   const io: Io = {
@@ -65,6 +68,41 @@ describe("drive", () => {
       "land",
       "sh:commit",
     ])
+  })
+
+  test("a lost subagent's findings go to a fresh one with the step's prompt", async () => {
+    const checks = [
+      { ok: false, out: "fix line 3" },
+      { ok: true, out: "" },
+    ]
+    const { io, calls } = fake(
+      [{ kind: "prompt", content: "review it", memory: "build.review#abc", validate: "v" }],
+      [{ script: "commit", settled: true, idle: true }],
+      {
+        check: async () => checks.shift()!,
+        resume: async (memory, text) => (
+          calls.push(`resume:${memory}:${text}`),
+          { ok: false, isLost: true, why: `no live subagent for ${memory}` }
+        ),
+      },
+    )
+    expect(await drive(io)).toMatchObject({ kind: "done" })
+    expect(calls).toEqual([
+      "turn:build.review#abc:false:review it",
+      "resume:build.review#abc:fix line 3",
+      `turn:build.review#abc:false:review it\n\n${LOST}\n\nfix line 3`,
+      "land",
+      "sh:commit",
+    ])
+  })
+
+  test("a follow-up that fails for any other reason stops the step", async () => {
+    const { io, calls } = fake([{ kind: "prompt", memory: "m", validate: "v" }], [], {
+      check: async () => ({ ok: false, out: "bad" }),
+      resume: async () => ({ ok: false, why: "agent turn ended: aborted" }),
+    })
+    expect(await drive(io)).toMatchObject({ kind: "error", text: "agent turn ended: aborted" })
+    expect(calls.filter((c) => c.startsWith("turn"))).toHaveLength(1)
   })
 
   test("a turn carries the beat's skills and the memory scope", async () => {
@@ -218,6 +256,19 @@ describe("access refusal", () => {
     })
     await drive(io)
     expect(order).toEqual(["check", "land", "resume", "check", "land"])
+  })
+
+  test("a lost subagent's refusal goes to a fresh one", async () => {
+    const { io, calls } = fake([{ kind: "prompt", memory: "m", content: "do it" }], [], {
+      land: refusing(1),
+      resume: async () => ({ ok: false, isLost: true, why: "no live subagent for m" }),
+    })
+    expect(await drive(io)).toMatchObject({ kind: "done" })
+    expect(calls).toEqual([
+      `turn:m:false:do it`,
+      `turn:m:false:do it\n\n${LOST}\n\n${refusal}`,
+      "sh:commit",
+    ])
   })
 
   test("a failed recovery turn stops with its reason", async () => {

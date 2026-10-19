@@ -27,6 +27,7 @@ import {
   jobHeadline,
   jobPushText,
   pushText,
+  lostLine,
   restartLine,
   RELOAD_CUT_SCRIPT,
   runningLine,
@@ -114,6 +115,26 @@ async function send($: $, agentId: string, text: string) {
   return undefined
 }
 
+// A subagent that no longer takes messages can leave its task listed with a
+// frozen timer: stop it, and forget it as the scope's conversation. It must
+// not stay `inflight` either, or a reload would land a turn it never ran.
+async function forget($: $, memory: string, agentId: string) {
+  $.ui.log(lostLine(memory.split("#")[0]!))
+  accesses.delete(agentId)
+  await update($, scopes, (s) => {
+    const rest = { ...s }
+    if (rest[memory]?.agentId === agentId) delete rest[memory]
+    return rest
+  })
+  await update($, run, (r) => (r.inflight?.agentId === agentId ? { ...r, inflight: undefined } : r))
+  try {
+    await $.tool.call({ tool: "TaskStop", task_id: agentId })
+  } catch {
+    // already gone from the task list
+  }
+  ended.delete(agentId)
+}
+
 async function settle($: $, end: TurnEnd) {
   await update($, run, (r) => ({ ...r, inflight: undefined }))
   return end
@@ -175,6 +196,7 @@ function io($: $): Io {
         await update($, run, (r) => ({ ...r, inflight: { agentId: known, memory: t.memory } }))
         const ended = await end
         if (ended) return settle($, ended)
+        await forget($, t.memory, known)
       }
       // No live conversation for this scope (fresh scope, or this session never
       // held it): start one, as the sh driver falls back to `--session-id`.
@@ -189,7 +211,7 @@ function io($: $): Io {
         cwd: root,
       })
       const id = spawned.agentId
-      if (!id) return { ok: false, why: spawned.deny ?? "subagent spawn refused" }
+      if (!id) return settle($, { ok: false, why: spawned.deny ?? "subagent spawn refused" })
       ours.add(id)
       setAccess(id, t.access)
       await update($, agents, (list) => [...list, id].slice(-200))
@@ -200,7 +222,10 @@ function io($: $): Io {
     resume: async (memory, text) => {
       const id = (await read($, scopes))[memory]?.agentId
       const end = id ? await send($, id, text) : undefined
-      return end ?? { ok: false, why: `no live subagent for ${memory}` }
+      if (end) return end
+      if (id) await forget($, memory, id)
+      else $.ui.log(lostLine(memory.split("#")[0]!))
+      return { ok: false, isLost: true, why: `no live subagent for ${memory}` }
     },
     progress: (beat, b) => {
       // The band is not drawn everywhere (Remote Control, the mobile app):

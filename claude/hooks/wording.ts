@@ -50,6 +50,8 @@ export const beatLine = (beat: number, b: Beat) => `▸ ${step(b)} · step ${bea
 export const restartLine = (scope: string) =>
   `${scope}: skills or system changed — started a fresh subagent`
 
+export const lostLine = (scope: string) => `${scope}: subagent lost`
+
 // What a push to a phone says when gtd stops: the step, and where to act on it.
 export function pushText(stop: Stop, repo: string, url?: string) {
   const at = `${repo}: ${headline(stop).replace(/^\S+ /, "")}`
