@@ -289,10 +289,9 @@ export function buildTail(
 export function buildTail(
   first: boolean | string,
   second?: string | BuildTailOptions,
-  third?: boolean,
-  fourth?: Omit<BuildTailOptions, "fixFirst" | "green">,
+  ...rest: unknown[]
 ): Promise<kit.ReviewOutcome> {
-  const options = callForm(first, second, third, fourth)
+  const options = callForm(first, second, rest)
   // Before any step runs, so a bad call never leaves a half-walked flow.
   if (options === undefined) {
     return Promise.reject(
@@ -314,10 +313,13 @@ export function buildTail(
   )
 }
 
-const isOptionalObject = (value: unknown): boolean =>
-  value === undefined || (typeof value === "object" && value !== null && !Array.isArray(value))
+// null reads as absent, as it always did; a Promise or class instance is a mistake, not options.
+const isOptionalObject = (value: unknown): value is BuildTailOptions | null | undefined =>
+  value == null ||
+  (typeof value === "object" &&
+    [Object.prototype, null].includes(Object.getPrototypeOf(value) as object | null))
 
-const isOptionalBoolean = (value: unknown): boolean =>
+const isOptionalBoolean = (value: unknown): value is boolean | undefined =>
   value === undefined || typeof value === "boolean"
 
 const legacyForm = (
@@ -327,35 +329,28 @@ const legacyForm = (
   options: unknown,
 ): [string, BuildTailOptions] | undefined =>
   isOptionalBoolean(fixFirst) && isOptionalBoolean(green) && isOptionalObject(options)
-    ? [
-        base,
-        {
-          ...(options as BuildTailOptions | undefined),
-          fixFirst: fixFirst as boolean | undefined,
-          green: green as boolean | undefined,
-        },
-      ]
+    ? [base, { ...options, fixFirst, green }]
     : undefined
 
 const currentForm = (
   base: string,
   options: unknown,
-  rest: readonly unknown[],
+  third: unknown,
+  fourth: unknown,
 ): [string, BuildTailOptions] | undefined =>
-  isOptionalObject(options) && rest.every((value) => value === undefined)
-    ? [base, (options as BuildTailOptions | undefined) ?? {}]
+  isOptionalObject(options) && third === undefined && fourth === undefined
+    ? [base, options ?? {}]
     : undefined
 
-// gtd.config.ts is untyped at runtime: a string second argument marks the legacy form,
-// a string first the current one, and every other argument must fit that form.
+// gtd.config.ts is untyped at runtime, so every argument is checked against the form chosen.
 const callForm = (
   first: unknown,
   second: unknown,
-  third: unknown,
-  fourth: unknown,
+  [third, fourth, ...extra]: readonly unknown[],
 ): [string, BuildTailOptions] | undefined => {
+  if (extra.length > 0) return undefined
   if (typeof second === "string") return legacyForm(first, second, third, fourth)
-  if (typeof first === "string") return currentForm(first, second, [third, fourth])
+  if (typeof first === "string") return currentForm(first, second, third, fourth)
   return undefined
 }
 

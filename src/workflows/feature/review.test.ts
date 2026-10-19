@@ -921,7 +921,6 @@ describe("BuildTailOptions.lensBase", () => {
       ["false followed by an options object", () => buildTail(false as never, {} as never)],
       ["a base followed by a boolean", () => buildTail("base", true as never)],
       ["a base followed by a string array", () => buildTail("base", ["x"] as never)],
-      ["a base followed by null", () => buildTail("base", null as never)],
       [
         "a base with a third argument",
         () => (buildTail as (...args: unknown[]) => Promise<unknown>)("base", {}, true),
@@ -930,6 +929,22 @@ describe("BuildTailOptions.lensBase", () => {
       ["a string fixFirst followed by a base", () => buildTail("x" as never, "base")],
       ["a legacy call with a non-boolean green", () => buildTail(false, "base", 1 as never)],
       ["a legacy call with non-object options", () => buildTail(false, "base", true, 1 as never)],
+      ["a base followed by a Promise", () => buildTail("base", Promise.resolve({}) as never)],
+      [
+        "a base with a fifth argument",
+        () =>
+          (buildTail as (...args: unknown[]) => Promise<unknown>)(
+            "base",
+            {},
+            undefined,
+            undefined,
+            {},
+          ),
+      ],
+      [
+        "a legacy call with a fifth argument",
+        () => (buildTail as (...args: unknown[]) => Promise<unknown>)(false, "base", true, {}, {}),
+      ],
     ]
     for (const [label, call] of fitsNeither) {
       it(`rejects ${label} before any step runs`, async () => {
@@ -940,6 +955,14 @@ describe("BuildTailOptions.lensBase", () => {
         expect(names).toEqual([])
       })
     }
+
+    it("reads null options as absent in both forms", async () => {
+      const omitted = await requestNames(() => buildTail("base"))
+      expect(await requestNames(() => buildTail("base", null as never))).toEqual(omitted)
+      expect(await requestNames(() => buildTail(false, "base", false, null as never))).toEqual(
+        omitted,
+      )
+    })
 
     it("accepts a null-prototype options object", async () => {
       expect(await requestNames(() => buildTail("base", Object.create(null) as never))).toEqual(
