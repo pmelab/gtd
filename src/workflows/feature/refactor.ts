@@ -10,6 +10,7 @@ import {
   run,
   scope,
   vars,
+  type Change,
   type DiffShapeResult,
 } from "../../flows/index.js"
 import { lensesOf } from "../../workflow-kit/index.js"
@@ -43,6 +44,7 @@ export const requireWithin = (allowed: readonly string[]): void => {
 // A fixed list, not `seamAllow`: narrowing that setting must not let a test file through.
 const isTestFile = (path: string): boolean => testFileGlobs.some((glob) => matches(path, glob))
 
+// The bundled refactor uses `requireTestCallSitesOnly`; this stays a public export.
 export const requireNoTestFiles = (): void => {
   const tests = changes()
     .map((c) => c.path)
@@ -51,6 +53,58 @@ export const requireNoTestFiles = (): void => {
   refuse(
     `gtd land: refactor-tests: the refactor may not change a test file — revert these:\n${tests.map((path) => `  - ${path}`).join("\n")}`,
   )
+}
+
+// Call sites live in code: a `.feature` file or a snapshot holds only expectations.
+const holdsCallSites = (path: string): boolean =>
+  !path.endsWith(".feature") && !path.endsWith(".snap")
+
+// `//` after a `:` (a URL) and `/*` after `*` or `/` (a glob) sit in strings, not comments.
+const COMMENT = /(?<![*/])\/\*[\s\S]*?\*\/|(?<!:)\/\/.*$/gm
+const ASSERTION = /\b(?:expect|assert\w*)\s*[.(]/g
+const TEST_CASE = /(?<![.\w])x?(?:it|test|describe)\s*[.(]/g
+const MODIFIER =
+  /(?<![.\w])(?:it|test|describe)\.(skip|only|todo|fails|skipIf|runIf)\b|(?<![.\w])(x)(?:it|test|describe)\b/g
+
+// Modifiers count per kind, so swapping a `.skip` for an `.only` shows.
+const counts = (text: string): string => {
+  const live = text.replace(COMMENT, "")
+  const modifiers = [...live.matchAll(MODIFIER)].map((m) => m[1] ?? m[2]).sort()
+  return JSON.stringify([
+    [...live.matchAll(ASSERTION)].length,
+    [...live.matchAll(TEST_CASE)].length,
+    modifiers,
+  ])
+}
+
+const tested = (text: string): boolean => {
+  const live = text.replace(COMMENT, "")
+  return live.search(ASSERTION) >= 0 || live.search(TEST_CASE) >= 0
+}
+
+// A call-shape update keeps every live test and assertion, so the counts hold. A changed
+// expected value keeps every count — that is left to the refactor review.
+const callSitesOnly = ({ path, status, before, after }: Change): boolean =>
+  status === "modified" &&
+  holdsCallSites(path) &&
+  before !== undefined &&
+  after !== undefined &&
+  // A file with no test or assertion is fixture or helper data, never a call site to follow.
+  tested(before) &&
+  counts(before) === counts(after)
+
+/**
+ * The test-file half of the refactor guard: an existing test may follow a changed call shape,
+ * nothing more. Returns the test files it admitted, which the scope check then allows.
+ */
+export const requireTestCallSitesOnly = (): readonly string[] => {
+  const tests = changes().filter((c) => isCode(c.path) && isTestFile(c.path))
+  const refused = tests.filter((c) => !callSitesOnly(c)).map((c) => c.path)
+  if (refused.length > 0)
+    refuse(
+      `gtd land: refactor-tests: the refactor may update an existing test file's call sites only — never add, delete, skip or comment out a test or an assertion, or touch a snapshot, a .feature file or test data; revert these:\n${refused.map((path) => `  - ${path}`).join("\n")}`,
+    )
+  return tests.map((c) => c.path)
 }
 
 const flagExpression = (pattern: string): RegExp => {
@@ -133,14 +187,18 @@ const packageLines = (
   "## Rules",
   "",
   "- The suite's outcome must not change",
-  "- Change only the paths above, and never a test file",
+  "- Change only the paths above, plus an existing test file where a changed call shape reaches it: never add or delete a test file, and never add, remove or alter a test or an assertion",
   `- Introduce no flag read and add no second read of an existing one (\`${pattern}\`)`,
   "",
   "## Reference",
   "",
-  reference === undefined
-    ? "None."
-    : `Reading material only, never applied: \`git show ${reference} -- ${strays.map(quote).join(" ")}\``,
+  ...(reference === undefined
+    ? ["None."]
+    : [
+        `Reading material only, never applied: \`git show ${reference} -- ${strays.map(quote).join(" ")}\``,
+        "",
+        "Its changes to the existing code above are the seam this refactor exists to land, minus the feature's own behaviour.",
+      ]),
   "",
 ]
 
@@ -195,9 +253,7 @@ const plan = (shape: DiffShapeResult, options: RefactorOptions): Plan | undefine
 const guardOf =
   ({ pattern, strays }: Plan, entry: string): Guard =>
   () => {
-    // Tests first: a test file is never a stray here, so the scope refusal would mask it.
-    requireNoTestFiles()
-    requireWithin(strays)
+    requireWithin([...strays, ...requireTestCallSitesOnly()])
     requireNoNewFlags(pattern, entry)
   }
 
@@ -241,7 +297,9 @@ const refactorLap = async (p: Plan, guard: Guard, feedback?: string): Promise<vo
   await run("closing", removeScript([REFACTOR_PACKAGE]), { label: "Closing out the refactor" })
 }
 
-const strayAccess = (strays: readonly string[]) => ({ write: [...strays, ".gtd/**"] })
+const strayAccess = (strays: readonly string[]) => ({
+  write: [...strays, ...testFileGlobs, ".gtd/**"],
+})
 
 export const refactorFirst = async (
   shape: DiffShapeResult,

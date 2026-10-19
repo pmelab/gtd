@@ -13,12 +13,22 @@ import {
   refactorStrays,
   requireNoNewFlags,
   requireNoTestFiles,
+  requireTestCallSitesOnly,
   requireWithin,
   reviewedRefactor,
   REFACTOR_PACKAGE,
 } from "./refactor.js"
 
 afterEach(() => installContext(undefined))
+
+const testFileGlobs = [
+  "**/*.test.*",
+  "**/*.spec.*",
+  "**/*.feature",
+  "**/tests/**",
+  "**/test/**",
+  "**/__tests__/**",
+]
 
 const change = (
   path: string,
@@ -128,6 +138,137 @@ describe("requireNoTestFiles", () => {
   it("does not refuse other naming such as _test.go or test_*.py", () => {
     const list = [change("pkg/a_test.go", "a", "b"), change("pkg/test_a.py", "a", "b")]
     expect(withChanges(list, () => requireNoTestFiles())).toBeUndefined()
+  })
+})
+
+describe("requireTestCallSitesOnly", () => {
+  it("refuses an added or deleted test path, naming it", () => {
+    const list = [
+      change("tests/unit/b.ts", undefined, "x", "added"),
+      change("src/__tests__/c.ts", "a", undefined, "deleted"),
+      change("src/a.test.ts", "expect(a()).toBe(1)", "expect(a(1)).toBe(1)"),
+    ]
+    const message = withChanges(list, () => requireTestCallSitesOnly())
+    expect(message).toMatch(/^gtd land: refactor-tests: /)
+    expect(message).toContain("  - tests/unit/b.ts")
+    expect(message).toContain("  - src/__tests__/c.ts")
+    expect(message).not.toContain("src/a.test.ts")
+  })
+
+  it("passes a modified test file's call site, non-test paths and .gtd/ paths", () => {
+    const list = [
+      change("src/a.test.ts", "expect(a()).toBe(1)", "expect(a(1)).toBe(1)"),
+      change("src/new.ts", undefined, "x", "added"),
+      change(".gtd/tests/x.md", "", "x", "added"),
+    ]
+    expect(withChanges(list, () => requireTestCallSitesOnly())).toBeUndefined()
+  })
+
+  it("refuses a snapshot change and a dropped test or assertion, naming each", () => {
+    const list = [
+      change("src/__snapshots__/a.test.ts.snap", "a", "b"),
+      change("src/b.test.ts", 'it("a", () => {})\nit("b", () => {})', 'it("a", () => {})'),
+      change("src/c.test.ts", "expect(c()).toBe(1)\nexpect(c()).toBe(1)", "expect(c()).toBe(1)"),
+      change(
+        "d.feature",
+        "Feature: d\n  Scenario: d\n    Then it is\n",
+        "Feature: d\n  Scenario: d\n",
+      ),
+    ]
+    const message = withChanges(list, () => requireTestCallSitesOnly())
+    for (const { path } of list) expect(message).toContain(`  - ${path}`)
+  })
+
+  it.each([
+    [
+      "a skipped test",
+      'it("a", () => expect(a()).toBe(1))',
+      'it.skip("a", () => expect(a()).toBe(1))',
+    ],
+    [
+      "an x-prefixed test",
+      'it("a", () => expect(a()).toBe(1))',
+      'xit("a", () => expect(a()).toBe(1))',
+    ],
+    [
+      "a line-commented assertion",
+      'it("a", () => {\n  expect(a()).toBe(1)\n})',
+      'it("a", () => {\n  // expect(a()).toBe(1)\n})',
+    ],
+    [
+      "a block-commented test",
+      'it("a", () => expect(a()).toBe(1))',
+      '/* it("a", () => expect(a()).toBe(1)) */',
+    ],
+    [
+      "a .skip swapped for an .only",
+      'it.skip("a", () => expect(a()).toBe(1))\nit("b", () => expect(b()).toBe(1))',
+      'it.only("a", () => expect(a()).toBe(1))\nit("b", () => expect(b()).toBe(1))',
+    ],
+    [
+      "an assertion dropped after a URL in a test name",
+      'it("GET http://x", () => expect(get()).toBe(1))',
+      'it("GET http://x", () => {})',
+    ],
+    ["fixture data with no test", '{"sum": 2}', '{"sum": 3}'],
+  ])("refuses %s", (_label, before, after) => {
+    const message = withChanges([change("tests/a.test.ts", before, after)], () =>
+      requireTestCallSitesOnly(),
+    )
+    expect(message).toContain("  - tests/a.test.ts")
+  })
+
+  it("refuses a modified test file whose content cannot be read", () => {
+    const message = withChanges([change("tests/a.test.ts", undefined, "expect(a()).toBe(1)")], () =>
+      requireTestCallSitesOnly(),
+    )
+    expect(message).toContain("  - tests/a.test.ts")
+  })
+
+  it("passes a regex .test( call rewritten at a call site", () => {
+    const list = [
+      change(
+        "src/a.test.ts",
+        'it("a", () => expect(/x/.test(s)).toBe(true))',
+        'it("a", () => expect(has(s)).toBe(true))',
+      ),
+    ]
+    expect(withChanges(list, () => requireTestCallSitesOnly())).toBeUndefined()
+  })
+
+  it("passes a call site rewritten inside an assertion", () => {
+    const list = [
+      change(
+        "src/a.test.ts",
+        'it("adds", () => expect(add(1, 1)).toBe(2))',
+        'it("adds", async () => expect(await add({ a: 1, b: 1 })).toBe(2))',
+      ),
+    ]
+    expect(withChanges(list, () => requireTestCallSitesOnly())).toBeUndefined()
+  })
+
+  it("is not narrowed by a narrowed seamAllow", () => {
+    installContext(
+      fixtureContext(
+        { vars: { seamAllow: "docs/**" } },
+        {
+          changes: () => [change("src/a.test.ts", undefined, "b", "added")],
+          matches: globMatches,
+          refuse: (message) => {
+            throw new Error(message)
+          },
+        },
+      ),
+    )
+    expect(refusal(() => requireTestCallSitesOnly())).toContain("src/a.test.ts")
+  })
+
+  it("does not refuse other naming such as _test.go or test_*.py", () => {
+    const list = [
+      change("pkg/a_test.go", undefined, "b", "added"),
+      change("pkg/test_a.py", undefined, "b", "added"),
+    ]
+    expect(withChanges(list, () => requireTestCallSitesOnly())).toBeUndefined()
   })
 })
 
@@ -359,7 +500,7 @@ describe("refactorFirst", () => {
     const body = derive?.kind === "run" ? derive.body : ""
     expect(body).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
     expect(body).not.toContain("a.test.ts")
-    expect(h.scopes[0]?.access).toEqual({ write: ["src/a.ts", ".gtd/**"] })
+    expect(h.scopes[0]?.access).toEqual({ write: ["src/a.ts", ...testFileGlobs, ".gtd/**"] })
   })
 
   it("throws before any step when a stray holds a flag read the pattern matches zero-length", async () => {
@@ -403,10 +544,13 @@ describe("refactorFirst", () => {
     expect(lines).toEqual(["- `src/z.ts`", "- `src/a.ts`", "- `it's.ts`"]) // gtd-path-exempt: fixture paths
   })
 
-  it("runs inside a refactor scope whose write access is the strays plus .gtd/**", async () => {
+  it("runs inside a refactor scope whose write access is the strays, test files and .gtd/**", async () => {
     const h = await drive(shape())
     expect(h.scopes).toEqual([
-      { name: "refactor", access: { write: ["src/a.ts", "src/b.ts", ".gtd/**"] } },
+      {
+        name: "refactor",
+        access: { write: ["src/a.ts", "src/b.ts", ...testFileGlobs, ".gtd/**"] },
+      },
     ])
   })
 
@@ -439,19 +583,38 @@ describe("refactorFirst", () => {
     expect(names(h)).not.toContain("health.check")
   })
 
-  it("refuses a build turn changing a test file even when it is a stray", async () => {
-    const h = await drive(shape({ strays: ["src/a.ts", "src/a.test.ts"] }), {
-      build: [change("src/a.test.ts", "a", "b")],
+  it("lets a build turn update an existing test file's call sites", async () => {
+    const h = await drive(shape(), {
+      build: [
+        change("src/a.ts", "a", "b"),
+        change("tests/a.test.ts", "expect(a()).toBe(1)", "expect(await a()).toBe(1)"),
+      ],
+    })
+    expect(h.result).toBe(true)
+    expect(names(h)).toContain("health.check")
+  })
+
+  it("refuses a build turn adding a test file", async () => {
+    const h = await drive(shape(), {
+      build: [change("src/a.test.ts", undefined, "b", "added")],
     })
     expect((h.result as Error).message).toContain("refactor-tests")
     expect((h.result as Error).message).toContain("src/a.test.ts")
     expect(names(h)).not.toContain("health.check")
   })
 
-  it("says never a test file in the package rules", async () => {
+  it("lets the package rules admit only an existing test file's call sites", async () => {
     const h = await drive(shape())
-    expect(bodyOf(h, 0)).toContain("never a test file")
-    expect(bodyOf(h, 0)).not.toContain("only when it is one of them")
+    expect(bodyOf(h, 0)).toContain("never add or delete a test file")
+    expect(bodyOf(h, 0)).toContain("never add, remove or alter a test or an assertion")
+  })
+
+  it("names the reference's seam as the change to carry, when there is a reference", async () => {
+    const withRef = await drive(shape(), { reference: "abc1234" })
+    expect(bodyOf(withRef, 0)).toMatch(/seam/)
+    expect(buildingPrompt(withRef)).toMatch(/touches none of it/)
+    const bare = await drive(shape())
+    expect(buildingPrompt(bare)).not.toMatch(/touches none of it/)
   })
 
   it("refuses a build turn adding a flag read", async () => {
@@ -734,7 +897,7 @@ describe("reviewedRefactor", () => {
     const body = derive?.kind === "run" ? derive.body : ""
     expect(body).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
     expect(body).not.toContain("a.test.ts")
-    expect(h.scopes[0]?.access).toEqual({ write: ["src/a.ts", ".gtd/**"] })
+    expect(h.scopes[0]?.access).toEqual({ write: ["src/a.ts", ...testFileGlobs, ".gtd/**"] })
     const collecting = h.steps.find((s) => s.kind === "agent" && s.name === "review.collecting")
     const prompt = collecting?.kind === "agent" ? collecting.prompt : ""
     expect(prompt).toContain("`src/a.ts`") // gtd-path-exempt: fixture paths
@@ -958,14 +1121,18 @@ describe("reviewedRefactor", () => {
       const h = await driveReviewed(shape({ strays: ["src/a.ts", "src/a.test.ts"] }), {
         notes: ["add — typo"],
         answers: { "note-1": { answer: "nit", p: 0.9 } },
-        turns: { "refactor.build.review.fix.nits.fixing": [change("src/a.test.ts", "a", "b")] },
+        turns: {
+          "refactor.build.review.fix.nits.fixing": [
+            change("src/a.test.ts", undefined, "b", "added"),
+          ],
+        },
       })
       expect((h.result as Error).message).toContain("refactor-tests")
       expect(h.names.at(-1)).toBe("refactor.build.review.fix.nits.fixing")
     })
 
-    it("runs the nit-fix turn under the strays plus .gtd/** as its write access", async () => {
-      const write = ["src/a.ts", ".gtd/**"]
+    it("runs the nit-fix turn under the strays, test files and .gtd/** as its write access", async () => {
+      const write = ["src/a.ts", ...testFileGlobs, ".gtd/**"]
       const h = await driveReviewed(shape({ strays: ["src/a.ts", "src/a.test.ts"] }), {
         notes: ["add — typo"],
         answers: { "note-1": { answer: "nit", p: 0.9 } },
@@ -979,7 +1146,7 @@ describe("reviewedRefactor", () => {
         notes: ["add — typo"],
         answers: { "note-1": { answer: "nit", p: 0.9 } },
         reds: 2,
-        turns: { "refactor.build.fix": [change("src/a.test.ts", "x", "y")] },
+        turns: { "refactor.build.fix": [change("src/a.test.ts", "x", undefined, "deleted")] },
       })
       expect(h.names).toContain("refactor.build.fix")
       expect((h.result as Error).message).toContain("refactor-tests")
@@ -1031,11 +1198,11 @@ describe("reviewedRefactor's tail prompts", () => {
     ],
     ["refactor.build.health.describe", { findings: true, reds: 6 }],
   ] as const)(
-    "%s names every stray and bans test files and new flag reads",
+    "%s names every stray and bans new test files and new flag reads",
     async (name, script) => {
       const prompt = await promptAt(name, script as ReviewedScript)
       for (const stray of strays) expect(prompt).toContain(`\`${stray}\``)
-      expect(prompt).toContain("never a test file")
+      expect(prompt).toContain("never add or delete a test file")
       expect(prompt).toContain("no new flag read")
     },
   )

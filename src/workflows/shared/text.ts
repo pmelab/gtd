@@ -465,9 +465,13 @@ ${fixFeedbackPrompt}
 
 export const refactorRules = (strays: readonly string[], pattern: string): string =>
   `- Behaviour-neutral: the suite's outcome must not change
-- Change only these paths, nothing else, and never a test file even
-  when it is one of them:
+- Change only these paths, nothing else:
 ${strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
+- An existing test file only where a changed call shape reaches it:
+  update its call sites, inside an assertion too;
+  never add or delete a test file,
+  never add, remove or alter a test or an assertion, and never
+  change what an assertion checks, an expected value or a snapshot
 - Introduce no new flag read and add no second read of an existing one:
   every match of \`${pattern}\` may move, never increase in number`
 
@@ -499,8 +503,13 @@ ${
   reference === undefined
     ? ""
     : `- Reference only: \`git show ${reference} -- ${strays.map(quote).join(" ")}\` shows an
-  earlier attempt at this change. Read it for ideas; never apply,
-  cherry-pick or check it out — write a fresh refactor
+  earlier attempt at this change, and \`git show --stat ${reference}\`
+  lists every file it touched, the test call sites included.
+  Read it; never apply, cherry-pick or check it out
+- Its changes to these paths' existing code are the seam: write that
+  restructuring afresh here, minus the feature's own behaviour. A
+  refactor that touches none of it is wrong, however clean — never
+  swap in an unrelated tidy-up
 `
 }- Leave everything uncommitted and finish your turn — do not commit
 `
@@ -920,11 +929,11 @@ export const buildReviewCollectingPrompt = (
 ): string => {
   const target = refactor ? ".gtd/REFACTOR.md" : ".gtd/REQUIREMENTS.md"
   const fence = refactor
-    ? `- The next refactor may change only these paths, and never a test file
-  or a flag read:
+    ? `- The next refactor may change only these paths, plus an existing test
+  file's call sites, and never a flag read:
 ${refactor.strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
-  A concern needing any other path, a test file, a new or added flag
-  read, or a change in behaviour (that belongs to the feature, not this
+  A concern needing any other path, a new or changed test or assertion,
+  a new or added flag read, or a change in behaviour (that belongs to the feature, not this
   refactor) cannot be built: do not fold it
 `
     : ""
@@ -1048,7 +1057,8 @@ const lapRange: Record<ReviewRange, string> = {
   first: "it covers everything since the base.",
   feedback:
     "it starts at the previous review's boundary, so it covers only what is new since the previous review.",
-  refactor: "it covers the whole refactor since it started, on every round.",
+  refactor:
+    "it covers the whole refactor since it started, on every round. A refactor may update an existing test's call sites only: give any test-file hunk its own chunk, and say so if it changes a test, an assertion or an expected value.",
 }
 
 export const buildReviewReviewingPrompt = (
