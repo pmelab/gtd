@@ -1,4 +1,4 @@
-description: gtd prompt evals — one two-sided case per prompt state the bundled workflow can rest at
+description: gtd prompt evals — two-sided cases for the bundled workflow's prompt states
 
 # One prompt per (case, variant): `run-turn.mjs` splits the rendered string
 # on the first `:`, dynamically imports `./cases/<case>.mjs`, builds the

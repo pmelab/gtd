@@ -354,3 +354,46 @@ describe("an in-flight 28.0.0 naive-pass process", () => {
     })
   }
 })
+
+describe("an in-flight process from before the architecture path was removed", () => {
+  const REQUIREMENTS = "# Requirements\n\n## Concerns\n\n### Subtract\n\n- `subtract`\n"
+
+  /** Its history up to the design gate, forged with the old opening commit's `flag_naive_pass=0`. */
+  const atDesignGate = async () => {
+    const live = naivePlanned()
+    await live.drive({ unwind: () => undefined, "start-gate.check": () => undefined })
+    const opening = live.messages().find((m) => m.startsWith("gtd(human): idle → unwind"))!
+    const repo = naivePlanned()
+    repo.commit(
+      opening.replace(
+        "Gtd-Var: flag_risk_tier=0",
+        "Gtd-Var: flag_naive_pass=0\nGtd-Var: flag_risk_tier=0",
+      ),
+    )
+    repo.remove("TODO.md")
+    repo.commit("gtd(check): unwind → start-gate.check\n\nGtd-Step: unwind#1\nGtd-Format: 1")
+    repo.commit(
+      "gtd(check): start-gate.check → design.triage\n\nGtd-Step: start-gate.check#1\nGtd-Format: 1",
+    )
+    repo.write(".gtd/REQUIREMENTS.md", REQUIREMENTS)
+    repo.commit(
+      "gtd(agent): design.triage → design.gate.answer\n\nGtd-Step: design.triage#1\nGtd-Format: 1",
+    )
+    return repo
+  }
+
+  it("resting at the design gate, replays onto the naive pass", async () => {
+    const repo = await atDesignGate()
+    expect((await repo.next()).state).toBe("design.gate.answer")
+    await repo.land()
+    expect((await repo.next()).state).toBe("seam.naive")
+  })
+
+  it("past the design gate on the architecture path, fails replay", async () => {
+    const repo = await atDesignGate()
+    repo.commit(
+      "gtd(human): design.gate.answer → architecture.author\n\nGtd-Step: design.gate.answer#1\nGtd-Format: 1",
+    )
+    await expect(repo.next()).rejects.toThrow("the workflow changed under this process")
+  })
+})

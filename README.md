@@ -427,9 +427,9 @@ noted in steps 3 and 4 below.
    passes — so keep that suite fast; gtd has no lighter one. Scenario wording is
    not frozen: you sign the scenarios off once, in the review's `## Scenarios`
    chunk, where any assertion an existing scenario lost is marked `Weakened:`.
-   After the build the quality lap runs. Two points along the process are judged
-   rather than always asking you outright — each stops and hands you a verdict
-   to make (`gtd judge answer`, or land with a clean tree to accept the
+   After the build the quality lap runs. Three points along the process are
+   judged rather than always asking you outright — each stops and hands you a
+   verdict to make (`gtd judge answer`, or land with a clean tree to accept the
    conservative default, which never skips work;
    `gtd judge run --provider fixed --answers <path>` — or the
    `GTD_JUDGE_ANSWERS` env var, inline JSON — answers one from a file, piped
@@ -445,6 +445,8 @@ noted in steps 3 and 4 below.
    choose the judge without editing the driver (flags win over both, in that
    order); `--model` with `--provider fixed`/`jev` is refused. jev and llm exit
    1 with nothing on stdout when they cannot answer every question):
+   - After the naive pass: does it land as is, need its seam refactored first,
+     or get rejected and retried?
    - Every red round after the first: was the failure identical, new, or
      progress?
    - After you review: is each of your notes an edit, a question, a nit or

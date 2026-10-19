@@ -758,7 +758,9 @@ folds into `.gtd/REFACTOR.md` only when it asks for a change.
   `answerTechnicalQuestions`, `build` and `fixSuite` exports, the `ARCHITECTURE`
   constant and the `.gtd/ARCHITECTURE.md` steering entry are removed;
   `planAndBuild` takes only its base. `GTD_FLAG_RISK_TIER` no longer needs the
-  removed flag.
+  removed flag: an old-path process that started with it on and replays onto the
+  naive pass records the tier from then on, and with no `## Risk Tier` section
+  that tier is `high`.
 - `seam.approve` is gone; the refactor's review sign-off is the approval. A
   naive-pass process from 27.5.0 or later whose judge ruled `refactor-first` no
   longer replays at any rest from that verdict on — `seam.approve`, every

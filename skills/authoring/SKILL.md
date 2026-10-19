@@ -241,9 +241,13 @@ const planAndBuild = async (firstBase: string): Promise<void> => {
       reference: seam.reference,
       afterRefactor: seam.refactored,
     })
-    await afterTail(
-      await buildTail(seam.base, { green: true, lensBase: seam.base }),
-    )
+    // A refactor that carried the whole feature leaves nothing new: review it all.
+    const base =
+      seam.refactored === true &&
+      !changesSince(seam.base).some((c) => !c.path.startsWith(".gtd/"))
+        ? firstBase
+        : seam.base
+    await afterTail(await buildTail(base, { green: true, lensBase: base }))
   })
 }
 ```

@@ -174,9 +174,10 @@ Classify each as PRODUCT (user-facing/requirements) or TECHNICAL
 
 ${questionBar}
 
-Raise questions only for product concerns here — technical ones
-wait for the next phase. When every concern is TECHNICAL, write
-no \`## Open Questions\` section. STRICT: answer it yourself only
+Raise questions for product concerns. Raise a technical concern
+only when it is a genuine fork the human must settle — no later
+phase asks; otherwise the builder decides it. When no concern
+clears that bar, write no \`## Open Questions\` section. STRICT: answer it yourself only
 when the product default is unmistakable; a wrong intent costs a
 whole rebuild lap.
 
@@ -212,8 +213,7 @@ ${questionBarReturn}
   yourself — a loop-back runs no green-baseline gate, so the
   tree may already be red (reverting the edit can undo a fix it
   made). If red, make that breakage the first concern, ahead of
-  everything else — every later concern's green-on-its-own
-  property assumes the suite started green
+  everything else — the build assumes the suite started green
 ${riskTier ? riskTierBlock : ""}`
 
 export const designSystem = (): string =>
@@ -311,7 +311,7 @@ export const refactorFixPrompt = (strays: readonly string[], pattern: string): s
   `${stateFileRules}
 ${fixFeedbackPrompt}
 ${refactorRules(strays, pattern)}
-- Never do another package's work, even when it would green the suite
+- Never do work outside the refactor, even when it would green the suite
 - Leave everything uncommitted and finish your turn — do not commit
 `
 
