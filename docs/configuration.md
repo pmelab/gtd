@@ -636,11 +636,14 @@ turn when:
   `*_test.go`, `test_*.py` and other namings are not test files here, so their
   call sites stay out of reach. An existing test file may be modified, so a seam
   that changes a call shape can update its callers there. Refused: adding or
-  deleting a test file, changing a `.snap` snapshot, dropping a `.feature`
-  scenario's assertion, and changing a file's count of `expect`/`assert*` calls
-  or of `it`/`test`/`describe` blocks. A changed expected value keeps every
-  count: the refactor review's prompt asks the reviewer to flag it, and
-  `refactorFirst` alone has no review. Or
+  deleting a test file; changing a `.snap` snapshot or a `.feature` file (call
+  sites live in code); changing a test file whose before or after cannot be
+  read, or that held no `expect`/`assert*` call and no `it`/`test`/`describe`
+  block (test data or a helper); and changing, outside comments, a file's count
+  of `expect`/`assert*` calls, of `it`/`test`/`describe` blocks, or of skipped,
+  focused or todo ones (`.skip`, `.only`, `.todo`, `xit`, …). A changed expected
+  value keeps every count: the refactor review's prompt asks the reviewer to
+  flag it, and `refactorFirst` alone has no review. Or
 - it changed a path outside `.gtd/` that is neither a modified test file nor
   exactly one of the strays (`refactor-scope`; a fix turn is judged on its own
   changes, so a person's edit at an escalation stop does not block it; no globs:

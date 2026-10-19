@@ -146,7 +146,7 @@ describe("requireTestCallSitesOnly", () => {
     const list = [
       change("tests/unit/b.ts", undefined, "x", "added"),
       change("src/__tests__/c.ts", "a", undefined, "deleted"),
-      change("src/a.test.ts", "a", "b"),
+      change("src/a.test.ts", "expect(a()).toBe(1)", "expect(a(1)).toBe(1)"),
     ]
     const message = withChanges(list, () => requireTestCallSitesOnly())
     expect(message).toMatch(/^gtd land: refactor-tests: /)
@@ -155,10 +155,9 @@ describe("requireTestCallSitesOnly", () => {
     expect(message).not.toContain("src/a.test.ts")
   })
 
-  it("passes a modified test file, non-test paths and .gtd/ paths", () => {
+  it("passes a modified test file's call site, non-test paths and .gtd/ paths", () => {
     const list = [
-      change("src/a.test.ts", "a", "b"),
-      change("features/d.feature", "a", "b"),
+      change("src/a.test.ts", "expect(a()).toBe(1)", "expect(a(1)).toBe(1)"),
       change("src/new.ts", undefined, "x", "added"),
       change(".gtd/tests/x.md", "", "x", "added"),
     ]
@@ -178,6 +177,53 @@ describe("requireTestCallSitesOnly", () => {
     ]
     const message = withChanges(list, () => requireTestCallSitesOnly())
     for (const { path } of list) expect(message).toContain(`  - ${path}`)
+  })
+
+  it.each([
+    [
+      "a skipped test",
+      'it("a", () => expect(a()).toBe(1))',
+      'it.skip("a", () => expect(a()).toBe(1))',
+    ],
+    [
+      "an x-prefixed test",
+      'it("a", () => expect(a()).toBe(1))',
+      'xit("a", () => expect(a()).toBe(1))',
+    ],
+    [
+      "a line-commented assertion",
+      'it("a", () => {\n  expect(a()).toBe(1)\n})',
+      'it("a", () => {\n  // expect(a()).toBe(1)\n})',
+    ],
+    [
+      "a block-commented test",
+      'it("a", () => expect(a()).toBe(1))',
+      '/* it("a", () => expect(a()).toBe(1)) */',
+    ],
+    ["fixture data with no test", '{"sum": 2}', '{"sum": 3}'],
+  ])("refuses %s", (_label, before, after) => {
+    const message = withChanges([change("tests/a.test.ts", before, after)], () =>
+      requireTestCallSitesOnly(),
+    )
+    expect(message).toContain("  - tests/a.test.ts")
+  })
+
+  it("refuses a modified test file whose content cannot be read", () => {
+    const message = withChanges([change("tests/a.test.ts", undefined, "expect(a()).toBe(1)")], () =>
+      requireTestCallSitesOnly(),
+    )
+    expect(message).toContain("  - tests/a.test.ts")
+  })
+
+  it("passes a regex .test( call rewritten at a call site", () => {
+    const list = [
+      change(
+        "src/a.test.ts",
+        'it("a", () => expect(/x/.test(s)).toBe(true))',
+        'it("a", () => expect(has(s)).toBe(true))',
+      ),
+    ]
+    expect(withChanges(list, () => requireTestCallSitesOnly())).toBeUndefined()
   })
 
   it("passes a call site rewritten inside an assertion", () => {
@@ -529,7 +575,10 @@ describe("refactorFirst", () => {
 
   it("lets a build turn update an existing test file's call sites", async () => {
     const h = await drive(shape(), {
-      build: [change("src/a.ts", "a", "b"), change("tests/a.test.ts", "a()", "await a()")],
+      build: [
+        change("src/a.ts", "a", "b"),
+        change("tests/a.test.ts", "expect(a()).toBe(1)", "expect(await a()).toBe(1)"),
+      ],
     })
     expect(h.result).toBe(true)
     expect(names(h)).toContain("health.check")

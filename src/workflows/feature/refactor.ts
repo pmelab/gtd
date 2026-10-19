@@ -13,7 +13,7 @@ import {
   type Change,
   type DiffShapeResult,
 } from "../../flows/index.js"
-import { lensesOf, removedAssertions } from "../../workflow-kit/index.js"
+import { lensesOf } from "../../workflow-kit/index.js"
 import { markFenced } from "../shared/fences.js"
 import { healthy, type Guard } from "../shared/health.js"
 import { coder, FEEDBACK, REFACTOR } from "../shared/steps.js"
@@ -44,6 +44,7 @@ export const requireWithin = (allowed: readonly string[]): void => {
 // A fixed list, not `seamAllow`: narrowing that setting must not let a test file through.
 const isTestFile = (path: string): boolean => testFileGlobs.some((glob) => matches(path, glob))
 
+// Unused by the bundled refactor since #395; kept as a public export of `@pmelab/gtd/workflows`.
 export const requireNoTestFiles = (): void => {
   const tests = changes()
     .map((c) => c.path)
@@ -54,36 +55,42 @@ export const requireNoTestFiles = (): void => {
   )
 }
 
-// A snapshot is regenerated, never edited by hand: a changed one is a changed expectation.
-const isSnapshot = (path: string): boolean => path.endsWith(".snap")
+// Call sites live in code: a `.feature` file or a snapshot holds only expectations.
+const holdsCallSites = (path: string): boolean =>
+  !path.endsWith(".feature") && !path.endsWith(".snap")
 
+const COMMENT = /\/\*[\s\S]*?\*\/|\/\/.*$/gm
 const ASSERTION = /\b(?:expect|assert\w*)\s*[.(]/g
-const TEST_CASE = /\b(?:it|test|describe|scenario)(?:\.\w+)*\s*\(/gi
-const count = (text: string, expression: RegExp): number => [...text.matchAll(expression)].length
+const TEST_CASE = /(?<![.\w])x?(?:it|test|describe)\s*[.(]/g
+const MODIFIER =
+  /(?<![.\w])x?(?:it|test|describe)\.(?:skip|only|todo|fails|skipIf|runIf)\b|(?<![.\w])x(?:it|test|describe)\b/g
+const count = (text: string, expression: RegExp): number =>
+  [...text.replace(COMMENT, "").matchAll(expression)].length
 
-// A call-shape update keeps every test and assertion, so their counts hold. A changed expected
-// value slips through the counts; that is left to the refactor review.
-const reshaped = ({ path, before = "", after = "" }: Change): boolean =>
-  removedAssertions([{ path, status: "modified", before, after }]).length > 0 ||
-  count(before, ASSERTION) !== count(after, ASSERTION) ||
-  count(before, TEST_CASE) !== count(after, TEST_CASE)
+// A call-shape update keeps every live test and assertion, so the counts hold; comments are
+// stripped first so commenting one out shows. A changed expected value keeps every count —
+// that is left to the refactor review.
+const callSitesOnly = ({ path, status, before, after }: Change): boolean =>
+  status === "modified" &&
+  holdsCallSites(path) &&
+  before !== undefined &&
+  after !== undefined &&
+  // A file with no test or assertion is fixture or helper data, never a call site to follow.
+  count(before, ASSERTION) + count(before, TEST_CASE) > 0 &&
+  [ASSERTION, TEST_CASE, MODIFIER].every((e) => count(before, e) === count(after, e))
 
-// Modified test files join the scope only after `requireTestCallSitesOnly` has passed them.
-const callSiteUpdates = (): readonly string[] =>
-  changes()
-    .filter((c) => isCode(c.path) && isTestFile(c.path) && c.status === "modified")
-    .map((c) => c.path)
-
-/** The test-file half of the refactor guard: an existing test may follow a changed call shape, nothing more. */
-export const requireTestCallSitesOnly = (): void => {
-  const refused = changes()
-    .filter((c) => isCode(c.path) && isTestFile(c.path))
-    .filter((c) => c.status !== "modified" || isSnapshot(c.path) || reshaped(c))
-    .map((c) => c.path)
-  if (refused.length === 0) return
-  refuse(
-    `gtd land: refactor-tests: the refactor may update an existing test file's call sites only — never add, delete or regenerate a test file, or add or remove a test or an assertion; revert these:\n${refused.map((path) => `  - ${path}`).join("\n")}`,
-  )
+/**
+ * The test-file half of the refactor guard: an existing test may follow a changed call shape,
+ * nothing more. Returns the test files it admitted, which the scope check then allows.
+ */
+export const requireTestCallSitesOnly = (): readonly string[] => {
+  const tests = changes().filter((c) => isCode(c.path) && isTestFile(c.path))
+  const refused = tests.filter((c) => !callSitesOnly(c)).map((c) => c.path)
+  if (refused.length > 0)
+    refuse(
+      `gtd land: refactor-tests: the refactor may update an existing test file's call sites only — never add, delete, skip or comment out a test or an assertion, or touch a snapshot, a .feature file or test data; revert these:\n${refused.map((path) => `  - ${path}`).join("\n")}`,
+    )
+  return tests.map((c) => c.path)
 }
 
 const flagExpression = (pattern: string): RegExp => {
@@ -232,8 +239,7 @@ const plan = (shape: DiffShapeResult, options: RefactorOptions): Plan | undefine
 const guardOf =
   ({ pattern, strays }: Plan, entry: string): Guard =>
   () => {
-    requireTestCallSitesOnly()
-    requireWithin([...strays, ...callSiteUpdates()])
+    requireWithin([...strays, ...requireTestCallSitesOnly()])
     requireNoNewFlags(pattern, entry)
   }
 
