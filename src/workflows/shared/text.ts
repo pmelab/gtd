@@ -350,22 +350,30 @@ export const refactorBuildingPrompt = ({
   pattern,
   reference,
   feedback = false,
+  note = false,
 }: {
   pkg: string
   strays: readonly string[]
   pattern: string
   reference?: string | undefined
   feedback?: boolean | undefined
+  note?: boolean | undefined
 }): string =>
   `${stateFileRules}
 - The package to implement is \`${pkg}\`; never delete it
 ${
-  feedback
-    ? `- The package carries a \`## Review feedback\` section: a human's review of the
-  last refactor. Act on it, within the rules below
+  note
+    ? `- The package's \`## Refactor note\` section names the seams to open and the
+  shape each takes, written from the whole naive pass: build exactly those
 `
     : ""
-}${refactorRules(strays, pattern)}
+}${
+    feedback
+      ? `- The package carries a \`## Review feedback\` section: a human's review of the
+  last refactor. Act on it, within the rules below
+`
+      : ""
+  }${refactorRules(strays, pattern)}
 ${
   reference === undefined
     ? ""
@@ -1217,12 +1225,64 @@ ${criteriaBinding(false)}
 - Leave everything uncommitted and finish your turn — do not commit
 ${retry === undefined ? "" : naiveRetry(retry)}`
 
+/** What a rebuild after a refactor-first judgment carries over from the naive pass. */
+export interface Rebuild {
+  /** The refactor note's text. */
+  readonly note?: string | undefined
+  /** The naive pass's kept tip, its acceptance test files and the criterion IDs they name. */
+  readonly acceptance?:
+    | { readonly hash: string; readonly tests: readonly string[]; readonly ids: readonly string[] }
+    | undefined
+}
+
+const rebuildLines = ({ note, acceptance }: Rebuild): string =>
+  `${
+    note === undefined
+      ? ""
+      : `- The refactor note (\`.gtd/REFACTOR-NOTE.md\`) named the seams the refactor
+  opened; plug the change into them:
+
+${note
+  .trimEnd()
+  .split("\n")
+  .map((line) => (line === "" ? "" : `  > ${line}`))
+  .join("\n")}
+
+`
+  }${
+    acceptance === undefined || acceptance.ids.length === 0
+      ? ""
+      : `- Carry over the naive pass's acceptance tests for ${acceptance.ids.join(", ")}:
+  \`git show ${acceptance.hash} -- ${acceptance.tests.map(quote).join(" ")}\`. Keep
+  each test and its \`[AC-<n>]\` name, changing only what reaches the release
+  flag: a rebuild whose changed tests leave an ID out is refused, and the
+  suite must be green with them
+`
+  }`
+
+export const refactorNotePrompt = (reference: string, strays: readonly string[]): string =>
+  `${stateFileRules}
+- The seam judge ruled the naive pass refactor-first: it is never applied.
+  A behaviour-neutral refactor lands first, then the change is rebuilt on
+  the refactored base. Both turns read the note you write
+- Read the whole naive pass: \`git show ${reference}\`. It changed these
+  existing files outside the allowlist:
+${listed(strays)}
+- Write \`.gtd/REFACTOR-NOTE.md\`: which seams the refactor opens (the existing
+  code to restructure, by path and symbol) and the shape each takes — the
+  signatures and where the new behaviour will plug in. Never the feature's own
+  behaviour, and no flag read: the refactor adds neither
+- Change nothing else — a turn that does is refused
+- Leave everything uncommitted and finish your turn — do not commit
+`
+
 export const implementBuildingPrompt = (
   reference: string | undefined,
   tier?: "low" | "high",
   amend?: boolean,
   afterRefactor?: boolean,
   flagMode = true,
+  rebuild: Rebuild = {},
 ): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
@@ -1252,7 +1312,7 @@ ${
   Read it for ideas; never apply, cherry-pick or check it out — write
   the change fresh
 `
-  }${
+  }${rebuildLines(rebuild)}${
     !flagMode
       ? "- Add no release flag — this project ships without release flags"
       : tier === "low"

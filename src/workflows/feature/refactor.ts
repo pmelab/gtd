@@ -27,6 +27,8 @@ export const REFACTOR_PACKAGE = REFACTOR
 export interface RefactorOptions {
   /** Blank counts as absent: `kept()` reports `""` while the keeping turn is pending. */
   readonly reference?: string | undefined
+  /** The refactor note `seam.note` wrote; rides the package as `## Refactor note`. */
+  readonly note?: string | undefined
 }
 
 const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
@@ -203,7 +205,7 @@ const packageLines = (
   "",
 ]
 
-// Nested under `## Review feedback`, so every heading of the collected text drops a level.
+// Nested under a `##` section (review feedback, the refactor note), so every heading drops a level.
 const demoteHeadings = (text: string): string[] => {
   const marked = markFenced(text.trimEnd())
   const lines = marked.map((m) => m.line)
@@ -230,6 +232,7 @@ interface Plan {
   readonly pattern: string
   readonly strays: readonly string[]
   readonly reference: string | undefined
+  readonly note: string | undefined
 }
 
 /** Undefined for every shape that is not a readable `refactor-first`; throws on a bad flag pattern. */
@@ -245,7 +248,8 @@ const plan = (shape: DiffShapeResult, options: RefactorOptions): Plan | undefine
       `gtd: refactorFlagPattern (${pattern}) produces a zero-length match in:\n${listPaths(zeroLength)}`,
     )
   const reference = options.reference?.trim() ? options.reference : undefined
-  return { pattern, strays, reference }
+  const note = options.note?.trim() ? options.note : undefined
+  return { pattern, strays, reference, note }
 }
 
 // The in-memory `strays`, never the package file: a hand edit of its list changes nothing.
@@ -260,11 +264,12 @@ const guardOf =
 
 /** Derive, build, check and close one refactor lap; `feedback` is the collected review text of the lap before. */
 const refactorLap = async (p: Plan, guard: Guard, feedback?: string): Promise<void> => {
-  const { pattern, strays, reference } = p
+  const { pattern, strays, reference, note } = p
   await run(
     "deriving",
     deriveScript([
       ...packageLines(strays, pattern, reference),
+      ...(note === undefined ? [] : ["## Refactor note", "", ...demoteHeadings(note), ""]),
       ...(feedback === undefined
         ? []
         : ["## Review feedback", "", ...demoteHeadings(feedback), ""]),
@@ -279,6 +284,7 @@ const refactorLap = async (p: Plan, guard: Guard, feedback?: string): Promise<vo
       pattern,
       reference,
       feedback: feedback !== undefined,
+      note: note !== undefined,
     }),
     { label: "Refactoring", model: coder(), system: t.builderSystem() },
   )

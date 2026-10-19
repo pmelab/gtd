@@ -30,7 +30,24 @@ pass, and a seam judge rules `land`/`refactor-first`/`reject`. On `land` the
 pass itself is the implementation (`implement.applying`), with no rebuild and no
 release flag; with `flagMode` off no judge runs and every vetted pass lands so.
 `GTD_FLAG_RISK_TIER` (off by default) adds a proposed risk tier at the design
-gate. See [The naive-pass path](docs/configuration.md#the-naive-pass-path).
+gate.
+
+On `refactor-first` the pass is reset, never applied, and the change takes three
+turns:
+
+1. **Refactor note.** `seam.note` reads the whole naive diff and writes
+   `.gtd/REFACTOR-NOTE.md`: which seams, which shape. It may change nothing
+   else.
+2. **Refactor.** Flag-free, behaviour-neutral, guided by the note. **Gate: the
+   existing suite stays green.** It lands on its own, in the `refactor` slice,
+   after its review.
+3. **Rebuild.** The change re-implemented on the refactored base, behind a
+   release flag read at the composition point, with the note and the naive diff
+   as reference. **Gate: the naive pass's `AC-<n>`-tagged acceptance tests,
+   carried over, are green** — a rebuild whose tests leave out an ID the naive
+   tests named is refused (`rebuild-acceptance`), and the health loop runs the
+   suite green. See
+   [The naive-pass path](docs/configuration.md#the-naive-pass-path).
 
 The third reject, test fault or red check rests at `seam.steer`, where a human
 steers or overrules.
@@ -105,6 +122,9 @@ Each path has a `.feature` file:
   `flagMode` off, the naive pass applied with no judge
 - [`src/workflows/feature/refactor-first.feature`](src/workflows/feature/refactor-first.feature):
   judge `refactor-first`, then the refactor review, then the implementation
+- [`src/workflows/feature/refactor-rebuild.feature`](src/workflows/feature/refactor-rebuild.feature):
+  the refactor note reaching both turns, the refactor landing only green, the
+  rebuild landing only with the naive acceptance tests
 - [`src/workflows/review/review-door.feature`](src/workflows/review/review-door.feature):
   a feature process ending with no review rest, then the `review` door reviewing
   it
@@ -131,6 +151,11 @@ Paths and text are checked, **never behaviour**.
 
 - `gtd land` refusals in `refactor.*` (a path outside the strays, a raised
   flag-read count): see [`refactorFirst`](docs/configuration.md#refactorfirst).
+- `seam.note` is refused when it changes anything but the note
+  (`refactor-note`); the rebuild's `implement.building` when its tests leave out
+  a naive acceptance-test ID (`rebuild-acceptance`). **Both read text only**:
+  the rebuild's carried tests run in the health loop, and a carried test may be
+  edited to reach the flag.
 - `gtd land` refusals in `rollout` and `cleanup`: see
   [Rolling out and cleaning up a release flag](docs/configuration.md#rolling-out-and-cleaning-up-a-release-flag).
   `cleanup` checks shipped `src/` sources only.
@@ -145,12 +170,12 @@ Paths and text are checked, **never behaviour**.
   An overrule at `implement.uncovered` ends the feature with the IDs it leaves
   uncovered recorded as `uncovered` marks.
 - `seam.judge` judges the shape of the naive pass. On `land` that pass lands
-  unchanged; an implementation turn that follows (a rebuild) is not re-judged or
-  scoped, and **in `feature` no human looks at the full diff** — only the
-  quality lap does, unless someone opens the `review` door. **Risk: no reviewer
-  `Risk:` fix pass and no weakened-scenario flag run in `feature`, and a `high`
-  risk tier's "needs a human reviewer" is advisory only.** New files are exempt.
-  `gtd strays` works in any repository.
+  unchanged; a rebuild that follows a refactor is checked only for its carried
+  acceptance tests, never re-judged or scoped, and **in `feature` no human looks
+  at the full diff** — only the quality lap does, unless someone opens the
+  `review` door. **Risk: no reviewer `Risk:` fix pass and no weakened-scenario
+  flag run in `feature`, and a `high` risk tier's "needs a human reviewer" is
+  advisory only.** New files are exempt. `gtd strays` works in any repository.
 - The refactor review on `refactor-first` covers only the refactor slice;
   nothing in `feature` reviews what follows its sign-off. A refactor turn that
   changes a test file is refused (`gtd land`: `refactor-tests`), whatever

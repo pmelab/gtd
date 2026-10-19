@@ -50,6 +50,10 @@ Feature: the refactor review's lenses take their model hints from refactorQualit
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
       """
+    And step "seam.note" writes ".gtd/REFACTOR-NOTE.md" with:
+      """
+      Seam: the existing code the strays touch.
+      """
     And step "refactor.deriving" runs its script
     And step "refactor.building" writes "src/calc.ts" with:
       """

@@ -13,6 +13,8 @@ import {
   judgeSeam,
   naivePass,
   acceptanceFault,
+  naiveAcceptance,
+  requireAcceptance,
   seamBuild,
   type SeamOutcome,
 } from "./seam.js"
@@ -102,6 +104,58 @@ describe("naivePass", () => {
     if (request.kind !== "agent") throw new Error("unreachable")
     expect(request.prompt).toContain("src/core.ts")
     expect(request.prompt).toContain("0.8")
+  })
+})
+
+describe("naiveAcceptance and requireAcceptance", () => {
+  const requirements = "# R\n\n## Acceptance Criteria\n\n- AC-1: adds.\n- AC-2: subtracts.\n"
+  const file = (path: string, before: string | undefined, after: string): Change => ({
+    path,
+    status: before === undefined ? "added" : "modified",
+    before,
+    after,
+  })
+  const install = (since: Change[] = []) =>
+    installContext({
+      ...fixtureContext({}),
+      matches: globMatches,
+      read: (path: string) => (path === ".gtd/REQUIREMENTS.md" ? requirements : undefined),
+      changesSince: () => since,
+      refuse: (message: string) => {
+        throw new Error(message)
+      },
+    } as unknown as FlowContext)
+
+  it("takes the IDs the pass's tests name on an added line, and only those test files", () => {
+    install()
+    expect(
+      naiveAcceptance(
+        tip(
+          file("src/a.test.ts", 'it("[AC-2] old")', 'it("[AC-2] old")\nit("[AC-1] adds")'),
+          file("src/b.test.ts", undefined, 'it("helper")'),
+          file("src/calc.ts", "x", "AC-2"),
+        ),
+      ),
+    ).toEqual({ hash: "abc", tests: ["src/a.test.ts"], ids: ["AC-1"] })
+  })
+
+  it("refuses a rebuild whose tests leave out an ID, naming the naive tests to carry over", () => {
+    install([file("src/calc.test.ts", undefined, 'it("[AC-1] adds")')])
+    expect(() =>
+      requireAcceptance({ hash: "abc", tests: ["src/a.test.ts"], ids: ["AC-1", "AC-2"] }, "c0"),
+    ).toThrow(
+      /^gtd land: rebuild-acceptance: .*leave out AC-2 — .*git show abc -- 'src\/a\.test\.ts'/,
+    )
+  })
+
+  it("passes a rebuild whose tests name every ID, wherever they live", () => {
+    install([
+      file("tests/x.test.ts", undefined, 'it("[AC-1] adds")'),
+      file("tests/y.feature", "", "Scenario: [AC-2] subtracts"),
+    ])
+    expect(() =>
+      requireAcceptance({ hash: "abc", tests: ["src/a.test.ts"], ids: ["AC-1", "AC-2"] }, "c0"),
+    ).not.toThrow()
   })
 })
 
@@ -231,6 +285,7 @@ describe("acceptanceFault", () => {
 
 const REVIEW = ".gtd/REVIEW.md"
 const REFACTOR = ".gtd/REFACTOR.md"
+const NOTE = ".gtd/REFACTOR-NOTE.md"
 const reviewDoc = [
   "# Review: abc1234",
   "",
@@ -267,6 +322,7 @@ const driveSeam = async (
   const files = new Map<string, string>([["src/a.ts", "a"]])
   let current = "c0"
   const effects: Record<string, () => void> = {
+    note: () => void files.set(NOTE, "Seam: a shared op"),
     deriving: () => void files.set(REFACTOR, "package"),
     closing: () => void files.delete(REFACTOR),
     "review.reviewing": () => void files.set(REVIEW, reviewDoc),
@@ -366,8 +422,15 @@ describe("seamBuild", () => {
 
   it("refactor-first runs the reviewed refactor in slice refactor and resolves HEAD after it", async () => {
     const h = await driveSeam("refactor-first")
-    expect(h.outcome).toEqual({ reference: "abc", base: "after-refactor", refactored: true })
+    expect(h.outcome).toEqual({
+      reference: "abc",
+      base: "after-refactor",
+      refactored: true,
+      rebuild: { note: "Seam: a shared op", acceptance: { hash: "abc", tests: [], ids: [] } },
+    })
     expect(h.slices).toEqual(["refactor"])
+    expect(h.names.indexOf("seam.note")).toBe(h.names.indexOf("seam.judge") + 1)
+    expect(h.inside.refactor).not.toContain("seam.note")
     expect(h.inside.refactor![0]).toBe("refactor.deriving")
     expect(h.inside.refactor).toContain("refactor.build.review.closing")
     expect(h.names.some((n) => n.includes("approve"))).toBe(false)
@@ -470,6 +533,30 @@ describe("implement", () => {
     ).toBe(amended)
     const bare = await building(undefined, undefined, undefined, () => implement())
     expect(bare).toBe(await building(undefined))
+  })
+
+  it("a rebuild quotes the refactor note and names the naive acceptance tests to carry over", async () => {
+    const prompt = await building("abc", undefined, undefined, () =>
+      implement({
+        reference: "abc",
+        rebuild: {
+          note: "# Note\n\nSeam: a shared op",
+          acceptance: { hash: "abc", tests: ["src/a.test.ts"], ids: ["AC-1"] },
+        },
+        // The fixture's turn carries no test, so the acceptance guard refuses it after the prompt.
+      }).catch(() => undefined),
+    )
+    expect(prompt).toContain("  > Seam: a shared op")
+    expect(prompt).toContain("acceptance tests for AC-1")
+    expect(prompt).toContain("git show abc -- 'src/a.test.ts'")
+  })
+
+  it("a rebuild whose naive tests named no ID asks to carry nothing over", async () => {
+    const prompt = await building("abc", undefined, undefined, () =>
+      implement({ reference: "abc", rebuild: { acceptance: { hash: "abc", tests: [], ids: [] } } }),
+    )
+    expect(prompt).not.toContain("Carry over")
+    expect(prompt).not.toContain("refactor note")
   })
 
   it("names the reference with a git show line", async () => {

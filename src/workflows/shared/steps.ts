@@ -12,6 +12,7 @@ export const ESCALATION = ".gtd/ESCALATION.md"
 export const REQUIREMENTS = ".gtd/REQUIREMENTS.md"
 export const REVIEW = ".gtd/REVIEW.md"
 export const REFACTOR = ".gtd/REFACTOR.md"
+export const REFACTOR_NOTE = ".gtd/REFACTOR-NOTE.md"
 export const QUALITY = ".gtd/QUALITY.md"
 
 export const planner = (): string => env.plannerModel ?? ""

@@ -4,9 +4,9 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
 
   With GTD_FLAG_RISK_TIER off, a refactor-first
   refactor can land everything the requirements ask for. The feature slice's
-  implement turn then has nothing to author: its empty turn completes the
-  step, and with no code changed since the refactor the feature slice's
-  quality lap covers the whole change, refactor included.
+  implement turn then has only the naive pass's acceptance tests to carry
+  over, and with no code but tests changed since the refactor the feature
+  slice's quality lap covers the whole change, refactor included.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -42,7 +42,7 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
       """
     And step "design.gate.answer" changes nothing
 
-  Scenario: an empty implement turn after a refactor that did it all reaches the quality lap and idle
+  Scenario: a tests-only implement turn after a refactor that did it all reaches the quality lap and idle
     Given step "seam.check" changes nothing
     And step "seam.naive" writes "src/acceptance.test.ts" with:
       """
@@ -56,6 +56,10 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
     And judge step "seam.judge" answers:
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
+      """
+    And step "seam.note" writes ".gtd/REFACTOR-NOTE.md" with:
+      """
+      Seam: the existing code the strays touch.
       """
     And step "refactor.deriving" runs its script
     And step "refactor.building" writes "src/calc.ts" with:
@@ -91,7 +95,10 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
       - [x] ./src/calc.ts#1-2
         subtract next to add
       """
-    And step "implement.building" changes nothing
+    And step "implement.building" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
     And judge step "implement.coverage" answers:

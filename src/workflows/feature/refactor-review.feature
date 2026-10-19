@@ -66,6 +66,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
       """
+    And step "seam.note" writes ".gtd/REFACTOR-NOTE.md" with:
+      """
+      Seam: the existing code the strays touch.
+      """
     And step "refactor.deriving" runs its script
     And step "refactor.building" writes "src/calc.ts" with:
       """
@@ -155,6 +159,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
       """
+    And step "seam.note" writes ".gtd/REFACTOR-NOTE.md" with:
+      """
+      Seam: the existing code the strays touch.
+      """
     And step "refactor.deriving" runs its script
     And step "refactor.building" writes "src/calc.ts" with:
       """
@@ -242,6 +250,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       And judge step "seam.judge" answers:
         """
         [{"id":"shape","answer":"refactor-first","p":0.9}]
+        """
+      And step "seam.note" writes ".gtd/REFACTOR-NOTE.md" with:
+        """
+        Seam: the existing code the strays touch.
         """
       And step "refactor.deriving" runs its script
       And step "refactor.building" writes "src/calc.ts" with:
@@ -344,6 +356,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         export const op = (a: number, b: number, sign: number) => a + sign * b
         export const add = (a: number, b: number) => op(a, b, 1)
         export const subtract = (a: number, b: number) => op(a, b, -1)
+        """
+      And step "implement.building" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
         """
       And step "implement.health.check" changes nothing
       And step "implement.closing" runs its script
@@ -638,6 +654,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         export const add = (a: number, b: number) => op(a, b, 1)
         export const subtract = (a: number, b: number) => op(a, b, -1)
         """
+      And step "implement.building" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
+        """
       And step "implement.health.check" changes nothing
       And step "implement.closing" runs its script
       And judge step "implement.coverage" answers:
@@ -716,6 +736,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         export const op = (a: number, b: number, sign: number) => a + sign * b
         export const add = (a: number, b: number) => op(a, b, 1)
         export const subtract = (a: number, b: number) => op(a, b, -1)
+        """
+      And step "implement.building" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
         """
       And step "implement.health.check" changes nothing
       And step "implement.closing" runs its script
@@ -983,6 +1007,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         export const add = (a: number, b: number) => op(a, b, 1)
         export const subtract = (a: number, b: number) => op(a, b, -1)
         """
+      And step "implement.building" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
+        """
       And step "implement.health.check" changes nothing
       And step "implement.closing" runs its script
       And judge step "implement.coverage" answers:
@@ -1065,6 +1093,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         export const op = (a: number, b: number, sign: number) => a + sign * b
         export const add = (a: number, b: number) => op(a, b, 1)
         export const subtract = (a: number, b: number) => op(a, b, -1)
+        """
+      And step "implement.building" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
         """
       And step "implement.health.check" changes nothing
       And step "implement.closing" runs its script
@@ -1212,6 +1244,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
         [{"id":"shape","answer":"refactor-first","p":0.9}]
         """
+      And step "seam.note" writes ".gtd/REFACTOR-NOTE.md" with:
+        """
+        Seam: the existing code the strays touch.
+        """
       And step "refactor.deriving" runs its script
       And step "refactor.building" writes "src/calc.ts" with:
         """
@@ -1236,13 +1272,17 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
     Scenario: each slice's quality lap reviews from that slice's base
       When the process is driven
       Then the process rests at "refactor.build.quality.correctness.reviewing"
-      And the resting step's content contains the hash of the commit "gtd(judge): seam.judge → refactor.deriving"
+      And the resting step's content contains the hash of the commit "gtd(agent): seam.note → refactor.deriving"
       Given step "refactor.build.quality.correctness.reviewing" changes nothing
       And step "implement.building" writes "src/calc.ts" with:
         """
         export const op = (a: number, b: number, sign: number) => a + sign * b
         export const add = (a: number, b: number) => op(a, b, 1)
         export const subtract = (a: number, b: number) => op(a, b, -1)
+        """
+      And step "implement.building" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds", () => {})
         """
       And step "implement.health.check" changes nothing
       And step "implement.closing" runs its script
@@ -1317,6 +1357,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       And judge step "seam.judge" answers:
         """
         [{"id":"shape","answer":"refactor-first","p":0.9}]
+        """
+      And step "seam.note" writes ".gtd/REFACTOR-NOTE.md" with:
+        """
+        Seam: the existing code the strays touch.
         """
 
     Scenario: a test-file stray is dropped from the derived refactor package

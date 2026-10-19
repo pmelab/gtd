@@ -619,7 +619,9 @@ naive pass's kept tip (`kept(name)?.hash`; blank counts as none): the building
 prompt names `git show <reference> -- <strays>` as reading material only and
 forbids applying it, and names that diff's changes to existing code as the seam
 the refactor must land — a refactor touching none of it is wrong; omitted, it
-carries no reference line.
+carries no reference line. `note` is the refactor note's text (blank counts as
+none): the package carries it under `## Refactor note`, headings demoted, and
+the building prompt tells the turn to build exactly the seams it names.
 
 `refactorFirst` is the refactor alone. The shipped flow runs `reviewedRefactor`,
 which is `refactorFirst` plus the refactor's quality lap and review inside the
@@ -795,8 +797,14 @@ order:
    in the tree, with no build turn and no release flag, and the health loop
    follows. A pass that no longer applies writes `.gtd/FEEDBACK.md` and falls
    back to `implement.building`, built fresh from it as below; so does one with
-   nothing outside `.gtd/` to apply. `refactor-first` runs the refactor and its
-   review as the `refactor` slice: `refactor.*`, then the refactor's quality lap
+   nothing outside `.gtd/` to apply. `refactor-first` never applies the pass:
+   first `seam.note`, an agent turn, reads the whole naive diff and writes
+   `.gtd/REFACTOR-NOTE.md` — which seams the refactor opens and the shape each
+   takes. A note turn that changes any other path, or leaves the note empty, is
+   refused (`refactor-note`). Then the refactor and its review run as the
+   `refactor` slice, flag-free and behaviour-neutral, landing on their own with
+   the existing suite green: `refactor.*` (its package carries the note under
+   `## Refactor note`), then the refactor's quality lap
    (`refactor.build.quality.<lens>`, one per
    [`refactorQualityReviews`](#the-bundled-workflows-settings) lens) and a human
    review (`refactor.build.review.*`). The review's sign-off is the approval; no
@@ -806,37 +814,49 @@ order:
    and red checks share one budget: two retries, then `seam.steer`.
 5. `implement.*` — after a refactor (or a pass that no longer applies), one
    build turn that reads the kept pass as material only; after `land`, the
-   applied pass. Then the health loop (`implement.health.*`,
-   `implement.fix.suite.fixing`), the
+   applied pass. After a refactor the build turn is the rebuild: its prompt
+   quotes the refactor note and names the naive pass's acceptance tests
+   (`git show <tip> -- <tests>`) to carry over, and `gtd land` refuses it
+   (`rebuild-acceptance`) while the test files changed since the refactor leave
+   out an `AC-<n>` the naive pass's tests named on an added line. The check
+   reads test text; the health loop that follows is what runs them green. Then
+   the health loop (`implement.health.*`, `implement.fix.suite.fixing`), the
    [coverage judge](#acceptance-criteria-coverage) (`implement.coverage`) and
-   `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. A build turn is
-   asked for a new release flag. The feature's quality lap
-   (`build.quality.<lens>`) follows, and the process ends at `idle`: there is no
-   feature review, and no human signs the finished change off unless someone
-   opens the [`review` door](#doors). Findings the quality fix cap leaves in
-   `.gtd/QUALITY.md` rest at `build.quality-unresolved`, a human step, until the
-   file is deleted or emptied; the health loop then checks any hand edits. After
-   a `refactor` slice the build turn may change nothing — the refactor already
-   carried the whole feature — and that empty turn completes the step. A feature
-   slice that changed nothing outside `.gtd/` has its quality lap cover the
-   whole change from the process start, refactor included.
+   `implement.closing`, which removes `.gtd/REQUIREMENTS.md` (and
+   `.gtd/REFACTOR-NOTE.md`, when there is one). A build turn is asked for a new
+   release flag. The feature's quality lap (`build.quality.<lens>`) follows, and
+   the process ends at `idle`: there is no feature review, and no human signs
+   the finished change off unless someone opens the [`review` door](#doors).
+   Findings the quality fix cap leaves in `.gtd/QUALITY.md` rest at
+   `build.quality-unresolved`, a human step, until the file is deleted or
+   emptied; the health loop then checks any hand edits. After a `refactor` slice
+   the build turn may change nothing but the carried-over tests — the refactor
+   already carried the whole feature — and an empty turn completes the step when
+   the naive pass's tests named no ID. A feature slice that changed no code but
+   test files has its quality lap cover the whole change from the process start,
+   refactor included.
 
 Every verdict wraps step 5 and its quality lap in the `feature` slice
 (`gtd slices` lists it); `refactor-first` adds the `refactor` slice ahead of it.
 Each slice's quality lap reviews from that slice's own base: the refactor's from
 its entry commit, the feature's from the refactor's sign-off. The one exception
-is a feature slice that changed no code (step 5): its quality lap covers the
-whole change from the process start. A custom workflow ending in `afterTail`
-keeps a feature review; feedback there re-runs design and `implement.*` (a build
-turn, never `implement.applying`), never the seam. `seam.naive` and `seam.judge`
-never run again once judged, so a seam a re-plan turns up is built unjudged and
-unrefactored; a wrong or missing refactor means `gtd abandon` and a restart.
+is a feature slice that changed no code but tests (step 5): its quality lap
+covers the whole change from the process start. A custom workflow ending in
+`afterTail` keeps a feature review; feedback there re-runs design and
+`implement.*` (a build turn, never `implement.applying`), never the seam.
+`seam.naive` and `seam.judge` never run again once judged, so a seam a re-plan
+turns up is built unjudged and unrefactored; a wrong or missing refactor means
+`gtd abandon` and a restart.
 
 **Upgrading:** finish or `gtd abandon` before upgrading any process whose seam
 judge ruled `land`, that overruled a reject at `seam.steer`, or — with
 `flagMode` off — that has passed `design.gate.answer`: their history names
 `implement.building` where the flow now reaches `seam.naive` or
 `implement.applying`, and replay refuses it as divergence.
+
+**Upgrading:** finish or `gtd abandon` any process whose seam judge ruled
+`refactor-first`: replay now expects `seam.note` after the verdict where its
+history names `refactor.deriving`, and refuses it as divergence.
 
 A review note at the refactor review is collected into `.gtd/REFACTOR.md`, and
 `refactor.deriving` runs again with the notes under `## Review feedback` — never
@@ -900,6 +920,9 @@ folds into `.gtd/REFACTOR.md` only when it asks for a change.
   (`land`, an overruled `reject`, or `flagMode` off, where it runs no judge);
   pass its `reference` on as `implement({ naive: reference })` to apply it at
   `implement.applying`. Without `naive`, `implement` builds fresh as before.
+- On `refactor-first`, `seamBuild(base)` also resolves `rebuild` (the refactor
+  note and the naive pass's acceptance tests); pass it on as
+  `implement({ rebuild })` to quote the note and enforce `rebuild-acceptance`.
 
 With `GTD_FLAG_RISK_TIER` on, `design.triage` proposes a risk tier (`low` or
 `high`, with a one-line reason) under `## Risk Tier` and the signals to watch

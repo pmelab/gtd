@@ -1,7 +1,9 @@
 import { posix } from "node:path"
 import {
+  agent,
   applyScript,
   changes,
+  changesSince,
   check,
   codeChanges,
   env,
@@ -11,6 +13,7 @@ import {
   kept,
   quote,
   read,
+  refuse,
   removeScript,
   run,
   scope,
@@ -21,7 +24,7 @@ import {
   type DiffShapeResult,
   type KeptTip,
 } from "../../flows/index.js"
-import { coder, FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
+import { coder, FEEDBACK, REFACTOR_NOTE, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
 import { green, requireCoverage } from "./coverage.js"
@@ -131,6 +134,39 @@ export const acceptanceFault = (file: string, tip: KeptTip): string | undefined 
   return undefined
 }
 
+const acceptanceTests = (changes: readonly Change[]): readonly Change[] =>
+  changes.filter((c) => c.after !== undefined && isCode(c.path) && isTestFile(c.path))
+
+/** The criterion IDs of `file` that `changes`' test files name on an added line. */
+const namedIds = (file: string, changes: readonly Change[]): string[] => {
+  const lines = acceptanceTests(changes).map(addedLines)
+  return (criteriaOf(read(file) ?? "") ?? [])
+    .map((c) => c.id)
+    .filter((id) => id !== "" && lines.some((text) => named(id, text)))
+}
+
+/** What a rebuild carries over from the naive pass `tip`: the IDs its tests name, and those test files. */
+export const naiveAcceptance = (tip: KeptTip): NonNullable<t.Rebuild["acceptance"]> => {
+  const ids = namedIds(REQUIREMENTS, tip.changes)
+  const tests = acceptanceTests(tip.changes)
+    .filter((c) => ids.some((id) => named(id, addedLines(c))))
+    .map((c) => c.path)
+  return { hash: tip.hash, tests, ids }
+}
+
+/** Refuse a rebuild whose test changes since `since` leave out an ID the naive pass's tests named. */
+export const requireAcceptance = (
+  acceptance: NonNullable<t.Rebuild["acceptance"]>,
+  since: string,
+): void => {
+  const carried = new Set(namedIds(REQUIREMENTS, changesSince(since)))
+  const missing = acceptance.ids.filter((id) => !carried.has(id))
+  if (missing.length === 0) return
+  refuse(
+    `gtd land: rebuild-acceptance: the rebuild's tests leave out ${missing.join(", ")} — carry over the naive pass's acceptance tests (\`git show ${acceptance.hash} -- ${acceptance.tests.map(quote).join(" ")}\`), each with its ID in the test or scenario name`,
+  )
+}
+
 const restore = (path: string): string =>
   `if git cat-file -e ${quote(`HEAD:${path}`)} 2>/dev/null; then git checkout -q HEAD -- ${quote(path)}; else rm -f -- ${quote(path)}; fi`
 
@@ -174,6 +210,8 @@ export interface ImplementOptions {
   readonly afterRefactor?: boolean | undefined
   /** A kept naive tip to apply as the implementation; built fresh only when it no longer applies. */
   readonly naive?: string | undefined
+  /** A rebuild after a refactor-first judgment: the note it plugs into, the acceptance tests it must carry. */
+  readonly rebuild?: t.Rebuild | undefined
 }
 
 /** Resolves `false` when the tip no longer applies (the failure is in `.gtd/FEEDBACK.md`) or has nothing outside `.gtd/` to apply. */
@@ -199,7 +237,9 @@ export function implement(
   const options: ImplementOptions =
     typeof first === "object" && first !== null ? first : { reference: first, tier, amend }
   return scope("implement", async () => {
-    if (options.naive === undefined || !(await applied(options.naive)))
+    const since = head()
+    const acceptance = options.rebuild?.acceptance
+    if (options.naive === undefined || !(await applied(options.naive))) {
       await t.agentWithSkills(
         "building",
         t.implementBuildingPrompt(
@@ -208,6 +248,7 @@ export function implement(
           options.amend,
           options.afterRefactor,
           flagModeOn(),
+          options.rebuild,
         ),
         {
           label: "Implementing",
@@ -216,15 +257,21 @@ export function implement(
           ...(options.afterRefactor === true ? { allowEmpty: true } : {}),
         },
       )
+      if (acceptance !== undefined) requireAcceptance(acceptance, since)
+    }
     requireCriteriaFrozen(REQUIREMENTS)
     await green()
     await requireCoverage()
-    await run("closing", removeScript([REQUIREMENTS]), { label: "Closing out the implementation" })
+    const notes = read(REFACTOR_NOTE) === undefined ? [] : [REFACTOR_NOTE]
+    await run("closing", removeScript([REQUIREMENTS, ...notes]), {
+      label: "Closing out the implementation",
+    })
   })
 }
 
 interface Decision {
   readonly reference: string
+  readonly tip: KeptTip
   /** Absent on `land` (or with `flagMode` off, unjudged): the pass itself is the implementation. */
   readonly shape?: DiffShapeResult
 }
@@ -286,10 +333,10 @@ const vetted = async (tip: KeptTip, vetting: Vetting): Promise<Verdict | undefin
 /** The judge's ruling on a vetted pass: the decision, or the next attempt's verdict. */
 const ruled = async (tip: KeptTip, again: Vetting["again"]): Promise<Decision | Verdict> => {
   const shape = await judgeSeam(tip)
-  if (shape.choice === "land") return { reference: tip.hash }
-  if (shape.choice === "refactor-first") return { reference: tip.hash, shape }
+  if (shape.choice === "land") return { reference: tip.hash, tip }
+  if (shape.choice === "refactor-first") return { reference: tip.hash, tip, shape }
   const next = await again({ strays: shape.strays, p: shape.judgment?.answers.shape?.p ?? 0 })
-  return next.kind === "overruled" ? { reference: tip.hash } : next
+  return next.kind === "overruled" ? { reference: tip.hash, tip } : next
 }
 
 const decide = (): Promise<Decision> =>
@@ -301,7 +348,7 @@ const decide = (): Promise<Decision> =>
       const tip = kept("naive")!
       const outcome =
         (await vetted(tip, vetting)) ??
-        (flagModeOn() ? await ruled(tip, vetting.again) : { reference: tip.hash })
+        (flagModeOn() ? await ruled(tip, vetting.again) : { reference: tip.hash, tip })
       if (!("kind" in outcome)) return outcome
       retry = outcome.kind === "retry" ? outcome.retry : undefined
     }
@@ -315,10 +362,34 @@ export interface SeamOutcome {
   /** The feature slice's base: HEAD after the refactor on refactor-first, else the caller's base. */
   readonly base: string
   readonly refactored?: boolean
+  /** Set on refactor-first: what the rebuild carries over from the naive pass. */
+  readonly rebuild?: t.Rebuild
+}
+
+/** Write the refactor note from the whole naive pass; a turn that changes anything else is refused. */
+export const refactorNote = async (
+  reference: string,
+  strays: readonly string[],
+): Promise<string> => {
+  await agent("note", t.refactorNotePrompt(reference, strays), {
+    label: "Writing the refactor note",
+    file: REFACTOR_NOTE,
+    model: coder(),
+    system: t.builderSystem(),
+  })
+  const others = changes()
+    .map((c) => c.path)
+    .filter((path) => path !== REFACTOR_NOTE)
+  const note = read(REFACTOR_NOTE) ?? ""
+  if (others.length > 0 || note.trim() === "")
+    refuse(
+      `gtd land: refactor-note: write ${REFACTOR_NOTE} and change nothing else${others.length > 0 ? ` — revert these:\n${others.map((path) => `  - ${path}`).join("\n")}` : ""}`,
+    )
+  return note
 }
 
 export const seamBuild = async (base: string): Promise<SeamOutcome> => {
-  const { reference, shape } = await decide()
+  const { reference, tip, shape } = await decide()
   if (shape === undefined) return { reference, base, land: true }
   if (shape.unreadable.length > 0) {
     await scope("seam", () =>
@@ -330,7 +401,14 @@ export const seamBuild = async (base: string): Promise<SeamOutcome> => {
     )
     return { reference, base }
   }
-  if (refactorStrays(shape).length === 0) return { reference, base }
-  const refactored = await slice("refactor", () => reviewedRefactor(shape, { reference }))
-  return { reference, base: head(), refactored }
+  const strays = refactorStrays(shape)
+  if (strays.length === 0) return { reference, base }
+  const note = await scope("seam", () => refactorNote(reference, strays))
+  const refactored = await slice("refactor", () => reviewedRefactor(shape, { reference, note }))
+  return {
+    reference,
+    base: head(),
+    refactored,
+    rebuild: { note, acceptance: naiveAcceptance(tip) },
+  }
 }
