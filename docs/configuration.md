@@ -698,15 +698,16 @@ test or a command. Every later step re-reads them from the file.
   renumber. The design gate settles them.
 - **Skip path.** When the sketch adds or changes a list under an
   `Acceptance criteria` heading (any level, trailing `:` allowed) in exactly one
-  `TODO.md` (any directory), `design.clear` asks a judge whether every criterion
-  is clear and checkable. `yes` at `p` ≥ 0.8, with no evidence truncated, runs
-  `design.normalise`: a script writes the list to `.gtd/REQUIREMENTS.md` as
-  `AC-1`, `AC-2`, … (or keeps the sketch's own `AC-<n>` IDs when every item has
-  a distinct one), with a `git show` pointer to the sketch, and the process goes
-  straight to `seam.naive` — no triage, no design gate. Anything else, including
-  one vague criterion, falls back to `design.triage`. A sketch with no such list
-  skips the judge. With `GTD_FLAG_RISK_TIER` on there is no skip path: the tier
-  is proposed at triage and set at the design gate.
+  `TODO.md` (any directory) and changes nothing else, `design.clear` asks a
+  judge whether every criterion is clear and checkable. `yes` at `p` ≥ 0.8, with
+  no evidence truncated, runs `design.normalise`: a script writes the list to
+  `.gtd/REQUIREMENTS.md` as `AC-1`, `AC-2`, … (or keeps the sketch's own
+  `AC-<n>` IDs when every item has a distinct one), with a `git show` pointer to
+  the sketch, and the process goes straight to `seam.naive` — no triage, no
+  design gate. Anything else, including one vague criterion, falls back to
+  `design.triage`. A sketch with no such list skips the judge. With
+  `GTD_FLAG_RISK_TIER` on there is no skip path: the tier is proposed at triage
+  and set at the design gate.
 - **Frozen.** After design only another design lap (review feedback) changes
   them: `gtd land` refuses an `implement.building` or
   `implement.fix.suite.fixing` turn that edits them (`criteria-frozen`).

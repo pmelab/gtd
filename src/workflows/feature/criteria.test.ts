@@ -24,7 +24,7 @@ describe("criteriaOf", () => {
   it("skips fenced lines, reads an indented item, and stops at a subheading", () => {
     expect(
       criteriaOf(
-        "## Acceptance Criteria\n\n- AC-1: runs\n\n```sh\n# setup\n- key: v\n```\n  - AC-2: two\n\n### Notes\n\n- note\n",
+        "## Acceptance Criteria\n\n- AC-1: runs\n\n```sh\n# setup\n- key: v\n```\n - AC-2: two\n\n### Notes\n\n- note\n",
       ),
     ).toEqual([
       { id: "AC-1", text: "runs" },
@@ -38,6 +38,14 @@ describe("criteriaOf", () => {
         "### Acceptance criteria\n\n- x\n\n## Acceptance Criteria\n\n- AC-1: exits 2 when the config\nfile is missing\n",
       ),
     ).toEqual([{ id: "AC-1", text: "exits 2 when the config file is missing" }])
+  })
+
+  it("folds a nested sub-bullet into its criterion", () => {
+    expect(
+      criteriaOf(
+        "## Acceptance Criteria\n\n- AC-1: exits 2 when config is bad\n  - missing file\n",
+      ),
+    ).toEqual([{ id: "AC-1", text: "exits 2 when config is bad - missing file" }])
   })
 
   it("is undefined without the section", () => {
@@ -66,7 +74,7 @@ describe("statedCriteria", () => {
     ])
   })
 
-  it("ignores a list the sketch left unchanged, a file other than TODO.md, and an ambiguous pair", () => {
+  it("ignores a list the sketch left unchanged, a file other than TODO.md, a sketch with more in it, and an ambiguous pair", () => {
     const list = "## Acceptance criteria\n\n- a\n"
     expect(
       statedCriteria(
@@ -88,6 +96,9 @@ describe("statedCriteria", () => {
       ),
     ).toBeUndefined()
     expect(statedCriteria([added("docs/guide.md", list)], "abc")).toBeUndefined()
+    expect(
+      statedCriteria([added("TODO.md", list), added("src/a.ts", "x\n")], "abc"),
+    ).toBeUndefined()
     expect(
       statedCriteria([added("TODO.md", list), added(".gtd/TODO.md", list)], "abc"),
     ).toBeUndefined()

@@ -30,7 +30,7 @@ export interface StatedCriteria {
 const CLEAR_MIN_P = 0.8
 
 const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/
-const ITEM = /^ {0,3}(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.*)$/
+const ITEM = /^ ?(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.*)$/
 const ID = /^(AC-\d+):\s*(.*)$/
 
 /** The list items under the first heading `title` matches (at `level` when given), up to the next heading; wrapped lines joined, fenced lines ignored. */
@@ -90,7 +90,8 @@ const statedItems = (text: string | undefined): string[] =>
 /**
  * The criteria a `TODO.md` in the sketch `sketch` (the idle turn's changes)
  * added or changed under an `Acceptance criteria` heading. More than one such
- * file is ambiguous, so none.
+ * file is ambiguous, and any other change in the sketch is input only triage
+ * folds in, so none.
  */
 export const statedCriteria = (
   sketch: readonly Change[],
@@ -102,7 +103,7 @@ export const statedCriteria = (
     if (items.length === 0 || items.join("\n") === statedItems(change.before).join("\n")) return []
     return [{ path: change.path, commit, text: change.after, criteria: numbered(items) }]
   })
-  return found.length === 1 ? found[0] : undefined
+  return found.length === 1 && sketch.length === 1 ? found[0] : undefined
 }
 
 const listing = (criteria: readonly Criterion[]): string => criteria.map(t.criterionLine).join("\n")

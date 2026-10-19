@@ -125,10 +125,10 @@ per criterion, numbered from \`AC-1\`. They bind every later step —
 the build is done when each one holds — so each must be checkable: a
 test or a command shows it holds or not. A later lap keeps every ID:
 reword a criterion in place, append a new one with the next unused
-number, delete a dropped one — never renumber, never reuse an ID. On a
-review loop-back the build already removed the file: recover the last
-settled list from history (\`git log -p -- .gtd/REQUIREMENTS.md\`) and
-carry its IDs over. Landing is refused while a criterion has no ID or
+number, delete a dropped one — never renumber, never reuse an ID. When
+the file holds no list (a review loop-back rewrites it), recover the
+last settled one from history (\`git log -p -- .gtd/REQUIREMENTS.md\`)
+and carry its IDs over. Landing is refused while a criterion has no ID or
 two share one.
 `
 
