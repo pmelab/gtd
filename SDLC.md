@@ -52,6 +52,17 @@ turns:
 The third reject, test fault or red check rests at `seam.steer`, where a human
 steers or overrules.
 
+## Coarse slices
+
+**A change with more criteria than `sliceMaxCriteria` (8) is built in slices.**
+After design, `design.slicing` groups related criteria into `.gtd/SLICES.md`, at
+most the cap per slice and as few slices as it allows. Each slice runs the whole
+path above — naive pass, then land or refactor and rebuild, then the health loop
+and quality lap — in order, from where the previous one landed, as its own
+`feature-<n>` slice (`refactor-<n>` ahead of it when refactored). A change
+within the cap is one `feature` slice. See
+[Coarse slices](docs/configuration.md#coarse-slices).
+
 ## Acceptance-criteria coverage
 
 **A feature is done only when every `AC-<n>` has a passing test.** Once the
@@ -68,13 +79,14 @@ rests for a human, who adds tests or overrules; an overrule records
 Each gate is a point where a person must act before work continues.
 
 - `feature`: design only; a refactor review sign-off only on judge
-  `refactor-first`. **1 gate, or 2 on `refactor-first`** (design, refactor
-  review). **No human review of the finished change**: the process ends when its
-  last slice lands, after the quality lap. Review it through the `review` door
-  (`gtd door review <commitish>`), started by hand. Overrule at `seam.steer`
-  passes no seam gate. **A sketch whose own acceptance criteria `design.clear`
-  judges clear and checkable passes no design gate**: one gate fewer — none at
-  all on `land` — and the criteria's author is whoever wrote the sketch.
+  `refactor-first`. **1 gate, plus 1 per slice judged `refactor-first`**
+  (design, refactor review). **No human review of the finished change**: the
+  process ends when its last slice lands, after the quality lap. Review it
+  through the `review` door (`gtd door review <commitish>`), started by hand.
+  Overrule at `seam.steer` passes no seam gate. **A sketch whose own acceptance
+  criteria `design.clear` judges clear and checkable passes no design gate**:
+  one gate fewer — none at all on `land` — and the criteria's author is whoever
+  wrote the sketch.
 - `cleanup`, `fix`, `review`: review sign-off only.
 - `rollout`: **no human gate** — the green suite and the `rollout-only` refusal
   are its only control.
@@ -142,6 +154,8 @@ Each path has a `.feature` file:
   and pass
 - [`src/workflows/feature/coverage.feature`](src/workflows/feature/coverage.feature):
   the coverage judge, its covering turns and the human overrule
+- [`src/workflows/feature/slicing.feature`](src/workflows/feature/slicing.feature):
+  criteria above the cap grouped into slices built in order
 - [`src/workflows/feature/fast-path.feature`](src/workflows/feature/fast-path.feature):
   a trivial fix takes the same few beats at either risk tier
 

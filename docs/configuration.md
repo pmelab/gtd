@@ -858,6 +858,50 @@ covers the whole change from the process start. A custom workflow ending in
 turns up is built unjudged and unrefactored; a wrong or missing refactor means
 `gtd abandon` and a restart.
 
+### Coarse slices
+
+A change with more `AC-<n>` criteria than
+[`sliceMaxCriteria`](#the-bundled-workflows-settings) (8 by default) is built in
+slices. Once design settled the criteria (the design gate, or the skip path),
+`design.slicing`, an agent turn, writes `.gtd/SLICES.md`: one `## <title>`
+heading per slice over one `- AC-<n>` item per criterion, related criteria
+together, as few slices as the cap allows, in the order they build on each
+other:
+
+```md
+# Slices
+
+## Parsing
+
+- AC-1
+- AC-3
+
+## Output
+
+- AC-2
+```
+
+`gtd land` refuses the turn (`slices`) while the file has no slice, a slice with
+no criterion, an item not led by an ID, a slice over the cap, an ID twice, an ID
+`.gtd/REQUIREMENTS.md` does not list, or a criterion in no slice.
+
+Each slice then runs the [naive-pass path](#the-naive-pass-path) in order, from
+where the previous one landed, held to its own IDs only: `seam.naive` and the
+build turn are told which IDs are theirs, `acceptance-tests` and
+`rebuild-acceptance` ask only for those, and `implement.coverage` judges only
+those, over the tests changed since the slice began. A slice's
+`implement.closing` keeps `.gtd/REQUIREMENTS.md` and `.gtd/SLICES.md` for the
+next one; the last removes both. Slices are named `feature-<n>`, with
+`refactor-<n>` ahead of one the seam judge sent to a refactor. A change within
+the cap runs no slicing turn and keeps the single `feature` (and `refactor`)
+slice.
+
+**Upgrading:** finish or `gtd abandon` any process past design whose
+`.gtd/REQUIREMENTS.md` lists more than 8 criteria: replay now expects
+`design.slicing` there and refuses its history as divergence. To keep building
+such changes in one slice, raise the cap:
+`feature({ sliceMaxCriteria: "100" })`.
+
 **Upgrading:** finish or `gtd abandon` before upgrading any process whose seam
 judge ruled `land`, that overruled a reject at `seam.steer`, or — with
 `flagMode` off — that has passed `design.gate.answer`: their history names
@@ -1814,6 +1858,11 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   no brace alternation (`{a,b}` splits at the comma). A file the pass newly adds
   is allowed by its exact path, never as a glob: a new `src/a*.ts` does not
   cover a modified `src/a.ts`.
+- **`sliceMaxCriteria`** (`8`) — the most acceptance criteria one slice builds.
+  A change with more is grouped into [coarse slices](#coarse-slices) by
+  `design.slicing`; one within it runs no slicing turn. Must be a positive
+  integer; anything else refuses the landing that reads it. Pinned at process
+  start.
 - **`flagMode`** (`true`) — whether the project ships changes behind release
   flags. Set it explicitly, as the factory option `feature({ flagMode: false })`
   (or `--var flagMode=false`, `GTD_FLAGMODE=false`); gtd never detects it. Any

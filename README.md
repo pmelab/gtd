@@ -638,6 +638,15 @@ out is `gtd abandon`. A process from 27.5.0 or later whose judge ruled
 that slice. Details in
 [the naive-pass path](docs/configuration.md#the-naive-pass-path).
 
+**Coarse slices (`sliceMaxCriteria`, default 8).** A change with more acceptance
+criteria than the cap is built in slices: after design an agent groups related
+criteria (same flow or subsystem) into `.gtd/SLICES.md`, as few slices as the
+cap allows, and each slice — naive pass, refactor and rebuild when judged so,
+health loop, quality lap — runs in order from where the previous one landed.
+`gtd slices` lists them as `feature-1`, `feature-2`, … (`refactor-<n>` ahead of
+a refactored one). A change within the cap is one `feature` slice, as before.
+See [Coarse slices](docs/configuration.md#coarse-slices).
+
 **Flag mode (`flagMode`, on by default).** On, the naive pass's judge runs as
 above and a rebuilt implementation is asked for a new release flag (none at a
 `low` risk tier); a pass the judge lets land is not asked for one. A project

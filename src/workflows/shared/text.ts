@@ -290,6 +290,29 @@ printf '%s\\n' ${lines.map(quote).join(" ")} > ${quote(".gtd/REQUIREMENTS.md")}
 `
 }
 
+export const slicingPrompt = (cap: number): string =>
+  `${stateFileRules}
+- Read \`.gtd/REQUIREMENTS.md\`: its \`## Acceptance Criteria\` are settled
+  and more than ${cap}, too many to build in one slice
+- Group them into slices in \`.gtd/SLICES.md\`, one \`## <title>\` heading per
+  slice over a \`- AC-<n>\` list item per criterion it builds. Put criteria of
+  the same flow or subsystem together; every criterion in exactly one slice,
+  at most ${cap} per slice
+- Keep it coarse: as few slices as the cap allows, never one per criterion
+- Order the slices so each builds on the ones before: they run in that order,
+  each from where the previous one landed
+- Change nothing but \`.gtd/SLICES.md\` — leave the criteria as they are
+- Leave everything uncommitted and finish your turn — do not commit
+`
+
+/** The line telling a slice's turn which criteria are its own; empty for a single slice. */
+const sliceLine = (ids: readonly string[] | undefined): string =>
+  ids === undefined
+    ? ""
+    : `- This slice builds ${ids.join(", ")} only; other criteria are for other slices,
+  before or after it. Leave them alone: hold this slice's to every rule below
+`
+
 export const designSystem = (): string =>
   `${designPersona}
 
@@ -1203,11 +1226,11 @@ ${listed(retry.strays)}
 Start over and choose a different approach; do not rebuild the same diff.
 `
 
-export const naivePassPrompt = (retry?: NaiveRetry): string =>
+export const naivePassPrompt = (retry?: NaiveRetry, slice?: readonly string[]): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
 ${criteriaBinding(false)}
-- Implement them the quickest way that works — the naive version. Do not
+${sliceLine(slice)}- Implement them the quickest way that works — the naive version. Do not
   restructure, abstract or refactor around the change; it may land exactly as
   you leave it, and a reviewer makes it fit
 - Work breadth-first: rough out every part of the change before finishing any
@@ -1296,11 +1319,12 @@ export const implementBuildingPrompt = (
   afterRefactor?: boolean,
   flagMode = true,
   rebuild: Rebuild = {},
+  slice?: readonly string[],
 ): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
 ${criteriaBinding(true)}
-${afterRefactor === true ? afterRefactorLine(rebuild) : ""}${
+${sliceLine(slice)}${afterRefactor === true ? afterRefactorLine(rebuild) : ""}${
     amend === true
       ? `- The change already exists in the tree from an earlier lap; amend it to meet
   the re-derived requirements instead of rewriting it

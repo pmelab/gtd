@@ -51,13 +51,16 @@ const testsSince = (base: string): string =>
 
 /**
  * The criterion IDs of `.gtd/REQUIREMENTS.md` — read afresh, never carried
- * over — no passing test since `base` covers, by the judge.
+ * over, only `slice`'s when given — no passing test since `base` covers, by the judge.
  */
 const uncoveredSince = async (
   base: string,
+  slice: readonly string[] | undefined,
 ): Promise<{ readonly covered: string[]; readonly uncovered: string[] }> => {
   const requirements = read(REQUIREMENTS) ?? ""
-  const criteria = (criteriaOf(requirements) ?? []).filter((c) => c.id !== "")
+  const criteria = (criteriaOf(requirements) ?? []).filter(
+    (c) => c.id !== "" && (slice === undefined || slice.includes(c.id)),
+  )
   if (criteria.length === 0) return { covered: [], uncovered: [] }
   const { answers } = await judge("coverage", {
     questions: criteria.map(t.coverageQuestion),
@@ -81,10 +84,10 @@ const record = (covered: readonly string[], uncovered: readonly string[] = []): 
  * sending uncovered IDs back to a covering turn; marks the IDs covered on the
  * landing that ends it. A human may overrule once the retries are spent.
  */
-export const requireCoverage = async (base = start()): Promise<void> => {
+export const requireCoverage = async (base = start(), slice?: readonly string[]): Promise<void> => {
   let retries = 0
   for (;;) {
-    const { covered, uncovered } = await uncoveredSince(base)
+    const { covered, uncovered } = await uncoveredSince(base, slice)
     if (uncovered.length === 0) return record(covered)
     if (retries < COVERING_RETRIES) {
       retries++

@@ -21,6 +21,7 @@ export const ShippedOptions = Schema.Struct({
   reviewSeverityMinP: setting,
   refactorFlagPattern: setting,
   seamAllow: setting,
+  sliceMaxCriteria: setting,
   qualityReviews: setting,
   refactorQualityReviews: setting,
   testCommand: setting,
