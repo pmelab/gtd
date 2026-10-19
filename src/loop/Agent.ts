@@ -41,10 +41,9 @@ const field = (value: unknown, key: string): unknown =>
 
 const costOf = (value: unknown): number => (typeof value === "number" && value > 0 ? value : 0)
 
-// `--output-format json` is what reports the turn's cost at all, but only the
-// turn's total; per-message usage needs `stream-json`, which `-p` refuses
-// without `--verbose`, and which repeats a message's usage on each of its
-// `assistant` events (count once per `message.id`). An
+// `--output-format json` is what reports the turn's cost at all. Live context
+// size (the latest assistant message's input + cache tokens) needs
+// `stream-json`, which `-p` refuses without `--verbose`. An
 // `is_error` envelope is a failed turn even at exit 0 (max turns hit, an
 // execution error mid-turn) — landing it would land the failure as work.
 const claude: AgentCli = {
