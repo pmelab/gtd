@@ -45,6 +45,8 @@ export interface ImplementOptions {
   readonly reference?: string | undefined
   readonly tier?: RiskTier | undefined
   readonly amend?: boolean | undefined
+  /** After a refactor slice, which may already have met every requirement: an empty turn completes the step. */
+  readonly afterRefactor?: boolean | undefined
 }
 
 export function implement(options?: ImplementOptions): Promise<void>
@@ -64,11 +66,17 @@ export function implement(
   return scope("implement", async () => {
     await t.agentWithSkills(
       "building",
-      t.implementBuildingPrompt(options.reference, options.tier, options.amend),
+      t.implementBuildingPrompt(
+        options.reference,
+        options.tier,
+        options.amend,
+        options.afterRefactor,
+      ),
       {
         label: "Implementing",
         model: coder(),
         system: t.builderSystem(),
+        ...(options.afterRefactor === true ? { allowEmpty: true } : {}),
       },
     )
     await healthy(() =>
@@ -124,6 +132,8 @@ export interface SeamOutcome {
   readonly reference: string
   /** The feature review's base: HEAD after the refactor on refactor-first, else the caller's base. */
   readonly base: string
+  /** A refactor slice landed before the implementation. */
+  readonly refactored?: boolean
 }
 
 export const seamBuild = async (base: string): Promise<SeamOutcome> => {
@@ -141,5 +151,5 @@ export const seamBuild = async (base: string): Promise<SeamOutcome> => {
   }
   if (refactorStrays(shape).length === 0) return { reference, base }
   await slice("refactor", () => reviewedRefactor(shape, { reference }))
-  return { reference, base: head() }
+  return { reference, base: head(), refactored: true }
 }

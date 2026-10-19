@@ -179,7 +179,7 @@ describe("seamBuild", () => {
 
   it("refactor-first runs the reviewed refactor in slice refactor and resolves HEAD after it", async () => {
     const h = await driveSeam("refactor-first")
-    expect(h.outcome).toEqual({ reference: "abc", base: "after-refactor" })
+    expect(h.outcome).toEqual({ reference: "abc", base: "after-refactor", refactored: true })
     expect(h.slices).toEqual(["refactor"])
     expect(h.inside.refactor![0]).toBe("refactor.deriving")
     expect(h.inside.refactor).toContain("refactor.build.review.closing")
@@ -245,8 +245,24 @@ describe("implement", () => {
     await call()
     const request = requests.find((r) => r.kind === "agent" && r.name === "building")
     if (request?.kind !== "agent") throw new Error("no building turn")
+    lastOptions = request.options
     return request.prompt
   }
+  let lastOptions: Extract<StepRequest, { kind: "agent" }>["options"] | undefined
+
+  it("after a refactor, lets an empty turn complete the step and says so", async () => {
+    const prompt = await building("abc", undefined, undefined, () =>
+      implement({ reference: "abc", afterRefactor: true }),
+    )
+    expect(lastOptions?.allowEmpty).toBe(true)
+    expect(prompt).toContain("already meets every\n  requirement, change nothing")
+  })
+
+  it("without a refactor, an empty turn stays an attempt", async () => {
+    const prompt = await building("abc")
+    expect(lastOptions?.allowEmpty).toBeUndefined()
+    expect(prompt).not.toContain("change nothing")
+  })
 
   it("the deprecated positional form renders the same prompt as the options form", async () => {
     const modern = await building("abc", "low")

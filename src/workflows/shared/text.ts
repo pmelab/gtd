@@ -1290,17 +1290,24 @@ export const implementBuildingPrompt = (
   reference: string | undefined,
   tier?: "low" | "high",
   amend?: boolean,
+  afterRefactor?: boolean,
 ): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
 ${
-  amend === true
-    ? `- The change already exists in the tree from an earlier lap; amend it to meet
+  afterRefactor === true
+    ? `- A reviewed refactor has just landed; if the tree already meets every
+  requirement, change nothing and finish your turn
+`
+    : ""
+}${
+    amend === true
+      ? `- The change already exists in the tree from an earlier lap; amend it to meet
   the re-derived requirements instead of rewriting it
 `
-    : `- Implement them properly, fitting the codebase's seams and conventions
+      : `- Implement them properly, fitting the codebase's seams and conventions
 `
-}${
+  }${
     reference === undefined || amend === true
       ? ""
       : `- Reference only: \`git show ${reference}\` shows an earlier naive attempt.

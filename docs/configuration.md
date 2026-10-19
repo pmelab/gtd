@@ -692,7 +692,10 @@ in order:
    then the health loop (`implement.health.*`, `implement.fix.suite.fixing`) and
    `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. The turn is asked
    for a new release flag. The feature review (`build.quality.<lens>`,
-   `build.review.*`) follows.
+   `build.review.*`) follows. After a `refactor` slice the build turn may change
+   nothing — the refactor already met every requirement — and that empty turn
+   completes the step; if the feature slice then changed nothing outside
+   `.gtd/`, the feature review is skipped and the process ends at `idle`.
 
 Every verdict wraps steps 4 and the feature review in the `feature` slice
 (`gtd slices` lists it); `refactor-first` adds the `refactor` slice ahead of it.

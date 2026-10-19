@@ -1,4 +1,14 @@
-import { changes, head, human, revertScript, run, slice, start, vars } from "../../flows/index.js"
+import {
+  changes,
+  changesSince,
+  head,
+  human,
+  revertScript,
+  run,
+  slice,
+  start,
+  vars,
+} from "../../flows/index.js"
 import { gate } from "../shared/health.js"
 import { shipped } from "../shared/options.js"
 import { FEEDBACK } from "../shared/steps.js"
@@ -54,13 +64,17 @@ const naivePlanAndBuild = async (firstBase: string): Promise<void> => {
   const tier = riskTierOn() ? recordRisk() : undefined
   const seam = await seamBuild(firstBase)
   await slice("feature", async () => {
-    await implement({ reference: seam.reference, tier })
+    await implement({ reference: seam.reference, tier, afterRefactor: seam.refactored })
+    // The refactor review already signed off code that met every requirement.
+    if (seam.refactored === true && !changesSince(seam.base).some((c) => isCode(c.path))) return
     await featureFeedback(
       await buildTail(seam.base, { green: true, lensBase: seam.base }),
       seam.base,
     )
   })
 }
+
+const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
 
 const featureFeedback = async (first: ReviewOutcome, lensBase?: string): Promise<void> => {
   let outcome = first
