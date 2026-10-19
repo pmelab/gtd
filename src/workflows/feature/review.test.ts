@@ -17,7 +17,7 @@ import {
 } from "./review.js"
 import type { ReviewNote } from "../../steering/index.js"
 import * as bundled from "../index.js"
-import type { BuildTailOptions as PublicBuildTailOptions } from "./index.js"
+import type * as featureEntry from "./index.js"
 import { fixtureContext } from "../shared/text.fixture.js"
 import { toRequest } from "../../judges/index.js"
 
@@ -999,17 +999,38 @@ describe("BuildTailOptions.lensBase", () => {
       expect(names).not.toEqual([])
     })
 
-    // pins `| undefined` on BuildTailOptions under exactOptionalPropertyTypes (typecheck)
-    it("explicitly undefined fixFirst and green default like omitted ones", async () => {
+    // pins `| undefined` on every BuildTailOptions field under exactOptionalPropertyTypes (typecheck)
+    it("explicitly undefined options default like omitted ones", async () => {
       expect(
-        await requestNames(() => buildTail("base", { fixFirst: undefined, green: undefined })),
+        await requestNames(() =>
+          buildTail("base", {
+            fixFirst: undefined,
+            green: undefined,
+            guard: undefined,
+            guardRests: undefined,
+            lenses: undefined,
+            feedback: undefined,
+            fixAccess: undefined,
+            lensBase: undefined,
+            rules: undefined,
+            lap: undefined,
+          }),
+        ),
       ).toEqual(await requestNames(() => buildTail("base")))
     })
   })
 })
 
 // pins the public re-exports from the feature entry point and the published workflows entry
-export type _PublicBuildTailOptions = [PublicBuildTailOptions, bundled.BuildTailOptions]
+export type _PublicBuildTailOptions = [
+  featureEntry.BuildTailOptions,
+  featureEntry.FeedbackTarget,
+  featureEntry.ReviewRange,
+  bundled.BuildTailOptions,
+  bundled.FeedbackTarget,
+  bundled.ReviewRange,
+  bundled.TailOptions,
+]
 
 describe("buildTail without rules", () => {
   const RULES = "Change only these paths"

@@ -70,23 +70,88 @@ export const refusePendingHandOff = (): void => {
   }
 }
 
+export interface TailOptions {
+  /** Fix first when entered red; default `false`. */
+  readonly fixFirst?: boolean | undefined
+  /** Asserts the tree is already green, so the tail skips keep-green; default `false`. */
+  readonly green?: boolean | undefined
+  /** Runs after every code-changing turn: fix-check, quality fix, risk fix, nit fix, escalation describe. */
+  readonly guard?: Guard | undefined
+  /** Quality-lap lenses; default `lensesOf(vars.qualityReviews)`. */
+  readonly lenses?: readonly string[] | undefined
+  /** `false` leaves the escalation's human rests unguarded; default `true`. */
+  readonly guardRests?: boolean | undefined
+  /** The commit the quality lap reviews from; absent: `start()`. */
+  readonly lensBase?: string | undefined
+  /** Appended to every fix and describe prompt of the tail. */
+  readonly rules?: string | undefined
+}
+
 /**
  * The build tail: fix (when entered red), keep green, the quality lap, then
- * `finish` — the human review, as the calling workflow runs it. `green`: the
- * caller just left the full suite green (the package loop), so no run opens it.
- * `guardRests: false` leaves the escalation's human rests unguarded.
+ * `finish` — the human review, as the calling workflow runs it.
  */
-export const tail = <T>(
+export function tail<T>(
+  finish: (escalations: EscalationCount) => Promise<T>,
+  options?: TailOptions,
+): Promise<T>
+/** @deprecated Pass `tail(finish, { fixFirst, green, guard, lenses, guardRests, lensBase, rules })`. */
+export function tail<T>(
   fixFirst: boolean,
   finish: (escalations: EscalationCount) => Promise<T>,
-  green = false,
+  green?: boolean,
   guard?: Guard,
   lenses?: readonly string[],
-  guardRests = true,
+  guardRests?: boolean,
   lensBase?: string,
   rules?: string,
-): Promise<T> =>
+): Promise<T>
+export function tail<T>(first: unknown, second?: unknown, ...rest: unknown[]): Promise<T> {
+  const form = tailForm<T>(first, second, rest)
+  // Before any step runs, so a bad call never leaves a half-walked flow.
+  if (form === undefined) {
+    return Promise.reject(
+      new Error(
+        "tail takes tail(finish, options?) or the deprecated tail(fixFirst, finish, green?, guard?, lenses?, guardRests?, lensBase?, rules?); this call fits neither",
+      ),
+    )
+  }
+  const [finish, options] = form
+  return runTail(finish, options)
+}
+
+type Finish<T> = (escalations: EscalationCount) => Promise<T>
+
+// null reads as absent; an un-awaited Promise is a mistake, not options.
+export const isOptionalObject = (value: unknown): value is object | null | undefined =>
+  value == null ||
+  (typeof value === "object" &&
+    !Array.isArray(value) &&
+    typeof (value as { then?: unknown }).then !== "function")
+
+// Picks the form by shape only: the deprecated form never validated its
+// positionals, and still runs whatever it ran before.
+const tailForm = <T>(
+  first: unknown,
+  second: unknown,
+  rest: readonly unknown[],
+): [Finish<T>, TailOptions] | undefined => {
+  // A function first is a misplaced finish, never a fixFirst.
+  if (typeof second === "function" && typeof first !== "function") {
+    const [green, guard, lenses, guardRests, lensBase, rules] = rest
+    const options = { fixFirst: first, green, guard, lenses, guardRests, lensBase, rules }
+    return [second as Finish<T>, options as TailOptions]
+  }
+  if (typeof first === "function" && isOptionalObject(second) && rest.every((v) => v == null))
+    return [first as Finish<T>, (second as TailOptions | null | undefined) ?? {}]
+  return undefined
+}
+
+const runTail = <T>(finish: Finish<T>, options: TailOptions): Promise<T> =>
   scope("build", async () => {
+    const { guard, lenses, lensBase, rules } = options
+    // Only undefined defaults: a null reaches every escalation as falsy, as it reaches review's.
+    const guardRests = options.guardRests === undefined ? true : options.guardRests
     const escalations: EscalationCount = { rounds: 0 }
     const fix = () => fixCheck(rules)
     const repair = async () => {
@@ -94,8 +159,9 @@ export const tail = <T>(
       await healthy(fix, { fixesSoFar: 1, escalations, guard, guardRests, rules })
     }
     // fixFirst's own fix + healthy below already is the full run.
-    if (fixFirst) await repair()
-    else if (!green) await healthy(fix, { escalations, guard, guardRests, rules })
+    // Truthy, not `true`: an untyped config's flags read as they always did.
+    if (options.fixFirst) await repair()
+    else if (!options.green) await healthy(fix, { escalations, guard, guardRests, rules })
     // The lap runs once a tail: after its findings are fixed, review follows.
     if ((await qualityLap(guard, lenses, lensBase)) === "findings") {
       if (await fixQualityFindings(escalations, guard, guardRests, rules)) {
@@ -138,4 +204,4 @@ export const handOffReview = (
 
 /** The tail the review and fix workflows run: ends at the hand-off review since `base`. */
 export const handOffTail = (fixFirst: boolean, base: string, guard?: Guard): Promise<void> =>
-  tail(fixFirst, (escalations) => handOffReview(base, escalations, guard), false, guard)
+  tail((escalations) => handOffReview(base, escalations, guard), { fixFirst, guard })

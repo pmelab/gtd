@@ -6,7 +6,7 @@ import { feature } from "./feature/feature.js"
 export { threads, type ThreadInfo } from "../flows/index.js"
 export * from "./shared/reserved.js"
 export { FlagOptions, ShippedOptions } from "./shared/options.js"
-export { agentWithSkills } from "./shared/text.js"
+export { agentWithSkills, type ReviewRange } from "./shared/text.js"
 export * from "./shared/steps.js"
 export * from "./shared/health.js"
 export {
@@ -17,6 +17,7 @@ export {
   qualityLap,
   REVIEW_ORIG,
   tail,
+  type TailOptions,
 } from "./shared/tail.js"
 export { lensesOf } from "../workflow-kit/index.js"
 export * from "./feature/steps.js"
@@ -24,7 +25,12 @@ export * from "./feature/planning.js"
 export * from "./feature/packages.js"
 export * from "./feature/refactor.js"
 export * from "./feature/seam.js"
-export { buildTail, type BuildTailOptions, type ReviewOutcome } from "./feature/review.js"
+export {
+  buildTail,
+  type BuildTailOptions,
+  type FeedbackTarget,
+  type ReviewOutcome,
+} from "./feature/review.js"
 export * from "./feature/feature.js"
 export { base, review, reviewFlow } from "./review/review.js"
 export { fix, fixFlow, fixReviewNotes } from "./fix/fix.js"

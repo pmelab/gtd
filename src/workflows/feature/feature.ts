@@ -49,7 +49,7 @@ export const planAndBuild = async (
     await design(base)
     await architecture()
     await packages()
-    const outcome = await buildTail(base, { green: true, ...(lap === "first" ? {} : { lap }) })
+    const outcome = await buildTail(base, { green: true, lap })
     if (outcome.verdict === "signoff") return
     await reUnwind(outcome)
     base = outcome.base
@@ -81,11 +81,7 @@ const featureFeedback = async (first: ReviewOutcome, lensBase?: string): Promise
     await design(outcome.base)
     const tier = riskTierOn() ? recordRisk() : undefined
     await implement({ tier, amend: true })
-    outcome = await buildTail(outcome.base, {
-      green: true,
-      lap: "feedback",
-      ...(lensBase === undefined ? {} : { lensBase }),
-    })
+    outcome = await buildTail(outcome.base, { green: true, lap: "feedback", lensBase })
   }
 }
 

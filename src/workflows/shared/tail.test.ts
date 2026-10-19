@@ -260,32 +260,147 @@ describe("the quality lap's lenses", () => {
 
   it("tail threads lensBase to every lens turn", async () => {
     await lap(() =>
-      tail(
-        false,
-        () => Promise.resolve(),
-        true,
-        undefined,
-        ["conventions", "correctness"],
-        true,
-        "BASE-SHA",
-      ),
+      tail(() => Promise.resolve(), {
+        green: true,
+        lenses: ["conventions", "correctness"],
+        lensBase: "BASE-SHA",
+      }),
     )
     expect(prompts).toHaveLength(2)
     for (const prompt of prompts) expect(prompt).toContain("from `BASE-SHA`")
   })
 
+  it("the deprecated form threads lensBase from its seventh slot", async () => {
+    await lap(() =>
+      tail(false, () => Promise.resolve(), true, undefined, ["conventions"], true, "BASE-SHA", "R"),
+    )
+    expect(prompts).toHaveLength(1)
+    expect(prompts[0]).toContain("from `BASE-SHA`")
+    expect(prompts[0]).not.toContain("from `R`")
+  })
+
   it("tail passes lenses to its lap and a guard after each lens turn", async () => {
     let guards = 0
     const log = await lap(() =>
-      tail(
-        false,
-        () => Promise.resolve(),
-        true,
-        () => void guards++,
-        ["conventions"],
-      ),
+      tail(() => Promise.resolve(), {
+        green: true,
+        guard: () => void guards++,
+        lenses: ["conventions"],
+      }),
     )
     expect(log).toEqual(["quality.conventions.reviewing"])
     expect(guards).toBe(1)
   })
+})
+
+describe("tail's call forms", () => {
+  class Stop extends Error {}
+  const requestNames = async (
+    call: () => Promise<unknown>,
+    names: string[] = [],
+  ): Promise<string[]> => {
+    installContext(
+      fixtureContext(
+        { vars: { qualityReviews: "correctness" } },
+        {
+          step: (request: StepRequest) => {
+            if (request.kind === "restart") return Promise.resolve()
+            names.push(`${request.kind}:${request.name}`)
+            if (request.kind === "agent") prompts.push(request.prompt)
+            if (names.length >= 4) throw new Stop()
+            return Promise.resolve()
+          },
+          pushScope: () => undefined,
+          popScope: () => undefined,
+          start: () => "START-SHA",
+        },
+      ),
+    )
+    await call().catch((error: unknown) => {
+      if (!(error instanceof Stop)) throw error
+    })
+    return names
+  }
+  const finish = () => Promise.resolve()
+
+  for (const [fixFirst, green] of [
+    [true, false],
+    [true, true],
+    [false, true],
+    [false, false],
+  ] as const) {
+    it(`the deprecated positional form matches the options form for fixFirst ${fixFirst}, green ${green}`, async () => {
+      const modern = await requestNames(() => tail(finish, { fixFirst, green }))
+      const legacy = await requestNames(() => tail(fixFirst, finish, green))
+      expect(legacy).toEqual(modern)
+    })
+  }
+
+  it("the deprecated form passes every positional on", async () => {
+    let guards = 0
+    const guard = () => void guards++
+    const modern = await requestNames(() =>
+      tail(finish, { green: true, guard, lenses: ["conventions"], guardRests: false }),
+    )
+    const modernGuards = guards
+    guards = 0
+    const legacy = await requestNames(() =>
+      tail(false, finish, true, guard, ["conventions"], false),
+    )
+    expect(legacy).toEqual(modern)
+    expect(guards).toBe(modernGuards)
+  })
+
+  it("the deprecated form threads rules from its eighth slot", async () => {
+    prompts.length = 0
+    await requestNames(() =>
+      tail(true, finish, false, undefined, [], true, "BASE-SHA", "RULES-TEXT"),
+    )
+    expect(prompts.some((p) => p.includes("RULES-TEXT"))).toBe(true)
+    expect(prompts.some((p) => p.includes("BASE-SHA"))).toBe(false)
+  })
+
+  it("the deprecated form still runs untyped flags as truthy or falsy", async () => {
+    expect(await requestNames(() => tail(1 as never, finish, 0 as never))).toEqual(
+      await requestNames(() => tail(finish, { fixFirst: true })),
+    )
+  })
+
+  it("reads an explicit undefined in every option as absent", async () => {
+    const absent = await requestNames(() => tail(finish))
+    const explicit = await requestNames(() =>
+      tail(finish, {
+        fixFirst: undefined,
+        green: undefined,
+        guard: undefined,
+        lenses: undefined,
+        guardRests: undefined,
+        lensBase: undefined,
+        rules: undefined,
+      }),
+    )
+    expect(explicit).toEqual(absent)
+  })
+
+  const fitsNeither: [string, () => Promise<unknown>][] = [
+    ["no finish", () => (tail as (...args: unknown[]) => Promise<unknown>)(false)],
+    ["a finish followed by a boolean", () => tail(finish, true as never)],
+    ["a finish followed by a function", () => tail(finish, finish as never)],
+    ["a finish followed by a Promise", () => tail(finish, Promise.resolve({}) as never)],
+    [
+      "a finish with a third argument",
+      () => (tail as (...args: unknown[]) => Promise<unknown>)(finish, {}, true),
+    ],
+  ]
+  for (const [label, call] of fitsNeither) {
+    it(`rejects ${label} before any step runs`, async () => {
+      const names: string[] = []
+      const rejected = expect(requestNames(call, names)).rejects
+      await rejected.toThrow("tail(finish, options?)")
+      await rejected.toThrow(
+        "tail(fixFirst, finish, green?, guard?, lenses?, guardRests?, lensBase?, rules?)",
+      )
+      expect(names).toEqual([])
+    })
+  }
 })
