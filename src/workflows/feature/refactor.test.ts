@@ -12,7 +12,8 @@ import {
   refactorFirst,
   refactorStrays,
   requireNoNewFlags,
-  requireNoNewTestFiles,
+  requireNoTestFiles,
+  requireTestCallSitesOnly,
   requireWithin,
   reviewedRefactor,
   REFACTOR_PACKAGE,
@@ -68,11 +69,6 @@ describe("requireWithin", () => {
     expect(withChanges(list, () => requireWithin(["src/a.ts"]))).toBeUndefined()
   })
 
-  it("passes a modified test file outside the strays", () => {
-    const list = [change("src/a.ts", "a", "b"), change("tests/b.test.ts", "a", "b")]
-    expect(withChanges(list, () => requireWithin(["src/a.ts"]))).toBeUndefined()
-  })
-
   it("refuses naming each other path", () => {
     const list = [
       change("src/a.ts", "a", "b"),
@@ -86,14 +82,73 @@ describe("requireWithin", () => {
   })
 })
 
-describe("requireNoNewTestFiles", () => {
+describe("requireNoTestFiles", () => {
+  it("refuses a changed test path, naming it, even when it is a stray", () => {
+    const list = [
+      change("src/a.test.ts", "a", "b"),
+      change("tests/unit/b.ts", undefined, "x", "added"),
+      change("src/__tests__/c.ts", "a", undefined, "deleted"),
+      change("features/d.feature", "a", "b"),
+    ]
+    const message = withChanges(list, () => requireNoTestFiles())
+    expect(message).toMatch(/^gtd land: refactor-tests: /)
+    for (const path of [
+      "src/a.test.ts",
+      "tests/unit/b.ts",
+      "src/__tests__/c.ts",
+      "features/d.feature",
+    ])
+      expect(message).toContain(`  - ${path}`)
+  })
+
+  it("passes non-test paths and .gtd/ paths", () => {
+    const list = [
+      change("src/a.ts", "a", "b"),
+      change(".gtd/tests/x.md", "", "x", "added"),
+      change(".gtd/REFACTOR.md", "", "x", "added"),
+    ]
+    expect(withChanges(list, () => requireNoTestFiles())).toBeUndefined()
+  })
+
+  it("names only the test paths", () => {
+    const message = withChanges(
+      [change("src/a.ts", "a", "b"), change("src/a.spec.ts", "a", "b")],
+      () => requireNoTestFiles(),
+    )
+    expect(message).toContain("src/a.spec.ts")
+    expect(message).not.toContain("src/a.ts")
+  })
+
+  it("is not narrowed by a narrowed seamAllow", () => {
+    installContext(
+      fixtureContext(
+        { vars: { seamAllow: "docs/**" } },
+        {
+          changes: () => [change("src/a.test.ts", "a", "b")],
+          matches: globMatches,
+          refuse: (message) => {
+            throw new Error(message)
+          },
+        },
+      ),
+    )
+    expect(refusal(() => requireNoTestFiles())).toContain("src/a.test.ts")
+  })
+
+  it("does not refuse other naming such as _test.go or test_*.py", () => {
+    const list = [change("pkg/a_test.go", "a", "b"), change("pkg/test_a.py", "a", "b")]
+    expect(withChanges(list, () => requireNoTestFiles())).toBeUndefined()
+  })
+})
+
+describe("requireTestCallSitesOnly", () => {
   it("refuses an added or deleted test path, naming it", () => {
     const list = [
       change("tests/unit/b.ts", undefined, "x", "added"),
       change("src/__tests__/c.ts", "a", undefined, "deleted"),
       change("src/a.test.ts", "a", "b"),
     ]
-    const message = withChanges(list, () => requireNoNewTestFiles())
+    const message = withChanges(list, () => requireTestCallSitesOnly())
     expect(message).toMatch(/^gtd land: refactor-tests: /)
     expect(message).toContain("  - tests/unit/b.ts")
     expect(message).toContain("  - src/__tests__/c.ts")
@@ -107,7 +162,33 @@ describe("requireNoNewTestFiles", () => {
       change("src/new.ts", undefined, "x", "added"),
       change(".gtd/tests/x.md", "", "x", "added"),
     ]
-    expect(withChanges(list, () => requireNoNewTestFiles())).toBeUndefined()
+    expect(withChanges(list, () => requireTestCallSitesOnly())).toBeUndefined()
+  })
+
+  it("refuses a snapshot change and a dropped test or assertion, naming each", () => {
+    const list = [
+      change("src/__snapshots__/a.test.ts.snap", "a", "b"),
+      change("src/b.test.ts", 'it("a", () => {})\nit("b", () => {})', 'it("a", () => {})'),
+      change("src/c.test.ts", "expect(c()).toBe(1)\nexpect(c()).toBe(1)", "expect(c()).toBe(1)"),
+      change(
+        "d.feature",
+        "Feature: d\n  Scenario: d\n    Then it is\n",
+        "Feature: d\n  Scenario: d\n",
+      ),
+    ]
+    const message = withChanges(list, () => requireTestCallSitesOnly())
+    for (const { path } of list) expect(message).toContain(`  - ${path}`)
+  })
+
+  it("passes a call site rewritten inside an assertion", () => {
+    const list = [
+      change(
+        "src/a.test.ts",
+        'it("adds", () => expect(add(1, 1)).toBe(2))',
+        'it("adds", async () => expect(await add({ a: 1, b: 1 })).toBe(2))',
+      ),
+    ]
+    expect(withChanges(list, () => requireTestCallSitesOnly())).toBeUndefined()
   })
 
   it("is not narrowed by a narrowed seamAllow", () => {
@@ -123,7 +204,7 @@ describe("requireNoNewTestFiles", () => {
         },
       ),
     )
-    expect(refusal(() => requireNoNewTestFiles())).toContain("src/a.test.ts")
+    expect(refusal(() => requireTestCallSitesOnly())).toContain("src/a.test.ts")
   })
 
   it("does not refuse other naming such as _test.go or test_*.py", () => {
@@ -131,7 +212,7 @@ describe("requireNoNewTestFiles", () => {
       change("pkg/a_test.go", undefined, "b", "added"),
       change("pkg/test_a.py", undefined, "b", "added"),
     ]
-    expect(withChanges(list, () => requireNoNewTestFiles())).toBeUndefined()
+    expect(withChanges(list, () => requireTestCallSitesOnly())).toBeUndefined()
   })
 })
 

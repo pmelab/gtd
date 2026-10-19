@@ -1278,6 +1278,15 @@ describe("buildReviewReviewingPrompt lap wording", () => {
   )
 })
 
+it("asks the refactor review, and only it, to flag a test-file hunk that is more than a call site", () => {
+  const [refactor, first] = renderText(() => [
+    buildReviewReviewingPrompt("base", "refactor"),
+    buildReviewReviewingPrompt("base", "first"),
+  ])
+  expect(refactor).toContain("give any test-file hunk its own chunk")
+  expect(first).not.toContain("give any test-file hunk its own chunk")
+})
+
 describe("architectureDecomposePrompt tests rule", () => {
   it("states one rule: write-or-change, relied-on marked (unchanged), no other untouched", () => {
     const prompt = renderText(() => architectureDecomposePrompt()).replace(/\s+/g, " ")

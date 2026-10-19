@@ -1621,11 +1621,25 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       And step "refactor.building" writes "src/calc.test.ts" with:
         """
         import { expect, it } from "vitest"
-        it("adds", () => expect(1 + 1).toBe(2))
-        // the call site follows the seam
+        import { add } from "./calc"
+        it("adds", () => expect(add({ a: 1, b: 1 })).toBe(2))
         """
       When the process is driven
       Then the process rests at "refactor.health.check"
+
+    Scenario: the refactor may not drop an assertion from an existing test
+      Given step "seam.naive" writes "src/calc.ts" with:
+        """
+        export const add = (a: number, b: number) => a + b
+        export const subtract = (a: number, b: number) => a - b
+        """
+      And step "refactor.deriving" runs its script
+      And step "refactor.building" writes "src/calc.test.ts" with:
+        """
+        import { it } from "vitest"
+        it("adds", () => {})
+        """
+      Then driving the process is refused with "refactor-tests"
 
     Scenario: a refactor-first whose strays are all test files goes straight to implement
       Given step "seam.naive" writes "src/calc.test.ts" with:

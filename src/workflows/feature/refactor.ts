@@ -10,9 +10,10 @@ import {
   run,
   scope,
   vars,
+  type Change,
   type DiffShapeResult,
 } from "../../flows/index.js"
-import { lensesOf } from "../../workflow-kit/index.js"
+import { lensesOf, removedAssertions } from "../../workflow-kit/index.js"
 import { markFenced } from "../shared/fences.js"
 import { healthy, type Guard } from "../shared/health.js"
 import { coder, FEEDBACK, REFACTOR } from "../shared/steps.js"
@@ -30,28 +31,58 @@ export interface RefactorOptions {
 
 const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
 
-// A fixed list, not `seamAllow`: narrowing that setting must not move the test-file rules.
-const isTestFile = (path: string): boolean => testFileGlobs.some((glob) => matches(path, glob))
-
-// An existing test file is exempt: a seam that changes a call shape must reach its callers there.
 export const requireWithin = (allowed: readonly string[]): void => {
   const outside = changes()
     .map((c) => c.path)
-    .filter((path) => isCode(path) && !isTestFile(path) && !allowed.includes(path))
+    .filter((path) => isCode(path) && !allowed.includes(path))
   if (outside.length === 0) return
   refuse(
     `gtd land: refactor-scope: the refactor may change only its stray paths — revert these:\n${outside.map((path) => `  - ${path}`).join("\n")}`,
   )
 }
 
-// Only a test's call sites may follow the seam; whether its assertions stayed put is the review's call.
-export const requireNoNewTestFiles = (): void => {
+// A fixed list, not `seamAllow`: narrowing that setting must not let a test file through.
+const isTestFile = (path: string): boolean => testFileGlobs.some((glob) => matches(path, glob))
+
+export const requireNoTestFiles = (): void => {
   const tests = changes()
-    .filter((c) => isCode(c.path) && isTestFile(c.path) && c.status !== "modified")
     .map((c) => c.path)
+    .filter((path) => isCode(path) && isTestFile(path))
   if (tests.length === 0) return
   refuse(
-    `gtd land: refactor-tests: the refactor may update an existing test file's call sites, never add or delete one — revert these:\n${tests.map((path) => `  - ${path}`).join("\n")}`,
+    `gtd land: refactor-tests: the refactor may not change a test file — revert these:\n${tests.map((path) => `  - ${path}`).join("\n")}`,
+  )
+}
+
+// A snapshot is regenerated, never edited by hand: a changed one is a changed expectation.
+const isSnapshot = (path: string): boolean => path.endsWith(".snap")
+
+const ASSERTION = /\b(?:expect|assert\w*)\s*[.(]/g
+const TEST_CASE = /\b(?:it|test|describe|scenario)(?:\.\w+)*\s*\(/gi
+const count = (text: string, expression: RegExp): number => [...text.matchAll(expression)].length
+
+// A call-shape update keeps every test and assertion, so their counts hold. A changed expected
+// value slips through the counts; that is left to the refactor review.
+const reshaped = ({ path, before = "", after = "" }: Change): boolean =>
+  removedAssertions([{ path, status: "modified", before, after }]).length > 0 ||
+  count(before, ASSERTION) !== count(after, ASSERTION) ||
+  count(before, TEST_CASE) !== count(after, TEST_CASE)
+
+// Modified test files join the scope only after `requireTestCallSitesOnly` has passed them.
+const callSiteUpdates = (): readonly string[] =>
+  changes()
+    .filter((c) => isCode(c.path) && isTestFile(c.path) && c.status === "modified")
+    .map((c) => c.path)
+
+/** The test-file half of the refactor guard: an existing test may follow a changed call shape, nothing more. */
+export const requireTestCallSitesOnly = (): void => {
+  const refused = changes()
+    .filter((c) => isCode(c.path) && isTestFile(c.path))
+    .filter((c) => c.status !== "modified" || isSnapshot(c.path) || reshaped(c))
+    .map((c) => c.path)
+  if (refused.length === 0) return
+  refuse(
+    `gtd land: refactor-tests: the refactor may update an existing test file's call sites only — never add, delete or regenerate a test file, or add or remove a test or an assertion; revert these:\n${refused.map((path) => `  - ${path}`).join("\n")}`,
   )
 }
 
@@ -201,8 +232,8 @@ const plan = (shape: DiffShapeResult, options: RefactorOptions): Plan | undefine
 const guardOf =
   ({ pattern, strays }: Plan, entry: string): Guard =>
   () => {
-    requireNoNewTestFiles()
-    requireWithin(strays)
+    requireTestCallSitesOnly()
+    requireWithin([...strays, ...callSiteUpdates()])
     requireNoNewFlags(pattern, entry)
   }
 

@@ -629,17 +629,22 @@ narrows nothing. After the building turn, after every fix turn and after the
 escalation describe turn (`refactor.health.describe`), `gtd land` refuses the
 turn when:
 
-- it added or deleted a test file (`refactor-tests`): any path matching
-  `**/*.test.*`, `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**` or
-  `**/__tests__/**`. An existing test file may be modified, so a seam that
-  changes a call shape can update its callers there; the prompts forbid adding,
-  removing or altering a test or an assertion, and the refactor review is where
-  that is checked. The list is fixed — `seamAllow` does not narrow it — and
-  `*_test.go`, `test_*.py` and other namings are not test files here, or
-- it changed a path outside `.gtd/` that is neither a test file nor exactly one
-  of the strays (`refactor-scope`; a fix turn is judged on its own changes, so a
-  person's edit at an escalation stop does not block it; no globs: a stray
-  `src/*.ts` does not admit `src/a.ts`), or
+- it changed a test file in any way but updating its call sites
+  (`refactor-tests`). A test file is any path matching `**/*.test.*`,
+  `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**` or
+  `**/__tests__/**`; the list is fixed — `seamAllow` does not narrow it — and
+  `*_test.go`, `test_*.py` and other namings are not test files here, so their
+  call sites stay out of reach. An existing test file may be modified, so a seam
+  that changes a call shape can update its callers there. Refused: adding or
+  deleting a test file, changing a `.snap` snapshot, dropping a `.feature`
+  scenario's assertion, and changing a file's count of `expect`/`assert*` calls
+  or of `it`/`test`/`describe` blocks. A changed expected value keeps every
+  count: the refactor review's prompt asks the reviewer to flag it, and
+  `refactorFirst` alone has no review. Or
+- it changed a path outside `.gtd/` that is neither a modified test file nor
+  exactly one of the strays (`refactor-scope`; a fix turn is judged on its own
+  changes, so a person's edit at an escalation stop does not block it; no globs:
+  a stray `src/*.ts` does not admit `src/a.ts`), or
 - it raised the number of reads of any one flag, or added a flag, across the
   changed files outside `.gtd/`. A flag is a match of the `refactorFlagPattern`
   setting; moving a read passes, and so does a swap that leaves every per-name

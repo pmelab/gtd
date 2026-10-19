@@ -469,7 +469,8 @@ export const refactorRules = (strays: readonly string[], pattern: string): strin
 ${strays.map((path) => `  - \`${displayPath(path)}\``).join("\n")}
 - An existing test file only where a changed call shape reaches it:
   update its call sites; never add or delete a test file, and
-  never add, remove or alter a test or an assertion
+  never add, remove or alter a test or an assertion, an expected
+  value or a snapshot
 - Introduce no new flag read and add no second read of an existing one:
   every match of \`${pattern}\` may move, never increase in number`
 
@@ -501,12 +502,13 @@ ${
   reference === undefined
     ? ""
     : `- Reference only: \`git show ${reference} -- ${strays.map(quote).join(" ")}\` shows an
-  earlier attempt at this change. Read it for ideas; never apply,
-  cherry-pick or check it out — write a fresh refactor
-- Its changes to these paths' existing code are the seam: land that
-  restructuring here, minus the feature's own behaviour. A refactor
-  that touches none of it is wrong, however clean — never swap in an
-  unrelated tidy-up
+  earlier attempt at this change, and \`git show --stat ${reference}\`
+  lists every file it touched, the test call sites included.
+  Read it; never apply, cherry-pick or check it out
+- Its changes to these paths' existing code are the seam: write that
+  restructuring afresh here, minus the feature's own behaviour. A
+  refactor that touches none of it is wrong, however clean — never
+  swap in an unrelated tidy-up
 `
 }- Leave everything uncommitted and finish your turn — do not commit
 `
@@ -1054,7 +1056,8 @@ const lapRange: Record<ReviewRange, string> = {
   first: "it covers everything since the base.",
   feedback:
     "it starts at the previous review's boundary, so it covers only what is new since the previous review.",
-  refactor: "it covers the whole refactor since it started, on every round.",
+  refactor:
+    "it covers the whole refactor since it started, on every round. A refactor may update an existing test's call sites only: give any test-file hunk its own chunk, and say so if it changes a test, an assertion or an expected value.",
 }
 
 export const buildReviewReviewingPrompt = (
