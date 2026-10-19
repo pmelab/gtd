@@ -1385,8 +1385,9 @@ export const uncoveredMessage = (uncovered: readonly string[]): string =>
 the retries are spent.
 
 Two ways forward (then run \`gtd land\`):
-- **Cover** — add or fix the tests yourself; the suite runs and the judge
-  rules again, with a fresh retry budget
+- **Cover** — add or fix the tests yourself (the criteria are settled: an edit
+  to them is refused); the suite runs and the judge rules again, with a fresh
+  retry budget
 - **Overrule** — land a clean tree to finish without them. The slice records
   the IDs it covers and, as \`uncovered\`, the ones it does not
 `

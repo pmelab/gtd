@@ -101,14 +101,6 @@ Feature: a feature is done only when every acceptance criterion has a passing te
       it("[AC-2] adds", () => expect(add(1, 1)).toBe(2))
       """
     When the process is driven
-    Then the process rests at "implement.covering"
-    Given a file "src/calc.test.ts" with:
-      """
-      it("[AC-1] subtracts", () => expect(subtract(3, 1)).toBe(2))
-      it("[AC-2] adds", () => expect(add(1, 1) - 2).toBe(0))
-      """
-    When gtd lands
-    When the process is driven
     Then the process rests at "implement.uncovered"
     And the commit subjects end with:
       """
@@ -116,7 +108,6 @@ Feature: a feature is done only when every acceptance criterion has a passing te
       gtd(agent): implement.covering → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.covering
-      gtd(agent): implement.covering
       gtd(agent): implement.covering → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.uncovered
@@ -148,16 +139,23 @@ Feature: a feature is done only when every acceptance criterion has a passing te
       it("[AC-1] subtracts", () => expect(subtract(3, 1)).toBe(2))
       it("[AC-2] adds", () => expect(add(1, 1)).toBe(2))
       """
-    When the process is driven
-    Then the process rests at "implement.covering"
-    Given a file "src/calc.test.ts" with:
-      """
-      it("[AC-1] subtracts", () => expect(subtract(3, 1)).toBe(2))
-      it("[AC-2] adds", () => expect(add(1, 1) - 2).toBe(0))
-      """
-    When gtd lands
     And step "implement.uncovered" changes nothing
     When the process is driven
     Then the process rests at "idle"
     And the commit "gtd(human): implement.uncovered → implement.closing" has a body containing "Gtd-Mark: covers=AC-1"
     And the commit "gtd(human): implement.uncovered → implement.closing" has a body containing "Gtd-Mark: uncovered=AC-2"
+
+  Scenario: an empty covering turn asks the judge again rather than stalling
+    Given judge step "implement.coverage" answers:
+      """
+      [{"id":"AC-1","answer":"yes","p":0.9},{"id":"AC-2","answer":"no","p":0.9}]
+      """
+    And step "implement.covering" changes nothing
+    When the process is driven
+    Then the process rests at "implement.uncovered"
+    And the commit subjects end with:
+      """
+      gtd(agent): implement.covering → implement.health.check
+      gtd(check): implement.health.check → implement.coverage
+      gtd(judge): implement.coverage → implement.uncovered
+      """

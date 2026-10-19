@@ -35,9 +35,11 @@ export const green = (): Promise<void> =>
     { guard: frozen, guardRests: false },
   )
 
+// A budget cut keeps the end, so the files naming a criterion ID go last.
 const testsSince = (base: string): string =>
   changesSince(base)
     .filter((c) => c.after !== undefined && isCode(c.path) && isTestFile(c.path))
+    .sort((a, b) => Number(/\bAC-\d/.test(a.after!)) - Number(/\bAC-\d/.test(b.after!)))
     .map((c) => `=== ${c.path} (${c.status})\n${c.after}`)
     .join("\n")
 
@@ -84,6 +86,8 @@ export const requireCoverage = async (base = start()): Promise<void> => {
         label: "Covering the acceptance criteria",
         model: coder(),
         system: t.builderSystem(),
+        // The judge may have missed a test that exists: an empty turn asks it again.
+        allowEmpty: true,
       })
       frozen()
     } else {
@@ -93,7 +97,7 @@ export const requireCoverage = async (base = start()): Promise<void> => {
         file: REQUIREMENTS,
         acceptClean: true,
       })
-      if (changes().length === 0) return record(covered, uncovered)
+      if (!changes().some((c) => isCode(c.path))) return record(covered, uncovered)
       frozen()
       retries = 0
     }

@@ -739,13 +739,14 @@ nothing; a file with no ID'd criteria skips the judge.
 - **Every ID covered**: the judge's landing carries one `Gtd-Mark: covers=<id>`
   trailer per ID, and `implement.closing` follows.
 - **An ID uncovered**: the process goes back to `implement.covering`, an agent
-  turn told which IDs lack a test, then the health loop and the judge again.
-  After two covering turns it rests at `implement.uncovered`, a human step: an
-  edit (new or fixed tests) runs the health loop and the judge again with a
-  fresh budget; a clean `gtd land` overrules — that landing carries
-  `covers=<id>` for the covered IDs and `Gtd-Mark: uncovered=<id>` for the rest.
-  **The judge reads test text, it runs nothing**: the green suite is the only
-  proof the tests pass.
+  turn told which IDs lack a test, then the health loop and the judge again (an
+  empty covering turn is allowed: the judge may have missed a test). After two
+  covering turns it rests at `implement.uncovered`, a human step: an edit
+  outside `.gtd/` (new or fixed tests) runs the health loop and the judge again
+  with a fresh budget; a `gtd land` with no such edit overrules — that landing
+  carries `covers=<id>` for the covered IDs and `Gtd-Mark: uncovered=<id>` for
+  the rest. **The judge reads test text, it runs nothing**: the green suite is
+  the only proof the tests pass.
 - A `covering` turn, like the build turn, may not change the criteria
   (`criteria-frozen`).
 
