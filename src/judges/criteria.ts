@@ -1,6 +1,6 @@
 const LABEL = /(?:^|\. )([A-Za-z][A-Za-z0-9_-]*): /g
 
-/** Same splitter as gtd-build's `judge_request`: text before the first label is dropped. */
+/** Mirrored in claude/hooks/judge.ts, which may not import it: text before the first label is dropped. */
 export const splitLabels = (criteria: string): [string, string][] => {
   const hits = [...criteria.matchAll(LABEL)]
   return hits.map((m, i) => {

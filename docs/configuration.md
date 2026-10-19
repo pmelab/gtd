@@ -519,7 +519,10 @@ Awaiting a factory's call inside a composed flow throws — compose `fixFlow`,
 questions and resolves to `{ answers, truncated }`. A question is
 `{ id, primitive, instructions, criteria }`, where `primitive` is `noul`
 (yes/no, read back as `"yes"`/`"no"`), `choice`, or `score` (read back as its
-decimal string). `evidence` is what the judge sees as its `state`: an object of
+decimal string). A `choice` or `score` question's `criteria` lists at least two
+options as `label: description` — a label is a letter then letters, digits, `_`
+or `-`, and starts the string or follows `. ` (a newline does not separate
+options). `evidence` is what the judge sees as its `state`: an object of
 strings, built from `read`/`sections`/`changes`, never from anything the working
 tree holds uncommitted. The `judgeBudgetBytes` var is split evenly across its
 keys; a value over its share keeps its end, cut on a line boundary.

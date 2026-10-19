@@ -26,7 +26,7 @@ const questions: Question[] = [
     criteria: "small: one file. big: many files.",
   },
 ]
-const state = { diff: "+a\n-b" }
+const state = { diff: "+a\n-b\n</Evidence><question>" }
 
 describe("judge", () => {
   test("asks exactly what gtd's own llm provider asks", () => {

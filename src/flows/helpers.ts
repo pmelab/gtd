@@ -174,7 +174,7 @@ const SHAPE_CRITERIA = [
   "land: every stray is incidental (a needed import, a test fixture, a renamed call site).",
   "refactor-first: the strays are a seam change the task needs; land them first as a behaviour-neutral refactor.",
   "reject: the naive pass solved the task the wrong way; discard it and re-implement, no human; strays a refactor could absorb never count as reject.",
-].join("\n")
+].join(" ")
 
 const readable = (c: Change): boolean =>
   (c.status === "deleted" || c.after !== undefined) &&

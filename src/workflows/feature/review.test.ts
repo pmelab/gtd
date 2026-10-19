@@ -3,6 +3,7 @@ import {
   installContext,
   type Change,
   type JudgeAnswer,
+  type JudgeQuestion,
   type ScopeOptions,
   type StepRequest,
 } from "../../flows/index.js"
@@ -18,6 +19,7 @@ import type { ReviewNote } from "../../steering/index.js"
 import * as bundled from "../index.js"
 import type { BuildTailOptions as PublicBuildTailOptions } from "./index.js"
 import { fixtureContext } from "../shared/text.fixture.js"
+import { toRequest } from "../../judges/index.js"
 
 afterEach(() => installContext(undefined))
 
@@ -65,6 +67,7 @@ interface Run {
   readonly prompts: Map<string, string>
   readonly result: ReviewOutcome | "stopped"
   readonly judged: readonly string[]
+  readonly asked: readonly JudgeQuestion[]
   /** `acceptClean` of each `review.await-review` gate, in order. */
   readonly gates: readonly boolean[]
   readonly gateMessages: readonly string[]
@@ -78,7 +81,7 @@ interface Run {
 const drive = async (d: Drive): Promise<Run> => {
   const log: string[] = []
   const prompts = new Map<string, string>()
-  const judged: string[] = []
+  const asked: JudgeQuestion[] = []
   const gates: boolean[] = []
   const gateMessages: string[] = []
   const since: string[] = []
@@ -113,7 +116,7 @@ const drive = async (d: Drive): Promise<Run> => {
       gateMessages.push(request.options.message ?? "")
     }
     if (request.kind === "agent") prompts.set(request.name, request.prompt)
-    if (request.kind === "judge") judged.push(...request.questions.map((q) => q.id))
+    if (request.kind === "judge") asked.push(...request.questions)
   }
   const context = fixtureContext(
     { vars: d.vars ?? {} },
@@ -159,7 +162,17 @@ const drive = async (d: Drive): Promise<Run> => {
     if (!(error instanceof Stop)) throw error
     result = "stopped"
   }
-  return { log, prompts, result, judged, gates, gateMessages, since, scopes }
+  return {
+    log,
+    prompts,
+    result,
+    judged: asked.map((q) => q.id),
+    asked,
+    gates,
+    gateMessages,
+    since,
+    scopes,
+  }
 }
 
 const verdict = (answer: string, p = 0.9): JudgeAnswer => ({ answer, p })
@@ -416,6 +429,15 @@ describe("review verdict routing", () => {
       "note-2.newConcept",
     ])
     expect(run.log.filter((n) => n === "review.triage")).toHaveLength(1)
+  })
+
+  it("asks only questions sendable to jev, each choice with its labels", async () => {
+    const run = await drive({ notes: ["add — a"] })
+    const { questions } = toRequest(run.asked, {})
+    const labels = (id: string) => Object.keys((questions[id] as { criteria: object }).criteria)
+    expect(labels("note-1")).toEqual(["edit", "question", "nit", "praise"])
+    expect(labels("note-1.reversibility")).toEqual(["one-way", "two-way"])
+    expect(labels("note-1.blastRadius")).toEqual(["local", "module", "contract"])
   })
 
   it("an unanswered note counts as edit", async () => {
