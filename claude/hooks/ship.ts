@@ -633,7 +633,13 @@ export const NO_PR_FOUND = "no pull requests found"
 
 // `gh pr view <branch>`: only NO_PR_FOUND reads as none; any
 // other failure (auth, network) must refuse, or ship would open a duplicate PR.
-async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | string> {
+// A closed PR whose branch origin no longer has is an abandoned earlier ship, so
+// it reads as none too; `strict` (a recorded stack's own slices) keeps it.
+async function viewPr(
+  io: ShipIo,
+  branch: string,
+  strict = false,
+): Promise<View | undefined | string> {
   const v = await io.run([
     "gh",
     "pr",
@@ -646,11 +652,15 @@ async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | st
     if (v.err.includes(NO_PR_FOUND)) return undefined
     return `gh pr view ${branch} failed: ${v.err.trim()}`
   }
+  let view: View
   try {
-    return JSON.parse(v.out) as View
+    view = JSON.parse(v.out) as View
   } catch {
     return `gh pr view ${branch} returned something unreadable.`
   }
+  if (strict || view.state !== "CLOSED") return view
+  const ls = await io.run(["git", "ls-remote", "origin", `refs/heads/${branch}`])
+  return ls.code === 0 && !ls.out.trim() ? undefined : view
 }
 
 // `dead` names belong to a retired record gtd built itself: not a collision.
@@ -849,7 +859,7 @@ async function mergedSlices(
 ): Promise<{ done: number } | string> {
   const states: (View | undefined)[] = []
   for (const i of recorded.keys()) {
-    const view = await viewPr(io, branchOf(i))
+    const view = await viewPr(io, branchOf(i), true)
     if (typeof view === "string") return `${view} Nothing changed.`
     states.push(view)
   }

@@ -411,19 +411,21 @@ falls back to the `gtd` on your `PATH`.
   changes: for a lower slice's pull request of a fresh multi-slice stack, use
   `GTD_SHIP_MODE=commits` (a resume or a single-slice re-ship skips a lower
   slice merged into the default branch instead); a merged or closed top pull
-  request, or a branch the stack did not build, needs a renamed branch. A fresh
-  multi-slice stack ship on a branch whose recorded stack is still live refuses
-  too, naming `GTD_SHIP_MODE=commits` or unsetting `branch.<branch>.gtdStack`
-  and `gtdStackTop` and deleting or renaming the old slice branches (a record
-  that no longer chains to HEAD is dropped, not refused; a hand-restacked record
-  is live). A `gh pr view` failure other than "no pull request" refuses before
-  that step's writes. Slice commits keep `commit.gpgSign` but run no
-  `commit-msg` hook. A failure part-way keeps what landed and names the slice
-  and step; run `/gtd ship` again to resume, and once a lower slice's pull
-  request has merged, a resume skips it and targets the default branch.
-  Squash-merging or rebase-merging a lower stacked pull request rewrites its
-  commit, so run `/gtd ship` again: it fetches the default branch and rebases
-  the remaining slice branches onto `origin/<default>` in one
+  request, or a branch the stack did not build, needs a renamed branch. A closed
+  pull request whose branch origin no longer has is an abandoned earlier ship
+  and is ignored: a new pull request opens (a recorded stack's own slices still
+  refuse). A fresh multi-slice stack ship on a branch whose recorded stack is
+  still live refuses too, naming `GTD_SHIP_MODE=commits` or unsetting
+  `branch.<branch>.gtdStack` and `gtdStackTop` and deleting or renaming the old
+  slice branches (a record that no longer chains to HEAD is dropped, not
+  refused; a hand-restacked record is live). A `gh pr view` failure other than
+  "no pull request" refuses before that step's writes. Slice commits keep
+  `commit.gpgSign` but run no `commit-msg` hook. A failure part-way keeps what
+  landed and names the slice and step; run `/gtd ship` again to resume, and once
+  a lower slice's pull request has merged, a resume skips it and targets the
+  default branch. Squash-merging or rebase-merging a lower stacked pull request
+  rewrites its commit, so run `/gtd ship` again: it fetches the default branch
+  and rebases the remaining slice branches onto `origin/<default>` in one
   `git rebase --update-refs` (git 2.38 or newer; the local default branch is not
   touched), pushes each moved branch with a lease on origin's own commit,
   retargets the lowest remaining pull request to the default branch and shrinks

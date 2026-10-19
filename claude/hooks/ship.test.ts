@@ -532,6 +532,28 @@ describe("ship", () => {
     )
   })
 
+  test.each([
+    ["origin no longer has the branch", "", true],
+    ["origin still has the branch", `${TIP}\trefs/heads/feat/x\n`, false],
+  ])("a closed pull request when %s", async (_, ls, opens) => {
+    const closed = { number: 4, body: "old", url: "https://github.com/o/r/pull/4", state: "CLOSED" }
+    const { io, ran } = repo(
+      {
+        ...feature,
+        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": {
+          out: JSON.stringify(closed),
+        },
+        "git ls-remote origin refs/heads/feat/x": { out: ls },
+      },
+      ["feat: add x", "feat: add x\n\nbody"],
+    )
+    const out = await ship(io, false)
+    expect(out.ok).toBe(opens)
+    if (!opens) expect(out.text).toContain("CLOSED, not open")
+    expect(ran().some((c) => c.startsWith("gh pr create"))).toBe(opens)
+    expect(ran().some((c) => c.startsWith("gh pr edit"))).toBe(false)
+  })
+
   test("an open pull request gains the issue new commits close, even with NO-UPDATE", async () => {
     const pr = { number: 7, body: "standing", url: "https://github.com/o/r/pull/7", state: "OPEN" }
     const M = "m".repeat(40)
@@ -1277,12 +1299,17 @@ describe("ship stack", () => {
     expect(ran()).not.toContain("gh pr edit 5 --base main")
   })
 
+  const onOrigin = (b: string) => ({
+    [`git ls-remote origin refs/heads/${b}`]: { out: `${C1}\trefs/heads/${b}\n` },
+  })
+
   test.each(["MERGED", "CLOSED"])(
     "a %s slice PR refuses before the history push, nothing changed",
     async (state) => {
       const { io, ran } = repo(
         {
           ...sbase,
+          ...onOrigin("feat/x-refactor"),
           [view("feat/x-refactor")]: pr(5, { state }),
           "gtd history list --json": { out: JSON.stringify([entry(ENTRY, C)]) },
         },
@@ -1295,6 +1322,36 @@ describe("ship stack", () => {
       expect(ran().some((c) => mutating.test(c))).toBe(false)
     },
   )
+
+  test("a closed slice PR whose branch origin no longer has is ignored: a new PR opens", async () => {
+    const { io, ran } = repo(
+      {
+        ...sbase,
+        [view("feat/x-refactor")]: pr(5, { state: "CLOSED" }),
+        [view("feat/x")]: pr(6, { state: "CLOSED", baseRefName: "feat/x-refactor" }),
+      },
+      writers(),
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(ran()).toContain("git ls-remote origin refs/heads/feat/x-refactor")
+    expect(ran()).toContain(create("feat/x-refactor", "main"))
+    expect(ran()).toContain(create("feat/x", "feat/x-refactor"))
+    expect(ran().some((c) => /^gh pr edit [56] /.test(c))).toBe(false)
+  })
+
+  test("a closed slice PR refuses when ls-remote cannot tell whether its branch is gone", async () => {
+    const { io, ran } = repo(
+      {
+        ...sbase,
+        [view("feat/x-refactor")]: pr(5, { state: "CLOSED" }),
+        "git ls-remote origin refs/heads/feat/x-refactor": { code: 128, err: "offline" },
+      },
+      writers(),
+    )
+    const out = await ship(io, false)
+    expect(out).toMatchObject({ ok: false, text: expect.stringContaining("#5") })
+    expect(ran().some((c) => mutating.test(c))).toBe(false)
+  })
 
   test.each([
     ["local", "git rev-parse --verify --quiet refs/heads/feat/x-refactor"],
@@ -1832,7 +1889,10 @@ describe("ship stack", () => {
   test.each(["MERGED", "CLOSED"])(
     "a %s top PR refuses without pointing at commits mode, which ships to it too",
     async (state) => {
-      const { io, ran } = repo({ ...sbase, [view("feat/x")]: pr(8, { state }) }, writers())
+      const { io, ran } = repo(
+        { ...sbase, ...onOrigin("feat/x"), [view("feat/x")]: pr(8, { state }) },
+        writers(),
+      )
       const out = await ship(io, false)
       expect(out).toMatchObject({ ok: false, text: expect.stringContaining("#8") })
       expect(out.text).toContain("Rename the branch")
