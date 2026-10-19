@@ -443,7 +443,10 @@ describe("flagMode", () => {
       unwind: () => undefined,
       "start-gate.check": () => undefined,
       "design.triage": (_, r) =>
-        r.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n"),
+        r.write(
+          ".gtd/REQUIREMENTS.md",
+          "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+        ),
       "design.gate.answer": () => undefined,
     })
   }
