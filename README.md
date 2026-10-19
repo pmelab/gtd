@@ -338,7 +338,8 @@ the process on only when you say so; a review you leave untouched signs off.
 While a step runs you can keep asking; requests for changes wait for the next
 rest. When the process finishes, Claude offers to squash it and open its pull
 request(s) (or run `/gtd ship`; `GTD_SHIP_MODE` picks one stacked pull request
-per slice or one commit per slice, see the [driver doc](docs/driver.md));
+per slice or one commit per slice, see the [driver doc](docs/driver.md)); a
+process started for an issue ships with `Closes #N` on its top pull request;
 re-running `/gtd ship` after a lower stacked pull request merged restacks the
 rest (it refuses, with nothing changed, when that pull request merged anywhere
 but the default branch (unless into a lower slice branch before that one merged

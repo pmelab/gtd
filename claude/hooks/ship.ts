@@ -128,6 +128,18 @@ print is the commit message verbatim.
 
 Print the message and nothing else — no code fences, no preamble.`
 
+// `gtd summary --slice` asks only the process's last slice to close its issue;
+// a group that absorbed that slice is the last commit all the same.
+const ABSORBED = `
+--- THIS IS THE PROCESS'S LAST COMMIT ---
+
+The slices after this one changed nothing outside .gtd/ and fold into it. If
+the process was started for an issue — its entry commit or
+.gtd/REQUIREMENTS.md names one as #N, owner/repo#N or an issue URL — end the
+message with a literal 'Closes #N' footer per issue. Name only an issue the
+work resolves, never one it merely mentions.
+`
+
 const DESCRIPTION = `The description is a STANDING statement, not a changelog. It covers exactly three
 things, and a reviewer reads it once:
 
@@ -249,7 +261,8 @@ function withWarning(r: Shipped, warning?: string): Shipped {
 type Git = (...args: string[]) => Promise<string>
 type Ok = (...args: string[]) => Promise<boolean>
 
-type Group = { name: string; base: string; tip: string }
+// `absorbed`: the group took in a trailing .gtd/-only slice, so it closes the process.
+type Group = { name: string; base: string; tip: string; absorbed?: boolean }
 
 // Slices that changed a file outside .gtd/ each land a commit; one that did not
 // folds into the next landed slice, or the previous when it is last.
@@ -265,7 +278,8 @@ async function landed(ok: Ok, slices: Slice[]) {
     groups.push({ name: s.name, base: carry ?? s.base, tip: s.tip })
     carry = undefined
   }
-  if (carry && groups.length) groups.at(-1)!.tip = slices.at(-1)!.tip
+  if (carry && groups.length)
+    Object.assign(groups.at(-1)!, { tip: slices.at(-1)!.tip, absorbed: true })
   return groups
 }
 
@@ -306,7 +320,9 @@ async function commitMessages(io: ShipIo, git: Git, groups: Group[], tip: string
       return fail(
         `gtd summary --slice=${g.name} failed; nothing changed.\n${summary.err}`.trimEnd(),
       )
-    const reply = await io.complete(summary.out + "\n" + COMMIT_FORMAT)
+    const reply = await io.complete(
+      summary.out + "\n" + (g.absorbed ? ABSORBED : "") + COMMIT_FORMAT,
+    )
     const message = reply && cleanReply(reply)
     if (!message) return fail("The commit-message turn produced nothing.")
     parts.push({ message, trailers })
@@ -1502,7 +1518,13 @@ async function shipLink(
   const pushed = await pushLink(io, git, l, i < links.length - 1)
   if (pushed) return { step: "push", why: pushed }
   const lowerRef = lower?.branch ?? baseRef
-  const ctx: Ctx = { to: l.commit, from: lower?.commit ?? mergeBase, below, stacked: true }
+  const ctx: Ctx = {
+    to: l.commit,
+    from: lower?.commit ?? mergeBase,
+    below,
+    stacked: true,
+    lower: i < links.length - 1,
+  }
   const done = await sliceStep(io, git, ok, l, view, base, lowerRef, ctx)
   if ("step" in done) return done
   if (done.number === undefined && i < links.length - 1)
@@ -1863,18 +1885,37 @@ const TITLE = /^(feat|fix|refactor|perf|docs|test|build|ci|chore)(\([\w./-]+\))?
 export const THROWN = "<!-- gtd:thrown -->"
 
 // unstacked: this run took the PR off a stack, so nothing new is still a success.
-type Ctx = { from: string; to: string; stacked?: boolean; below?: number; unstacked?: boolean }
+// lower: a stacked slice below the top, whose PR merges first and must close nothing.
+type Ctx = {
+  from: string
+  to: string
+  stacked?: boolean
+  below?: number
+  unstacked?: boolean
+  lower?: boolean
+}
 
-const CLOSING =
-  /^\s*(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+((?:[\w.-]+\/[\w.-]+)?#\d+)\s*$/gim
+const KEYWORD = String.raw`(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?):?\s+`
+const REF = String.raw`(?:[\w.-]+\/[\w.-]+)?#\d+`
+// A whole line of closing references: `Closes #1`, `Closes #1, #2`, `Fixes #1, fixes o/r#2`.
+const CLOSING = new RegExp(
+  String.raw`^\s*${KEYWORD}${REF}(?:\s*,\s*(?:${KEYWORD})?${REF})*\s*$`,
+  "gim",
+)
+
+const closed = (text: string) => {
+  const refs = new Map<string, string>()
+  for (const [line] of text.matchAll(CLOSING))
+    for (const [ref] of line.matchAll(new RegExp(REF, "g")))
+      if (!refs.has(ref.toLowerCase())) refs.set(ref.toLowerCase(), ref)
+  return refs
+}
 
 // The description prompt forbids footers, so the issues the commits close are
 // carried over here: a PR body without the keyword never links its issue.
 export function withCloses(body: string, log: string) {
-  const has = new Set([...body.matchAll(CLOSING)].map((m) => m[1]!.toLowerCase()))
-  const add = [...new Set([...log.matchAll(CLOSING)].map((m) => m[1]!))].filter(
-    (ref) => !has.has(ref.toLowerCase()),
-  )
+  const has = closed(body)
+  const add = [...closed(log)].filter(([key]) => !has.has(key)).map(([, ref]) => ref)
   if (!add.length) return body
   return [body.trimEnd(), add.map((ref) => `Closes ${ref}`).join("\n")].filter(Boolean).join("\n\n")
 }
@@ -1885,7 +1926,7 @@ async function createPr(
   branch: string,
   baseBranch: string,
   baseRef: string,
-  { from: mergeBase, to, stacked, below }: Ctx,
+  { from: mergeBase, to, stacked, below, lower }: Ctx,
   thrown?: { number: number; url: string },
 ): Promise<Shipped & { number?: number }> {
   const count = await git("rev-list", "--count", `${mergeBase}..${to}`)
@@ -1938,7 +1979,8 @@ ${await git("diff", "--stat", `${mergeBase}..${to}`)}`
   // a reply shaped like the title it was asked for.
   if (!TITLE.test(title))
     return fail(`The pull-request turn returned no usable title: ${title.slice(0, 120)}`)
-  const written = withCloses(rest.join("\n").replace(/^\s*\n/, ""), log)
+  const text = rest.join("\n").replace(/^\s*\n/, "")
+  const written = lower ? text : withCloses(text, log)
   const body = stacked ? stackLine(written, below) : written
   const head = await git("rev-parse", to)
   if (thrown) {
@@ -2002,10 +2044,14 @@ async function updatePr(
   git: Git,
   ok: Ok,
   branch: string,
-  { from: mergeBase, to, stacked, below, unstacked }: Ctx,
+  { from: mergeBase, to, stacked, below, unstacked, lower }: Ctx,
   existing: { number: number; body?: string; url: string },
 ): Promise<Shipped & { number?: number }> {
-  const restack = (body: string) => (stacked ? stackLine(body, below) : body)
+  let log = ""
+  const restack = (raw: string) => {
+    const body = lower ? raw : withCloses(raw, log)
+    return stacked ? stackLine(body, below) : body
+  }
   const edit = async (body: string) =>
     io.run(["gh", "pr", "edit", String(existing.number), "--body-file", "-"], body)
   // The stack line is re-applied on every refresh, but only written when it changed.
@@ -2032,6 +2078,14 @@ async function updatePr(
     return restacked(existing, `Nothing new since the last ship: ${existing.url}`)
   if (!count) return fail(`No commits since the last ship: ${existing.url}`)
   io.log(`#${existing.number}: weighing ${count} commit(s) against the standing description…`)
+  log = await git(
+    "log",
+    "--no-merges",
+    "--reverse",
+    "--format=%H%n%B%n---",
+    `${since}..${to}`,
+    `^${mergeBase}`,
+  )
 
   const prompt = `An open pull request already states the motivation, the high-level solution and
 the decisions behind this branch. Its description is below, followed by the
@@ -2061,7 +2115,7 @@ for you), no preamble, no code fence around the whole reply.
 ${existing.body ?? ""}
 
 --- COMMITS ADDED SINCE IT WAS LAST CONSIDERED, oldest first ---
-${await git("log", "--no-merges", "--reverse", "--format=%H%n%B%n---", `${since}..${to}`, `^${mergeBase}`)}
+${log}
 
 --- DIFF STAT (whole branch) ---
 ${await git("diff", "--stat", `${mergeBase}..${to}`)}`

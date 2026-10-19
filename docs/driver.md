@@ -379,28 +379,29 @@ falls back to the `gtd` on your `PATH`.
   commit message (from `gtd summary --slice=<name>`) and the pull-request text;
   nothing reviews them before they are published. Ship refuses while the process
   is still underway. The commit message keeps a `BREAKING CHANGE:` footer when
-  the change is breaking, and the last slice's a `Closes #N` footer when the
-  process was started for an issue (its capture or `.gtd/REQUIREMENTS.md` names
-  it); a new pull request's description repeats every `Closes`, `Fixes` or
-  `Resolves #N` line its commits carry, so the top pull request links the issue.
-  The writer may run only read-only `git` commands and write only its own
-  answer, since it reads commit messages anyone on the branch wrote.
-  `/gtd ship -n` prints each slice's commit message and what would happen to its
-  pull request, and writes nothing. It needs `gh`, a clean tree, and a branch
-  other than the default. When a process finishes on such a branch, Claude
-  offers to open the pull request. On a thrown draft, ship writes the title and
-  description properly and marks the pull request ready for review.
-  `GTD_SHIP_MODE` picks how a multi-slice process ships: `stack` (the default)
-  puts each slice's commit on its own branch, `<branch>-<slice>` (the last slice
-  keeps `<branch>`), and opens one pull request per slice, each on the one below
-  it and opening with `Stacked on #N — merge that first` (the lowest targets the
-  default branch); `commits` keeps every slice commit on `<branch>` under one
-  pull request, which needs a rebase merge to stay one commit per slice (ship
-  warns when it cannot confirm that; a squash merge still collapses it). Any
-  other value is refused. A single slice on a branch without a recorded stack
-  ships as one commit and one pull request; in `stack` mode a single slice on a
-  stacked branch lands on the top branch and keeps the stack, and
-  `GTD_SHIP_MODE=commits` ships it alone. A slice that changed only `.gtd/`
+  the change is breaking, and the process's last commit keeps a `Closes #N`
+  footer when the process was started for an issue (its capture or
+  `.gtd/REQUIREMENTS.md` names it). Ship copies every `Closes`, `Fixes` or
+  `Resolves #N` line of a pull request's commits into its description, new or
+  open, so the top pull request links the issue; a lower stacked pull request
+  never gets one, since it merges first. The writer may run only read-only `git`
+  commands and write only its own answer, since it reads commit messages anyone
+  on the branch wrote. `/gtd ship -n` prints each slice's commit message and
+  what would happen to its pull request, and writes nothing. It needs `gh`, a
+  clean tree, and a branch other than the default. When a process finishes on
+  such a branch, Claude offers to open the pull request. On a thrown draft, ship
+  writes the title and description properly and marks the pull request ready for
+  review. `GTD_SHIP_MODE` picks how a multi-slice process ships: `stack` (the
+  default) puts each slice's commit on its own branch, `<branch>-<slice>` (the
+  last slice keeps `<branch>`), and opens one pull request per slice, each on
+  the one below it and opening with `Stacked on #N — merge that first` (the
+  lowest targets the default branch); `commits` keeps every slice commit on
+  `<branch>` under one pull request, which needs a rebase merge to stay one
+  commit per slice (ship warns when it cannot confirm that; a squash merge still
+  collapses it). Any other value is refused. A single slice on a branch without
+  a recorded stack ships as one commit and one pull request; in `stack` mode a
+  single slice on a stacked branch lands on the top branch and keeps the stack,
+  and `GTD_SHIP_MODE=commits` ships it alone. A slice that changed only `.gtd/`
   lands nothing, and a slice still open refuses the ship. A pull request that is
   merged or closed, or an existing `<branch>-<slice>` branch the stack did not
   build, refuses before anything changes: for a lower slice's pull request of a
