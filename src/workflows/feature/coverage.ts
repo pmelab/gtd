@@ -11,7 +11,7 @@ import {
 import { healthy } from "../shared/health.js"
 import { coder, FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
-import { criteriaOf, requireCriteriaFrozen } from "./criteria.js"
+import { criteriaOf, criterionIds, requireCriteriaFrozen } from "./criteria.js"
 import { isTestFile } from "./refactor.js"
 import { isCode } from "./review.js"
 
@@ -58,9 +58,8 @@ const uncoveredSince = async (
   slice: readonly string[] | undefined,
 ): Promise<{ readonly covered: string[]; readonly uncovered: string[] }> => {
   const requirements = read(REQUIREMENTS) ?? ""
-  const criteria = (criteriaOf(requirements) ?? []).filter(
-    (c) => c.id !== "" && (slice === undefined || slice.includes(c.id)),
-  )
+  const own = criterionIds(requirements, slice)
+  const criteria = (criteriaOf(requirements) ?? []).filter((c) => own.includes(c.id))
   if (criteria.length === 0) return { covered: [], uncovered: [] }
   const { answers } = await judge("coverage", {
     questions: criteria.map(t.coverageQuestion),

@@ -17,3 +17,8 @@ export const markFenced = (text: string): readonly { line: string; fenced: boole
     return { line, fenced }
   })
 }
+
+/** A markdown heading: its `#` run, then its text. */
+export const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/
+/** A list item, its checkbox dropped: its text. */
+export const ITEM = /^ ?(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.*)$/

@@ -309,8 +309,9 @@ export const slicingPrompt = (cap: number): string =>
 const sliceLine = (ids: readonly string[] | undefined): string =>
   ids === undefined
     ? ""
-    : `- This slice builds ${ids.join(", ")} only; other criteria are for other slices,
-  before or after it. Leave them alone: hold this slice's to every rule below
+    : `- This slice builds ${ids.join(", ")} only: every rule here about the criteria
+  means these. The others are for other slices, before or after it — leave
+  them unbuilt and untested
 `
 
 export const designSystem = (): string =>
@@ -1229,8 +1230,8 @@ Start over and choose a different approach; do not rebuild the same diff.
 export const naivePassPrompt = (retry?: NaiveRetry, slice?: readonly string[]): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
-${criteriaBinding(false)}
-${sliceLine(slice)}- Implement them the quickest way that works — the naive version. Do not
+${sliceLine(slice)}${criteriaBinding(false)}
+- Implement them the quickest way that works — the naive version. Do not
   restructure, abstract or refactor around the change; it may land exactly as
   you leave it, and a reviewer makes it fit
 - Work breadth-first: rough out every part of the change before finishing any
@@ -1323,8 +1324,8 @@ export const implementBuildingPrompt = (
 ): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
-${criteriaBinding(true)}
-${sliceLine(slice)}${afterRefactor === true ? afterRefactorLine(rebuild) : ""}${
+${sliceLine(slice)}${criteriaBinding(true)}
+${afterRefactor === true ? afterRefactorLine(rebuild) : ""}${
     amend === true
       ? `- The change already exists in the tree from an earlier lap; amend it to meet
   the re-derived requirements instead of rewriting it

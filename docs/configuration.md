@@ -891,7 +891,8 @@ build turn are told which IDs are theirs, `acceptance-tests` and
 `rebuild-acceptance` ask only for those, and `implement.coverage` judges only
 those, over the tests changed since the slice began. A slice's
 `implement.closing` keeps `.gtd/REQUIREMENTS.md` and `.gtd/SLICES.md` for the
-next one; the last removes both. Slices are named `feature-<n>`, with
+next one; the last removes both. The last slice also builds any criterion a
+steer at `seam.steer` added after slicing. Slices are named `feature-<n>`, with
 `refactor-<n>` ahead of one the seam judge sent to a refactor. A change within
 the cap runs no slicing turn and keeps the single `feature` (and `refactor`)
 slice.
@@ -1861,8 +1862,8 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
 - **`sliceMaxCriteria`** (`8`) — the most acceptance criteria one slice builds.
   A change with more is grouped into [coarse slices](#coarse-slices) by
   `design.slicing`; one within it runs no slicing turn. Must be a positive
-  integer; anything else refuses the landing that reads it. Pinned at process
-  start.
+  integer; anything else refuses the landing that would start the process.
+  Pinned at process start.
 - **`flagMode`** (`true`) — whether the project ships changes behind release
   flags. Set it explicitly, as the factory option `feature({ flagMode: false })`
   (or `--var flagMode=false`, `GTD_FLAGMODE=false`); gtd never detects it. Any

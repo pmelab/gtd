@@ -1,9 +1,9 @@
 import { read, refuse, scope, vars } from "../../flows/index.js"
-import { markFenced } from "../shared/fences.js"
+import { HEADING, ITEM, markFenced } from "../shared/fences.js"
 import { planner, REQUIREMENTS, SLICES } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
-import { criteriaOf } from "./criteria.js"
+import { criterionIds } from "./criteria.js"
 
 /** One slice of the change: the criterion IDs it builds, in the order `.gtd/SLICES.md` lists them. */
 export interface Slice {
@@ -11,8 +11,6 @@ export interface Slice {
   readonly ids: readonly string[]
 }
 
-const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/
-const ITEM = /^ ?(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.*)$/
 const ID = /^(AC-\d+)(?![\w-])/
 
 /** The `sliceMaxCriteria` setting. Anything but a positive integer fails rather than guess a cap. */
@@ -56,7 +54,8 @@ const sliceFault = (
   if (listed.includes("")) return "a list item not led by a criterion ID"
   const over = slices.filter((s) => s.ids.length > cap).map((s) => s.title)
   if (over.length > 0) return `more than ${cap} criteria in: ${over.join(", ")}`
-  if (twice(listed).length > 0) return `an ID in more than one slice: ${twice(listed).join(", ")}`
+  const repeated = twice(listed)
+  if (repeated.length > 0) return `an ID in more than one slice: ${repeated.join(", ")}`
   const unknown = listed.filter((id) => !ids.includes(id))
   if (unknown.length > 0) return `an ID ${REQUIREMENTS} does not list: ${unknown.join(", ")}`
   const missing = ids.filter((id) => !listed.includes(id))
@@ -75,16 +74,24 @@ export const requireSlices = (ids: readonly string[], cap: number): readonly Sli
   return slices
 }
 
+const ids = (): string[] => criterionIds(read(REQUIREMENTS) ?? "")
+
+/** `slice` without the IDs a steer at `seam.steer` deleted since slicing. */
+export const current = (slice: readonly string[]): string[] =>
+  criterionIds(read(REQUIREMENTS) ?? "", slice)
+
+/** The criterion IDs no slice of `earlier` builds: the last slice's, so one added at `seam.steer` is built too. */
+export const unsliced = (earlier: readonly Slice[]): string[] =>
+  ids().filter((id) => !earlier.some((s) => s.ids.includes(id)))
+
 /**
  * The slices to build, in order. Criteria within `sliceMaxCriteria` are one
  * slice and no turn; above it `design.slicing` groups them.
  */
 export const slicing = async (): Promise<readonly Slice[]> => {
-  const ids = (criteriaOf(read(REQUIREMENTS) ?? "") ?? [])
-    .map((c) => c.id)
-    .filter((id) => id !== "")
+  const all = ids()
   const cap = sliceCap()
-  if (ids.length <= cap) return [{ title: "", ids }]
+  if (all.length <= cap) return [{ title: "", ids: all }]
   return scope("design", async () => {
     await t.agentWithSkills("slicing", t.slicingPrompt(cap), {
       label: "Slicing the change",
@@ -92,6 +99,6 @@ export const slicing = async (): Promise<readonly Slice[]> => {
       model: planner(),
       system: t.designSystem(),
     })
-    return requireSlices(ids, cap)
+    return requireSlices(all, cap)
   })
 }

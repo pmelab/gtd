@@ -18,7 +18,7 @@ import { skipDesign, statedCriteria, type StatedCriteria } from "./criteria.js"
 import { design } from "./planning.js"
 import { buildTail, isCode, reUnwind, type ReviewOutcome } from "./review.js"
 import { implement, seamBuild } from "./seam.js"
-import { slicing } from "./slicing.js"
+import { current, sliceCap, slicing, unsliced } from "./slicing.js"
 import { recordRisk, riskTierOn, type RiskTier } from "./tier.js"
 
 // The ordinary start. Any change to the tree starts a process: `idle` →
@@ -49,12 +49,13 @@ export const buildFeature = async (firstBase: string): Promise<void> => {
   const one = slices.length === 1
   for (const [i, { ids }] of slices.entries()) {
     const n = one ? "" : `-${i + 1}`
+    const more = i < slices.length - 1
     await buildSlice(i === 0 ? firstBase : head(), {
       tier,
-      ids: one ? undefined : ids,
+      ids: one ? undefined : more ? current(ids) : unsliced(slices.slice(0, -1)),
       refactor: `refactor${n}`,
       feature: `feature${n}`,
-      more: i < slices.length - 1,
+      more,
     })
   }
 }
@@ -135,6 +136,7 @@ export const ordinaryStart = async (): Promise<void> => {
   refusePendingHandOff()
   // Read right after idle, so a bad value refuses the landing that would pin it.
   flagModeOn()
+  sliceCap()
   const stated = statedCriteria(changes(), head())
   await unwind()
   if (changes(FEEDBACK).some((c) => c.status !== "deleted")) {

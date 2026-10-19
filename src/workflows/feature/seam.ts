@@ -28,7 +28,7 @@ import { coder, FEEDBACK, REFACTOR_NOTE, REQUIREMENTS, SLICES } from "../shared/
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
 import { green, requireCoverage } from "./coverage.js"
-import { criteriaOf, requireCriteria, requireCriteriaFrozen } from "./criteria.js"
+import { criterionIds, requireCriteria, requireCriteriaFrozen } from "./criteria.js"
 import {
   COMMENT,
   holdsCallSites,
@@ -107,11 +107,8 @@ const addedLines = (change: Change): string => {
 const acceptanceTests = (changes: readonly Change[]): readonly Change[] =>
   changes.filter((c) => c.after !== undefined && isCode(c.path) && isTestFile(c.path))
 
-/** The criterion IDs of `file`, only those of `slice` when given. */
 const idsOf = (file: string, slice?: readonly string[]): string[] =>
-  (criteriaOf(read(file) ?? "") ?? [])
-    .map((c) => c.id)
-    .filter((id) => id !== "" && (slice === undefined || slice.includes(id)))
+  criterionIds(read(file) ?? "", slice)
 
 // One rule for both gates, so a naive test carried over verbatim always satisfies the rebuild's.
 const unnamed = (ids: readonly string[], tests: readonly Change[]): string[] => {

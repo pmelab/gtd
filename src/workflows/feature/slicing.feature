@@ -189,3 +189,37 @@ Feature: a change with more criteria than the cap is built in coarse slices
       - AC-2
       """
     Then driving the process is refused with "no slice for: AC-3"
+
+  Scenario: a slicing turn may not change the acceptance criteria
+    Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
+      """
+      # Requirements
+
+      ## Acceptance Criteria
+
+      - AC-1: subtract(a, b) returns a - b.
+      - AC-2: multiply(a, b) returns a * b.
+      - AC-3: divide(a, b) returns a / b.
+      """
+    And step "design.slicing" writes ".gtd/REQUIREMENTS.md" with:
+      """
+      # Requirements
+
+      ## Acceptance Criteria
+
+      - AC-1: subtract(a, b) returns a - b.
+      - AC-2: multiply(a, b) returns a * b.
+      """
+    And step "design.slicing" writes ".gtd/SLICES.md" with:
+      """
+      # Slices
+
+      ## Subtract
+
+      - AC-1
+
+      ## Multiply
+
+      - AC-2
+      """
+    Then driving the process is refused with "wrote outside its write access"
