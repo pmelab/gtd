@@ -2,8 +2,8 @@
 Feature: a trivial change takes the same few beats at either risk tier, flag-free at low
 
   With GTD_FLAG_RISK_TIER on, a one-line copy fix goes
-  from idle through the naive pass, the seam judge's land, implement and human
-  review back to idle. Low tier walks exactly the steps high does; only the
+  from idle through the naive pass, the seam judge's land, implement and the
+  quality lap back to idle. Low tier walks exactly the steps high does; only the
   implementation prompt and the summary differ.
 
   Background:
@@ -27,18 +27,6 @@ Feature: a trivial change takes the same few beats at either risk tier, flag-fre
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
     And step "build.quality.correctness.reviewing" changes nothing
-    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## greeting
-
-      - [ ] ./src/greeting.ts#1-1
-        typo fixed
-      """
-    And step "build.review.closing" runs its script
 
   Scenario Outline: a one-line fix runs idle to idle with the same beats at either tier
     Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
@@ -80,21 +68,6 @@ Feature: a trivial change takes the same few beats at either risk tier, flag-fre
       export const greeting = "Hello, world!"
       """
     When the process is driven
-    Then the process rests at "build.review.await-review"
-
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## greeting
-
-      - [x] ./src/greeting.ts#1-1
-        typo fixed
-      """
-    When gtd lands
-    And the process is driven
     Then the process rests at "idle"
     And "src/greeting.ts" contains "Hello, world!"
     And the commit subjects end with:
@@ -110,10 +83,7 @@ Feature: a trivial change takes the same few beats at either risk tier, flag-fre
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
-      gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.await-review
-      gtd(human): build.review.await-review → build.review.closing
-      gtd(check): build.review.closing → idle
+      gtd(agent): build.quality.correctness.reviewing → idle
       """
     And the output of gtd "summary" <summary> "needs a human reviewer"
 

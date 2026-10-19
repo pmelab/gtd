@@ -146,13 +146,13 @@ Feature: the naive pass and seam judge decide how a feature is built
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
     When the process is driven
-    Then the process rests at "build.review.reviewing"
+    Then the process rests at "idle"
     And the commit subjects end with:
       """
       gtd(judge): seam.judge → implement.building
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.closing
-      gtd(check): implement.closing → build.review.reviewing
+      gtd(check): implement.closing → idle
       """
     And ".gtd/REQUIREMENTS.md" does not exist
 
@@ -275,105 +275,4 @@ Feature: the naive pass and seam judge decide how a feature is built
       """
       gtd(judge): seam.judge → seam.steer
       gtd(human): seam.steer → implement.building
-      """
-
-  Scenario: review feedback after land re-runs design and implement, never the seam phase
-    Given step "seam.check" changes nothing
-    And step "seam.naive" writes "src/acceptance.test.ts" with:
-      """
-      it("[AC-1] holds", () => {})
-      """
-    And step "seam.naive" writes "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => b + a
-      """
-    And judge step "seam.judge" answers:
-      """
-      [{"id":"shape","answer":"land","p":0.9}]
-      """
-    And step "implement.building" writes "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      export const SUBTRACT = process.env.GTD_FLAG_SUBTRACT === "1"
-      """
-    And step "implement.health.check" changes nothing
-    And step "implement.closing" runs its script
-    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#1-1
-        new add function
-      """
-    When the process is driven
-    Then the process rests at "build.review.await-review"
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#1-1
-        new add function[^why]
-
-      [^why]:
-          - H: also export multiply
-      """
-    And step "build.review.collecting" writes ".gtd/REQUIREMENTS.md" with:
-      """
-      # Requirements
-
-      ## Concerns
-
-      ### Multiply
-
-      - Export `multiply()`.
-      """
-    And step "build.review.collecting" writes ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#1-1
-        new add function[^why]
-
-      [^why]:
-          - H: also export multiply
-          - A: noted in the requirements.
-      """
-    When gtd lands
-    And the process is driven
-    Then the process rests at "build.review.await-review"
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#1-1
-        new add function
-      """
-    And step "build.review.closing" runs its script
-    And step "re-unwind" runs its script
-    When gtd lands
-    And the process is driven
-    Then the process rests at "implement.building"
-    And the commit subjects end with:
-      """
-      gtd(check): build.review.closing → re-unwind
-      gtd(check): re-unwind → design.triage
-      gtd(agent): design.triage → design.gate.answer
-      gtd(human): design.gate.answer → implement.building
-      gtd(agent): implement.building
       """

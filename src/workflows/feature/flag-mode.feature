@@ -58,7 +58,7 @@ Feature: flag mode off builds a feature with no release flag, seam judge or refa
     And step "implement.closing" runs its script
     And step "build.quality.correctness.reviewing" changes nothing
     When the process is driven
-    Then the process rests at "build.review.reviewing"
+    Then the process rests at "idle"
     And "src/calc.ts" contains "subtract"
     And the commit subjects end with:
       """
@@ -72,94 +72,5 @@ Feature: flag mode off builds a feature with no release flag, seam judge or refa
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
-      gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
+      gtd(agent): build.quality.correctness.reviewing → idle
       """
-
-  Scenario: flag mode off asks for no flag on a feedback lap either
-    Given step "implement.building" writes "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      export const subtract = (a: number, b: number) => a - b
-      """
-    And step "implement.health.check" changes nothing
-    And step "implement.closing" runs its script
-    And step "build.quality.correctness.reviewing" changes nothing
-    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#2-2
-        new subtract function
-      """
-    When the process is driven
-    Then the process rests at "build.review.await-review"
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#2-2
-        new subtract function[^why]
-
-      [^why]:
-          - H: also export multiply
-      """
-    And step "build.review.collecting" writes ".gtd/REQUIREMENTS.md" with:
-      """
-      # Requirements
-
-      ## Concerns
-
-      ### Multiply
-
-      - Export `multiply()`.
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
-      """
-    And step "build.review.collecting" writes ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#2-2
-        new subtract function[^why]
-
-      [^why]:
-          - H: also export multiply
-          - A: noted in the requirements.
-      """
-    When gtd lands
-    And the process is driven
-    Then the process rests at "build.review.await-review"
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#2-2
-        new subtract function
-      """
-    And step "build.review.closing" runs its script
-    And step "re-unwind" runs its script
-    And step "implement.building" is no longer scripted
-    When gtd lands
-    And the process is driven
-    Then the process rests at "implement.building"
-    And the resting step's content contains "Add no release flag — this project ships without release flags"
-    And the resting step's content does not contain "release flag the earlier lap added"
-    And no commit body contains "Gtd-Kept:"

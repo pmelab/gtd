@@ -10,11 +10,10 @@ Feature: The bundled unified workflow — one flow, end to end
   `design.gate.answer` human gate refuses to pass while any remain
   unanswered. Then `seam.naive` writes a naive pass, `seam.judge` rules on
   its shape, and `implement.*` builds the change for real before the shared
-  build tail (`build.*`): one quality-lens review turn per lens, and the
-  human review gate's sign-off-vs-feedback arbiter — a clean sign-off lands
-  an ordinary commit straight into `idle`, retaining every prior per-turn
-  commit on the branch; `gtd summary` afterward prints a closing-message
-  prompt.
+  build tail (`build.*`): one quality-lens review turn per lens, the last of
+  which lands straight into `idle` — no human review, which is the `review`
+  door's — retaining every prior per-turn commit on the branch; `gtd summary`
+  afterward prints a closing-message prompt.
 
   Every `check`-actor state here (`start-gate.check`, `unwind`,
   `implement.health.check`, `implement.closing`, `build.health.check`,
@@ -29,7 +28,7 @@ Feature: The bundled unified workflow — one flow, end to end
   commit.
 
   @inmem
-  Scenario: an ordinary code change starts the process — triage, the design gate stops even when question-free, a judged naive pass, one implementation built/fixed/reviewed, then a clean review sign-off lands directly into idle
+  Scenario: an ordinary code change starts the process — triage, the design gate stops even when question-free, a judged naive pass, one implementation built/fixed, then the quality lap lands directly into idle with no review rest
     Given a test project
     And the workflow gtd install scaffolds
     And a commit "feat: add greeter" that adds "src/greeter.ts" with:
@@ -181,51 +180,10 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(agent): build.quality.conventions.reviewing → build.quality.spec-challenge.reviewing"
 
     # The sixth and final lens (spec-challenge) is clean too -> the lap has no
-    # findings, straight on to human review.
+    # findings, and the episode ends: the feature workflow has no human review.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.spec-challenge.reviewing → build.review.reviewing"
-
-    # build.review.reviewing's prompt names its bundled skill — grounds this
-    # step's own map key against the real scoped name it resolves to.
-    When I run gtd next
-    Then stdout contains "code-review-and-quality"
-
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Friendlier greeting
-
-      - [ ] ./src/greeter.ts#1
-      new return value
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.await-review"
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "State: build.review.await-review"
-
-    # await-review: leave no comment -> sign-off (ticking the box just records that it was read)
-    Given ".gtd/REVIEW.md" is modified to:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Friendlier greeting
-
-      - [x] ./src/greeter.ts#1
-      new return value
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
-    Given the file ".gtd/REVIEW.md" is deleted
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.review.closing → idle"
+    And the last commit subject is "gtd(agent): build.quality.spec-challenge.reviewing → idle"
     And the git status is clean
     And ".gtd/REQUIREMENTS.md" does not exist
     And ".gtd/REVIEW.md" does not exist
@@ -260,10 +218,7 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(agent): build.quality.ponytail-review.reviewing → build.quality.test-audit.reviewing
       gtd(agent): build.quality.test-audit.reviewing → build.quality.conventions.reviewing
       gtd(agent): build.quality.conventions.reviewing → build.quality.spec-challenge.reviewing
-      gtd(agent): build.quality.spec-challenge.reviewing → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.await-review
-      gtd(human): build.review.await-review → build.review.closing
-      gtd(check): build.review.closing → idle
+      gtd(agent): build.quality.spec-challenge.reviewing → idle
       """
 
   @inmem

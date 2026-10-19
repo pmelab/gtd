@@ -4,7 +4,7 @@ Feature: a refactor-first judgment walks one fixed path to idle
 
   With GTD_FLAG_RISK_TIER off, a naive pass touching
   an existing non-allowlisted file is ruled refactor-first, is refactored and
-  that refactor reviewed, and only then implemented. The flags are
+  that refactor reviewed, and only then implemented, with no feature review. The flags are
   pinned so the per-flag test runs never move it off its path.
 
   Background:
@@ -95,18 +95,6 @@ Feature: a refactor-first judgment walks one fixed path to idle
       - [x] ./src/calc.ts#1-2
         add built on the shared op
       """
-    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#1-3
-        subtract built on the shared op
-      """
-    And step "build.review.closing" runs its script
     When gtd lands
     And the process is driven
     Then the process rests at "implement.building"
@@ -121,21 +109,6 @@ Feature: a refactor-first judgment walks one fixed path to idle
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
     When the process is driven
-    Then the process rests at "build.review.await-review"
-
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [x] ./src/calc.ts#1-3
-        subtract built on the shared op
-      """
-    When gtd lands
-    And the process is driven
     Then the process rests at "idle"
     And "src/calc.ts" contains "op(a, b, 1)"
     And "src/calc.ts" contains "subtract"
@@ -158,10 +131,7 @@ Feature: a refactor-first judgment walks one fixed path to idle
       gtd(check): refactor.build.review.closing → implement.building
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.closing
-      gtd(check): implement.closing → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.await-review
-      gtd(human): build.review.await-review → build.review.closing
-      gtd(check): build.review.closing → idle
+      gtd(check): implement.closing → idle
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"

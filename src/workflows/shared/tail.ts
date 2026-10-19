@@ -92,7 +92,7 @@ export interface TailOptions {
 
 /**
  * The build tail: fix (when entered red), keep green, the quality lap, then
- * `finish` — the human review, as the calling workflow runs it.
+ * `finish` — whatever the calling workflow runs last, a human review or nothing.
  */
 export function tail<T>(
   finish: (escalations: EscalationCount) => Promise<T>,
@@ -165,7 +165,7 @@ const runTail = <T>(finish: Finish<T>, options: TailOptions): Promise<T> =>
     // Truthy, not `true`: an untyped config's flags read as they always did.
     if (options.fixFirst) await repair()
     else if (!options.green) await healthy(fix, { escalations, guard, guardRests, rules })
-    // The lap runs once a tail: after its findings are fixed, review follows.
+    // The lap runs once a tail: after its findings are fixed, `finish` follows.
     if ((await qualityLap(guard, lenses, lensBase)) === "findings") {
       if (await fixQualityFindings(escalations, guard, guardRests, rules)) {
         await healthy(fix, { escalations, guard, guardRests, rules })

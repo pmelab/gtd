@@ -405,9 +405,10 @@ phone UI does not show them).
 
 ### The workflow it ships with
 
-One built-in workflow drives all of that. From where you sit, it has four
+One built-in workflow drives all of that. From where you sit, it has three
 moments — everything between them runs without you, with the judged exceptions
-noted in steps 3 and 4 below.
+noted in step 3 below — plus a fourth, review, only on `refactor-first` or when
+you open the `review` door.
 
 1. **You sketch.** Change anything, or write the idea into `.gtd/TODO.md`. Rough
    is fine; it is treated as a sketch, not as work.
@@ -431,13 +432,15 @@ noted in steps 3 and 4 below.
    [the naive pass](#the-naive-pass) below; with [flag mode](#the-naive-pass)
    off, neither runs). Then the change is built test-first, checked against the
    full suite (`testCommand`) and fixed until it passes — so keep that suite
-   fast; gtd has no lighter one. Scenario wording is not frozen: you sign the
-   scenarios off once, in the review's `## Scenarios` chunk, where any assertion
-   an existing scenario lost is marked `Weakened:`. After the build the quality
-   lap runs. Three points along the process (two with flag mode off) are judged
-   rather than always asking you outright — each stops and hands you a verdict
-   to make (`gtd judge answer`, or land with a clean tree to accept the
-   conservative default, which never skips work;
+   fast; gtd has no lighter one. Scenario wording is not frozen: a review's
+   `## Scenarios` chunk marks any assertion an existing scenario lost as
+   `Weakened:` — **risk: `feature` has no review, so a build turn that weakens a
+   scenario reaches `idle` unflagged unless you open the `review` door.** After
+   the build the quality lap runs, and the process ends: the feature workflow
+   has no human review of the finished change. Two points along the process (one
+   with flag mode off) are judged rather than always asking you outright — each
+   stops and hands you a verdict to make (`gtd judge answer`, or land with a
+   clean tree to accept the conservative default, which never skips work;
    `gtd judge run --provider fixed --answers <path>` — or the
    `GTD_JUDGE_ANSWERS` env var, inline JSON — answers one from a file, piped
    between `gtd judge --json` and `gtd judge answer`;
@@ -456,8 +459,6 @@ noted in steps 3 and 4 below.
      or get rejected and retried?
    - Every red round after the first: was the failure identical, new, or
      progress?
-   - After you review: is each of your notes an edit, a question, a nit or
-     praise?
 
    gtd itself never calls a judge: `gtd loop`, the Claude Code mod and the
    reference driver answer these through `gtd judge run` (auto selection: jev
@@ -469,18 +470,22 @@ noted in steps 3 and 4 below.
    and skip a gate unattended.**
 
    Once the change is built, the whole change goes through a qualitative review
-   lap before you see anything: six lenses, one turn each, in order —
-   `correctness`, `owasp-security`, `ponytail-review`, `test-audit`,
-   `conventions`, `spec-challenge`. `correctness`, `owasp-security` and
-   `spec-challenge` run on the planner model (`smart`), the other three on the
-   coder model (`base`); a `qualityReviews` entry `<lens>=<model>` picks a
-   lens's own. Each traces the change from its own angle and records every
-   finding, blocking or not; one fix turn then fixes ALL of them once, with no
-   re-review after the fix. A clean turn means approval only when that lens
-   found nothing at all. This lap is where code quality is looked at, and every
-   round pays for it. It never replaces step 4 — your review stays the final
-   gate, and nothing here skips it. The `fix` door (below) repairs a red
-   baseline through this same lap.
+   lap: six lenses, one turn each, in order — `correctness`, `owasp-security`,
+   `ponytail-review`, `test-audit`, `conventions`, `spec-challenge`.
+   `correctness`, `owasp-security` and `spec-challenge` run on the planner model
+   (`smart`), the other three on the coder model (`base`); a `qualityReviews`
+   entry `<lens>=<model>` picks a lens's own. Each traces the change from its
+   own angle and records every finding, blocking or not; one fix turn then fixes
+   ALL of them once, with no re-review after the fix. A clean turn means
+   approval only when that lens found nothing at all. This lap is where code
+   quality is looked at, and every round pays for it. It is the last look the
+   feature workflow takes: the process ends at `idle` once it is clean (and the
+   suite green), with no review rest — **risk: nothing re-reads the code the
+   single fix turn writes; only the suite gates it.** Findings the fix cap
+   leaves in `.gtd/QUALITY.md` rest at `build.quality-unresolved` until you
+   delete or empty the file; the suite then runs on any hand edits. **Nobody
+   signs the finished change off unless you open the `review` door** (below).
+   The `fix` door repairs a red baseline through this same lap.
 
    A red suite that keeps failing past a few fix attempts escalates instead of
    retrying forever: an agent turn reads the failing output and writes
@@ -491,22 +496,28 @@ noted in steps 3 and 4 below.
    instead of a third being written, and editing it is what gets the next
    attempt anywhere new.
 
-4. **You review.** You get a review document listing what changed and what to
-   look at. Before you see it, an automatic risk-fix pass
-   (`build.review.fix.risks.fixing`) runs. Any risk the reviewer names (a note
-   opening with `Risk:`) is fixed first, the suite kept green, and the review
-   rewritten — once per review round, so a risk the rewrite still names reaches
-   you unfixed; risk: a fix lands with no check that the risk was real. Tick the
-   boxes to approve, or write what is wrong. Approving ends the process;
-   feedback is judged note by note, each as `edit`, `question`, `nit` or
-   `praise`. An `edit` sends the process back to step 2 for re-derived
-   requirements, and the implementation is amended to meet them. A `question` is
-   answered inline under your note and the process stops at the review again —
-   no new plan. A `nit` is fixed in one batch, the suite must go green (a red
-   one gets fix turns first), then a fresh review of the change stops at the
-   review again. `praise` is dropped; a round of only praise signs off. When a
-   round mixes them, questions are answered and nits fixed first, then the edits
-   are planned — risk: the planning lap may redo nit fixes it touches.
+4. **You review — the refactor, or on request.** The feature workflow asks for
+   one review only on `refactor-first`: of the refactor slice, before the
+   feature is built (see [the naive pass](#the-naive-pass)). For the finished
+   change run `gtd door review <commitish>` (`/gtd review [base]`); that review
+   hands notes to `fix` instead of re-planning (below). Either way you get a
+   review document listing what changed and what to look at. Before you see it,
+   an automatic risk-fix pass (`build.review.fix.risks.fixing`) runs. Any risk
+   the reviewer names (a note opening with `Risk:`) is fixed first, the suite
+   kept green, and the review rewritten — once per review round, so a risk the
+   rewrite still names reaches you unfixed; risk: a fix lands with no check that
+   the risk was real. Tick the boxes to approve, or write what is wrong. At the
+   refactor review, approving moves on to the feature; feedback is judged note
+   by note (a third judged point), each as `edit`, `question`, `nit` or
+   `praise`. An `edit` re-derives the refactor (in a custom workflow built on
+   `buildTail`, it sends the process back to step 2 for re-derived
+   requirements). A `question` is answered inline under your note and the
+   process stops at the review again — no new plan. A `nit` is fixed in one
+   batch, the suite must go green (a red one gets fix turns first), then a fresh
+   review of the change stops at the review again. `praise` is dropped; a round
+   of only praise signs off. When a round mixes them, questions are answered and
+   nits fixed first, then the edits are planned — risk: the planning lap may
+   redo nit fixes it touches.
 
    Each `edit` note also gets a severity tier from four judge questions
    (security, reversibility, blast radius, new concept). `critical` and `should`
@@ -526,7 +537,7 @@ noted in steps 3 and 4 below.
 You never talk to it. Every exchange is a file in `.gtd/` that you edit in your
 own editor, and every answer you give is a commit. Your test suite is the gate
 throughout: a red baseline stops the process before it starts, and a red build
-is fixed before review.
+is fixed before the process ends.
 
 Prefer a phone or another device over your editor? `gtd ui` opens the file whose
 turn it is as a small web app, over Tailscale — including a step that names no
@@ -596,16 +607,15 @@ file it added, or the suite is red on it. A judge checks whether it changed
 anything outside the expected set (tests, steering files; see `seamAllow`).
 Incidental changes land; a needed seam change is refactored first, in its own
 slice with its own quality lap (`refactorQualityReviews`) and review, before the
-feature is implemented and reviewed; a wrong approach is retried twice, then
-rests for you to steer or overrule it. `gtd slices` lists the `refactor` and
-`feature` slices. A refactor that already carried the whole feature leaves the
-implementation nothing to do: its empty turn passes, and the feature review
-covers the whole change. Feedback at the feature review re-runs design and the
-implementation, never the naive pass; feedback at the refactor review re-runs
-the refactor, never design; a refactor-review change the refactor cannot build
-is refused, and the only way out is `gtd abandon`. A process from 27.5.0 or
-later whose judge ruled `refactor-first` must `gtd abandon` too. Each slice's
-quality lap reviews only that slice. Details in
+feature is implemented; a wrong approach is retried twice, then rests for you to
+steer or overrule it. `gtd slices` lists the `refactor` and `feature` slices. A
+refactor that already carried the whole feature leaves the implementation
+nothing to do: its empty turn passes, and the feature's quality lap covers the
+whole change. Feedback at the refactor review re-runs the refactor, never
+design; a refactor-review change the refactor cannot build is refused, and the
+only way out is `gtd abandon`. A process from 27.5.0 or later whose judge ruled
+`refactor-first` must `gtd abandon` too. Each slice's quality lap reviews only
+that slice. Details in
 [the naive-pass path](docs/configuration.md#the-naive-pass-path).
 
 **Flag mode (`flagMode`, on by default).** On, the implementation is asked for a
