@@ -626,6 +626,7 @@ type View = {
   state: string
   baseRefName?: string
   mergedAt?: string
+  headRefOid?: string
 }
 
 // gh's stderr for a branch with no PR (cli/cli pr view); tests script it by this.
@@ -633,23 +634,23 @@ export const NO_PR_FOUND = "no pull requests found"
 
 // `gh pr view <branch>`: only NO_PR_FOUND reads as none; any
 // other failure (auth, network) must refuse, or ship would open a duplicate PR.
-// A closed PR whose branch origin no longer has is an abandoned earlier ship, so
-// it reads as none too; `strict` (a recorded stack's own slices) keeps it.
-async function viewPr(
+// A closed PR whose head origin no longer holds — the branch deleted, or pushed
+// anew by a ship that failed before its PR opened — is an abandoned earlier ship
+// and reads as none. `gone`: origin lacks the branch, so a tracking ref is stale.
+async function readPr(
   io: ShipIo,
   branch: string,
-  strict = false,
-): Promise<View | undefined | string> {
+): Promise<{ view?: View; gone?: boolean } | string> {
   const v = await io.run([
     "gh",
     "pr",
     "view",
     branch,
     "--json",
-    "number,title,body,url,state,baseRefName,mergedAt",
+    "number,title,body,url,state,baseRefName,mergedAt,headRefOid",
   ])
   if (v.code !== 0) {
-    if (v.err.includes(NO_PR_FOUND)) return undefined
+    if (v.err.includes(NO_PR_FOUND)) return {}
     return `gh pr view ${branch} failed: ${v.err.trim()}`
   }
   let view: View
@@ -658,9 +659,17 @@ async function viewPr(
   } catch {
     return `gh pr view ${branch} returned something unreadable.`
   }
-  if (strict || view.state !== "CLOSED") return view
+  if (view.state !== "CLOSED") return { view }
   const ls = await io.run(["git", "ls-remote", "origin", `refs/heads/${branch}`])
-  return ls.code === 0 && !ls.out.trim() ? undefined : view
+  if (ls.code !== 0) return { view }
+  const at = ls.out.trim().split(/\s+/)[0]
+  if (!at) return { gone: true }
+  return at === view.headRefOid ? { view } : {}
+}
+
+async function viewPr(io: ShipIo, branch: string): Promise<View | undefined | string> {
+  const read = await readPr(io, branch)
+  return typeof read === "string" ? read : read.view
 }
 
 // `dead` names belong to a retired record gtd built itself: not a collision.
@@ -859,7 +868,7 @@ async function mergedSlices(
 ): Promise<{ done: number } | string> {
   const states: (View | undefined)[] = []
   for (const i of recorded.keys()) {
-    const view = await viewPr(io, branchOf(i), true)
+    const view = await viewPr(io, branchOf(i))
     if (typeof view === "string") return `${view} Nothing changed.`
     states.push(view)
   }
@@ -1522,10 +1531,11 @@ async function shipLink(
   const l = links[i]!
   const lower = i ? links[i - 1]! : undefined
   const base = baseOf(links, i, baseBranch)
-  const view = await viewPr(io, l.branch)
-  if (typeof view === "string")
-    return { step: "pull request", why: `${view} ${l.branch} was not pushed; /gtd ship retries.` }
-  const pushed = await pushLink(io, git, l, i < links.length - 1)
+  const read = await readPr(io, l.branch)
+  if (typeof read === "string")
+    return { step: "pull request", why: `${read} ${l.branch} was not pushed; /gtd ship retries.` }
+  const { view, gone } = read
+  const pushed = await pushLink(io, git, { ...l, fresh: l.fresh || gone }, i < links.length - 1)
   if (pushed) return { step: "push", why: pushed }
   const lowerRef = lower?.branch ?? baseRef
   const ctx: Ctx = {
@@ -1774,14 +1784,15 @@ async function pullRequest(
   if (mergeBase === (await git("rev-parse", "HEAD")))
     return fail(`HEAD is an ancestor of ${baseRef}: nothing to describe.`)
 
-  const existing = await viewPr(io, branch)
-  if (typeof existing === "string")
+  const read = await readPr(io, branch)
+  if (typeof read === "string")
     return fail(
-      `${existing} ${branch} was not pushed; the squash and history ref stay, /gtd ship retries.`,
+      `${read} ${branch} was not pushed; the squash and history ref stay, /gtd ship retries.`,
     )
+  const { view: existing, gone } = read
   if (existing && existing.state !== "OPEN")
     return fail(`The pull request for ${branch} is ${existing.state}, not open.`)
-  const pushed = await pushBranch(io, branch)
+  const pushed = await pushBranch(io, branch, "HEAD", undefined, gone)
   if (pushed) return fail(pushed)
   if (!existing)
     return createPr(io, git, branch, baseBranch, baseRef, { from: mergeBase, to: "HEAD" })
