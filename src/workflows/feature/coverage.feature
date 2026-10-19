@@ -46,10 +46,10 @@ Feature: a feature is done only when every acceptance criterion has a passing te
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
 
-  Scenario: the judge reads the requirements and the change's tests
+  Scenario: the judge asks per criterion over the change's test files
     When the process is driven
     Then the process rests at "implement.coverage"
-    And the output of gtd "judge" contains "- AC-2: add is unchanged."
+    And the output of gtd "judge" contains "add is unchanged."
     And the output of gtd "judge" contains "[AC-1] subtracts"
 
   Scenario: every ID covered ends the feature and marks the IDs it covers

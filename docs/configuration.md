@@ -729,11 +729,12 @@ turn needs ID'd criteria.
 Every `feature` implementation — with
 [`flagMode`](#the-bundled-workflows-settings) on or off, and on a feedback lap —
 ends at `implement.coverage` once its health loop is green: a judge asks, per
-`AC-<n>` of `.gtd/REQUIREMENTS.md` (read afresh each time), whether a test line
-added since the process began (in a file the refactor's test globs match) covers
-it. Each is a `noul` question named by the ID; `yes` at `p` ≥ 0.7, on evidence
-the budget did not cut, covers it. Landing without a verdict covers nothing; a
-file with no ID'd criteria skips the judge.
+`AC-<n>` of `.gtd/REQUIREMENTS.md` (read afresh each time), whether a test file
+changed since the process began (one the refactor's test globs match) covers it.
+Each is a `noul` question named by the ID; `yes` at `p` ≥ 0.7 covers it, even
+when the budget cut the evidence — a `yes` names a test the judge saw, while a
+`no` on cut evidence sends the ID back. Landing without a verdict covers
+nothing; a file with no ID'd criteria skips the judge.
 
 - **Every ID covered**: the judge's landing carries one `Gtd-Mark: covers=<id>`
   trailer per ID, and `implement.closing` follows.

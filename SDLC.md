@@ -37,8 +37,8 @@ steers or overrules.
 
 **A feature is done only when every `AC-<n>` has a passing test.** Once the
 implementation's suite is green, `implement.coverage` judges, per criterion ID,
-whether a test the change touched covers it; an uncovered ID sends the process
-back to a covering turn, never on to idle. The judge's landing records
+whether a test file the change touched covers it; an uncovered ID sends the
+process back to a covering turn, never on to idle. The judge's landing records
 `Gtd-Mark: covers=<id>` per ID. After two covering turns `implement.uncovered`
 rests for a human, who adds tests or overrules; an overrule records
 `Gtd-Mark: uncovered=<id>`. See

@@ -35,21 +35,15 @@ export const green = (): Promise<void> =>
     { guard: frozen, guardRests: false },
   )
 
-// Only the lines the change added: a whole large test file would overrun the budget, and cut evidence covers nothing.
 const testsSince = (base: string): string =>
   changesSince(base)
     .filter((c) => c.after !== undefined && isCode(c.path) && isTestFile(c.path))
-    .map((c) => {
-      const before = new Set((c.before ?? "").split("\n"))
-      const added = c.after!.split("\n").filter((line) => !before.has(line))
-      return `=== ${c.path} (${c.status})\n${added.join("\n")}`
-    })
+    .map((c) => `=== ${c.path} (${c.status})\n${c.after}`)
     .join("\n")
 
 /**
  * The criterion IDs of `.gtd/REQUIREMENTS.md` — read afresh, never carried
- * over — no passing test since `base` covers, by the judge. Truncated evidence
- * covers nothing.
+ * over — no passing test since `base` covers, by the judge.
  */
 const uncoveredSince = async (
   base: string,
@@ -57,14 +51,14 @@ const uncoveredSince = async (
   const requirements = read(REQUIREMENTS) ?? ""
   const criteria = (criteriaOf(requirements) ?? []).filter((c) => c.id !== "")
   if (criteria.length === 0) return { covered: [], uncovered: [] }
-  const { answers, truncated } = await judge("coverage", {
+  const { answers } = await judge("coverage", {
     questions: criteria.map(t.coverageQuestion),
-    evidence: { criteria: criteria.map(t.criterionLine).join("\n"), tests: testsSince(base) },
+    evidence: { tests: testsSince(base) },
     message: t.coverageMessage(),
     label: "Judging acceptance-criteria coverage",
   })
-  const covers = (id: string): boolean =>
-    truncated.length === 0 && answered(answers[id], "yes", COVERED_MIN_P)
+  // A budget cut keeps the evidence's end: a `no` may miss tests the judge never saw, a `yes` names one it did.
+  const covers = (id: string): boolean => answered(answers[id], "yes", COVERED_MIN_P)
   const ids = criteria.map((c) => c.id)
   return { covered: ids.filter(covers), uncovered: ids.filter((id) => !covers(id)) }
 }
