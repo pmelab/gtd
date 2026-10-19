@@ -32,15 +32,14 @@ export const JUDGE_SYSTEM =
   "You are a strict, impartial judge. Answer each question from the supplied evidence alone.\n" +
   "Reply only with the structured answer; never use tools or ask questions."
 
-const LABEL = /(?:^|\. |\n\s*)([A-Za-z][A-Za-z0-9_-]*): /g
+const LABEL = /(?:^|\. )([A-Za-z][A-Za-z0-9_-]*): /g
 
-// Mirror of src/judges/criteria.ts; the prompt-equality test pins the two together.
 const splitLabels = (criteria: string): [string, string][] => {
   const hits = [...criteria.matchAll(LABEL)]
   return hits.map((m, i) => {
     const start = m.index + m[0].length
     const end = hits[i + 1]?.index ?? criteria.length
-    return [m[1] as string, criteria.slice(start, end).trim()]
+    return [m[1] as string, criteria.slice(start, end).replace(/^ /, "")]
   })
 }
 
@@ -84,7 +83,9 @@ export function judgePrompt(j: Judgment): string {
     "Answer every question below from the evidence alone. For each, give your answer and p, your confidence between 0 and 1 that the given answer is correct.",
   ]
   for (const [key, body] of Object.entries(j.state ?? {}))
-    parts.push(`<evidence key="${key}">\n${body}\n</evidence>`)
+    parts.push(
+      `<evidence key="${key}">\n${body.replace(/<\/evidence/gi, "<\\/evidence")}\n</evidence>`,
+    )
   for (const q of j.questions) {
     const levels = levelsOf(q)
     if (typeof levels === "string") throw new Error(levels)
