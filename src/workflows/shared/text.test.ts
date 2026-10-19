@@ -721,6 +721,21 @@ Print the closing message and stop — this writes nothing itself.
       expect(prompt).toContain("`git diff sb st`")
     })
 
+    it("types the slice by what its diff changes, never by the slice's name", () => {
+      for (const [index, count] of [
+        [1, 2],
+        [2, 2],
+      ] as const) {
+        const prompt = summaryPrompt({
+          ...at(index, count),
+          slice: { ...at(index, count).slice, name: "refactor" },
+        })
+        expect(prompt.replace(/\s+/g, " ")).toContain("never from the slice's name `refactor`")
+        expect(prompt.replace(/\s+/g, " ")).toContain("`feat`, `fix` or `perf`")
+      }
+      expect(summaryPrompt(base)).not.toContain("slice's name")
+    })
+
     it("says the human left no comment or edit in this slice when humanCommits is empty", () => {
       expect(summaryPrompt(at(1, 2))).toContain(
         "The human left no comment or edit in this slice —\nevery commit is machine-authored.",

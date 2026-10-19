@@ -990,6 +990,19 @@ describe("ship per slice", () => {
     expect(prompts.slice(0, 2).join("")).not.toContain("PLAIN PROSE")
   })
 
+  test("every commit and the PR title are typed by the change, never by a slice's name", async () => {
+    const prompts: string[] = []
+    const { io } = repo(base)
+    io.complete = async (p) => (prompts.push(p), "feat: x")
+    await ship(io, false, "commits")
+    const flat = prompts.map((p) => p.replace(/\s+/g, " "))
+    expect(flat.length).toBeGreaterThan(1)
+    for (const p of flat) expect(p).toContain("never from a slice's or branch's name")
+    const title = flat.filter((p) => p.startsWith("Write the title and description"))
+    expect(title).toHaveLength(1)
+    expect(title[0]).toContain("its '!' when any commit carries a BREAKING CHANGE footer")
+  })
+
   test.each([
     ["unreadable JSON", { out: "{nope" }],
     ["schema 2", { out: JSON.stringify({ schema: 2, slices: [] }) }],
