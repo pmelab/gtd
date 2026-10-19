@@ -49,7 +49,7 @@ export function costTrailers(log: string) {
 export type ShipMode = "stack" | "commits"
 
 export function shipMode(raw: string | undefined): ShipMode | { refusal: string } {
-  if (!raw) return "stack"
+  if (!raw) return "commits"
   if (raw === "stack" || raw === "commits") return raw
   return { refusal: `GTD_SHIP_MODE must be 'stack' or 'commits', not '${raw}'.` }
 }
@@ -209,8 +209,8 @@ async function preflight(git: Git, ok: Ok) {
 }
 
 export async function ship(io: ShipIo, isDry: boolean, rawMode?: string): Promise<Shipped> {
-  const mode = shipMode(rawMode)
-  if (typeof mode === "object") return fail(mode.refusal)
+  const valid = shipMode(rawMode)
+  if (typeof valid === "object") return fail(valid.refusal)
   const git = async (...args: string[]) => (await io.run(["git", ...args])).out.trim()
   const ok = async (...args: string[]) => (await io.run(["git", ...args])).code === 0
 
@@ -223,6 +223,10 @@ export async function ship(io: ShipIo, isDry: boolean, rawMode?: string): Promis
   const live = names(await git("config", "--local", "--get", STACK_KEY(branch)))
   const retired = names(await git("config", "--local", "--get", RETIRED_KEY(branch)))
   const recorded = [...live, ...retired]
+  // Unset keeps a live stack stacking: commits mode would retarget its top PR
+  // and strand the lower ones. A dead record ships as commits.
+  const stacked = !rawMode && live.length > 0 && (await chainsToHead(git, ok, branch, live))
+  const mode: ShipMode = stacked ? "stack" : valid
   const squashed = await squash(io, git, ok, branch, baseBranch, isDry, mode)
   if (!squashed.ok) return squashed
   // Until the PR step succeeds the record only moves aside: a retry must not
