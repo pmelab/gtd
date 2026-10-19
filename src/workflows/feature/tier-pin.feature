@@ -1,8 +1,8 @@
 @inmem
-Feature: a process keeps the path it started on when GTD_FLAG_NAIVE_PASS changes
+Feature: a process keeps the risk tier setting it started with when GTD_FLAG_RISK_TIER changes
 
   The flag is recorded in the opening commit, so flipping it mid-process never
-  moves a process between the architecture path and the naive-pass path.
+  changes whether the process asks for and records a risk tier.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -29,24 +29,30 @@ Feature: a process keeps the path it started on when GTD_FLAG_NAIVE_PASS changes
       ### Subtract
 
       - `subtract(a, b)` returns `a - b`.
+
+      ## Risk Tier
+
+      low — a new pure function
       """
 
-  Scenario: a process started with the flag off stays on architecture after the flag turns on
-    Given the ambient environment variable "GTD_FLAG_NAIVE_PASS" is "0"
+  Scenario: a process started with the flag off records no tier after the flag turns on
+    Given the ambient environment variable "GTD_FLAG_RISK_TIER" is "0"
     When the process is driven
     Then the process rests at "design.gate.answer"
-    Given the ambient environment variable "GTD_FLAG_NAIVE_PASS" is "1"
-    And step "design.gate.answer" changes nothing
-    When the process is driven
-    Then the process rests at "architecture.author"
-    And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_naive_pass=0"
-
-  Scenario: a process started with the flag on stays on the naive pass after the flag turns off
-    Given the ambient environment variable "GTD_FLAG_NAIVE_PASS" is "1"
-    When the process is driven
-    Then the process rests at "design.gate.answer"
-    Given the ambient environment variable "GTD_FLAG_NAIVE_PASS" is "0"
+    Given the ambient environment variable "GTD_FLAG_RISK_TIER" is "1"
     And step "design.gate.answer" changes nothing
     When the process is driven
     Then the process rests at "seam.naive"
-    And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_naive_pass=1"
+    And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
+    And no commit body contains "Gtd-Mark:"
+
+  Scenario: a process started with the flag on records its tier after the flag turns off
+    Given the ambient environment variable "GTD_FLAG_RISK_TIER" is "1"
+    When the process is driven
+    Then the process rests at "design.gate.answer"
+    Given the ambient environment variable "GTD_FLAG_RISK_TIER" is "0"
+    And step "design.gate.answer" changes nothing
+    When the process is driven
+    Then the process rests at "seam.naive"
+    And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=1"
+    And the last commit body contains "Gtd-Mark: risk-tier=low"

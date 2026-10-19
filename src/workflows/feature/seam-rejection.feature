@@ -2,7 +2,7 @@
 @inmem
 Feature: rejected naive passes walk one fixed path through the steer gate to idle
 
-  With GTD_FLAG_NAIVE_PASS on and GTD_FLAG_RISK_TIER off, three rejected naive
+  With GTD_FLAG_RISK_TIER off, three rejected naive
   passes rest at the steer gate, where a human edit restarts the seam and the
   steered rerun lands. The flags are pinned so the per-flag test runs never
   move it off its path.
@@ -10,7 +10,6 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
   Background:
     Given the shipped workflows, as gtd install scaffolds them
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "1"
     And an environment variable "GTD_FLAG_RISK_TIER" set to "0"
     And a file "src/calc.ts" with:
       """
@@ -136,7 +135,6 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
       gtd(human): build.review.await-review → build.review.closing
       gtd(check): build.review.closing → idle
       """
-    And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_naive_pass=1"
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
     And the commit "gtd(agent): seam.naive → seam.judge" has a body containing "Gtd-Kept:"
     And the commit "gtd(judge): seam.judge → seam.naive" has a body containing "\"answer\":\"reject\""

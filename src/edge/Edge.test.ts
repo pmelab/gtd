@@ -1272,7 +1272,7 @@ export const side = async () => {
   await agent("working", "w")
 }
 
-export const defaults = { flag_naive_pass: "0", other: "x" }
+export const defaults = { flag_risk_tier: "0", other: "x" }
 `
   const withFlags = <A>(
     eff: Effect.Effect<A, Error, RestRequirements>,
@@ -1285,23 +1285,23 @@ export const defaults = { flag_naive_pass: "0", other: "x" }
 
   it("a starting process takes the declared flag from StartFlags, never an undeclared one", async () => {
     const rest = await withFlags(currentRest, repoWith(FLAGGED), {
-      flag_naive_pass: "1",
+      flag_risk_tier: "1",
       flag_other: "1",
     })
-    expect(rest.vars).toEqual({ flag_naive_pass: "1", other: "x" })
+    expect(rest.vars).toEqual({ flag_risk_tier: "1", other: "x" })
   })
 
   it("a running process missing the pin resolves the declared default, never the live flag", async () => {
-    const repo = repoWith(FLAGGED.replace('flag_naive_pass: "0", ', ""))
+    const repo = repoWith(FLAGGED.replace('flag_risk_tier: "0", ', ""))
     await enter(repo, "side")
     // a process started before the flag existed: its opening commit lacks the pin
     repo.writeFile("gtd.config.ts", FLAGGED)
-    const rest = await withFlags(currentRest, repo, { flag_naive_pass: "1" })
-    expect(rest.vars.flag_naive_pass).toBe("0")
+    const rest = await withFlags(currentRest, repo, { flag_risk_tier: "1" })
+    expect(rest.vars.flag_risk_tier).toBe("0")
   })
 
   it("with no StartFlags provided, resolves the declared default", async () => {
-    expect((await provide(currentRest, repoWith(FLAGGED))).vars.flag_naive_pass).toBe("0")
+    expect((await provide(currentRest, repoWith(FLAGGED))).vars.flag_risk_tier).toBe("0")
   })
 })
 

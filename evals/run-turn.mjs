@@ -9,7 +9,7 @@
 // `tests/tooling/run-turn.test.ts`'s static import of this module would fail
 // to even parse with one present.
 import { execFileSync } from "node:child_process"
-import { existsSync, readdirSync, readFileSync } from "node:fs"
+import { existsSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -215,8 +215,8 @@ function driveTurn(repo, env) {
   // harness never runs it either way: running it would still be one agent
   // turn, but re-prompting on a failure would grade recovery, not the
   // prompt, so it is deliberately left unexecuted rather than asserted
-  // empty. Consequence, stated plainly: `design-triage`, `architecture-
-  // author`, `build-review-reviewing` and `build-review-collecting` (every
+  // empty. Consequence, stated plainly: `design-triage`,
+  // `build-review-reviewing` and `build-review-collecting` (every
   // case with `mode: qa`/`mode: review`) can score a structural pass here
   // on a `.gtd/` artifact that `gtd validate` — the real workflow's own
   // gate before `gtd land` — would reject (a malformed `## Open Questions`
@@ -260,11 +260,8 @@ function changedFiles(repo, env, preLandHead, postLandHead) {
 
 // `caseDef.artifact` is absent for a case that declares no read-back path —
 // skip cleanly rather than reading a path that was never contracted.
-// `architecture-decompose` is the one bundled case that ships with
-// `artifact` unset, since it writes a variable-sized set of package files
-// rather than one contracted path; `tests/tooling/run-turn.test.ts`'s
-// `readFeedback` unit test still pins the branch independent of a paid eval
-// run. Exported for exactly that reason.
+// Exported so `tests/tooling/run-turn.test.ts` pins the branch without a
+// paid eval run.
 export function readFeedback(repo, caseDef) {
   if (!caseDef.artifact) return { feedbackExists: false, feedback: "" }
   const feedbackPath = join(repo, caseDef.artifact)
@@ -319,20 +316,6 @@ function isStructurallyOk(
   return checks.every(Boolean)
 }
 
-// A path-to-content map of `.gtd/packages/`, empty when the directory
-// doesn't exist. Only `evals/asserts/architecture-decompose.mjs` reads
-// this — the case declares no `artifact`, so there's no single contracted
-// path `readFeedback` can read back for it.
-function readPackageFiles(repo) {
-  const dir = join(repo, ".gtd", "packages")
-  if (!existsSync(dir)) return {}
-  return Object.fromEntries(
-    readdirSync(dir)
-      .filter((name) => name.endsWith(".md"))
-      .map((name) => [`.gtd/packages/${name}`, readFileSync(join(dir, name), "utf-8")]),
-  )
-}
-
 // `gtd land` refuses (a dirty tree matching no edge) by exiting non-zero —
 // `--json=script` throws before any shell script even runs. That must fail
 // the TRIAL, never crash the harness: printing a stack trace with
@@ -351,7 +334,6 @@ function landAndInspect(repo, env, caseDef, variant) {
       unformatted: [],
       landedSubject: "",
       structurallyOk: false,
-      packageFiles: {},
       landError: err.message,
     }
   }
@@ -377,7 +359,6 @@ function landAndInspect(repo, env, caseDef, variant) {
     unformatted,
     landedSubject,
     structurallyOk,
-    packageFiles: readPackageFiles(repo),
   }
 }
 

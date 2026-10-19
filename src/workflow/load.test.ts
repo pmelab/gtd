@@ -853,7 +853,7 @@ describe("ConfigService", () => {
     it("names the key and lists every known scope", async () => {
       const message = await loadError(keyed("nope"))
       expect(message).toContain('"skills.nope" is not a scope that runs a turn — known scopes: ')
-      expect(message).toContain("architecture, architecture.decompose, build,")
+      expect(message).toContain("known scopes: build, build.fix.quality,")
     })
 
     it("gives a group key the same plain error", async () => {

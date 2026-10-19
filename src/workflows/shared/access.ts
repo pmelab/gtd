@@ -12,8 +12,6 @@ export const access = (
   vars: Readonly<Record<string, string>>,
 ): Readonly<Record<string, ScopeAccess>> => ({
   design: { write: [] },
-  architecture: { write: [".gtd/REQUIREMENTS.md"] },
-  "architecture.decompose": { write: [".gtd/packages/**", ".gtd/ARCHITECTURE.md"] },
   "build.review": { write: [".gtd/REVIEW.md"] },
   "build.review.defer": { write: [".gtd/TODO.md"] },
   // `{}` reopens what `build.review` restricted: the fixes edit code.

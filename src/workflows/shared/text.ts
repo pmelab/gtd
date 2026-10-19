@@ -21,7 +21,6 @@ import {
   styleFormatContract,
   agentConduct,
   designPersona,
-  architectPersona,
   reviewerPersona,
   builderPersona,
   finisherPersona,
@@ -67,12 +66,12 @@ place to start sketching. gtd treats it as a SKETCH, not finished
 work: the very next beat unwinds it out of your working tree (its
 intent survives in history, for the triage phase to read), then
 checks the test baseline is green, then triages the reverted diff
-into ordered, classified concerns: product questions, then
-technical questions, then one package per concern, built and
-reviewed in parallel.
+into ordered, classified concerns and resolves the product
+questions, before a quick first implementation, a judged refactor
+where it needs one, and the build and review.
 
 What each change does next (then run \`gtd land\`):
-- **Start** — make any change — gtd unwinds it out of your working tree (its intent survives in history) before checking the test baseline is green, then triages the reverted diff into ordered, classified concerns and resolves product questions, then technical ones, before building each concern's package (**unwind** -> **start-gate.check**).
+- **Start** — make any change — gtd unwinds it out of your working tree (its intent survives in history) before checking the test baseline is green, then triages the reverted diff into ordered, classified concerns and resolves product questions before building the change (**unwind** -> **start-gate.check**).
 `
 
 export const unwindFailedMessage = (): string =>
@@ -175,9 +174,10 @@ Classify each as PRODUCT (user-facing/requirements) or TECHNICAL
 
 ${questionBar}
 
-Raise questions only for product concerns here — technical ones
-wait for the next phase. When every concern is TECHNICAL, write
-no \`## Open Questions\` section. STRICT: answer it yourself only
+Raise questions for product concerns. Raise a technical concern
+only when it is a genuine fork the human must settle — no later
+phase asks; otherwise the builder decides it. When no concern
+clears that bar, write no \`## Open Questions\` section. STRICT: answer it yourself only
 when the product default is unmistakable; a wrong intent costs a
 whole rebuild lap.
 
@@ -213,8 +213,7 @@ ${questionBarReturn}
   yourself — a loop-back runs no green-baseline gate, so the
   tree may already be red (reverting the edit can undo a fix it
   made). If red, make that breakage the first concern, ahead of
-  everything else — every later concern's green-on-its-own
-  property assumes the suite started green
+  everything else — the build assumes the suite started green
 ${riskTier ? riskTierBlock : ""}`
 
 export const designSystem = (): string =>
@@ -252,216 +251,10 @@ What each change does next (then run \`gtd land\`):
 - **Discuss** — start or continue a thread (\`- H:\`); the agent replies and this gate stops again.
 ${riskTier ? RISK_TIER_GATE_LINE : ""}`
 
-export const architectureAuthorPrompt = (): string =>
-  `${styleBlock}
-
-${styleFormatContract}
-
-${stateFileRules}
-${footnoteFoldIn}${codeThreadReplies()}
-- The only state files this turn touches are
-  \`.gtd/ARCHITECTURE.md\` (write it) and \`.gtd/REQUIREMENTS.md\`
-  (delete once folded in) — no other files for notes or output
-- You do not resume the design conversation — a separate
-  machine, its own memory, a cold read every time. Read
-  \`.gtd/REQUIREMENTS.md\` (the settled, ordered, classified
-  concerns) in full; treat every decision there, PRODUCT or
-  TECHNICAL alike, as settled — never re-open it
-- Cold means no memory of triage's own back-and-forth, not no
-  git access. This process started at commit
-  \`${start()}\`. Find the first turn yourself: run
-  \`git rev-list --ancestry-path ${start()}..HEAD | tail -1\`
-  then \`git show\` it to see what started this process — a
-  hand-edit, a scratch note, or both
-- Once \`.gtd/ARCHITECTURE.md\` is written, delete
-  \`.gtd/REQUIREMENTS.md\` — folded in, it must not linger. Leave
-  everything uncommitted and finish
-
-## First lap
-
-- Develop \`.gtd/ARCHITECTURE.md\` from those concerns: for each,
-  in order, work out the *how*, building on the settled *what*
-- You now know the *how*, so you know each concern's file footprint
-  — list each concern's primary paths. Merge concerns whose
-  footprints center on the same files into one, unless the later
-  one only consumes an interface the earlier one creates (keeps a
-  build-on-top sequence from collapsing into one blob). This
-  authority is to merge only, never to split — the whole problem
-  is over-granularity
-- Record every merge under \`## Merged Concerns\`,
-  carrying both merged requirements verbatim so each requirement
-  stays traceable to its tests
-- A merge raises no open question and stops for no
-  human — do not route it to \`architecture.gate\` for a veto; the
-  human sees it when reviewing the plan
-- Prefer fewer, larger packages — the smallest independently
-  valuable change, not the smallest change that compiles
-- Every open point here is TECHNICAL — triage already resolved
-  the product ones, one phase earlier. PERMISSIVE: answer it
-  yourself unless you genuinely cannot defend a default; a wrong
-  technical call is still caught by each package's suite run and the
-  quality lap
-- The narrow exception: a simplification that drops something
-  \`.gtd/REQUIREMENTS.md\` mentions is an open question, not a
-  silent default
-
-- \`.gtd/ARCHITECTURE.md\` is the acceptance spec the human signs
-  off. It carries these sections, in this order:
-  1. \`## Open Questions\` (qa format, first, only when present)
-  2. \`## Interfaces\` — new and changed signatures/contracts
-     only, as fenced TypeScript (or the repository's language)
-  3. \`## Call Stacks\` — seam level, entry point → module
-     boundary; one line per hop, never per line of code
-  4. \`## E2E Scenarios\` — one line per user-visible behaviour,
-     \`- e2e: <path> — <behaviour> (covers <concern>)\`, in plain
-     words: the builder writes the scenario in the repository's
-     own e2e framework, so never spell out Gherkin here. With no
-     user-visible behaviour change, the literal line
-     \`No e2e change.\` plus a one-line reason — never empty or
-     missing
-  5. \`## Unit Tests\` — one \`### <interface>\` per entry of
-     \`## Interfaces\`, each test a line
-     \`- unit: <path> — <behaviour> (covers <concern>)\`;
-     never against an internal helper. A requirement no test can
-     cover (docs, README, deletions, config) goes under a
-     \`### Chores\` heading in this section as
-     \`- chore: <path> — <what> (covers <concern>)\`
-  6. \`## Merged Concerns\` — kept, when any merge happened
-  7. \`## Answered Questions\` — last
-- Coverage rule: every concern in \`.gtd/REQUIREMENTS.md\` appears
-  in at least one \`(covers …)\` tail, as a test or a chore. Each
-  test entry carries its file path and level (unit / e2e)
-
-${questionBar}
-## Return lap
-
-${questionBarReturn}`
-
-export const architectSystem = (): string =>
-  `${architectPersona}
-
-${agentConduct}`
-
-export const architectureDecomposePrompt = (): string =>
-  `${styleBlock}
-
-${stateFileRules}
-- The only state files this turn touches are the package files
-  under \`.gtd/packages/\` — no other files for notes or output.
-  Never delete \`.gtd/ARCHITECTURE.md\`: package files may
-  reference it, and it is removed with the last package
-- Work from \`.gtd/ARCHITECTURE.md\` if you wrote it earlier this
-  conversation, otherwise read it (the converged technical
-  plan). It already lists the concerns, interfaces, e2e scenarios
-  and unit tests — this turn groups them into packages. A
-  \`## Merged Concerns\` heading there records merges, never a
-  concern of its own: write no package file for it
-- A package is one concern's slice, and each must leave the full
-  suite green — every package boundary costs a full run, so write
-  as few as the concerns allow. Keep the merge rule: concerns whose
-  footprints centre on the same files stay in one package unless
-  the later one only consumes an interface the earlier one creates.
-  Order them interface-introducing packages first
-- Write the packages under \`.gtd/packages/\`, each carrying its
-  requirement(s) — both, independently, if merged — its tasks, and
-  each task's acceptance criteria as \`- [ ]\` checkboxes and
-  relevant paths:
-  - \`01-…\` onward — one vertical slice each: the unit tests,
-    the code, the wiring (CLI entry, workflow composition, config)
-    and every \`## E2E Scenarios\` entry its concern covers, so the
-    slice ends with its scenarios passing. A requirement no test
-    covers (docs, README, deletions, config) is a task of the slice
-    it belongs to; only one no slice owns becomes a chore package,
-    which declares no tests
-- Every package with tests has a \`## Tests\` section, one line per
-  declared test, copied from the architecture entries:
-  \`- unit: \\\`<path>\\\`\` or \`- e2e: \\\`<path>\\\`\`. Chore packages have
-  none. List every test the package writes or changes; also list an
-  existing test a criterion relies on, marked \`(unchanged)\` —
-  \`- unit: \\\`<path>\\\` (unchanged)\` or
-  \`- e2e: \\\`<path>\\\` (unchanged)\`; list no other untouched test;
-  never mark a file the package also writes or changes — list it once,
-  unmarked; only decompose places the marker
-- Leave everything uncommitted and finish
-`
-
-export const architectureGateAnswerMessage = (): string =>
-  `This gate stops on every process, even with no open question, so
-you can discuss \`.gtd/ARCHITECTURE.md\`; changing nothing and re-running
-accepts it as written — unless a thread is open (see below).
-
-\`.gtd/ARCHITECTURE.md\` holds the technical plan under
-development. Each open question under \`## Open Questions\` offers
-a few options plus a \`- [ ] _your answer_\` slot. Tick exactly one
-box (\`- [x]\`) per question; for your own answer, replace
-\`_your answer_\` with your text and tick that line. A round that
-only leaves notes or thread replies needs no tick. Stepping is
-refused while a question is unanswered, unless the round adds a
-thread for the agent to answer.
-
-Moving on is refused while any thread is open — its last entry is
-the agent's. Reply with a conclusion, or delete the thread. A reply
-round returns to this same gate so you can read the agent's answer.
-
-You can also leave a footnote alongside an answer:
-
-${footnoteRules}
-What each change does next (then run \`gtd land\`):
-- **Accept as-is** — change nothing and re-run; the plan stands as written. Refused while a thread is open.
-- **Revise answers** — tick exactly one option per open question (replace \`_your answer_\` for your own) to send it back for the agent to fold your answers in, or delete a question to skip it.
-- **Discuss** — start or continue a thread (\`- H:\`); the agent replies and this gate stops again.
-`
-
-export const packagesItemBuildingPrompt = (pkg: string): string =>
-  `${stateFileRules}
-- The only state file this turn may write is \`.gtd/SATISFIED.md\`;
-  never delete the package file (the declared-tests guard reads it
-  after you)
-- The package to implement is \`${pkg}\`
-- First check the acceptance criteria against the current tree —
-  an earlier fix turn may already meet them
-- **Every criterion already met in the tree**: write
-  \`.gtd/SATISFIED.md\` with evidence per criterion — commit, file,
-  symbol, issue URL, or command output — and change nothing else
-- **No \`## Tests\` and work outside the tree**: first check it was
-  not already done by an earlier attempt (e.g. an existing issue
-  with the same title via \`gh\`) and reuse that as evidence, or do
-  the work; then write \`.gtd/SATISFIED.md\` with that evidence and
-  change nothing else in the tree
-- **Any other package**: implement normally, write no
-  \`.gtd/SATISFIED.md\`
-- Write the tests the package declares under \`## Tests\` first,
-  then the code that makes them pass; the turn is refused unless
-  every declared test is in your diff — except a line marked
-  \`(unchanged)\`, which must exist before the turn and stay
-  untouched — creating, editing or deleting it refuses the turn. If
-  it does not exist yet, or the marker is wrong because the package
-  must change that test, stop without creating it and leave it to
-  a person
-- A declared e2e test is a scenario in the repository's own e2e
-  framework for the behaviour its \`## E2E Scenarios\` entry names.
-  Word it to fit the existing steps — reuse and generalise them
-  rather than adding one-off ones
-- Implement every task the package describes, no more, no less,
-  fanning independent ones out to parallel subagents where your
-  harness supports it; leave other package files untouched
-- Leave the package file in place, everything uncommitted, then
-  finish your turn
-`
-
 export const builderSystem = (): string =>
   `${builderPersona}
 
 ${agentConduct}`
-
-export const packagesItemFixSuitePrompt = (): string =>
-  `${stateFileRules}
-${fixFeedbackPrompt}
-- If the only way to green the suite is another package's work,
-  make the smallest change that gets there — that package can
-  then legitimately report itself already satisfied later
-- Leave everything uncommitted and finish your turn — do not commit
-`
 
 export const refactorRules = (strays: readonly string[], pattern: string): string =>
   `- Behaviour-neutral: the suite's outcome must not change
@@ -518,7 +311,7 @@ export const refactorFixPrompt = (strays: readonly string[], pattern: string): s
   `${stateFileRules}
 ${fixFeedbackPrompt}
 ${refactorRules(strays, pattern)}
-- Never do another package's work, even when it would green the suite
+- Never do work outside the refactor, even when it would green the suite
 - Leave everything uncommitted and finish your turn — do not commit
 `
 
@@ -612,7 +405,7 @@ export const conventionsBrief = `- Read every \`AGENTS.md\` and \`CLAUDE.md\` in
 export const specChallengeBrief = `- Find this process's planning documents in history:
   \`git log <start>..HEAD\` (\`<start>\` is the process start named in parentheses above, NOT the review base) over the steering directory
   (\`.gtd/\`), then \`git show\` the last version of the
-  requirements, architecture and package files
+  requirements file
 - Flag a spec decision that conflicts with a system invariant — an
   existing test, a documented constraint, or a data invariant
   other code relies on — naming the decision and the invariant
@@ -686,8 +479,8 @@ When you've been through the whole diff, run \`gtd land\`:
 - **Leave notes** — a note on a \`.gtd/REVIEW.md\` line, a footnote
   anchored to a hunk, or prose under a chunk. Each note is judged on its
   own (**review.triage** gives one verdict per note):
-  - \`edit\` — a change request: goes to **review.collecting** and a
-    FULL development lap, re-planned from scratch
+  - \`edit\` — a change request: goes to **review.collecting**, then
+    a development lap: requirements re-derived, the change amended
   - \`question\` — answered inline under the note in
     \`.gtd/REVIEW.md\` (**review.answer-review-questions**); the process
     rests at this gate again, no lap
@@ -1190,8 +983,7 @@ every commit is machine-authored.
     .map((v) => v.slice(0, SIGNAL_LENGTH))
   // A flag-on process with no tier mark fails closed, like an unreadable tier.
   const risk =
-    tier === "high" ||
-    (tier === undefined && it.vars.flag_risk_tier === "1" && it.vars.flag_naive_pass === "1")
+    tier === "high" || (tier === undefined && it.vars.flag_risk_tier === "1")
       ? "\nRisk tier: high — this merge needs a human reviewer (advisory, not enforced).\n"
       : ""
   // Signals land once, with the code that ships them; the risk advisory gates every merge.
@@ -1260,7 +1052,7 @@ Print the closing message and stop — this writes nothing itself.
 `
 }
 
-// ── The seam phase (release flag `naive_pass`) ──────────────────────────────
+// ── The seam phase ──────────────────────────────────────────────────────────
 
 const listed = (paths: readonly string[], unreadable: readonly string[] = []): string =>
   paths

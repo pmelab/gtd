@@ -2,16 +2,15 @@
 @inmem
 Feature: a naive pass the judge rules land goes straight to implement with no seam gate
 
-  With GTD_FLAG_NAIVE_PASS on and GTD_FLAG_RISK_TIER off, a naive pass that
+  With GTD_FLAG_RISK_TIER off, a naive pass that
   edits an existing source file is judged land: the process skips the approval
-  gate, any refactor and any architecture, and runs implement, quality and
-  review back to idle. The flags are pinned here so the per-flag test runs never
+  gate and any refactor, and runs implement, quality and
+  review back to idle. The flag is pinned here so the per-flag test runs never
   move it off this path.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
     And an environment variable "GTD_QUALITYREVIEWS" set to "correctness"
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "1"
     And an environment variable "GTD_FLAG_RISK_TIER" set to "0"
     And a file "src/greeting.ts" with:
       """
@@ -65,7 +64,7 @@ Feature: a naive pass the judge rules land goes straight to implement with no se
       """
     And step "build.review.closing" runs its script
 
-  Scenario: a land judgment runs idle to idle with no seam gate, refactor or architecture
+  Scenario: a land judgment runs idle to idle with no seam gate or refactor
     When the process is driven
     Then the process rests at "build.review.await-review"
     Given a file ".gtd/REVIEW.md" with:
@@ -100,7 +99,6 @@ Feature: a naive pass the judge rules land goes straight to implement with no se
       gtd(human): build.review.await-review → build.review.closing
       gtd(check): build.review.closing → idle
       """
-    And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_naive_pass=1"
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
     And the commit "gtd(agent): seam.naive → seam.judge" has a body containing "Gtd-Kept:"
     And the commit "gtd(judge): seam.judge → implement.building" has a body containing "\"answer\":\"land\""

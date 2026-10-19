@@ -2,7 +2,7 @@
 @inmem
 Feature: a refactor that carried the whole feature still gets a feature review
 
-  With GTD_FLAG_NAIVE_PASS on and GTD_FLAG_RISK_TIER off, a refactor-first
+  With GTD_FLAG_RISK_TIER off, a refactor-first
   refactor can land everything the requirements ask for. The feature slice's
   implement turn then has nothing to author: its empty turn completes the
   step, and with no code changed since the refactor the feature review covers
@@ -12,7 +12,6 @@ Feature: a refactor that carried the whole feature still gets a feature review
     Given the shipped workflows, as gtd install scaffolds them
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And an environment variable "GTD_REFACTORQUALITYREVIEWS" set to ""
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "1"
     And an environment variable "GTD_FLAG_RISK_TIER" set to "0"
     And a file "src/calc.ts" with:
       """

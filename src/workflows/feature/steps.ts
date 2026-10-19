@@ -2,15 +2,7 @@ import { human, run, scope, type ScopeAccess } from "../../flows/index.js"
 import type { CollectRound } from "../../workflow-kit/index.js"
 import * as t from "../shared/text.js"
 import { riskTierOn } from "./tier.js"
-import {
-  ARCHITECTURE,
-  coder,
-  FEEDBACK,
-  planner,
-  REFACTOR,
-  REQUIREMENTS,
-  REVIEW,
-} from "../shared/steps.js"
+import { planner, REFACTOR, REQUIREMENTS, REVIEW } from "../shared/steps.js"
 
 /** Turn the sketch since `base` into `.gtd/REQUIREMENTS.md`. */
 export const triage = (base: string): Promise<void> =>
@@ -22,22 +14,6 @@ export const triage = (base: string): Promise<void> =>
     system: t.designSystem(),
   })
 
-export const author = (): Promise<void> =>
-  t.agentWithSkills("author", t.architectureAuthorPrompt(), {
-    label: "Refining the technical plan",
-    file: ARCHITECTURE,
-    mode: "qa",
-    model: planner(),
-    system: t.architectSystem(),
-  })
-
-export const decompose = (): Promise<void> =>
-  t.agentWithSkills("decompose.decomposing", t.architectureDecomposePrompt(), {
-    label: "Decomposing into packages",
-    model: planner(),
-    system: t.architectSystem(),
-  })
-
 export const answerProductQuestions = (): Promise<void> =>
   human("gate.answer", {
     message: t.designGateAnswerMessage(riskTierOn()),
@@ -45,30 +21,6 @@ export const answerProductQuestions = (): Promise<void> =>
     file: REQUIREMENTS,
     mode: "qa",
     acceptClean: true,
-  })
-
-export const answerTechnicalQuestions = (): Promise<void> =>
-  human("gate.answer", {
-    message: t.architectureGateAnswerMessage(),
-    label: "Awaiting your technical answers",
-    file: ARCHITECTURE,
-    mode: "qa",
-    acceptClean: true,
-  })
-
-export const build = (pkg: string): Promise<void> =>
-  t.agentWithSkills("building", t.packagesItemBuildingPrompt(pkg), {
-    label: "Building",
-    model: coder(),
-    system: t.builderSystem(),
-  })
-
-export const fixSuite = (): Promise<void> =>
-  t.agentWithSkills("fix.suite.fixing", t.packagesItemFixSuitePrompt(), {
-    label: "Fixing the check",
-    file: FEEDBACK,
-    model: coder(),
-    system: t.builderSystem(),
   })
 
 /** Answer every `question` note inline in `.gtd/REVIEW.md`. */

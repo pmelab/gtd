@@ -58,15 +58,17 @@ release with the bundle if it is missing.
 ## Prompt evals
 
 `npm run eval` grades the bundled workflow's own prompts against one
-configuration, using [promptfoo](https://www.promptfoo.dev/). Every agent step
-the workflow can rest at gets a two-sided case — all ten today. It is not part
-of `npm test`: each case drives real, multi-minute agent turns and costs real
-model calls, and `npm run eval` runs every case every time — hours, real tokens,
-no default subset. To re-run one case after changing its grader or its prompt,
-filter by the `<case>:<variant>` description each test carries:
+configuration, using [promptfoo](https://www.promptfoo.dev/). Four agent steps
+have a two-sided case today (`design.triage`, `build.review.reviewing`,
+`build.review.collecting`, `build.fix`; ten cells); the naive pass and
+`implement.*` have none yet. It is not part of `npm test`: each case drives
+real, multi-minute agent turns and costs real model calls, and `npm run eval`
+runs every case every time — hours, real tokens, no default subset. To re-run
+one case after changing its grader or its prompt, filter by the
+`<case>:<variant>` description each test carries:
 
 ```bash
-npm run eval -- --filter-pattern '^(design-triage|architecture-author):'
+npm run eval -- --filter-pattern '^(design-triage|build-fix):'
 ```
 
 A filtered run prints its per-cell rates and **skips the baseline gate** — a
@@ -127,45 +129,39 @@ exec provider's script hashes resolve — without `--no-cache`, later trials wou
 silently replay an earlier trial's cached JSON instead of a fresh turn.
 
 To add a case: write `evals/cases/<name>.mjs` exporting a frozen plain object
-shaped like `evals/cases/packages-item-building.mjs` — a `state` to enter,
-two-sided `base`/`variants` fixture content, `expect[variant].gtdFiles` and
+shaped like `evals/cases/build-fix.mjs` — a `state` to enter, two-sided
+`base`/`variants` fixture content, `expect[variant].gtdFiles` and
 `expect[variant].otherFiles` (`"none"` for a planner case that must never touch
-repo code, `"required"` for a coder case that must). `gtdFiles` takes one of two
-shapes, both graded by `evals/expect.mjs`'s `matchGtdFiles`: the exact array of
-`.gtd/` paths that variant's turn may change (every case but
-`architecture-decompose`), or, for a state whose turn writes a variable-sized
-set of paths, a descriptor `{exact: [...], matching: {pattern, count}}` — every
-`exact` path must be present, and every OTHER changed path must match `pattern`,
-with exactly `count` of them. An optional `artifact` (the repo-relative path
-read back as `feedback` for the tier-3 rubric, absent for a case with no
-contracted state file — that case's `tests:` entries then carry no `llm-rubric`
-either, since there is nothing to judge; `architecture-decompose` is that case,
-since it writes a variable-sized set of package files rather than one contracted
-path), a `plantedIdentifier` the `violation` variant's `feedback` must name
-(choose text the fix must INTRODUCE, never text already sitting in `base` — a
-bug's exception class declared but not yet thrown greps true on an untouched
-file), and an optional `expect[variant].outOfBounds` (the repo-relative path
-THAT variant's fixture plants as a coder case's obvious wrong move; both
-`isStructurallyOk` here and `checkOutOfBounds` in `evals/asserts/shared.mjs`
-fail a turn that touches it). Scoped per variant, never a case-level field: the
-trap file exists only on the variant whose fixture plants it, so a `clean` turn
-writing that same path itself (e.g. a fresh reproduction test, following the TDD
-discipline the builder persona asks for) is never graded as touching a trap.
-Then add a matching `evals/asserts/<name>.mjs` grader — it wires
-`evals/asserts/shared.mjs`'s case-independent checks first, then adds whatever
-check is specific to that state — and wire both into
+repo code, `"required"` for a coder case that must). `gtdFiles` is the exact
+array of `.gtd/` paths that variant's turn may change, graded by
+`evals/expect.mjs`. An optional `artifact` (the repo-relative path read back as
+`feedback` for the tier-3 rubric, absent for a case with no contracted state
+file — that case's `tests:` entries then carry no `llm-rubric` either, since
+there is nothing to judge), a `plantedIdentifier` the `violation` variant's
+`feedback` must name (choose text the fix must INTRODUCE, never text already
+sitting in `base` — a bug's exception class declared but not yet thrown greps
+true on an untouched file), and an optional `expect[variant].outOfBounds` (the
+repo-relative path THAT variant's fixture plants as a coder case's obvious wrong
+move; both `isStructurallyOk` here and `checkOutOfBounds` in
+`evals/asserts/shared.mjs` fail a turn that touches it). Scoped per variant,
+never a case-level field: the trap file exists only on the variant whose fixture
+plants it, so a `clean` turn writing that same path itself (e.g. a fresh
+reproduction test, following the TDD discipline the builder persona asks for) is
+never graded as touching a trap. Then add a matching `evals/asserts/<name>.mjs`
+grader — it wires `evals/asserts/shared.mjs`'s case-independent checks first,
+then adds whatever check is specific to that state — and wire both into
 `evals/promptfooconfig.yaml`'s `tests:`, one entry per variant, each carrying
 `case`/`variant`/`challenge`.
 
-A `mode: qa`/`mode: review` case (`design-triage`, `architecture-author`,
-`build-review-reviewing`, `build-review-collecting`) never has its landed
-`.gtd/` artifact run through `gtd validate` — `run-turn.mjs` reads but never
-executes that state's `--json=validate` script, on purpose, since running it
-would still cost one agent turn but re-prompting on a failure would grade
-recovery, not the prompt. The grader's job stays scoped to the artifact's SHAPE
-(does it parse the way the next state reads it), never its validity against
-`gtd validate` itself — a trial can score a structural pass on a `.gtd/` file
-the real workflow would still reject before `gtd land`.
+A `mode: qa`/`mode: review` case (`design-triage`, `build-review-reviewing`,
+`build-review-collecting`) never has its landed `.gtd/` artifact run through
+`gtd validate` — `run-turn.mjs` reads but never executes that state's
+`--json=validate` script, on purpose, since running it would still cost one
+agent turn but re-prompting on a failure would grade recovery, not the prompt.
+The grader's job stays scoped to the artifact's SHAPE (does it parse the way the
+next state reads it), never its validity against `gtd validate` itself — a trial
+can score a structural pass on a `.gtd/` file the real workflow would still
+reject before `gtd land`.
 
 A case names a workflow `state`, never a model or an agent: the state's class —
 planner or coder — picks which half of the configuration runs it, so a

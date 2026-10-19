@@ -24,10 +24,9 @@ takes the off path.
 
 ## Naive pass and seam judge
 
-Behind `GTD_FLAG_NAIVE_PASS` (off by default) the agent implements first and a
-seam judge rules `land`/`refactor-first`/`reject`. `GTD_FLAG_RISK_TIER` (off by
-default) acts only with `GTD_FLAG_NAIVE_PASS` also on: it adds a proposed risk
-tier at the design gate. See
+After design the agent implements first and a seam judge rules
+`land`/`refactor-first`/`reject`. `GTD_FLAG_RISK_TIER` (off by default) adds a
+proposed risk tier at the design gate. See
 [The naive-pass path](docs/configuration.md#the-naive-pass-path).
 
 The third reject rests at `seam.steer`, where a human steers or overrules.
@@ -37,11 +36,10 @@ The third reject rests at `seam.steer`, where a human steers or overrules.
 Each gate is a point where a person must act before work continues. Counts are
 per design round: a review-feedback round re-runs design.
 
-- `feature`: design and review sign-off; `architecture.gate.answer` only on the
-  default path (naive pass off); a refactor review sign-off only with naive pass
-  on and judge `refactor-first`. **Default path 3 gates; naive path 2, or 3 on
-  `refactor-first`** (design, refactor review, feature review). Overrule at
-  `seam.steer` passes no seam gate.
+- `feature`: design and review sign-off; a refactor review sign-off only on
+  judge `refactor-first`. **2 gates, or 3 on `refactor-first`** (design,
+  refactor review, feature review). Overrule at `seam.steer` passes no seam
+  gate.
 - `cleanup`, `fix`, `review`: review sign-off only.
 - `rollout`: **no human gate** — the green suite and the `rollout-only` refusal
   are its only control.
@@ -49,12 +47,11 @@ per design round: a review-feedback round re-runs design.
 In every row the authorizer is the person who asked for the change, and the
 record carries the commit author only, no approver trailer, unless stated.
 
-| Gate                                                               | Who approved                         | What was tested                                 | Where the record lives               |
-| ------------------------------------------------------------------ | ------------------------------------ | ----------------------------------------------- | ------------------------------------ |
-| `design.gate.answer`                                               | the person who answers the questions | the design questions, answered before build     | step commit and `.gtd/` file history |
-| `architecture.gate.answer` (default path only)                     | the person who answers the questions | the technical plan, answered before build       | step commit and `.gtd/` file history |
-| review gate sign-off                                               | the reviewer who signs off           | the diff, against the review checklist          | the sign-off commit                  |
-| refactor review sign-off (naive pass on, only on `refactor-first`) | the reviewer who signs off           | the refactor diff, against the review checklist | the sign-off commit                  |
+| Gate                                                | Who approved                         | What was tested                                 | Where the record lives               |
+| --------------------------------------------------- | ------------------------------------ | ----------------------------------------------- | ------------------------------------ |
+| `design.gate.answer`                                | the person who answers the questions | the design questions, answered before build     | step commit and `.gtd/` file history |
+| review gate sign-off                                | the reviewer who signs off           | the diff, against the review checklist          | the sign-off commit                  |
+| refactor review sign-off (only on `refactor-first`) | the reviewer who signs off           | the refactor diff, against the review checklist | the sign-off commit                  |
 
 For non-repudiation use signed commits or branch protection outside gtd.
 
@@ -74,9 +71,8 @@ survives a squash only under `refs/gtd/history/*`, which nothing pushes by
 default (#374).** Read it with `gtd history show <ref>`; the manual fix is in
 [Process history](README.md#process-history).
 
-**`seam.judge` judgments appear only with `GTD_FLAG_NAIVE_PASS` on, and
-`Gtd-Mark: risk-tier` trailers only with `GTD_FLAG_RISK_TIER` and
-`GTD_FLAG_NAIVE_PASS` on; a default setup records neither.**
+**`Gtd-Mark: risk-tier` trailers appear only with `GTD_FLAG_RISK_TIER` on; a
+default setup records none.**
 
 ## Worked examples
 

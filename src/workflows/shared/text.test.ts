@@ -8,10 +8,6 @@ import {
   deferNotesScript,
   buildReviewReviewingPrompt,
   agentWithSkills,
-  architectureAuthorPrompt,
-  architectureDecomposePrompt,
-  packagesItemBuildingPrompt,
-  architectureGateAnswerMessage,
   buildFixPrompt,
   buildFixQualityPrompt,
   buildReviewFixNitsPrompt,
@@ -167,23 +163,6 @@ describe("the shared open-question instruction", () => {
     expect(prompt).toContain("one to four bullets, free-form")
     expect(prompt).toContain("labels, no fixed bullet count")
   })
-
-  it("is the identical block, full text, in both the design gate and the architecture gate", () => {
-    // Anchored at questionBar's own first and last lines (not a bullet
-    // partway in) so the whole ~3.4k-char block is compared — a divergence
-    // anywhere inside, including its opening bullets, fails this test the
-    // moment either gate's copy drifts from the shared source.
-    const start = "The goal is shared understanding, not a quota or an empty section"
-    const end = "Never tick a box yourself — the human ticks exactly one per question"
-    const sharedBlock = (prompt: string): string =>
-      prompt.slice(prompt.indexOf(start), prompt.indexOf(end) + end.length)
-
-    const designBlock = sharedBlock(renderText(() => designTriagePrompt("base")))
-    const architectureBlock = sharedBlock(renderText(() => architectureAuthorPrompt()))
-
-    expect(designBlock.length).toBeGreaterThan(3000)
-    expect(designBlock).toBe(architectureBlock)
-  })
 })
 
 describe("answered-entry footnote exception", () => {
@@ -195,32 +174,6 @@ describe("answered-entry footnote exception", () => {
     expect(prompt).toContain(`stays settled, except\n  one ${exception}`)
     expect(prompt).not.toContain("never re-open a settled")
     expect(prompt).not.toContain("never re-open one")
-  })
-
-  it("is in the architecture return lap and keeps the first-lap settled line", () => {
-    const prompt = renderText(() => architectureAuthorPrompt())
-    expect(prompt).toContain(`entry stays settled, except one ${exception}`)
-    expect(prompt).not.toContain("never re-open a settled")
-    expect(prompt).toMatch(/treat every decision[\s\S]*as settled — never re-open it/)
-  })
-})
-
-describe("architectureAuthorPrompt", () => {
-  it("qualifies the PERMISSIVE default with a settled-requirements exception", () => {
-    const prompt = renderText(() => architectureAuthorPrompt())
-    expect(prompt).toContain("is an open question, not a")
-  })
-  it("names the four content sections in order and the entry forms", () => {
-    const prompt = renderText(() => architectureAuthorPrompt())
-    const at = ["## Interfaces", "## Call Stacks", "## E2E Scenarios", "## Unit Tests"].map((h) =>
-      prompt.indexOf(h),
-    )
-    expect(at.every((i) => i >= 0)).toBe(true)
-    expect([...at].sort((a, b) => a - b)).toEqual(at)
-    expect(prompt).toContain("- unit: <path>")
-    expect(prompt).toContain("- e2e: <path>")
-    expect(prompt).toContain("- chore: <path>")
-    expect(prompt).toContain("No e2e change.")
   })
 })
 
@@ -688,14 +641,9 @@ Print the closing message and stop — this writes nothing itself.
   it("treats a flag-on process with no tier mark as high", () => {
     const prompt = summaryPrompt({
       ...base,
-      vars: { flag_risk_tier: "1", flag_naive_pass: "1" },
+      vars: { flag_risk_tier: "1" },
     })
     expect(prompt).toContain("Risk tier: high")
-  })
-
-  it("marks no tier when the risk-tier flag is on without naive-pass", () => {
-    const prompt = summaryPrompt({ ...base, vars: { flag_risk_tier: "1", flag_naive_pass: "0" } })
-    expect(prompt).not.toContain("Risk tier")
   })
 
   it("says the human left no comment or edit this process when humanCommits is empty", () => {
@@ -812,10 +760,9 @@ describe("buildReviewCollectingPrompt without a refactor", () => {
 })
 
 describe("the thread rules", () => {
-  it("are in all three answering prompts and no longer say a footnote is human input only", () => {
+  it("are in both answering prompts and no longer say a footnote is human input only", () => {
     const prompts = renderText(() => [
       designTriagePrompt("base"),
-      architectureAuthorPrompt(),
       buildReviewCollectingPrompt("capture"),
     ])
     for (const prompt of prompts) {
@@ -837,13 +784,9 @@ describe("code threads in prompts", () => {
     { path: "src/b.ts", line: 9, waitingOn: "human", first: "done", faults: [] },
   ] as const
 
-  it("lists the code threads waiting on the agent in the three gates", () => {
+  it("lists the code threads waiting on the agent in both gates", () => {
     const prompts = renderText(
-      () => [
-        designTriagePrompt("base"),
-        architectureAuthorPrompt(),
-        buildReviewCollectingPrompt("capture"),
-      ],
+      () => [designTriagePrompt("base"), buildReviewCollectingPrompt("capture")],
       { codeThreads: waiting },
     )
     for (const prompt of prompts) {
@@ -866,7 +809,6 @@ describe("code threads in prompts", () => {
   it("teaches the syntax once in the footnote rules", () => {
     for (const message of renderText(() => [
       designGateAnswerMessage(),
-      architectureGateAnswerMessage(),
       buildReviewAwaitReviewMessage("base"),
     ])) {
       expect(message).toContain("gtd check --open-threads")
@@ -1305,46 +1247,4 @@ it("asks the refactor review, and only it, to flag a test-file hunk that is more
   ])
   expect(refactor).toContain("give any test-file hunk its own chunk")
   expect(first).not.toContain("give any test-file hunk its own chunk")
-})
-
-describe("architectureDecomposePrompt tests rule", () => {
-  it("states one rule: write-or-change, relied-on marked (unchanged), no other untouched", () => {
-    const prompt = renderText(() => architectureDecomposePrompt()).replace(/\s+/g, " ")
-    expect(prompt).toContain("List every test the package writes or changes")
-    expect(prompt).toContain("also list an existing test a criterion relies on")
-    expect(prompt).toContain("list no other untouched test")
-    expect(prompt).toContain("- unit: \\`<path>\\` (unchanged)")
-    expect(prompt).toContain("- e2e: \\`<path>\\` (unchanged)")
-    expect(prompt).toContain("only decompose places the marker")
-  })
-})
-
-describe("packagesItemBuildingPrompt", () => {
-  const prompt = renderText(() => packagesItemBuildingPrompt(".gtd/packages/01-a.md")).replace(
-    /\s+/g,
-    " ",
-  )
-  it("carries the evidence kinds and the already-done check", () => {
-    for (const w of [
-      "evidence per criterion",
-      "commit, file, symbol, issue URL, or command output — and change nothing else",
-      "it was not already done",
-      "via `gh`",
-    ])
-      expect(prompt).toContain(w)
-  })
-  it("states the already-met, no-tests out-of-tree and implement-normally rules flat", () => {
-    expect(prompt).toContain("Every criterion already met in the tree")
-    expect(prompt).toContain("No `## Tests` and work outside the tree")
-    expect(prompt).toContain(
-      "Any other package**: implement normally, write no `.gtd/SATISFIED.md`",
-    )
-  })
-  it("says an (unchanged) line must exist and stay untouched", () => {
-    expect(prompt).toContain("(unchanged)")
-    expect(prompt).toContain("stay untouched")
-    expect(prompt).toContain("creating, editing or deleting it refuses the turn")
-    expect(prompt).toContain("must exist before the turn")
-    expect(prompt).toContain("stop without creating it")
-  })
 })

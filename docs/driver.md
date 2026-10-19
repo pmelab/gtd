@@ -60,12 +60,11 @@ info, memory-path information, git status. A workflow author reaching for
 prompt, not a tweak on top of the harness's own. Every agent step in one memory
 scope (below) must run with the same `model` and `system` — one scope is one
 conversation, and a conversation has one identity. The bundled workflow ships
-six such personas — design, architect, reviewer, builder, finisher and
-escalation. Each carries only its role paragraph; a shared block of agent
-conduct (tool-use conduct, orienting with git since there is no injected status
-block, and inspecting what the turn's own message names) is appended after it
-everywhere, so the identities differ only in role, never in how they're told to
-behave.
+five such personas — design, reviewer, builder, finisher and escalation. Each
+carries only its role paragraph; a shared block of agent conduct (tool-use
+conduct, orienting with git since there is no injected status block, and
+inspecting what the turn's own message names) is appended after it everywhere,
+so the identities differ only in role, never in how they're told to behave.
 
 Memory follows the step name. A step's **memory scope** is its name up to the
 last dot — the `scope()` prefixes around it — so `build.fix` and
@@ -81,10 +80,10 @@ does start a fresh one. The bundled workflow's review tail is a worked example:
 it sits inside `build` (as `build.review.*`) so that a `gtd --workflow fix` run
 — `build.fix` → `build.health.check` → `build.review.*` — stays inside one
 subtree. (An actionable review round breaks the run on purpose instead: it
-leaves `build` through the root-level `re-unwind` step and a full re-plan, since
-a hand-edit made during review is a sketch to reconsider, not a fix to build
-on.) The same steps placed under two different prefixes (`build.health` and
-`packages.item.health`) gets two different scopes, so a reviewer's turn never
+leaves `build` through the root-level `re-unwind` step and a design lap, since a
+hand-edit made during review is a sketch to reconsider, not a fix to build on.)
+The same steps placed under two different prefixes (`build.health` and
+`implement.health`) gets two different scopes, so a reviewer's turn never
 resumes an implementer's session as long as the two live in different scopes.
 
 `gtd` itself stores NOTHING to make this work: `session.id` is

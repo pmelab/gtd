@@ -47,9 +47,9 @@ rules. Two routes, and they combine:
   [Writing your own driver](./driver.md)):
 
   ```ts
-  // gtd.config.ts — packages.item loads your own skill instead of the bundled pair
+  // gtd.config.ts — implement loads your own skill instead of the bundled pair
   export const config = defineConfig({
-    skills: { "packages.item": ["my-org-tdd-skill"] },
+    skills: { implement: ["my-org-tdd-skill"] },
   })
   ```
 
@@ -62,7 +62,7 @@ rules. Two routes, and they combine:
   // gtd.config.ts — keep the bundled pair, add one more
   export const config = defineConfig({
     skills: {
-      "packages.item": [
+      implement: [
         "test-driven-development",
         "incremental-implementation",
         "my-org-tdd-skill",
@@ -71,9 +71,9 @@ rules. Two routes, and they combine:
   })
   ```
 
-  The cost of this route: a later gtd release that changes `packages.item`'s
-  bundled default is silently lost to you, because your override already
-  replaced it — you keep whatever list you wrote until you edit it again.
+  The cost of this route: a later gtd release that changes `implement`'s bundled
+  default is silently lost to you, because your override already replaced it —
+  you keep whatever list you wrote until you edit it again.
 
 Both routes share the same safety rules:
 
@@ -186,7 +186,7 @@ the process rests on declares, plus any `REVIEW.md`:
 - an `Information` diagnostic on the last entry of every open thread
 - live diagnostics for both formats as you edit, including thread syntax
   (`- H:`/`- A:` entries); an open thread — last entry the agent's — blocks
-  landing at the requirements, architecture and review gates
+  landing at the requirements and review gates
 - a `gtd.openSteeringFile` command that jumps to the current step's steering
   file, falling back to `.gtd/TODO.md` when the resting step declares none, so
   the keybinding has an answer even before a process has started

@@ -4,7 +4,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
   The bundled workflow's memory key is COMPUTED from a `prompt`-content
   step's memory scope, never authored per step: the scope is the step name's
   `scope()` prefix (`""` for the root, `"build"`, `"build.health"`,
-  `"packages.item"`, ...), and the key is
+  `"implement"`, ...), and the key is
   `<scope>#<hash7>` — the first 7 hex characters of the commit the CURRENT
   unbroken run into that scope started FROM. Entering a DESCENDANT scope (a
   true dotted-prefix match) doesn't break the ancestor's run; entering a
@@ -146,10 +146,9 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And the json field "memory" matches the one recorded as "first fix attempt"
     And the json field "memory" differs from the one recorded as "the escalation turn"
 
-  Scenario: a nested child scope never reuses its caller's session — packages.item.fix.suite.fixing gets its own, not packages.item.building's
+  Scenario: a nested child scope never reuses its caller's session — implement.fix.suite.fixing gets its own, not implement.building's
     Given a test project
     And the workflow gtd install scaffolds
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And a file "NOTE.md" with:
       """
@@ -167,97 +166,36 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       Build the widget. No open questions.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    And the file ".gtd/REQUIREMENTS.md" is deleted
-    And a file ".gtd/ARCHITECTURE.md" with:
+    And gtd lands "gtd(human): design.gate.answer → seam.naive"
+    And a file "src/widget.ts" with:
       """
-      Technical plan for the feature. No open questions.
+      export const widget = () => ({})
       """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
-    And a file ".gtd/packages/01-widget.md" with:
-      """
-      Package: the widget.
-      """
-    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    # A naive pass that only adds files is exempt from the judge: it lands.
+    And gtd lands "gtd(agent): seam.naive → implement.building"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"packages.item.building\""
+    And stdout contains "\"state\":\"implement.building\""
     And I record the json field "memory" as "the builder's turn"
 
     Given a file "src/widget.ts" with:
       """
       export const widget = () => ({})
       """
-    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And gtd lands "gtd(agent): implement.building → implement.health.check"
     And a file ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns an unfrozen object
       """
-    And gtd lands "gtd(check): packages.item.health.check → packages.item.fix.suite.fixing"
+    And gtd lands "gtd(check): implement.health.check → implement.fix.suite.fixing"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"packages.item.fix.suite.fixing\""
+    And stdout contains "\"state\":\"implement.fix.suite.fixing\""
     And the json field "memory" differs from the one recorded as "the builder's turn"
-    And stdout matches "\"memory\":\"packages\.item\.fix\.suite#[0-9a-f]{7}\""
-
-  Scenario: a fresh memory key per entry — two different packages each get their own distinct session at packages.item.building
-    Given a test project
-    And the workflow gtd install scaffolds
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
-    And a file "NOTE.md" with:
-      """
-      a sketch
-      """
-
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
-    And a file ".gtd/REQUIREMENTS.md" with:
-      """
-      Build the widget and the gadget. No open questions.
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    And the file ".gtd/REQUIREMENTS.md" is deleted
-    And a file ".gtd/ARCHITECTURE.md" with:
-      """
-      Technical plan: one module each. No open questions.
-      """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
-    And a file ".gtd/packages/01-widget.md" with:
-      """
-      Package: the widget.
-      """
-    And a file ".gtd/packages/02-gadget.md" with:
-      """
-      Package: the gadget.
-      """
-    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
-    When I run gtd next with "--json"
-    Then it succeeds
-    And I record the json field "memory" as "package 1's builder turn"
-
-    Given a file "src/widget.ts" with:
-      """
-      export const widget = () => ({})
-      """
-    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
-    And gtd lands "gtd(check): packages.item.health.check → packages.item.closing"
-    And the file ".gtd/packages/01-widget.md" is deleted
-    And gtd lands "gtd(check): packages.item.closing → packages.item.building"
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"packages.item.building\""
-    And the json field "memory" differs from the one recorded as "package 1's builder turn"
+    And stdout matches "\"memory\":\"implement\.fix\.suite#[0-9a-f]{7}\""
 
   Scenario: two instances of one healthGate-shaped machine never share a session, even with byte-identical check output
     Given a test project
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a gtd config file at "gtd.config.ts" with:
       """
       import { start } from "@pmelab/gtd/flows"
@@ -286,10 +224,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
         return afterTail(await buildTail(start(), { fixFirst: true }))
       }
       """
-    # build.health and packages.item.health are both healthGate instances at
-    # different points in the tree (src/workflows/shared/tail.ts) — the proof
-    # below is that their computed memory keys never collide, even though
-    # both land byte-identical FEEDBACK.md check output.
+    # build.health and implement.health are both healthGate instances at
+    # different points in the tree — the proof below is that their computed
+    # memory keys never collide, even though both land byte-identical
+    # FEEDBACK.md check output.
 
     Given an environment variable "GTD_QUALITYREVIEWS" set to ""
     And gtd starts workflow "fix"
@@ -347,33 +285,21 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       Add a doc comment above the widget export. No open questions.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    And the file ".gtd/REQUIREMENTS.md" is deleted
-    And a file ".gtd/ARCHITECTURE.md" with:
-      """
-      Technical plan for the feature. No open questions.
-      """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
-    And a file ".gtd/packages/01-doc-comment.md" with:
-      """
-      Package: add a doc comment above the widget export.
-      """
-    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And gtd lands "gtd(human): design.gate.answer → implement.building"
     And a file "src/widget.ts" with:
       """
       // The widget.
       export const widget = () => undefined
       """
-    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
+    And gtd lands "gtd(agent): implement.building → implement.health.check"
     And a file ".gtd/FEEDBACK.md" with:
       """
       test failed: widget() returns undefined
       """
-    And gtd lands "gtd(check): packages.item.health.check → packages.item.fix.suite.fixing"
+    And gtd lands "gtd(check): implement.health.check → implement.fix.suite.fixing"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout matches "\"memory\":\"packages\.item\.fix\.suite#[0-9a-f]{7}\""
+    And stdout matches "\"memory\":\"implement\.fix\.suite#[0-9a-f]{7}\""
 
   Scenario: build.review's own session survives the closing hop into an actionable round — reviewing and collecting share the session
     # humanReview is nested INSIDE buildTail (`build.review`), not a root
@@ -481,13 +407,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # "build", so it never breaks the BUILDER's run (previous scenario) — but
     # the reviewer's OWN run breaks every round it's re-entered through a
     # sibling or an unrelated scope. An actionable feedback round breaks it
-    # even more decisively than before: getting back to
-    # build.review.reviewing now passes all the way out through the root's
-    # own `re-unwind` and a full design/architecture/packages lap, none of
-    # which are descendants of `build.review`. Two rounds of review over the
-    # same feature are therefore always reviewed with fresh eyes.
+    # even more decisively: getting back to build.review.reviewing passes all
+    # the way out through the root's own `re-unwind` and a full
+    # design/implement lap, none of which are descendants of `build.review`.
+    # Two rounds of review over the same feature are therefore always
+    # reviewed with fresh eyes.
     Given a test project
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a gtd config file at "gtd.config.ts" with:
       """
       import { start } from "@pmelab/gtd/flows"
@@ -573,28 +498,16 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       Add a doc comment above the widget export. No open questions.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    And the file ".gtd/REQUIREMENTS.md" is deleted
-    And a file ".gtd/ARCHITECTURE.md" with:
-      """
-      Technical plan for the feature. No open questions.
-      """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
-    And a file ".gtd/packages/01-doc-comment.md" with:
-      """
-      Package: add a doc comment above the widget export.
-      """
-    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And gtd lands "gtd(human): design.gate.answer → implement.building"
     And a file "src/widget.ts" with:
       """
       // The widget.
       export const widget = () => 1
       """
-    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
-    And gtd lands "gtd(check): packages.item.health.check → packages.item.closing"
-    And the file ".gtd/packages/01-doc-comment.md" is deleted
-    And gtd lands "gtd(check): packages.item.closing → build.review.reviewing"
+    And gtd lands "gtd(agent): implement.building → implement.health.check"
+    And gtd lands "gtd(check): implement.health.check → implement.closing"
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And gtd lands "gtd(check): implement.closing → build.review.reviewing"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
@@ -604,15 +517,14 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     # `build.fix` and `build.review.reviewing` are different scopes ("build"
     # vs. "build.review") — a plain descendant dip from "build" into
     # "build.review" never breaks build's own run (see the previous
-    # scenario), but the re-unwind/design/architecture/packages rows an
-    # ACTIONABLE round takes are none of them descendants of "build" either.
-    # So the SAME break that gives the reviewer a fresh mind each round
-    # (previous scenario) also breaks the builder's own run: by the time the
-    # loop-back's own package lands, the second pass's build.review.reviewing
-    # is anchored at THIS pass's own entry into the shared tail, never the
+    # scenario), but the re-unwind/design/implement rows an ACTIONABLE round
+    # takes are none of them descendants of "build" either. So the SAME break
+    # that gives the reviewer a fresh mind each round (previous scenario)
+    # also breaks the builder's own run: by the time the loop-back's own
+    # implement pass lands, the second pass's build.review.reviewing is
+    # anchored at THIS pass's own entry into the shared tail, never the
     # original build.fix turn from before the round-trip.
     Given a test project
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a gtd config file at "gtd.config.ts" with:
       """
       import { start } from "@pmelab/gtd/flows"
@@ -698,28 +610,16 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       Add a doc comment above the widget export. No open questions.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    And the file ".gtd/REQUIREMENTS.md" is deleted
-    And a file ".gtd/ARCHITECTURE.md" with:
-      """
-      Technical plan for the feature. No open questions.
-      """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
-    And a file ".gtd/packages/01-doc-comment.md" with:
-      """
-      Package: add a doc comment above the widget export.
-      """
-    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And gtd lands "gtd(human): design.gate.answer → implement.building"
     And a file "src/widget.ts" with:
       """
       // The widget.
       export const widget = () => 1
       """
-    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
-    And gtd lands "gtd(check): packages.item.health.check → packages.item.closing"
-    And the file ".gtd/packages/01-doc-comment.md" is deleted
-    And gtd lands "gtd(check): packages.item.closing → build.review.reviewing"
+    And gtd lands "gtd(agent): implement.building → implement.health.check"
+    And gtd lands "gtd(check): implement.health.check → implement.closing"
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And gtd lands "gtd(check): implement.closing → build.review.reviewing"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
@@ -727,7 +627,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
   Scenario: gtd --workflow fix's own build.fix session survives into the shared review tail — reviewing and collecting share the session even on the fix-precheck entry
     # The nesting's whole remaining point: on this entry, build.fix opens
-    # build's own scope directly (no packages/design/architecture lap ever
+    # build's own scope directly (no design/seam/implement lap ever
     # runs), and every state from there to build.review.* —
     # build.fix -> build.health.check -> build.review.reviewing -> ... —
     # stays inside that one subtree, so the review is drafted by the SAME
@@ -859,14 +759,14 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout contains "\"state\":\"build.review.collecting\""
     And the json field "memory" matches the one recorded as "the fix-precheck path's reviewer turn"
 
-  Scenario: architecture is a separate memory scope from design, but decomposition is its own scope with its own session
-    # design (designPlan) and architecture (archPlan) are sibling machines with
-    # their own memory scope each — a deliberate handover, not one fused
-    # conversation, since the technical phase reads the requirements file cold
-    # rather than resuming design's own session. Decomposition is its own scope, so it starts a fresh session.
+  Scenario: seam is a separate memory scope from design, and implement is its own scope with its own session
+    # design, seam and implement are sibling machines with their own memory
+    # scope each — a deliberate handover, not one fused conversation: the
+    # naive pass reads the requirements file cold rather than resuming
+    # design's own session, and implement starts fresh from the judged pass.
     Given a test project
     And the workflow gtd install scaffolds
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And a file "NOTE.md" with:
       """
       a sketch
@@ -885,76 +785,36 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
     Given a file ".gtd/REQUIREMENTS.md" with:
       """
-      Build a widget. No open questions.
+      Build the widget. No open questions.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    # No verdict piped: the conservative default runs the full pass.
+    And gtd lands "gtd(human): design.gate.answer → seam.naive"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"architecture.author\""
+    And stdout contains "\"state\":\"seam.naive\""
     And the json field "memory" differs from the one recorded as "the design conversation's turn"
-    And I record the json field "memory" as "the architecture conversation's first turn"
+    And stdout matches "\"memory\":\"seam#[0-9a-f]{7}\""
+    And I record the json field "memory" as "the naive pass's turn"
 
-    Given the file ".gtd/REQUIREMENTS.md" is deleted
-    And a file ".gtd/ARCHITECTURE.md" with:
+    Given a file "src/widget.ts" with:
       """
-      Technical plan for the widget.
-
-      ## Open Questions
-
-      ### Which storage backend?
-
-      - [ ] SQLite — zero-config, file-based
-      - [ ] Postgres — for concurrent writers
-      - [ ] _your answer_
+      export const widget = () => ({})
       """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
+    # A naive pass that only adds files is exempt from the judge: it lands.
+    And gtd lands "gtd(agent): seam.naive → implement.building"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"architecture.gate.answer\""
-    And stdout does not contain "\"memory\""
+    And stdout contains "\"state\":\"implement.building\""
+    And the json field "memory" differs from the one recorded as "the design conversation's turn"
+    And the json field "memory" differs from the one recorded as "the naive pass's turn"
+    And stdout matches "\"memory\":\"implement#[0-9a-f]{7}\""
 
-    # The human answers; the author folds the answer in, and with no open
-    # question left the gate hands on to decomposition.
-    Given ".gtd/ARCHITECTURE.md" is modified to:
-      """
-      Technical plan for the widget.
-
-      ## Open Questions
-
-      ### Which storage backend?
-
-      - [x] SQLite — zero-config, file-based
-      - [ ] Postgres — for concurrent writers
-      - [ ] _your answer_
-      """
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.author"
-    And ".gtd/ARCHITECTURE.md" is modified to:
-      """
-      Technical plan for the widget.
-
-      ## Answered Questions
-
-      ### Which storage backend?
-
-      SQLite — zero-config, file-based.
-      """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"architecture.decompose.decomposing\""
-    And the json field "memory" differs from the one recorded as "the architecture conversation's first turn"
-    And stdout matches "\"memory\":\"architecture\.decompose#[0-9a-f]{7}\""
-
-  Scenario: the per-package build queue gets a fresh reviewer session at the shared tail, distinct from any package's own session
-    # The per-package build queue (packages.*) closes out into the shared tail
-    # (build.review.*) — that tail opens a fresh `build.review#...` session
-    # there, never resuming any package's own `packages.item#...` session.
+  Scenario: implement closes into a fresh reviewer session at the shared tail, distinct from the builder's own session
+    # implement.* closes out into the shared tail (build.review.*) — that
+    # tail opens a fresh `build.review#...` session there, never resuming
+    # implement's own `implement#...` session.
     Given a test project
     And the workflow gtd install scaffolds
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And a file "NOTE.md" with:
       """
@@ -972,37 +832,31 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       Build the widget. No open questions.
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    And the file ".gtd/REQUIREMENTS.md" is deleted
-    And a file ".gtd/ARCHITECTURE.md" with:
-      """
-      Technical plan for the feature. No open questions.
-      """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
-    And a file ".gtd/packages/01-widget.md" with:
-      """
-      Package: the widget.
-      """
-    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"packages.item.building\""
-    And stdout matches "\"memory\":\"packages\.item#[0-9a-f]{7}\""
-    And I record the json field "memory" as "the package builder's turn"
-
-    Given a file "src/widget.ts" with:
+    And gtd lands "gtd(human): design.gate.answer → seam.naive"
+    And a file "src/widget.ts" with:
       """
       export const widget = () => ({})
       """
-    And gtd lands "gtd(agent): packages.item.building → packages.item.health.check"
-    And gtd lands "gtd(check): packages.item.health.check → packages.item.closing"
-    And the file ".gtd/packages/01-widget.md" is deleted
-    And gtd lands "gtd(check): packages.item.closing → build.review.reviewing"
+    # A naive pass that only adds files is exempt from the judge: it lands.
+    And gtd lands "gtd(agent): seam.naive → implement.building"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout contains "\"state\":\"implement.building\""
+    And stdout matches "\"memory\":\"implement#[0-9a-f]{7}\""
+    And I record the json field "memory" as "the implement builder's turn"
+
+    Given a file "src/widget.ts" with:
+      """
+      export const widget = () => Object.freeze({})
+      """
+    And gtd lands "gtd(agent): implement.building → implement.health.check"
+    And gtd lands "gtd(check): implement.health.check → implement.closing"
+    And the file ".gtd/REQUIREMENTS.md" is deleted
+    And gtd lands "gtd(check): implement.closing → build.review.reviewing"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.review.reviewing\""
-    And the json field "memory" differs from the one recorded as "the package builder's turn"
+    And the json field "memory" differs from the one recorded as "the implement builder's turn"
 
   Scenario: two agent steps in one memory scope with different models refuse to land — one scope is one conversation, with one model
     Given a test project

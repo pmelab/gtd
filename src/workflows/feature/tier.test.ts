@@ -9,11 +9,9 @@ const withVars = (vars: Record<string, string>) => installContext(fixtureContext
 
 describe("riskTierOn", () => {
   it.each([
-    [{ flag_naive_pass: "1", flag_risk_tier: "1" }, true],
-    [{ flag_naive_pass: "1", flag_risk_tier: "0" }, false],
-    [{ flag_naive_pass: "0", flag_risk_tier: "1" }, false],
-    [{ flag_naive_pass: "0", flag_risk_tier: "0" }, false],
-    [{ flag_naive_pass: "1" }, false],
+    [{ flag_risk_tier: "1" }, true],
+    [{ flag_risk_tier: "0" }, false],
+    [{}, false],
   ])("%j is %s", (vars, expected) => {
     withVars(vars)
     expect(riskTierOn()).toBe(expected)

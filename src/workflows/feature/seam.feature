@@ -1,10 +1,9 @@
 @inmem
-Feature: the naive pass and seam judge replace architecture behind GTD_FLAG_NAIVE_PASS
+Feature: the naive pass and seam judge decide how a feature is built
 
-  With the flag on, after design a naive pass is set aside under a kept ref, the
-  judge reads its diff, and the process either implements straight away, refactors
-  the seam first behind a human approval, or retries the naive pass. With the flag
-  off nothing changes: architecture and packages run as before.
+  After design a naive pass is set aside under a kept ref, the judge reads its
+  diff, and the process either implements straight away, refactors the seam
+  first behind a human approval, or retries the naive pass.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -17,7 +16,6 @@ Feature: the naive pass and seam judge replace architecture behind GTD_FLAG_NAIV
       }
       """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "1"
     And a file "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b

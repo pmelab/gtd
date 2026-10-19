@@ -66,7 +66,7 @@ Feature: a gtd.config.ts builds on the shipped workflows through @pmelab/gtd/wor
     And stdout contains "\"my-org-runbook\""
     And stdout does not contain "debugging-and-error-recovery"
 
-  Scenario: with the naive pass on, afterTail's feedback lap is design → implement, never the seam
+  Scenario: afterTail's feedback lap is design → implement, never the seam
     Given a gtd config file at "gtd.config.ts" with:
       """
       import { start } from "@pmelab/gtd/flows"
@@ -80,7 +80,6 @@ Feature: a gtd.config.ts builds on the shipped workflows through @pmelab/gtd/wor
       }
       """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "1"
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
