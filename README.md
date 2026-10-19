@@ -605,8 +605,9 @@ means `high`. Each lap lands a `Gtd-Mark: risk-tier=<low|high>` trailer and a
 lap's only. Its "needs a human reviewer" line for `high` is advisory, not a
 gate.
 
-A `gtd.config.ts` call to `buildTail` that fits neither call form is rejected;
-see [docs/configuration.md](docs/configuration.md).
+A `gtd.config.ts` call to `buildTail` or `tail` that fits neither call form is
+rejected; `tail`'s positional form is deprecated for `tail(finish, options?)`.
+See [docs/configuration.md](docs/configuration.md).
 
 ### Rolling out and cleaning up release flags
 

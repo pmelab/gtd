@@ -446,7 +446,16 @@ argument selects the deprecated form, which then needs `fixFirst` and `green`
 booleans or absent and `options` an object or absent; otherwise a string first
 argument selects the current form, which takes nothing but an optional `options`
 object. `null` counts as absent. A call fitting neither form is rejected before
-any of `buildTail`'s own steps run.
+any of `buildTail`'s own steps run. Every `BuildTailOptions` field accepts an
+explicit `undefined` as absent, and its `feedback` and `lap` types are exported
+as `FeedbackTarget` and `ReviewRange`.
+
+`tail(finish, options?)` is the build tail without the review: `finish` gets the
+escalation count and runs last; `options` (`TailOptions`) takes `fixFirst`,
+`green`, `guard`, `lenses`, `guardRests`, `lensBase` and `rules`.
+`tail(fixFirst, finish, green?, guard?, lenses?, guardRests?, lensBase?, rules?)`
+is deprecated; a function second argument selects it. A call fitting neither
+form is rejected before any step runs.
 
 A config's doors are those its workflows bring plus its `doors` export: export
 `fix` and `review` to keep their doors (see [Doors](#doors)).

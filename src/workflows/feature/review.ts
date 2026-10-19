@@ -23,7 +23,7 @@ import {
   reviewing,
   reviewMissing,
 } from "../shared/steps.js"
-import { closeReview, tail } from "../shared/tail.js"
+import { closeReview, tail, type TailOptions } from "../shared/tail.js"
 import * as t from "../shared/text.js"
 import { answerReviewQuestions, collecting, deferNotes, fixNits } from "./steps.js"
 
@@ -169,7 +169,7 @@ const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".
 export const review = (
   base: string,
   escalations: EscalationCount = { rounds: 0 },
-  options: BuildTailOptions = {},
+  options: Omit<BuildTailOptions, "fixFirst" | "green"> = {},
 ): Promise<kit.ReviewOutcome> => {
   const { guard, guardRests, fixAccess, rules } = options
   const feedback: FeedbackTarget = options.feedback ?? {
@@ -255,26 +255,16 @@ export interface FeedbackTarget {
   readonly dropped?: (requested: kit.Requested) => string
 }
 
-export interface BuildTailOptions {
-  /** Fix first when entered red; default `false`. */
-  readonly fixFirst?: boolean | undefined
-  /** Asserts the tree is already green, so the tail skips keep-green; default `false`. */
-  readonly green?: boolean | undefined
+export interface BuildTailOptions extends TailOptions {
   /** Runs after every code-changing turn: fix-check, quality fix, risk fix, nit fix, escalation describe. */
-  readonly guard?: Guard
+  readonly guard?: Guard | undefined
   /** `false`: `guard` skips the escalation's human rests. */
-  readonly guardRests?: boolean
-  /** Quality-lap lenses; default `lensesOf(vars.qualityReviews)`. */
-  readonly lenses?: readonly string[]
-  readonly feedback?: FeedbackTarget
+  readonly guardRests?: boolean | undefined
+  readonly feedback?: FeedbackTarget | undefined
   /** Write access for the nit and risk fix turns; absent: the bundled `access` export decides. */
-  readonly fixAccess?: ScopeAccess
-  /** The commit the quality lap reviews from; absent: `start()`. */
-  readonly lensBase?: string
-  /** Appended to every fix and describe prompt of the tail. */
-  readonly rules?: string
+  readonly fixAccess?: ScopeAccess | undefined
   /** Absent: "first". */
-  readonly lap?: t.ReviewRange
+  readonly lap?: t.ReviewRange | undefined
 }
 
 /** The build tail: fix (when entered red), keep green unless `green`, the quality lap, then human review since `base`. */
@@ -301,17 +291,8 @@ export function buildTail(
     )
   }
   const [base, form] = options
-  const { fixFirst, green, ...reviewOptions } = form
-  return tail(
-    fixFirst ?? false,
-    (escalations) => review(base, escalations, reviewOptions),
-    green ?? false,
-    form.guard,
-    form.lenses,
-    form.guardRests,
-    form.lensBase,
-    form.rules,
-  )
+  const { fixFirst: _fixFirst, green: _green, ...reviewOptions } = form
+  return tail((escalations) => review(base, escalations, reviewOptions), form)
 }
 
 // null reads as absent; an un-awaited Promise is a mistake, not options.
