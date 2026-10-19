@@ -223,9 +223,9 @@ workflow.
 ## Worked example: add an approval gate before building
 
 In the bundled default, `planAndBuild` runs the design phase, then
-`buildFeature`: the naive pass and its seam judge, then the implementation and
-the quality lap, ending with no human review. Add a human sign-off before the
-build:
+`buildFeature`: the naive pass and its seam judge, then the implementation (the
+pass itself on `land`) and the quality lap, ending with no human review. Add a
+human sign-off before the build:
 
 ```ts
 const planAndBuild = async (firstBase: string): Promise<void> => {

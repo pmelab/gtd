@@ -5,6 +5,7 @@
 // `sh` and this twin, so the two cannot drift apart silently.
 
 import {
+  applyScript,
   checkScript,
   moveScript,
   removeScript,
@@ -129,44 +130,80 @@ const recognizeRestore = (repo: InMemRepo, script: string): FlowScriptResult | u
 
 const PATCH_FAILED = "error: patch does not apply"
 
+const outside = (path: string, exclude: readonly string[]): boolean =>
+  !exclude.some((e) => path === e || path.startsWith(`${e}/`))
+
+/** Why `path` blocks the patch, `undefined` when it is exactly as `from` has it. */
+const blocking = (repo: InMemRepo, path: string, from: string, to: string): string | undefined => {
+  const expected = repo.fileAtRef(from, path)
+  const current = repo.readFile(path) ?? null
+  if (current === expected) return undefined
+  if (current === null || expected === null || repo.fileAtRef(to, path) === null) {
+    return `${PATCH_FAILED}: ${path}`
+  }
+  throw new Error(
+    `testkit: cannot tell in memory whether the patch of ${from}..${to} applies to the hand-edited ${path} — run this @live`,
+  )
+}
+
 /**
- * `git diff C^ C | git apply -R`, which is all or nothing. A file still
- * exactly as `C` left it reverts; a file gone, or one `C` added and that
- * changed since, fails the whole patch. A file `C` modified and that changed
- * since may still apply through its context — that needs real git, so it
- * throws rather than guess.
+ * `git diff C^ C | git apply [-R]`, which is all or nothing. A file exactly
+ * as the side being undone (`from`) has it moves to the other side (`to`); a
+ * file missing where `from` has one, or present where `from` has none, fails
+ * the whole patch. A file both sides have that differs from `from` may still
+ * apply through its context — that needs real git, so `blocking` throws
+ * rather than guess.
  */
-const reverseApply = (repo: InMemRepo, commit: string): string | undefined => {
+const patch = (
+  repo: InMemRepo,
+  commit: string,
+  reverse: boolean,
+  exclude: readonly string[],
+): string | undefined => {
   const parent = `${commit}^`
+  const [from, to] = reverse ? [commit, parent] : [parent, commit]
   const paths = new Set([...repo.pathsAtRef(parent), ...repo.pathsAtRef(commit)])
-  const changed = [...paths].filter((p) => repo.fileAtRef(parent, p) !== repo.fileAtRef(commit, p))
+  const changed = [...paths].filter(
+    (p) => repo.fileAtRef(parent, p) !== repo.fileAtRef(commit, p) && outside(p, exclude),
+  )
   for (const path of changed) {
-    const after = repo.fileAtRef(commit, path)
-    const current = repo.readFile(path) ?? null
-    if (current === after) continue
-    if (current === null || after === null || repo.fileAtRef(parent, path) === null) {
-      return `${PATCH_FAILED}: ${path}`
-    }
-    throw new Error(
-      `testkit: cannot tell in memory whether reverting ${commit} applies to the hand-edited ${path} — run this @live`,
-    )
+    const error = blocking(repo, path, from, to)
+    if (error !== undefined) return error
   }
   for (const path of changed) {
-    const before = repo.fileAtRef(parent, path)
-    if (before === null) repo.deleteFile(path)
-    else repo.writeFile(path, before)
+    const content = repo.fileAtRef(to, path)
+    if (content === null) repo.deleteFile(path)
+    else repo.writeFile(path, content)
   }
   return undefined
 }
 
-const recognizeRevert = (repo: InMemRepo, script: string): FlowScriptResult | undefined => {
+interface ParsedPatch {
+  readonly commit: string
+  readonly failure: string
+  readonly report: string
+  readonly exclude: readonly string[]
+}
+
+const parsePatch = (script: string): ParsedPatch | undefined => {
   const lines = script.split("\n")
-  const [, commit] = words(lines.find((l) => l.startsWith("if ! git diff --quiet ")) ?? "")
+  const [, commit, ...pathspecs] = words(
+    lines.find((l) => l.startsWith("if ! git diff --quiet ")) ?? "",
+  )
   const [, failure] = words(lines.find((l) => l.includes("printf '%s\\n\\n' ")) ?? "")
   const [report] = words(lines.find((l) => l.startsWith("    } > ")) ?? "")
   if (commit === undefined || failure === undefined || report === undefined) return undefined
-  if (revertScript(commit, report, failure) !== script) return undefined
-  const error = reverseApply(repo, commit)
+  const exclude = pathspecs.map((p) => p.replace(/^:\(exclude,literal\)/, ""))
+  return { commit, failure, report, exclude }
+}
+
+const recognizePatch = (repo: InMemRepo, script: string): FlowScriptResult | undefined => {
+  const parsed = parsePatch(script)
+  if (parsed === undefined) return undefined
+  const { commit, failure, report, exclude } = parsed
+  const reverse = revertScript(commit, report, failure) === script
+  if (!reverse && applyScript(commit, report, failure, exclude) !== script) return undefined
+  const error = patch(repo, commit, reverse, reverse ? [] : exclude)
   if (error !== undefined) repo.writeFile(report, `${failure}\n\n${error}\n`)
   return ok()
 }
@@ -319,7 +356,7 @@ export const applyFlowScript = (
     recognizeRemove(repo, script) ??
     recognizeMove(repo, script) ??
     recognizeShow(repo, script) ??
-    recognizeRevert(repo, script) ??
+    recognizePatch(repo, script) ??
     recognizeRestore(repo, script) ??
     recognizeCheck(repo, commands, script)
   )

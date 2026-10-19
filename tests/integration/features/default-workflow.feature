@@ -29,7 +29,7 @@ Feature: The bundled unified workflow — one flow, end to end
   commit.
 
   @inmem
-  Scenario: an ordinary code change starts the process — triage, the design gate stops even when question-free, a judged naive pass, one implementation built/fixed, then the quality lap lands directly into idle with no review rest
+  Scenario: an ordinary code change starts the process — triage, the design gate stops even when question-free, a judged naive pass applied as the implementation, then fixed, then the quality lap lands directly into idle with no review rest
     Given a test project
     And the workflow gtd install scaffolds
     And a commit "feat: add greeter" that adds "src/greeter.ts" with:
@@ -110,24 +110,18 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(check): seam.check → seam.judge"
 
-    Given gtd lands "gtd(judge): seam.judge → implement.building" judging:
+    Given gtd lands "gtd(judge): seam.judge → implement.applying" judging:
       """
       [{"id":"shape","answer":"land","p":0.9}]
       """
 
-    # implement.building's prompt names the bundled skills pair, and
-    # nothing else — ponytail is a scope-cutting lens, not a build-time skill.
-    When I run gtd next
-    Then stdout contains "test-driven-development, incremental-implementation"
-    Then stdout does not contain "ponytail"
-
-    Given "src/greeter.ts" is modified to:
-      """
-      export const greet = (): string => "hello"
-      """
-    When I run gtd land
+    # implement.applying: the judged naive pass is the implementation — its
+    # diff is applied, with no build turn.
+    When I run gtd next with "--json"
+    And I execute the printed check script
+    And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): implement.building → implement.health.check"
+    And the last commit subject is "gtd(check): implement.applying → implement.health.check"
 
     Given a file ".gtd/FEEDBACK.md" with:
       """
@@ -194,7 +188,8 @@ Feature: The bundled unified workflow — one flow, end to end
     And the git status is clean
     And ".gtd/REQUIREMENTS.md" does not exist
     And ".gtd/REVIEW.md" does not exist
-    And "src/greeter.ts" contains "(): string => \"hello\""
+    And "src/greeter.ts" contains "() => \"hello\""
+    And "src/acceptance.test.ts" contains "[AC-1] holds"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"idle\":true"
@@ -214,8 +209,8 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(human): design.gate.answer → seam.naive
       gtd(agent): seam.naive → seam.check
       gtd(check): seam.check → seam.judge
-      gtd(judge): seam.judge → implement.building
-      gtd(agent): implement.building → implement.health.check
+      gtd(judge): seam.judge → implement.applying
+      gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.fix.suite.fixing
       gtd(agent): implement.fix.suite.fixing → implement.health.check
       gtd(check): implement.health.check → implement.coverage
@@ -1367,12 +1362,12 @@ Feature: The bundled unified workflow — one flow, end to end
       it("[AC-1] holds", () => {})
       """
     And gtd lands "gtd(agent): seam.naive → seam.check"
-    And gtd lands "gtd(check): seam.check → implement.building"
+    And gtd lands "gtd(check): seam.check → implement.applying"
     And a file "src/widget.ts" with:
       """
-      export const widget = (): string => "w"
+      export const widget = () => "w"
       """
-    And gtd lands "gtd(agent): implement.building → implement.health.check"
+    And gtd lands "gtd(check): implement.applying → implement.health.check"
     And a file ".gtd/FEEDBACK.md" with:
       """
       attempt 1 failed
@@ -2216,11 +2211,21 @@ Feature: The bundled unified workflow — one flow, end to end
       it("[AC-1] holds", () => {})
       """
     And gtd lands "gtd(agent): seam.naive → seam.check"
-    And gtd lands "gtd(check): seam.check → implement.building"
+    And gtd lands "gtd(check): seam.check → implement.applying"
+    # The kept pass no longer applies: implement builds it fresh.
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      gtd could not apply the naive pass
+      """
+    And gtd lands "gtd(check): implement.applying → implement.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"implement.building\""
     And stdout matches "\"memory\":\"implement#[0-9a-f]{7}\""
+    # implement.building's prompt names the bundled skills pair, and
+    # nothing else — ponytail is a scope-cutting lens, not a build-time skill.
+    And stdout contains "test-driven-development, incremental-implementation"
+    And stdout does not contain "ponytail"
     # build.* is entered through its own entry, off a fresh history.
     Given I hard-reset to "start"
     And gtd starts workflow "fix"

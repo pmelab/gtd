@@ -430,18 +430,19 @@ you open the `review` door.
 3. **You wait.** The agent first implements the requirements the quickest way
    that works — the naive pass — and a judge reads where it changed code (see
    [the naive pass](#the-naive-pass) below; with [flag mode](#the-naive-pass)
-   off, neither runs). Then the change is built test-first, checked against the
-   full suite (`testCommand`) and fixed until it passes — so keep that suite
-   fast; gtd has no lighter one. Scenario wording is not frozen: a review's
-   `## Scenarios` chunk marks any assertion an existing scenario lost as
-   `Weakened:` — **risk: `feature` has no review, so a build turn that weakens a
-   scenario reaches `idle` unflagged unless you open the `review` door.** After
-   the build the quality lap runs, and the process ends: the feature workflow
-   has no human review of the finished change. Two points along the process (one
-   with flag mode off) are judged rather than always asking you outright — each
-   stops and hands you a verdict to make (`gtd judge answer`, or land with a
-   clean tree to accept the conservative default, which never skips work;
-   `gtd judge run --provider fixed --answers <path>` — or the
+   off, no judge runs). A pass the judge lets through is the implementation; one
+   whose seam is refactored first is built again test-first. Then it is checked
+   against the full suite (`testCommand`) and fixed until it passes — so keep
+   that suite fast; gtd has no lighter one. Scenario wording is not frozen: a
+   review's `## Scenarios` chunk marks any assertion an existing scenario lost
+   as `Weakened:` — **risk: `feature` has no review, so a build turn that
+   weakens a scenario reaches `idle` unflagged unless you open the `review`
+   door.** After the build the quality lap runs, and the process ends: the
+   feature workflow has no human review of the finished change. Two points along
+   the process (one with flag mode off) are judged rather than always asking you
+   outright — each stops and hands you a verdict to make (`gtd judge answer`, or
+   land with a clean tree to accept the conservative default, which never skips
+   work; `gtd judge run --provider fixed --answers <path>` — or the
    `GTD_JUDGE_ANSWERS` env var, inline JSON — answers one from a file, piped
    between `gtd judge --json` and `gtd judge answer`;
    `gtd judge run --provider jev` asks TypeSafe's Jev instead, with the key in
@@ -605,16 +606,18 @@ its ID (`[AC-3] …`) and reaches only code that existed before the pass. The pa
 is sent back while a criterion's ID is missing from its tests, a test imports a
 file it added, or the suite is red on it. A judge checks whether it changed
 anything outside the expected set (tests, steering files; see `seamAllow`).
-Incidental changes land; a needed seam change is refactored first, in its own
-slice with its own quality lap (`refactorQualityReviews`) and review, before the
-feature is implemented; a wrong approach is retried twice, then rests for you to
-steer or overrule it. `gtd slices` lists the `refactor` and `feature` slices. A
-refactor that already carried the whole feature leaves the implementation
-nothing to do: its empty turn passes, and the feature's quality lap covers the
-whole change. Once the implementation is green, a judge checks every criterion
-ID has a covering test: an uncovered one goes back to the agent (twice, then to
-you) instead of ending the feature, and each covered ID is recorded as a
-`Gtd-Mark: covers=<id>` trailer. See
+Incidental changes land: the pass itself is the implementation, with no rebuild,
+straight through the health loop and the quality lap. A needed seam change is
+refactored first, in its own slice with its own quality lap
+(`refactorQualityReviews`) and review, before the feature is implemented afresh;
+a wrong approach is retried twice, then rests for you to steer or overrule it.
+`gtd slices` lists the `refactor` and `feature` slices. A refactor that already
+carried the whole feature leaves the implementation nothing to do: its empty
+turn passes, and the feature's quality lap covers the whole change. Once the
+implementation is green, a judge checks every criterion ID has a covering test:
+an uncovered one goes back to the agent (twice, then to you) instead of ending
+the feature, and each covered ID is recorded as a `Gtd-Mark: covers=<id>`
+trailer. See
 [Acceptance-criteria coverage](docs/configuration.md#acceptance-criteria-coverage).
 Feedback at the refactor review re-runs the refactor, never design; a
 refactor-review change the refactor cannot build is refused, and the only way
@@ -623,12 +626,13 @@ out is `gtd abandon`. A process from 27.5.0 or later whose judge ruled
 that slice. Details in
 [the naive-pass path](docs/configuration.md#the-naive-pass-path).
 
-**Flag mode (`flagMode`, on by default).** On, the implementation is asked for a
-new release flag (none at a `low` risk tier) and the naive pass and its judge
-run as above. A project that is not publicly released turns it off explicitly —
+**Flag mode (`flagMode`, on by default).** On, the naive pass's judge runs as
+above and a rebuilt implementation is asked for a new release flag (none at a
+`low` risk tier); a pass the judge lets land is not asked for one. A project
+that is not publicly released turns it off explicitly —
 `feature({ flagMode: false })` in `gtd.config.ts`, it is never detected: then no
-flag is asked for, no seam judge or refactor runs, and the implementation is the
-naive version, straight through the health loop and the quality lap. See
+flag is asked for, no seam judge or refactor runs, and the naive pass lands as
+the implementation, straight through the health loop and the quality lap. See
 [`flagMode`](docs/configuration.md#the-bundled-workflows-settings).
 
 **Risk tier (flag `GTD_FLAG_RISK_TIER=1`, off by default).** Triage proposes a

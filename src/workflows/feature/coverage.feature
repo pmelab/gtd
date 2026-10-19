@@ -34,15 +34,18 @@ Feature: a feature is done only when every acceptance criterion has a passing te
       - AC-2: add is unchanged.
       """
     And step "design.gate.answer" changes nothing
-    And step "implement.building" writes "src/calc.ts" with:
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       export const subtract = (a: number, b: number) => a - b
       """
-    And step "implement.building" writes "src/calc.test.ts" with:
+    And step "seam.naive" writes "src/calc.test.ts" with:
       """
       it("[AC-1] subtracts", () => expect(subtract(3, 1)).toBe(2))
+      // AC-2: add is untouched
       """
+    And step "seam.check" changes nothing
+    And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
 
@@ -61,7 +64,7 @@ Feature: a feature is done only when every acceptance criterion has a passing te
     Then the process rests at "idle"
     And the commit subjects end with:
       """
-      gtd(agent): implement.building → implement.health.check
+      gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → idle

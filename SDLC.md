@@ -26,7 +26,9 @@ takes the off path.
 
 After design the agent implements first, breadth-first, with a behaviour-level
 acceptance test naming each criterion's ID; `seam.check` runs the suite on the
-pass, and a seam judge rules `land`/`refactor-first`/`reject`.
+pass, and a seam judge rules `land`/`refactor-first`/`reject`. On `land` the
+pass itself is the implementation (`implement.applying`), with no rebuild and no
+release flag; with `flagMode` off no judge runs and every vetted pass lands so.
 `GTD_FLAG_RISK_TIER` (off by default) adds a proposed risk tier at the design
 gate. See [The naive-pass path](docs/configuration.md#the-naive-pass-path).
 
@@ -98,7 +100,9 @@ default setup records none.**
 Each path has a `.feature` file:
 
 - [`src/workflows/feature/one-step-land.feature`](src/workflows/feature/one-step-land.feature):
-  naive pass, judge `land`
+  naive pass, judge `land`, the pass applied as the implementation
+- [`src/workflows/feature/flag-mode.feature`](src/workflows/feature/flag-mode.feature):
+  `flagMode` off, the naive pass applied with no judge
 - [`src/workflows/feature/refactor-first.feature`](src/workflows/feature/refactor-first.feature):
   judge `refactor-first`, then the refactor review, then the implementation
 - [`src/workflows/review/review-door.feature`](src/workflows/review/review-door.feature):
@@ -140,12 +144,13 @@ Paths and text are checked, **never behaviour**.
   matching test in a green suite, not that the test checks the criterion well.
   An overrule at `implement.uncovered` ends the feature with the IDs it leaves
   uncovered recorded as `uncovered` marks.
-- `seam.judge` judges the shape of the naive pass. The implementation turn that
-  lands is not re-judged or scoped, and **in `feature` no human looks at the
-  full diff** — only the quality lap does, unless someone opens the `review`
-  door. **Risk: no reviewer `Risk:` fix pass and no weakened-scenario flag run
-  in `feature`, and a `high` risk tier's "needs a human reviewer" is advisory
-  only.** New files are exempt. `gtd strays` works in any repository.
+- `seam.judge` judges the shape of the naive pass. On `land` that pass lands
+  unchanged; an implementation turn that follows (a rebuild) is not re-judged or
+  scoped, and **in `feature` no human looks at the full diff** — only the
+  quality lap does, unless someone opens the `review` door. **Risk: no reviewer
+  `Risk:` fix pass and no weakened-scenario flag run in `feature`, and a `high`
+  risk tier's "needs a human reviewer" is advisory only.** New files are exempt.
+  `gtd strays` works in any repository.
 - The refactor review on `refactor-first` covers only the refactor slice;
   nothing in `feature` reviews what follows its sign-off. A refactor turn that
   changes a test file is refused (`gtd land`: `refactor-tests`), whatever

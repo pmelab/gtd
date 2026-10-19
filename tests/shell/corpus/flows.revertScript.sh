@@ -2,7 +2,7 @@
 set +e
 if ! git diff --quiet 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' --; then
   mkdir -p "$(dirname '.gtd/FEEDBACK.md')"
-  git diff --binary 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' -- | git apply -R 2> '.gtd/FEEDBACK.md.output'
+  git diff --binary --no-color --no-ext-diff --no-textconv --src-prefix=a/ --dst-prefix=b/ 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa^' 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa' -- | git apply --whitespace=nowarn -R 2> '.gtd/FEEDBACK.md.output'
   code=$?
   if [ "$code" -ne 0 ]; then
     {

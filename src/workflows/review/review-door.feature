@@ -37,11 +37,17 @@ Feature: human review is the review door's, never the feature workflow's
       - AC-1: subtract(a, b) returns a - b.
       """
     And step "design.gate.answer" changes nothing
-    And step "implement.building" writes "src/calc.ts" with:
+    And step "seam.naive" writes "src/calc.test.ts" with:
+      """
+      it("[AC-1] subtracts", () => {})
+      """
+    And step "seam.naive" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       export const subtract = (a: number, b: number) => a - b
       """
+    And step "seam.check" changes nothing
+    And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
     And judge step "implement.coverage" answers:
@@ -56,8 +62,10 @@ Feature: human review is the review door's, never the feature workflow's
     And ".gtd/REVIEW.md" does not exist
     And the commit subjects end with:
       """
-      gtd(human): design.gate.answer → implement.building
-      gtd(agent): implement.building → implement.health.check
+      gtd(human): design.gate.answer → seam.naive
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → implement.applying
+      gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → idle
@@ -80,7 +88,7 @@ Feature: human review is the review door's, never the feature workflow's
       - [ ] ./src/calc.ts#2-2
         new subtract function
       """
-    When gtd opens door "review" with "HEAD~9"
+    When gtd opens door "review" with "HEAD~11"
     And the process is driven
     Then the process rests at "build.review.await-review"
     And the resting step's content contains the hash of the commit "feat: add calculator"

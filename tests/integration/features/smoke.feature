@@ -11,7 +11,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
   dedicated feature files — see refusals.feature, default-workflow.feature,
   retry.feature.
 
-  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> design.gate.answer -> seam.naive -> seam.check -> seam.judge -> implement.building -> implement.health.check
+  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> design.gate.answer -> seam.naive -> seam.check -> seam.judge -> implement.applying -> implement.health.check
     Given a test project
     And the workflow gtd install scaffolds
     And a file "src/feature.ts" with:
@@ -71,15 +71,15 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
       gtd judge --json | gtd judge run --provider fixed --answers answers.json | gtd judge answer --json=script | sh
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): seam.judge → implement.building"
+    And the last commit subject is "gtd(judge): seam.judge → implement.applying"
     Given the file "answers.json" is deleted
-    And a file "src/feature-impl.ts" with:
-      """
-      export const featureImpl = 1
-      """
-    When I run gtd land
+    # implement.applying: the kept naive pass is applied as the implementation.
+    When I run gtd next with "--json"
+    And I execute the printed check script
+    And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): implement.building → implement.health.check"
+    And the last commit subject is "gtd(check): implement.applying → implement.health.check"
+    And the file "README.md" contains "with a feature"
 
   Scenario: gtd next --json reports state, actor, kind, and content
     Given a test project

@@ -86,7 +86,6 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
         - AC-1: `greeting` reads "Hello, world".
         """
       And step "design.gate.answer" changes nothing
-      And step "seam.check" changes nothing
       And step "seam.naive" writes "src/acceptance.test.ts" with:
         """
         it("[AC-1] holds", () => {})
@@ -98,10 +97,15 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
         """
         export const greeting = "Hello, world"
         """
+      And step "seam.check" writes "src/acceptance.test.ts" with:
+        """
+        it("[AC-1] holds elsewhere", () => {})
+        """
       And judge step "seam.judge" answers:
         """
         [{"id":"shape","answer":"land","p":0.9}]
         """
+      And step "implement.applying" runs its script
       And step "implement.building" writes ".gtd/REQUIREMENTS.md" with:
         """
         # Requirements

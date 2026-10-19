@@ -21,7 +21,7 @@ import {
   restoredOutcome,
   transitionOutcome,
 } from "../src/emit/index.js"
-import { checkScript, restoreScript, revertScript } from "../src/flows/index.js"
+import { applyScript, checkScript, restoreScript, revertScript } from "../src/flows/index.js"
 
 const CORPUS_DIR = join(import.meta.dirname, "..", "tests", "shell", "corpus")
 
@@ -109,6 +109,10 @@ add(
 add(
   "flows.revertScript.sh",
   revertScript(SAMPLE_HEAD, ".gtd/FEEDBACK.md", "gtd could not unwind it's sketch."),
+)
+add(
+  "flows.applyScript.sh",
+  applyScript(SAMPLE_HEAD, ".gtd/FEEDBACK.md", "gtd could not apply it's pass.", [".gtd"]),
 )
 add(
   "flows.restoreScript.sh",

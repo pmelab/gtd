@@ -189,7 +189,13 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       it("[AC-1] holds", () => {})
       """
     And gtd lands "gtd(agent): seam.naive → seam.check"
-    And gtd lands "gtd(check): seam.check → implement.building"
+    And gtd lands "gtd(check): seam.check → implement.applying"
+    # The kept pass no longer applies: implement builds it fresh.
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      gtd could not apply the naive pass
+      """
+    And gtd lands "gtd(check): implement.applying → implement.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"implement.building\""
@@ -859,7 +865,13 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       it("[AC-1] holds", () => {})
       """
     And gtd lands "gtd(agent): seam.naive → seam.check"
-    And gtd lands "gtd(check): seam.check → implement.building"
+    And gtd lands "gtd(check): seam.check → implement.applying"
+    # The kept pass no longer applies: implement builds it fresh.
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      gtd could not apply the naive pass
+      """
+    And gtd lands "gtd(check): implement.applying → implement.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"implement.building\""
@@ -905,7 +917,13 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       it("[AC-1] holds", () => {})
       """
     And gtd lands "gtd(agent): seam.naive → seam.check"
-    And gtd lands "gtd(check): seam.check → implement.building"
+    And gtd lands "gtd(check): seam.check → implement.applying"
+    # The kept pass no longer applies: implement builds it fresh.
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      gtd could not apply the naive pass
+      """
+    And gtd lands "gtd(check): implement.applying → implement.building"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"implement.building\""

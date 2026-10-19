@@ -379,9 +379,13 @@ turn they check:
 - `requireRevert(edited, base)` — refuses a turn that left any of the `edited`
   changes differing from their content before them
 
-The script renderers (`checkScript`, `revertScript`, `restoreScript`,
-`removeScript`, `moveScript`, `showScript`, and `quote`) are exported for a
-workflow's own `run` steps.
+The script renderers (`checkScript`, `revertScript`, `applyScript`,
+`restoreScript`, `removeScript`, `moveScript`, `showScript`, and `quote`) are
+exported for a workflow's own `run` steps.
+`applyScript(commit, report, failure, exclude?)` applies `commit`'s diff to the
+working tree, leaving out each `exclude` path (literal, no globs) and everything
+under it; one that no longer applies changes nothing and writes `failure` and
+git's error to `report`, as `revertScript` does.
 
 ### Reusing the shipped workflows
 
@@ -758,24 +762,25 @@ Custom fixtures driving the `feature` workflow must answer `implement.coverage`.
 ### The naive-pass path
 
 The `feature` workflow's path while
-[`flagMode`](#the-bundled-workflows-settings) is on (the default); off, design
-goes straight to `implement.*`. After design it runs, in order:
+[`flagMode`](#the-bundled-workflows-settings) is on (the default); off, steps 1
+and 2 run, no judge, and the pass lands as on `land`. After design it runs, in
+order:
 
 1. `seam.naive` — an agent implements `.gtd/REQUIREMENTS.md` directly,
    breadth-first, with behaviour-level acceptance tests; the turn is a
-   [kept tip](#kept-tips), not landed on the branch. A pass whose added or
-   changed test files (the fixed list `**/*.test.*`, `**/*.spec.*`,
-   `**/*.feature`, `**/tests/**`, `**/test/**`, `**/__tests__/**`) leave an
-   `AC-<n>` of `.gtd/REQUIREMENTS.md` unnamed (`acceptance-tests`; any mention
-   on a line the pass added counts, `[AC-3] …` in the test name is the
-   convention), or that import a non-test file the pass added
-   (`acceptance-internals`: the string a `from`, `import`, `require(` or `mock(`
-   takes, outside comments; relative ones resolved from the test's directory,
-   `@/`-, `~/`- or `#`-aliased ones matching the path's end, others only as the
-   exact path; a computed import goes unseen, and `.feature` and `.snap` files
-   are not read for imports) runs `seam.naive` again, told why and to pick the
-   attempt up. Tests outside those globs never count: such a project reaches
-   `seam.steer` and overrules there.
+   [kept tip](#kept-tips), not landed on the branch until a `land` applies it. A
+   pass whose added or changed test files (the fixed list `**/*.test.*`,
+   `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**`,
+   `**/__tests__/**`) leave an `AC-<n>` of `.gtd/REQUIREMENTS.md` unnamed
+   (`acceptance-tests`; any mention on a line the pass added counts, `[AC-3] …`
+   in the test name is the convention), or that import a non-test file the pass
+   added (`acceptance-internals`: the string a `from`, `import`, `require(` or
+   `mock(` takes, outside comments; relative ones resolved from the test's
+   directory, `@/`-, `~/`- or `#`-aliased ones matching the path's end, others
+   only as the exact path; a computed import goes unseen, and `.feature` and
+   `.snap` files are not read for imports) runs `seam.naive` again, told why and
+   to pick the attempt up. Tests outside those globs never count: such a project
+   reaches `seam.steer` and overrules there.
 2. `seam.check` — runs [`testCommand`](#the-bundled-workflows-settings) with the
    kept pass applied to the tree, then puts the pass's paths, and every other
    path the run changed or added that was not already dirty or untracked, back
@@ -785,19 +790,26 @@ goes straight to `implement.*`. After design it runs, in order:
    up and fix it; green goes on.
 3. `seam.judge` — a judge rules on the shape of that diff (see
    [Judges](#judges)): `land`, `refactor-first` or `reject`.
-4. `land` goes straight to `implement.*`. `refactor-first` runs the refactor and
-   its review as the `refactor` slice: `refactor.*`, then the refactor's quality
-   lap (`refactor.build.quality.<lens>`, one per
+4. `land` — or an overrule of `reject` at `seam.steer` — applies the kept pass
+   as the implementation: `implement.applying` puts its diff, outside `.gtd/`,
+   in the tree, with no build turn and no release flag, and the health loop
+   follows. A pass that no longer applies writes `.gtd/FEEDBACK.md` and falls
+   back to `implement.building`, built fresh from it as below; so does one with
+   nothing outside `.gtd/` to apply. `refactor-first` runs the refactor and its
+   review as the `refactor` slice: `refactor.*`, then the refactor's quality lap
+   (`refactor.build.quality.<lens>`, one per
    [`refactorQualityReviews`](#the-bundled-workflows-settings) lens) and a human
    review (`refactor.build.review.*`). The review's sign-off is the approval; no
    `Gtd-Approved:` trailer is recorded. Strays whose content cannot be read rest
    at `seam.by-hand`, with no refactor slice; a clean `gtd land` continues.
    `reject` discards the pass and runs `seam.naive` again. Rejects, test faults
    and red checks share one budget: two retries, then `seam.steer`.
-5. `implement.*` — one build turn that reads the kept pass as material only,
-   then the health loop (`implement.health.*`, `implement.fix.suite.fixing`),
-   the [coverage judge](#acceptance-criteria-coverage) (`implement.coverage`)
-   and `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. The turn is
+5. `implement.*` — after a refactor (or a pass that no longer applies), one
+   build turn that reads the kept pass as material only; after `land`, the
+   applied pass. Then the health loop (`implement.health.*`,
+   `implement.fix.suite.fixing`), the
+   [coverage judge](#acceptance-criteria-coverage) (`implement.coverage`) and
+   `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. A build turn is
    asked for a new release flag. The feature's quality lap
    (`build.quality.<lens>`) follows, and the process ends at `idle`: there is no
    feature review, and no human signs the finished change off unless someone
@@ -815,10 +827,16 @@ Each slice's quality lap reviews from that slice's own base: the refactor's from
 its entry commit, the feature's from the refactor's sign-off. The one exception
 is a feature slice that changed no code (step 5): its quality lap covers the
 whole change from the process start. A custom workflow ending in `afterTail`
-keeps a feature review; feedback there re-runs design and `implement.*`, never
-the seam. `seam.naive` and `seam.judge` never run again once judged, so a seam a
-re-plan turns up is built unjudged and unrefactored; a wrong or missing refactor
-means `gtd abandon` and a restart.
+keeps a feature review; feedback there re-runs design and `implement.*` (a build
+turn, never `implement.applying`), never the seam. `seam.naive` and `seam.judge`
+never run again once judged, so a seam a re-plan turns up is built unjudged and
+unrefactored; a wrong or missing refactor means `gtd abandon` and a restart.
+
+**Upgrading:** finish or `gtd abandon` before upgrading any process whose seam
+judge ruled `land`, that overruled a reject at `seam.steer`, or — with
+`flagMode` off — that has passed `design.gate.answer`: their history names
+`implement.building` where the flow now reaches `seam.naive` or
+`implement.applying`, and replay refuses it as divergence.
 
 A review note at the refactor review is collected into `.gtd/REFACTOR.md`, and
 `refactor.deriving` runs again with the notes under `## Review feedback` — never
@@ -878,6 +896,10 @@ folds into `.gtd/REFACTOR.md` only when it asks for a change.
   the feature review keep replaying.
 - `seamBuild(tier)` became `seamBuild(base)` and resolves `{ reference, base }`.
   It no longer runs `implement`; a custom workflow calls `implement` itself.
+- `seamBuild(base)` resolves `land: true` when the pass is the implementation
+  (`land`, an overruled `reject`, or `flagMode` off, where it runs no judge);
+  pass its `reference` on as `implement({ naive: reference })` to apply it at
+  `implement.applying`. Without `naive`, `implement` builds fresh as before.
 
 With `GTD_FLAG_RISK_TIER` on, `design.triage` proposes a risk tier (`low` or
 `high`, with a one-line reason) under `## Risk Tier` and the signals to watch
@@ -1763,14 +1785,15 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   flags. Set it explicitly, as the factory option `feature({ flagMode: false })`
   (or `--var flagMode=false`, `GTD_FLAGMODE=false`); gtd never detects it. Any
   value but `true` or `false` refuses the landing that would start the process.
-  Off, for a project that is not publicly released: no `seam.naive`,
-  `seam.judge` or `refactor.*` step runs; after design the `implement.*` turn
-  builds the naive version with no release flag, then the health loop,
-  `implement.coverage`, `implement.closing` and the quality lap, as on. A
-  feedback lap asks for no flag either. With `GTD_FLAG_RISK_TIER` on, the tier
-  is still asked for and recorded, but no longer decides the flag. Pinned at
-  process start; a process started before gtd knew `flagMode` reads it live, so
-  leave it on until such a process is finished.
+  Off, for a project that is not publicly released: no `seam.judge` or
+  `refactor.*` step runs; after design `seam.naive` and `seam.check` run as on,
+  and the vetted pass lands as the implementation (`implement.applying`, no
+  build turn, no release flag), then the health loop, `implement.coverage`,
+  `implement.closing` and the quality lap, as on. A feedback lap asks for no
+  flag either. With `GTD_FLAG_RISK_TIER` on, the tier is still asked for and
+  recorded, but no longer decides the flag. Pinned at process start; a process
+  started before gtd knew `flagMode` reads it live, so leave it on until such a
+  process is finished.
 - **`flag_risk_tier`** (`0`) — `1` when `GTD_FLAG_RISK_TIER` is on, recorded at
   process start. Not a factory option; `--var flag_risk_tier=1` is the only
   override. Off, no tier is asked for and no commit carries a `Gtd-Mark:`. See
