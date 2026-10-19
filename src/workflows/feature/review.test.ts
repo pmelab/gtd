@@ -956,8 +956,22 @@ describe("BuildTailOptions.lensBase", () => {
       })
     }
 
-    it("reads null options as absent in both forms", async () => {
+    it("reads null and trailing undefined arguments as absent", async () => {
       const omitted = await requestNames(() => buildTail("base"))
+      expect(await requestNames(() => buildTail(null as never, "base", null as never))).toEqual(
+        omitted,
+      )
+      expect(
+        await requestNames(() =>
+          (buildTail as (...args: unknown[]) => Promise<unknown>)(
+            "base",
+            {},
+            undefined,
+            undefined,
+            undefined,
+          ),
+        ),
+      ).toEqual(omitted)
       expect(await requestNames(() => buildTail("base", null as never))).toEqual(omitted)
       expect(await requestNames(() => buildTail(false, "base", false, null as never))).toEqual(
         omitted,

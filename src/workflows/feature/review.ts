@@ -313,14 +313,16 @@ export function buildTail(
   )
 }
 
-// null reads as absent, as it always did; a Promise or class instance is a mistake, not options.
-const isOptionalObject = (value: unknown): value is BuildTailOptions | null | undefined =>
-  value == null ||
-  (typeof value === "object" &&
-    [Object.prototype, null].includes(Object.getPrototypeOf(value) as object | null))
+// null reads as absent; a Promise or class instance is a mistake, not options.
+const isOptionalObject = (value: unknown): value is BuildTailOptions | null | undefined => {
+  if (value == null) return true
+  if (typeof value !== "object") return false
+  const prototype: unknown = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
 
-const isOptionalBoolean = (value: unknown): value is boolean | undefined =>
-  value === undefined || typeof value === "boolean"
+const isOptionalBoolean = (value: unknown): value is boolean | null | undefined =>
+  value == null || typeof value === "boolean"
 
 const legacyForm = (
   fixFirst: unknown,
@@ -329,7 +331,7 @@ const legacyForm = (
   options: unknown,
 ): [string, BuildTailOptions] | undefined =>
   isOptionalBoolean(fixFirst) && isOptionalBoolean(green) && isOptionalObject(options)
-    ? [base, { ...options, fixFirst, green }]
+    ? [base, { ...options, fixFirst: fixFirst ?? undefined, green: green ?? undefined }]
     : undefined
 
 const currentForm = (
@@ -348,7 +350,7 @@ const callForm = (
   second: unknown,
   [third, fourth, ...extra]: readonly unknown[],
 ): [string, BuildTailOptions] | undefined => {
-  if (extra.length > 0) return undefined
+  if (extra.some((value) => value !== undefined)) return undefined
   if (typeof second === "string") return legacyForm(first, second, third, fourth)
   if (typeof first === "string") return currentForm(first, second, third, fourth)
   return undefined
