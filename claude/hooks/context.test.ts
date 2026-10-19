@@ -14,6 +14,8 @@ describe("guardOf", () => {
     expect(guardOf(undefined, "opus[1m]", undefined)?.window).toBe(1000000)
     expect(guardOf(undefined, "opus", "500000")?.window).toBe(500000)
     expect(guardOf(undefined, "opus", "lots")?.window).toBe(200000)
+    expect(guardOf(undefined, undefined, undefined, 1000000)?.window).toBe(1000000)
+    expect(guardOf(undefined, "opus", undefined, 1000000)?.window).toBe(200000)
   })
 
   test("guards nothing under limits it cannot use", () => {

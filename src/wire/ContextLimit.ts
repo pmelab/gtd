@@ -36,7 +36,7 @@ export interface ContextHookRequest {
  * Claude Code prints it nowhere a driver reads, and `hook_stopped` alone would
  * also name any other hook that stopped the turn.
  */
-export const CONTEXT_STOP_FILE_ENV = "GTD_CONTEXT_STOP_FILE"
+export const CONTEXT_STOP_FILE_ENV = "GTD_LOOP_CONTEXT_STOP_FILE"
 
 /** Why a limit is unusable, or `undefined` when it is fine. Config is evaluated untyped, so anything may arrive. */
 export const contextLimitFault = (limit: unknown): string | undefined => {

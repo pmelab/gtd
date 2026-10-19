@@ -85,7 +85,8 @@ async function workerModel($: $, hint: string | undefined) {
 }
 async function setGuard($: $, id: string, t: Pick<Turn, "context" | "model">) {
   const model = await workerModel($, t.model)
-  const guard = guardOf(t.context, model, await $.env.get("GTD_LOOP_CONTEXT_WINDOW"))
+  const session = model === undefined ? (await $.session.usage()).context.window : undefined
+  const guard = guardOf(t.context, model, await $.env.get("GTD_LOOP_CONTEXT_WINDOW"), session)
   if (guard) guards.set(id, guard)
   else guards.delete(id)
 }
@@ -938,7 +939,9 @@ async function isOurs($: $, id: string) {
 async function stopWorker($: $, id: string, stopReason: string) {
   contextStops.set(id, stopReason)
   $.clock.after(0, () => {
-    void $.tool.call({ tool: "TaskStop", task_id: id }).catch(() => {})
+    void $.tool.call({ tool: "TaskStop", task_id: id }).catch((err: unknown) => {
+      $.ui.log(`gtd could not stop a subagent at its context limit: ${String(err)}`)
+    })
   })
 }
 

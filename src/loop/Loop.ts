@@ -121,9 +121,8 @@ const agentFailed = (ctx: Ctx, exit: Exit, result: TurnResult): Effect.Effect<vo
 
 const quote = (arg: string): string => `'${arg.replaceAll("'", "'\\''")}'`
 
-// The hook stops the turn from inside; reading the stream for the same hard
-// limit is the loop's own stop, for when no hook fired (hooks disabled, one
-// long reply with no tool call).
+// The hook stops the turn from inside; reading the stream is the loop's own
+// stop, for when no hook fired (hooks disabled, one long reply with no tool call).
 const contextGuard = (ctx: Ctx, doc: Beat, model: string | undefined) => {
   const limit: ContextLimit = { ...DEFAULT_CONTEXT_LIMIT, ...doc.context }
   const window = ctx.settings.contextWindow ?? contextWindowFor(model)
@@ -138,7 +137,11 @@ const contextGuard = (ctx: Ctx, doc: Beat, model: string | undefined) => {
     ])
     .map(quote)
     .join(" ")
-  return { limit, window, hook }
+  // Halfway from the hard limit to a full window: the stream shows a message's
+  // usage before its tool runs, and the hook stops cleanly once it has, so a
+  // kill at the hard limit itself would cut that tool off mid-write.
+  const kill = (limit.hard + 1) / 2
+  return { limit, window, hook, kill }
 }
 
 // Why the turn was stopped at its context limit, if it was: the hook's own
@@ -146,19 +149,15 @@ const contextGuard = (ctx: Ctx, doc: Beat, model: string | undefined) => {
 const contextStop = (
   ctx: Ctx,
   exit: Exit,
-  result: TurnResult,
   guard: ReturnType<typeof contextGuard>,
   stopFile: string,
 ): Effect.Effect<string | undefined, Error> =>
-  Effect.map(
-    result.hookStopped ? ctx.host.readFile(stopFile) : Effect.succeed(undefined),
-    (recorded) => {
-      const reason = recorded?.trim().split("\n")[0]
-      if (reason !== undefined && reason !== "") return reason
-      if (exit.stopped !== true) return undefined
-      return `${CONTEXT_LIMIT_MARKER}: the stream passed the ${Math.round(guard.limit.hard * 100)}% hard limit of ${guard.window} tokens`
-    },
-  )
+  Effect.map(ctx.host.readFile(stopFile), (recorded) => {
+    const reason = recorded?.trim().split("\n")[0]
+    if (reason !== undefined && reason !== "") return reason
+    if (exit.stopped !== true) return undefined
+    return `${CONTEXT_LIMIT_MARKER}: the stream passed ${Math.round(guard.kill * 100)}% of ${guard.window} tokens with no hook stopping it`
+  })
 
 // The prompt goes over stdin, never argv: it embeds a full diff, and argv is
 // capped (~1 MB on macOS, 4 KB guaranteed). A turn that backgrounds a shell
@@ -189,11 +188,11 @@ const agentTurn =
         output: "capture",
         ...(tokensOf === undefined
           ? {}
-          : { stopAt: (line) => (tokensOf(line) ?? 0) >= guard.limit.hard * guard.window }),
+          : { stopAt: (line) => (tokensOf(line) ?? 0) >= guard.kill * guard.window }),
       })
       const result = cli.read(exit)
       yield* ctx.host.appendLog(ctx.log, `${exit.stderr}${result.text}\n`)
-      const why = yield* contextStop(ctx, exit, result, guard, stopFile)
+      const why = yield* contextStop(ctx, exit, guard, stopFile)
       if (why !== undefined) {
         return yield* Effect.fail(
           new Error(

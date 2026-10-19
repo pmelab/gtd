@@ -136,11 +136,12 @@ from, never another one on `$PATH`.
   carries only beat headers, landed subjects and the final line.
 - **A `claude` turn runs under its step's [context limit](#context-limits)**:
   `gtd context-hook` is passed in through `--settings` as its PostToolUse and
-  PreCompact hook, and the loop reads `--output-format stream-json --verbose`
-  for the same hard limit, killing the turn itself should no hook fire. A turn
-  stopped at its hard limit is neither retried nor landed: the loop exits 1 with
-  a line starting `gtd: context limit`. A turn some other hook stopped is an
-  ordinary failed turn. A `pi` turn runs without a limit.
+  PreCompact hook, and the loop reads `--output-format stream-json --verbose` to
+  kill the turn itself should no hook stop it — halfway from the hard limit to a
+  full window (85% at the default), so the hook's clean stop after a tool always
+  comes first. A turn stopped at its hard limit is neither retried nor landed:
+  the loop exits 1 with a line starting `gtd: context limit`. A turn some other
+  hook stopped is an ordinary failed turn. A `pi` turn runs without a limit.
 
 - **At a judge gate** it pipes the beat's `judge` document through
   `gtd judge run` — whose own settings pick the provider, see
@@ -231,9 +232,9 @@ cache-read and cache-creation tokens — and compares it with the shares of
   `stopReason` starting `gtd: context limit` — the context-limit marker. Claude
   Code ends the turn; its `result` envelope reads
   `"terminal_reason":"hook_stopped"`, and the `stopReason` itself appears only
-  in the transcript. With `GTD_CONTEXT_STOP_FILE` set in its environment, the
-  hook also appends the `stopReason` to that file — how a driver tells its own
-  stop from any other hook's `hook_stopped`.
+  in the transcript. With `GTD_LOOP_CONTEXT_STOP_FILE` set in its environment,
+  the hook also appends the `stopReason` to that file — how a driver tells its
+  own stop from any other hook's `hook_stopped`.
 - **At PreCompact**, it stops the turn the same way, whatever the count:
   compaction about to happen means the limit was missed.
 - **Otherwise, and for a subagent's tool call** (an input carrying `agent_id`,

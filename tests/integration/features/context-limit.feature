@@ -94,4 +94,4 @@ Feature: a step's context limit rides on the wire
       """
     When I run gtd next
     Then it fails
-    And stderr contains "step \"work.doing\": a scope's context (work): context.soft (0.9) must be below context.hard (0.7)"
+    And stderr contains "step \"work.doing\": the context of scope \"work\": context.soft (0.9) must be below context.hard (0.7)"

@@ -76,11 +76,12 @@ const claude: AgentCli = {
   ],
   read: (exit) => {
     const lines = exit.stdout.split("\n")
-    const envelope = lines
-      .map(parseJson)
-      .findLast(
-        (event) => field(event, "type") === "result" || field(event, "result") !== undefined,
-      )
+    let envelope: unknown
+    for (let i = lines.length - 1; i >= 0 && envelope === undefined; i--) {
+      const event = parseJson(lines[i]!)
+      if (field(event, "type") === "result" || field(event, "result") !== undefined)
+        envelope = event
+    }
     const result = field(envelope, "result")
     const hookStopped = field(envelope, "terminal_reason") === "hook_stopped"
     return {

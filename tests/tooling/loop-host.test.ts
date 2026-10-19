@@ -30,10 +30,24 @@ const inMemory = (): Tier => {
   return {
     dir: "/inmem-host",
     write: (path, content) => void files.set(path, content),
-    host: () => inMemoryLoopHost(files),
+    host: () =>
+      inMemoryLoopHost(files, {}, (command, args) => {
+        // The one script these cases run, answered as sh would print it.
+        expect([command, ...args]).toEqual(["sh", "-c", SCRIPT])
+        return { code: 0, stdout: "one\nstop\nafter\n", stderr: "" }
+      }),
     dispose: () => {},
   }
 }
+
+const SCRIPT = "echo one; echo stop; sleep 5; echo after"
+
+const spawn = (tier: Tier, stopAt: (line: string) => boolean) =>
+  Effect.runPromise(
+    Effect.flatMap(LoopHost, (host) =>
+      host.spawn({ command: "sh", args: ["-c", SCRIPT], output: "capture", stopAt }),
+    ).pipe(Effect.provide(tier.host())),
+  )
 
 const read = (tier: Tier, path: string): Promise<string | undefined> =>
   Effect.runPromise(
@@ -58,4 +72,26 @@ describe.each([
     tier = make()
     expect(await read(tier, join(tier.dir, "absent.jsonl"))).toBeUndefined()
   })
+})
+
+describe.each([
+  ["live", live],
+  ["in memory", inMemory],
+])("LoopHost.spawn stopAt (%s)", (_, make) => {
+  let tier: Tier
+  afterEach(() => tier.dispose())
+
+  it("stops the child at the first stdout line stopAt accepts", async () => {
+    tier = make()
+    const exit = await spawn(tier, (line) => line === "stop")
+    expect(exit).toMatchObject({ code: 143, stopped: true })
+    expect(exit.stdout).toBe("one\nstop\n")
+  })
+
+  it("runs to the end when no line is accepted", async () => {
+    tier = make()
+    const exit = await spawn(tier, (line) => line === "never")
+    expect(exit.stopped).toBeUndefined()
+    expect(exit.stdout).toBe("one\nstop\nafter\n")
+  }, 10_000)
 })

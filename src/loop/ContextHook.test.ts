@@ -22,7 +22,7 @@ const run = (env: Record<string, string>) => {
 }
 
 it("records a hard stop's reason where the driver asked, so it can tell it from another hook's", async () => {
-  const { out, appended } = await run({ GTD_CONTEXT_STOP_FILE: "/log.context-stop" })
+  const { out, appended } = await run({ GTD_LOOP_CONTEXT_STOP_FILE: "/log.context-stop" })
   expect(out).toContain('"continue":false')
   expect(appended).toEqual([
     [

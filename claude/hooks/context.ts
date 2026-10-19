@@ -19,10 +19,13 @@ export function guardOf(
   context: { soft?: number; hard?: number } | undefined,
   model: string | undefined,
   windowEnv: string | undefined,
+  sessionWindow?: number,
 ): Guard | undefined {
   const limit = { ...DEFAULT_CONTEXT_LIMIT, ...context }
   if (contextLimitFault(limit) !== undefined) return undefined
-  return { limit, window: parseContextWindow(windowEnv) ?? contextWindowFor(model) }
+  // A worker with no model of its own runs on the session's, window included.
+  const own = model === undefined ? sessionWindow : undefined
+  return { limit, window: parseContextWindow(windowEnv) ?? own ?? contextWindowFor(model) }
 }
 
 export type HookEvent = {

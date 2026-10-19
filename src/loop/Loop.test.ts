@@ -200,7 +200,7 @@ describe("runLoop", () => {
     expect(turn?.cwd).toBe("/repo")
     expect(turn?.env).toEqual({
       CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
-      GTD_CONTEXT_STOP_FILE: `${LOG}.context-stop`,
+      GTD_LOOP_CONTEXT_STOP_FILE: `${LOG}.context-stop`,
     })
     expect(h.landScripts()[0]?.stdin).toBe("echo landed")
     expect(h.landScripts()[0]?.output).toEqual({ log: LOG })
@@ -516,7 +516,7 @@ describe("runLoop — context limit", () => {
     const h: ReturnType<typeof fakeHost> = fakeHost({
       beats: [prompt()],
       agent: (request) => {
-        const stopFile = request.env?.["GTD_CONTEXT_STOP_FILE"]
+        const stopFile = request.env?.["GTD_LOOP_CONTEXT_STOP_FILE"]
         expect(stopFile).toBe(`${LOG}.context-stop`)
         h.files[stopFile!] =
           "gtd: context limit: 140000 of 200000 tokens, past the 70% hard limit\n"
@@ -544,14 +544,34 @@ describe("runLoop — context limit", () => {
     expect(failure(await h.run())).toBe("agent turn failed on both session flags")
   })
 
-  it("stops a turn itself once the stream shows the hard limit passed", async () => {
+  it("stops a turn itself once the stream passes halfway from the hard limit to a full window", async () => {
     const h = fakeHost({
       beats: [prompt()],
-      agent: () => ok([assistant(139_999), assistant(140_000), envelope({})].join("\n")),
+      agent: () => ok([assistant(169_999), assistant(170_000), envelope({})].join("\n")),
     })
     expect(failure(await h.run())).toBe(
-      `gtd: context limit: the stream passed the 70% hard limit of 200000 tokens — the turn at "working" was stopped and nothing landed; see ${LOG}`,
+      `gtd: context limit: the stream passed 85% of 200000 tokens with no hook stopping it — the turn at "working" was stopped and nothing landed; see ${LOG}`,
     )
+    expect(h.landCalls()).toHaveLength(0)
+  })
+
+  it("leaves a turn past the hard limit to the hook, which stops it after its tool", async () => {
+    const h = fakeHost({
+      beats: [prompt(), gate()],
+      agent: () => ok([assistant(150_000), envelope({})].join("\n")),
+    })
+    expect(EffectExit.isSuccess(await h.run())).toBe(true)
+  })
+
+  it("fails a turn whose hook recorded a stop, whatever the envelope says", async () => {
+    const h: ReturnType<typeof fakeHost> = fakeHost({
+      beats: [prompt()],
+      agent: (request) => {
+        h.files[request.env!["GTD_LOOP_CONTEXT_STOP_FILE"]!] = "gtd: context limit: x\n"
+        return ok(envelope({}))
+      },
+    })
+    expect(failure(await h.run())).toMatch(/^gtd: context limit: x — the turn at "working"/)
     expect(h.landCalls()).toHaveLength(0)
   })
 
