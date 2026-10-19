@@ -79,6 +79,7 @@ interface Script {
 
 const fakeHost = (script: Script) => {
   const requests: Request[] = []
+  const files: Record<string, string | undefined> = { ...script.files }
   let log = ""
   let said = ""
   let beats = 0
@@ -130,10 +131,12 @@ const fakeHost = (script: Script) => {
         requests.push(request)
         return respond(request)
       }),
-    readFile: (path) => Effect.succeed(script.files?.[path]),
+    readFile: (path) => Effect.succeed(files[path]),
+    // Any other file the loop resets lives beside the log, readable through `files`.
     resetLog: (path) =>
       Effect.sync(() => {
-        log = `<reset ${path}>`
+        if (path.endsWith(".context-stop")) files[path] = ""
+        else log = `<reset ${path}>`
       }),
     appendLog: (_path, text) =>
       Effect.sync(() => {
@@ -149,6 +152,7 @@ const fakeHost = (script: Script) => {
   return {
     run,
     requests,
+    files,
     log: () => log,
     said: () => said,
     agentCalls: () => requests.filter((r) => r.command === "claude" || r.command === "pi"),
@@ -194,7 +198,10 @@ describe("runLoop", () => {
     ])
     expect(turn?.stdin).toBe("PLAIN NEXT\n")
     expect(turn?.cwd).toBe("/repo")
-    expect(turn?.env).toEqual({ CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1" })
+    expect(turn?.env).toEqual({
+      CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "1",
+      GTD_CONTEXT_STOP_FILE: `${LOG}.context-stop`,
+    })
     expect(h.landScripts()[0]?.stdin).toBe("echo landed")
     expect(h.landScripts()[0]?.output).toEqual({ log: LOG })
     expect(h.said()).toContain("↳ gtd(agent): s → t")
@@ -501,17 +508,40 @@ describe("runLoop — context limit", () => {
     expect(settingsOf(h)).toBe(hookSettings(500000))
   })
 
-  it("fails a turn the hook stopped, without a retry or a landing", async () => {
-    const h = fakeHost({
+  const hookStop = ok(
+    `${assistant(10)}\n${envelope({ result: "", terminal_reason: "hook_stopped" })}`,
+  )
+
+  it("fails a turn the context hook stopped, without a retry or a landing", async () => {
+    const h: ReturnType<typeof fakeHost> = fakeHost({
       beats: [prompt()],
-      agent: () =>
-        ok(`${assistant(10)}\n${envelope({ result: "", terminal_reason: "hook_stopped" })}`),
+      agent: (request) => {
+        const stopFile = request.env?.["GTD_CONTEXT_STOP_FILE"]
+        expect(stopFile).toBe(`${LOG}.context-stop`)
+        h.files[stopFile!] =
+          "gtd: context limit: 140000 of 200000 tokens, past the 70% hard limit\n"
+        return hookStop
+      },
     })
     expect(failure(await h.run())).toBe(
-      `context limit: the agent turn at "working" was stopped at its context limit (hard 70% of 200000 tokens) — nothing landed; see ${LOG}`,
+      `gtd: context limit: 140000 of 200000 tokens, past the 70% hard limit — the turn at "working" was stopped and nothing landed; see ${LOG}`,
     )
     expect(h.agentCalls()).toHaveLength(1)
     expect(h.landCalls()).toHaveLength(0)
+  })
+
+  it("treats a turn another hook stopped as an ordinary failed turn", async () => {
+    const h = fakeHost({ beats: [prompt()], agent: () => hookStop })
+    expect(failure(await h.run())).toBe("agent turn failed on both session flags")
+  })
+
+  it("finds an error envelope that carries no result", async () => {
+    const h = fakeHost({
+      beats: [prompt()],
+      agent: () =>
+        ok(JSON.stringify({ type: "result", subtype: "error_max_turns", is_error: true })),
+    })
+    expect(failure(await h.run())).toBe("agent turn failed on both session flags")
   })
 
   it("stops a turn itself once the stream shows the hard limit passed", async () => {
@@ -519,7 +549,9 @@ describe("runLoop — context limit", () => {
       beats: [prompt()],
       agent: () => ok([assistant(139_999), assistant(140_000), envelope({})].join("\n")),
     })
-    expect(failure(await h.run())).toMatch(/^context limit: the agent turn at "working"/)
+    expect(failure(await h.run())).toBe(
+      `gtd: context limit: the stream passed the 70% hard limit of 200000 tokens — the turn at "working" was stopped and nothing landed; see ${LOG}`,
+    )
     expect(h.landCalls()).toHaveLength(0)
   })
 

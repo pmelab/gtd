@@ -139,7 +139,8 @@ from, never another one on `$PATH`.
   PreCompact hook, and the loop reads `--output-format stream-json --verbose`
   for the same hard limit, killing the turn itself should no hook fire. A turn
   stopped at its hard limit is neither retried nor landed: the loop exits 1 with
-  a line starting `context limit:`. A `pi` turn runs without one.
+  a line starting `gtd: context limit`. A turn some other hook stopped is an
+  ordinary failed turn. A `pi` turn runs without a limit.
 
 - **At a judge gate** it pipes the beat's `judge` document through
   `gtd judge run` — whose own settings pick the provider, see
@@ -230,14 +231,19 @@ cache-read and cache-creation tokens — and compares it with the shares of
   `stopReason` starting `gtd: context limit` — the context-limit marker. Claude
   Code ends the turn; its `result` envelope reads
   `"terminal_reason":"hook_stopped"`, and the `stopReason` itself appears only
-  in the transcript.
+  in the transcript. With `GTD_CONTEXT_STOP_FILE` set in its environment, the
+  hook also appends the `stopReason` to that file — how a driver tells its own
+  stop from any other hook's `hook_stopped`.
 - **At PreCompact**, it stops the turn the same way, whatever the count:
   compaction about to happen means the limit was missed.
 - **Otherwise, and for a subagent's tool call** (an input carrying `agent_id`,
   whose context is its own), it prints nothing.
 
 A turn stopped at its hard limit is too big for one turn. The bundled loop and
-the Claude Code mod land nothing and stop with the marker.
+the Claude Code mod land nothing and stop with the marker. The limit counts the
+whole conversation, so a memory scope resumed across steps that has grown past
+its hard limit stops again on every run; start the process over with
+`gtd abandon`, or raise the limit.
 
 ### Terminal-multiplexer status: a herdr wrapper
 
@@ -571,8 +577,9 @@ falls back to the `gtd` on your `PATH`.
   the subagent's model. Each subagent sees only its scope's `skills`.
 - **Each subagent runs under its step's [context limit](#context-limits)**,
   measured on its own transcript, with the window `GTD_LOOP_CONTEXT_WINDOW`
-  names when set. A subagent stopped at its hard limit ends the run with an
-  error whose text starts `gtd: context limit`; nothing lands.
+  names when set. Past its hard limit, or when it is about to compact, the mod
+  stops the subagent's task and ends the run with an error whose text starts
+  `gtd: context limit`; nothing lands.
 - **The mod's subagents run with `bypassPermissions`**, the equivalent of the
   minimal driver's `--dangerously-skip-permissions`. Shell commands they run are
   kept in the foreground, with a 10-minute timeout.

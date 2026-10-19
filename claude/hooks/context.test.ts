@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 
-import { decide, guardOf } from "./context"
+import { classicResult, decide, guardOf } from "./context"
 
 describe("guardOf", () => {
   test("merges the beat's limits over the defaults", () => {
@@ -33,5 +33,11 @@ describe("decide", () => {
     ).toBeUndefined()
     const worker = { hook_event_name: "PreCompact", transcript_path: "/t.jsonl", agent_id: "w" }
     expect(await decide(worker, undefined, never)).toBeUndefined()
+  })
+})
+
+test("a hard stop only blocks the call: the mod stops the worker itself", () => {
+  expect(classicResult({ kind: "hard", stopReason: "gtd: context limit: x" })).toEqual({
+    block: "gtd: context limit: x",
   })
 })

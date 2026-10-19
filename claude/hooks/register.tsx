@@ -15,6 +15,7 @@ import { JUDGE_SYSTEM, judgePrompt, judgeQuestions, judgeRunEnv, toVerdicts } fr
 import type { Judgment } from "./judge"
 import { catchFrom, throwTo } from "./handoff"
 import { classicResult, decide, guardOf } from "./context"
+import { contextHook } from "../../src/wire/ContextLimit.js"
 import type { Guard, HookEvent } from "./context"
 import { jobs } from "./jobs"
 import { documents, readDocument } from "./schema"
@@ -76,8 +77,15 @@ const setAccess = (id: string, a: AccessDef | undefined) =>
 // was stopped at it, for the turn's end to report.
 const guards = new Map<string, Guard>()
 const contextStops = new Map<string, string>()
+async function workerModel($: $, hint: string | undefined) {
+  return subagentModel(hint, {
+    smart: await $.env.get("GTD_PLANNERMODEL"),
+    base: await $.env.get("GTD_CODERMODEL"),
+  })
+}
 async function setGuard($: $, id: string, t: Pick<Turn, "context" | "model">) {
-  const guard = guardOf(t.context, t.model, await $.env.get("GTD_LOOP_CONTEXT_WINDOW"))
+  const model = await workerModel($, t.model)
+  const guard = guardOf(t.context, model, await $.env.get("GTD_LOOP_CONTEXT_WINDOW"))
   if (guard) guards.set(id, guard)
   else guards.delete(id)
 }
@@ -218,10 +226,7 @@ function io($: $): Io {
         subagentType: await persona($, t),
         prompt: t.prompt,
         description: t.label || "gtd",
-        model: subagentModel(t.model, {
-          smart: await $.env.get("GTD_PLANNERMODEL"),
-          base: await $.env.get("GTD_CODERMODEL"),
-        }),
+        model: await workerModel($, t.model),
         cwd: root,
       })
       const id = spawned.agentId
@@ -927,16 +932,34 @@ async function isOurs($: $, id: string) {
 }
 
 // `gtd context-hook`'s decision for a worker: past its soft limit it is asked
-// for a handoff note, past its hard limit (or about to compact) it is stopped,
-// and its turn ends as a failure carrying the stop reason.
+// for a handoff note; past its hard limit, or about to compact, its task is
+// stopped and its turn ends as a failure carrying the stop reason. Stopped off
+// the hook, which runs inside the worker's own tool call.
+async function stopWorker($: $, id: string, stopReason: string) {
+  contextStops.set(id, stopReason)
+  $.clock.after(0, () => {
+    void $.tool.call({ tool: "TaskStop", task_id: id }).catch(() => {})
+  })
+}
+
 async function contextGuard($: $, e: HookEvent) {
   const id = e.agent_id
   if (!id || !ours.has(id)) return undefined
   const decision = await decide(e, guards.get(id), async (path) =>
     (await $.fs.exists(path)) ? $.fs.read(path) : undefined,
   )
-  if (decision?.kind === "hard") contextStops.set(id, decision.stopReason)
+  if (decision?.kind === "hard") await stopWorker($, id, decision.stopReason)
   return decision && classicResult(decision)
+}
+
+// A worker's own compaction carries its id here (`classic.PreCompact` is not
+// documented to): compaction about to happen means its limit was missed.
+async function compactGuard($: $, agentId: string | undefined) {
+  if (!agentId || !ours.has(agentId) || !guards.has(agentId)) return undefined
+  const decision = contextHook({ event: "PreCompact", tokens: undefined, ...guards.get(agentId)! })
+  if (decision?.kind !== "hard") return undefined
+  await stopWorker($, agentId, decision.stopReason)
+  return { skip: decision.stopReason }
 }
 
 // What a subagent this mod spawned may not do: write outside its step's
@@ -1047,7 +1070,7 @@ export const register: Register = (on) => {
   })
 
   on("classic.PostToolUse", async ($, e, next) => (await contextGuard($, e)) ?? next(e))
-  on("classic.PreCompact", async ($, e, next) => (await contextGuard($, e)) ?? next(e))
+  on("session.compact", async ($, e, next) => (await compactGuard($, e.agentId)) ?? next(e))
 
   // A subagent's hand-back arrives as a prompt to the main session, whose model
   // would then act on it. gtd reads the turn's result from git instead.

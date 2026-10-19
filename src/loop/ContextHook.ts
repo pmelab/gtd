@@ -6,16 +6,11 @@ import {
   contextWindowFor,
   hookOutput,
   transcriptTokens,
+  CONTEXT_STOP_FILE_ENV,
+  type ContextHookRequest,
   type ContextLimit,
 } from "../wire/index.js"
 import { LoopHost } from "./Host.js"
-
-export interface ContextHookRequest {
-  readonly input: string
-  readonly soft?: number
-  readonly hard?: number
-  readonly window?: number
-}
 
 interface HookInput {
   readonly event: "PostToolUse" | "PreCompact"
@@ -51,6 +46,19 @@ const parseInput = (text: string): Effect.Effect<HookInput | undefined, Error> =
     }),
   )
 
+const tokensOf = (input: HookInput): Effect.Effect<number | undefined, Error, LoopHost> =>
+  input.event === "PostToolUse" && input.transcript !== undefined
+    ? Effect.flatMap(LoopHost, (host) => host.readFile(input.transcript!)).pipe(
+        Effect.map((text) => (text === undefined ? undefined : transcriptTokens(text))),
+      )
+    : Effect.succeed(undefined)
+
+const recordStop = (stopReason: string): Effect.Effect<void, never, LoopHost> =>
+  Effect.flatMap(LoopHost, (host) => {
+    const file = host.env[CONTEXT_STOP_FILE_ENV]
+    return file === undefined || file === "" ? Effect.void : host.appendLog(file, `${stopReason}\n`)
+  })
+
 /** `gtd context-hook`: one settings hook for PostToolUse and PreCompact. */
 export const runContextHook = (
   request: ContextHookRequest,
@@ -59,15 +67,13 @@ export const runContextHook = (
     const limit = yield* limitOf(request)
     const input = yield* parseInput(request.input)
     if (input === undefined) return ""
-    const transcript =
-      input.event === "PostToolUse" && input.transcript !== undefined
-        ? yield* (yield* LoopHost).readFile(input.transcript)
-        : undefined
     const decision = contextHook({
       event: input.event,
-      tokens: transcript === undefined ? undefined : transcriptTokens(transcript),
+      tokens: yield* tokensOf(input),
       window: request.window ?? contextWindowFor(undefined),
       limit,
     })
-    return decision === undefined ? "" : `${JSON.stringify(hookOutput(decision))}\n`
+    if (decision === undefined) return ""
+    if (decision.kind === "hard") yield* recordStop(decision.stopReason)
+    return `${JSON.stringify(hookOutput(decision))}\n`
   })

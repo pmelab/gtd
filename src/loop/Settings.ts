@@ -1,4 +1,5 @@
 import { Either, Schema } from "effect"
+import { parseContextWindow } from "../wire/index.js"
 
 const Agent = Schema.Literal("claude", "pi")
 export type AgentName = typeof Agent.Type
@@ -65,9 +66,9 @@ const decodeAgent = (value: string | undefined): Either.Either<AgentName | undef
 
 const decodeWindow = (value: string | undefined): Either.Either<number | undefined, string> => {
   if (value === undefined || value === "") return Either.right(undefined)
-  const n = Number(value)
-  return Number.isInteger(n) && n > 0
-    ? Either.right(n)
+  const window = parseContextWindow(value)
+  return window !== undefined
+    ? Either.right(window)
     : Either.left(`GTD_LOOP_CONTEXT_WINDOW must be a positive integer — got "${value}"`)
 }
 

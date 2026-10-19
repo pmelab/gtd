@@ -17,22 +17,44 @@ const LONG_WINDOW = 1_000_000
 export const contextWindowFor = (model: string | undefined): number =>
   model !== undefined && /\[1m\]/i.test(model) ? LONG_WINDOW : DEFAULT_WINDOW
 
-/** Why a limit is unusable, or `undefined` when it is fine. */
-export const contextLimitFault = (limit: {
-  readonly soft?: number | undefined
-  readonly hard?: number | undefined
-}): string | undefined => {
+/** A positive whole number of tokens, or `undefined` for anything else. */
+export const parseContextWindow = (raw: string | undefined): number | undefined => {
+  const n = Number(raw)
+  return raw !== undefined && raw.trim() !== "" && Number.isInteger(n) && n > 0 ? n : undefined
+}
+
+/** `gtd context-hook`'s request: the hook's stdin and the limits its flags set. */
+export interface ContextHookRequest {
+  readonly input: string
+  readonly soft?: number
+  readonly hard?: number
+  readonly window?: number
+}
+
+/**
+ * Where a driver asks `gtd context-hook` to record a hard stop's `stopReason`:
+ * Claude Code prints it nowhere a driver reads, and `hook_stopped` alone would
+ * also name any other hook that stopped the turn.
+ */
+export const CONTEXT_STOP_FILE_ENV = "GTD_CONTEXT_STOP_FILE"
+
+/** Why a limit is unusable, or `undefined` when it is fine. Config is evaluated untyped, so anything may arrive. */
+export const contextLimitFault = (limit: unknown): string | undefined => {
+  if (typeof limit !== "object" || limit === null || Array.isArray(limit)) {
+    return `context must be an object { soft, hard }, got ${JSON.stringify(limit)}`
+  }
   const unknown = Object.keys(limit).filter((key) => key !== "soft" && key !== "hard")
   if (unknown.length > 0) return `unknown key(s) ${unknown.join(", ")} in context`
+  const shares = limit as { readonly soft?: unknown; readonly hard?: unknown }
   for (const key of ["soft", "hard"] as const) {
-    const value = limit[key]
+    const value = shares[key]
     if (value === undefined) continue
     if (typeof value !== "number" || !(value > 0 && value <= 1)) {
       return `context.${key} must be a share of the context window in (0, 1], got ${JSON.stringify(value)}`
     }
   }
-  const soft = limit.soft ?? DEFAULT_CONTEXT_LIMIT.soft
-  const hard = limit.hard ?? DEFAULT_CONTEXT_LIMIT.hard
+  const soft = (shares.soft as number | undefined) ?? DEFAULT_CONTEXT_LIMIT.soft
+  const hard = (shares.hard as number | undefined) ?? DEFAULT_CONTEXT_LIMIT.hard
   return soft < hard ? undefined : `context.soft (${soft}) must be below context.hard (${hard})`
 }
 

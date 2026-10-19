@@ -65,3 +65,33 @@ Feature: a step's context limit rides on the wire
     When I run gtd next
     Then it fails
     And stderr contains "context.hard must be a share of the context window in (0, 1], got 70"
+
+  Scenario: a context that is not an object is refused
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await agent("doing", "do the work", { allowEmpty: true, context: 0.6 as never })
+      }
+      """
+    When I run gtd next
+    Then it fails
+    And stderr contains "step \"doing\": context must be an object { soft, hard }, got 0.6"
+
+  Scenario: a scope's bad limit is named as the scope's
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, scope } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await scope({ name: "work", context: { soft: 0.9 } }, () =>
+          agent("doing", "do the work", { allowEmpty: true }),
+        )
+      }
+      """
+    When I run gtd next
+    Then it fails
+    And stderr contains "step \"work.doing\": a scope's context (work): context.soft (0.9) must be below context.hard (0.7)"

@@ -3,6 +3,7 @@ import {
   contextLimitFault,
   contextWindowFor,
   DEFAULT_CONTEXT_LIMIT,
+  parseContextWindow,
   subagentTranscriptPath,
   transcriptTokens,
 } from "../../src/wire/ContextLimit.js"
@@ -13,7 +14,7 @@ import type { ContextDecision, ContextLimit } from "../../src/wire/ContextLimit.
 
 export type Guard = { limit: ContextLimit; window: number }
 
-/** A turn's limits from its beat's `context` and the window override; a bad window is ignored. */
+/** A turn's limits from its beat's `context`, the model the subagent runs on and the window override; a bad window is ignored. */
 export function guardOf(
   context: { soft?: number; hard?: number } | undefined,
   model: string | undefined,
@@ -21,8 +22,7 @@ export function guardOf(
 ): Guard | undefined {
   const limit = { ...DEFAULT_CONTEXT_LIMIT, ...context }
   if (contextLimitFault(limit) !== undefined) return undefined
-  const n = Number(windowEnv)
-  return { limit, window: Number.isInteger(n) && n > 0 ? n : contextWindowFor(model) }
+  return { limit, window: parseContextWindow(windowEnv) ?? contextWindowFor(model) }
 }
 
 export type HookEvent = {
@@ -53,9 +53,11 @@ export async function decide(
   })
 }
 
-/** A decision as the classic hook result the engine maps to `decision`/`continue`. */
+/**
+ * A decision as a classic PostToolUse result. A hard stop only blocks here:
+ * the mod stops the worker's task itself, since `continue: false` from a
+ * subagent's hook is not documented to stop just that subagent.
+ */
 export function classicResult(decision: ContextDecision) {
-  return decision.kind === "soft"
-    ? { block: decision.reason }
-    : { preventContinuation: true as const, stopReason: decision.stopReason }
+  return { block: decision.kind === "soft" ? decision.reason : decision.stopReason }
 }

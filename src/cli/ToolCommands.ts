@@ -1,6 +1,7 @@
 import { Context } from "effect"
 import type { Effect } from "effect"
 import type { UiSettings } from "../flows/index.js"
+import type { ContextHookRequest } from "../wire/index.js"
 
 /** How to run THIS gtd — a driver (the loop, the LSP) never reads a different version's state than the one it ships with. */
 export type SelfGtd = readonly [string, ...string[]]
@@ -23,14 +24,6 @@ interface JudgeRequest {
   readonly cwd: string
   readonly env: Readonly<Record<string, string | undefined>>
   readonly input: string
-}
-
-/** `gtd context-hook`'s input: the hook's stdin and the limits its flags set. */
-interface ContextHookRequest {
-  readonly input: string
-  readonly soft?: number
-  readonly hard?: number
-  readonly window?: number
 }
 
 /**

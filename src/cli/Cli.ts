@@ -35,7 +35,7 @@ import {
   type JsonMode,
 } from "./Program.js"
 import type { ToolCommands } from "./ToolCommands.js"
-import { EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
+import { EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR, parseContextWindow } from "../wire/index.js"
 
 export type { Command, CommandRequirements } from "./Program.js"
 export { needsOf, standaloneKinds } from "./Program.js"
@@ -278,9 +278,9 @@ const FLAGS: readonly FlagRow[] = [
     repeatable: false,
     scope: (kind) => kind === "contextHook",
     decode: ([raw]) => {
-      const n = Number(raw)
-      return raw !== undefined && Number.isInteger(n) && n > 0
-        ? Either.right(n)
+      const window = parseContextWindow(raw)
+      return window !== undefined
+        ? Either.right(window)
         : Either.left(`gtd: --window must be a positive integer — got "${raw ?? ""}"`)
     },
     scopeError: "gtd: --window is only valid for `gtd context-hook`",

@@ -1,6 +1,6 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
-import { classicResult, decide, guardOf } from "../../claude/hooks/context.js"
+import { decide, guardOf } from "../../claude/hooks/context.js"
 import { runContextHook } from "../../src/loop/index.js"
 import { inMemoryLoopHost } from "../integration/support/loop-host.js"
 
@@ -12,7 +12,9 @@ const transcript = (tokens: number): string =>
 
 const MAIN = "/projects/session.jsonl"
 
-type Outcome = { block?: string; preventContinuation?: true; stopReason?: string } | undefined
+// Each wiring's answer as the decision it carries: the CLI's settings-hook JSON,
+// the mod's decision before it blocks the call and stops the worker.
+type Outcome = { block?: string; stopReason?: string } | undefined
 
 const viaCli = async (event: string, tokens: number): Promise<Outcome> => {
   const out = await Effect.runPromise(
@@ -23,9 +25,7 @@ const viaCli = async (event: string, tokens: number): Promise<Outcome> => {
   )
   if (out === "") return undefined
   const json = JSON.parse(out) as { decision?: string; reason?: string; stopReason?: string }
-  return json.decision === "block"
-    ? { block: json.reason! }
-    : { preventContinuation: true, stopReason: json.stopReason! }
+  return json.decision === "block" ? { block: json.reason! } : { stopReason: json.stopReason! }
 }
 
 const viaMod = async (event: string, tokens: number): Promise<Outcome> => {
@@ -35,7 +35,8 @@ const viaMod = async (event: string, tokens: number): Promise<Outcome> => {
     guardOf(undefined, undefined, "1000"),
     async (path) => (path === worker ? transcript(tokens) : undefined),
   )
-  return decision && classicResult(decision)
+  if (decision === undefined) return undefined
+  return decision.kind === "soft" ? { block: decision.reason } : { stopReason: decision.stopReason }
 }
 
 describe.each([
@@ -52,7 +53,6 @@ describe.each([
 
   it("stops the turn past the hard limit", async () => {
     expect(await hook("PostToolUse", 700)).toEqual({
-      preventContinuation: true,
       stopReason: "gtd: context limit: 700 of 1000 tokens, past the 70% hard limit",
     })
   })

@@ -593,9 +593,24 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     return landPending(step, input.pending)
   }
 
+  // Each layer on its own first, so a bad scope or workflow option is named as
+  // such rather than blamed on the step it reached; then the merged limit.
   const resolvedContextFault = (
     request: Extract<StepRequest, { kind: "agent" }>,
   ): string | undefined => {
+    for (const [i, s] of scopes.entries()) {
+      if (s.context === undefined) continue
+      const fault = contextLimitFault(s.context)
+      if (fault === undefined) continue
+      const name = scopes
+        .slice(0, i + 1)
+        .flatMap((o) => (o.name === undefined ? [] : [o.name]))
+        .join(".")
+      return `a scope's context (${name || "the workflow's own"}): ${fault}`
+    }
+    const own = request.options.context
+    const ownFault = own === undefined ? undefined : contextLimitFault(own)
+    if (ownFault !== undefined) return ownFault
     const resolved = resolve(request)
     const context = resolved.kind === "agent" ? resolved.options.context : undefined
     return context === undefined ? undefined : contextLimitFault(context)

@@ -20,8 +20,8 @@ export interface TurnResult {
   readonly text: string
   /** USD; 0 when the agent reported none. */
   readonly cost: number
-  /** The turn was stopped at its context limit, by the hook or by the loop. */
-  readonly contextLimit: boolean
+  /** A hook stopped the turn. */
+  readonly hookStopped: boolean
 }
 
 interface AgentCli {
@@ -52,9 +52,13 @@ const costOf = (value: unknown): number => (typeof value === "number" && value >
 // assistant message's usage as it happens — the loop's own hard stop, should
 // the hook not fire — and ends in the same `result` envelope `json` prints.
 // An `is_error` envelope is a failed turn even at exit 0 (max turns hit, an
-// execution error mid-turn) — landing it would land the failure as work. A
-// hook's `stopReason` never reaches stdout; `hook_stopped` is the only trace,
-// and the context-limit hook is the only one the loop installs.
+// execution error mid-turn) — landing it would land the failure as work; an
+// error envelope carries no `result` key, so the envelope is found by its type.
+// A hook that stopped the turn shows only as `hook_stopped`; which hook did is
+// for the loop to tell. Without an envelope (killed, crashed) the stream is
+// the whole transcript, so only its tail stands in for the answer.
+const STREAM_TAIL_LINES = 5
+
 const claude: AgentCli = {
   command: "claude",
   args: (turn) => [
@@ -71,18 +75,19 @@ const claude: AgentCli = {
     "--dangerously-skip-permissions",
   ],
   read: (exit) => {
-    const envelope = exit.stdout
-      .split("\n")
+    const lines = exit.stdout.split("\n")
+    const envelope = lines
       .map(parseJson)
-      .findLast((event) => field(event, "result") !== undefined)
+      .findLast(
+        (event) => field(event, "type") === "result" || field(event, "result") !== undefined,
+      )
     const result = field(envelope, "result")
-    const contextLimit =
-      exit.stopped === true || field(envelope, "terminal_reason") === "hook_stopped"
+    const hookStopped = field(envelope, "terminal_reason") === "hook_stopped"
     return {
-      ok: exit.code === 0 && field(envelope, "is_error") !== true && !contextLimit,
-      text: typeof result === "string" ? result : exit.stdout,
+      ok: exit.code === 0 && field(envelope, "is_error") !== true && !hookStopped,
+      text: typeof result === "string" ? result : lines.slice(-STREAM_TAIL_LINES).join("\n"),
       cost: costOf(field(envelope, "total_cost_usd")),
-      contextLimit,
+      hookStopped,
     }
   },
   // A subagent's message (`parent_tool_use_id` set) fills its own context, not the turn's.
@@ -135,7 +140,7 @@ const pi: AgentCli = {
       ok: exit.code === 0 && !events.some((event) => field(event, "type") === "error"),
       text: text === "" ? exit.stdout : text,
       cost: costOf(field(field(field(message, "usage"), "cost"), "total")),
-      contextLimit: false,
+      hookStopped: false,
     }
   },
 }
