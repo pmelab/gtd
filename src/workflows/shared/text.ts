@@ -1258,10 +1258,11 @@ ${note
     acceptance === undefined || !carries({ acceptance })
       ? ""
       : `- Carry over the naive pass's acceptance tests for ${acceptance.ids.join(", ")}, the
-  one part of it you take as it is: \`git checkout ${acceptance.hash} -- ${acceptance.tests.map(quote).join(" ")}\`.
-  Keep each test and its \`[AC-<n>]\` name, changing only what reaches the
-  release flag: a rebuild whose changed tests leave an ID out is refused, and
-  the suite must be green with them
+  one part of it you take as it is: \`git show ${acceptance.hash} -- ${acceptance.tests.map(quote).join(" ")}\`.
+  Copy each test with its \`[AC-<n>]\` name into the tree as the refactor left
+  it — check a file out of the tip whole only where the refactor did not touch
+  it — changing only what reaches the release flag. A turn whose changed tests
+  leave an ID out is refused, and the suite must be green with them
 `
   }`
 

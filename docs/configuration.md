@@ -814,14 +814,16 @@ order:
    and red checks share one budget: two retries, then `seam.steer`.
 5. `implement.*` — after a refactor (or a pass that no longer applies), one
    build turn that reads the kept pass as material only; after `land`, the
-   applied pass. After a refactor the build turn is the rebuild: its prompt
-   quotes the refactor note and names the naive pass's acceptance tests
-   (`git checkout <tip> -- <tests>`) to carry over, and `gtd land` refuses it
-   (`rebuild-acceptance`) while the test files changed since the refactor leave
-   out an `AC-<n>` the naive pass's tests named on an added line (a comment
-   naming it does not count). The check reads test text — a skipped test passes
-   it; the health loop that follows is what runs them green. Then the health
-   loop (`implement.health.*`, `implement.fix.suite.fixing`), the
+   applied pass. After a `refactor-first` verdict the build turn is the rebuild:
+   its prompt quotes the refactor note (after a refactor; the note is fixed when
+   `seam.note` lands, so a later edit of the file reaches neither turn) and
+   names the naive pass's acceptance tests (`git show <tip> -- <tests>`) to
+   carry over, and `gtd land` refuses it — and every
+   `implement.fix.suite.fixing` turn after it — (`rebuild-acceptance`) while the
+   test files changed since the feature slice began leave out an `AC-<n>` the
+   naive pass's tests named on an added line. The check reads test text — a
+   skipped test passes it; the health loop is what runs them green. Then the
+   health loop (`implement.health.*`, `implement.fix.suite.fixing`), the
    [coverage judge](#acceptance-criteria-coverage) (`implement.coverage`) and
    `implement.closing`, which removes `.gtd/REQUIREMENTS.md` (and
    `.gtd/REFACTOR-NOTE.md`, when there is one). A build turn is asked for a new

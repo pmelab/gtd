@@ -144,15 +144,8 @@ describe("naiveAcceptance and requireAcceptance", () => {
     expect(() =>
       requireAcceptance({ hash: "abc", tests: ["src/a.test.ts"], ids: ["AC-1", "AC-2"] }, "c0"),
     ).toThrow(
-      /^gtd land: rebuild-acceptance: .*leave out AC-2 — .*git checkout abc -- 'src\/a\.test\.ts'/,
+      /^gtd land: rebuild-acceptance: .*leave out AC-2 — .*git show abc -- 'src\/a\.test\.ts'/,
     )
-  })
-
-  it("does not count an ID only a comment names", () => {
-    install([file("src/calc.test.ts", undefined, '// [AC-1] later\nit("adds")')])
-    expect(() =>
-      requireAcceptance({ hash: "abc", tests: ["src/a.test.ts"], ids: ["AC-1"] }, "c0"),
-    ).toThrow(/leave out AC-1/)
   })
 
   it("passes a rebuild whose tests name every ID, wherever they live", () => {
@@ -448,7 +441,11 @@ describe("seamBuild", () => {
     const h = await driveSeam("refactor-first", change("src/a.test.ts", "modified"), {
       seamAllow: ".gtd/**",
     })
-    expect(h.outcome).toEqual({ reference: "abc", base: "c-base" })
+    expect(h.outcome).toEqual({
+      reference: "abc",
+      base: "c-base",
+      rebuild: { acceptance: { hash: "abc", tests: [], ids: [] } },
+    })
     expect(h.slices).toEqual([])
     expect(h.names).not.toContain("seam.by-hand")
     expect(h.names.some((n) => n.startsWith("refactor"))).toBe(false)
@@ -473,7 +470,11 @@ describe("seamBuild", () => {
     })
     expect(h.slices).toEqual([])
     expect(h.names).toContain("seam.by-hand")
-    expect(h.outcome).toEqual({ reference: "abc", base: "c-base" })
+    expect(h.outcome).toEqual({
+      reference: "abc",
+      base: "c-base",
+      rebuild: { acceptance: { hash: "abc", tests: [], ids: [] } },
+    })
   })
 })
 
@@ -555,7 +556,7 @@ describe("implement", () => {
     )
     expect(prompt).toContain("  > Seam: a shared op")
     expect(prompt).toContain("acceptance tests for AC-1")
-    expect(prompt).toContain("git checkout abc -- 'src/a.test.ts'")
+    expect(prompt).toContain("git show abc -- 'src/a.test.ts'")
   })
 
   it("a rebuild whose naive tests named no ID asks to carry nothing over", async () => {

@@ -17,7 +17,6 @@ import * as t from "../shared/text.js"
 import { skipDesign, statedCriteria, type StatedCriteria } from "./criteria.js"
 import { design } from "./planning.js"
 import { buildTail, isCode, reUnwind, type ReviewOutcome } from "./review.js"
-import { isTestFile } from "./refactor.js"
 import { implement, seamBuild } from "./seam.js"
 import { recordRisk, riskTierOn } from "./tier.js"
 
@@ -50,11 +49,12 @@ export const buildFeature = async (firstBase: string): Promise<void> => {
       naive: seam.land === true ? seam.reference : undefined,
       rebuild: seam.rebuild,
     })
-    // A feature slice with no code beyond carried-over tests: the refactor carried the feature,
-    // so the lap covers the whole change.
+    // A feature slice with no code beyond the carried-over tests: the refactor carried the
+    // feature, so the lap covers the whole change.
+    const carried = seam.rebuild?.acceptance?.tests ?? []
     const base =
       seam.refactored === true &&
-      !changesSince(seam.base).some((c) => isCode(c.path) && !isTestFile(c.path))
+      !changesSince(seam.base).some((c) => isCode(c.path) && !carried.includes(c.path))
         ? firstBase
         : seam.base
     await tail(settleQuality, { green: true, lensBase: base })
