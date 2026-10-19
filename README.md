@@ -341,14 +341,16 @@ wait for the next rest. When the process finishes, Claude offers to squash it
 and open its pull request(s) (or run `/gtd ship`; `GTD_SHIP_MODE` picks one
 stacked pull request per slice or one commit per slice, see the
 [driver doc](docs/driver.md)); a process started for an issue ships with
-`Closes #N` on its top pull request; a closed pull request whose branch was
-deleted from origin is left behind and a new one opens; re-running `/gtd ship`
-after a lower stacked pull request merged restacks the rest (it refuses, with
-nothing changed, when that pull request merged anywhere but the default branch
-(unless into a lower slice branch before that one merged into it), a slice
-branch is checked out in another worktree, an unrelated local branch sits inside
-the rebased commits, or a slice's change is already upstream; a failed rebase is
-rolled back; to tear a stack down from its worktree, delete the top branch with
+`Closes #N` on its top pull request; a later process on an already-stacked
+branch, such as review fixes, lands one commit per slice on the top pull request
+and keeps the stack; a closed pull request whose branch was deleted from origin
+is left behind and a new one opens; re-running `/gtd ship` after a lower stacked
+pull request merged restacks the rest (it refuses, with nothing changed, when
+that pull request merged anywhere but the default branch (unless into a lower
+slice branch before that one merged into it), a slice branch is checked out in
+another worktree, an unrelated local branch sits inside the rebased commits, or
+a slice's change is already upstream; a failed rebase is rolled back; to tear a
+stack down from its worktree, delete the top branch with
 `git push origin --delete`, since `gh pr close --delete-branch` cannot). A
 process can change hands at any gate: ask Claude to hand it off (or run
 `/gtd throw @dev`) and it opens a draft pull request assigned to them, and

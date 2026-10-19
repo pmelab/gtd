@@ -495,8 +495,7 @@ async function squash(
   if (!msgs.ok) return msgs
   const { fulls, history } = msgs
   const warn = () => (mode === "commits" && many ? rebaseWarning(io) : undefined)
-  if (resume?.links)
-    return squashOntoStack(io, git, ok, groups[0]!, fulls[0]!, history, resume, isDry, tip)
+  if (resume?.links) return squashOntoStack(io, git, ok, groups, fulls, history, resume, isDry, tip)
   if (isDry)
     return dryRun(
       groups,
@@ -552,18 +551,21 @@ async function stackReads(
   mode: ShipMode,
 ): Promise<Resumed | string | undefined> {
   if (mode !== "stack") return undefined
-  if (groups.length > 1) return await stackPrecheck(io, git, ok, branch, baseBranch, groups)
+  if (groups.length > 1)
+    return await stackPrecheck(io, git, ok, branch, baseBranch, groups, base, isDry)
   return resumable(io, git, ok, branch, baseBranch, isDry, base)
 }
 
-// One slice on a recorded stack: its commit becomes the new top of the stack, and
-// the record, including the recorded top the missing-branch fallbacks read, stays.
+// A process on a recorded stack — a re-ship, or a follow-up such as review fixes —
+// lands its slice commits on the top branch, so they join the top pull request.
+// The record, including the recorded top the missing-branch fallbacks and the
+// restack read, stays.
 async function squashOntoStack(
   io: ShipIo,
   git: Git,
   ok: Ok,
-  group: Group,
-  full: string,
+  groups: Group[],
+  fulls: string[],
   history: string | undefined,
   resume: Resumed,
   isDry: boolean,
@@ -572,16 +574,16 @@ async function squashOntoStack(
   const links = resume.links!
   const top = links.length - 1
   if (isDry) {
-    const messages = links.map((_, i) => (i === top ? full : ""))
-    return {
-      ...dryRun([group], [full], history, undefined, links),
-      messages,
-      restack: resume.restack,
-    }
+    // the follow-up's slice names are not stack slices: no [name] headers
+    const messages = links.map((_, i) => (i === top ? fulls.join("\n\n") : ""))
+    return { ok: true as const, text: "", history, stack: links, messages, restack: resume.restack }
   }
   const pushed = await pushHistory(io, history)
   if (pushed) return fail(pushed)
-  const one = await commitSquash(io, git, ok, group.base, full)
+  const one =
+    groups.length === 1
+      ? await commitSquash(io, git, ok, groups[0]!.base, fulls[0]!)
+      : await commitChain(io, git, ok, groups, fulls)
   if (!one.ok) return one
   const failed = await resume.revive?.()
   if (failed) return fail(failed)
@@ -709,24 +711,30 @@ async function takenSlice(git: Git, ok: Ok, branch: string, groups: Group[], dea
   return undefined
 }
 
-async function recordedRefusal(
+// A live record takes the process onto its top branch; a dead one (no links)
+// leaves the way open for a fresh stack.
+async function liveRecord(
   io: ShipIo,
   git: Git,
   ok: Ok,
   branch: string,
   baseBranch: string,
   recorded: string[],
-): Promise<string | undefined> {
-  // The staleness test a resume uses: a dead record is not a live stack.
+  base: string,
+  isDry: boolean,
+): Promise<Resumed | string> {
+  // The staleness test a resume uses, without the restack's origin and worktree
+  // reads: a dead record is not a live stack, and its dropped-record line is
+  // silenced since a fresh stack replaces it.
   const quiet = { ...io, log: () => {} }
   const found = await resumable(quiet, git, ok, branch, baseBranch, true, "HEAD", false)
   // resumable refuses (a missing branch, a closed slice PR) before it tests the
   // chain; only a record that still chains to HEAD may refuse a fresh stack.
-  if (typeof found === "string")
-    return (await chainsToHead(git, ok, branch, recorded)) ? found : undefined
-  if (!found.forget)
-    return `${branch} already has a recorded stack (${recorded.join(", ")}); nothing changed. Ship with GTD_SHIP_MODE=commits, or run git config --local --unset branch.${branch}.gtdStack and git config --local --unset branch.${branch}.gtdStackTop, delete or rename the ${branch}-<slice> branches, then ship again.`
-  return undefined
+  if (typeof found === "string") return (await chainsToHead(git, ok, branch, recorded)) ? found : {}
+  // `forget` with links is a live stack a restack ends, not a dead record.
+  if (!found.links) return {}
+  // Live: any refusal of the full resume (origin, worktrees) stands.
+  return resumable(io, git, ok, branch, baseBranch, isDry, base)
 }
 
 async function chainsToHead(git: Git, ok: Ok, branch: string, recorded: string[]) {
@@ -760,11 +768,14 @@ async function stackPrecheck(
   branch: string,
   baseBranch: string,
   groups: Group[],
-): Promise<string | undefined> {
+  base: string,
+  isDry: boolean,
+): Promise<Resumed | string | undefined> {
   const recorded = names(await git("config", "--local", "--get", STACK_KEY(branch)))
   if (recorded.length) {
-    const refused = await recordedRefusal(io, git, ok, branch, baseBranch, recorded)
-    if (refused) return refused
+    const live = await liveRecord(io, git, ok, branch, baseBranch, recorded, base, isDry)
+    // Without links the squash builds a fresh stack, so the collision checks still run.
+    if (typeof live === "string" || live?.links) return live
   }
   const retired = names(await git("config", "--local", "--get", RETIRED_KEY(branch)))
   const taken = await takenSlice(git, ok, branch, groups, [...recorded, ...retired])
