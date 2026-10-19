@@ -441,8 +441,12 @@ export const doors = { hotfix: { workflow: "hotfix" } }
 ```
 
 `buildTail(base, options?)` is the call form;
-`buildTail(fixFirst, base, green?, options?)` is deprecated. A call fitting
-neither form is rejected before any of `buildTail`'s own steps run.
+`buildTail(fixFirst, base, green?, options?)` is deprecated. A string second
+argument selects the deprecated form, which then needs `fixFirst` and `green`
+booleans or absent and `options` an object or absent; otherwise a string first
+argument selects the current form, which takes nothing but an optional `options`
+object. `null` counts as absent. A call fitting neither form is rejected before
+any of `buildTail`'s own steps run.
 
 A config's doors are those its workflows bring plus its `doors` export: export
 `fix` and `review` to keep their doors (see [Doors](#doors)).

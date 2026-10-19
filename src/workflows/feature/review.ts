@@ -289,32 +289,69 @@ export function buildTail(
 export function buildTail(
   first: boolean | string,
   second?: string | BuildTailOptions,
-  third = false,
-  fourth: Omit<BuildTailOptions, "fixFirst" | "green"> = {},
+  ...rest: unknown[]
 ): Promise<kit.ReviewOutcome> {
+  const options = callForm(first, second, rest)
   // Before any step runs, so a bad call never leaves a half-walked flow.
-  if (typeof first !== "string" && typeof first !== "boolean" && typeof second !== "string") {
+  if (options === undefined) {
     return Promise.reject(
       new Error(
         "buildTail takes buildTail(base, options?) or the deprecated buildTail(fixFirst, base, green?, options?); this call fits neither",
       ),
     )
   }
-  const [base, options]: [string, BuildTailOptions] =
-    typeof first === "string"
-      ? [first, (second as BuildTailOptions | undefined) ?? {}]
-      : [second as string, { ...fourth, fixFirst: first, green: third }]
-  const { fixFirst, green, ...reviewOptions } = options
+  const [base, form] = options
+  const { fixFirst, green, ...reviewOptions } = form
   return tail(
     fixFirst ?? false,
     (escalations) => review(base, escalations, reviewOptions),
     green ?? false,
-    options.guard,
-    options.lenses,
-    options.guardRests,
-    options.lensBase,
-    options.rules,
+    form.guard,
+    form.lenses,
+    form.guardRests,
+    form.lensBase,
+    form.rules,
   )
+}
+
+// null reads as absent; an un-awaited Promise is a mistake, not options.
+const isOptionalObject = (value: unknown): value is BuildTailOptions | null | undefined =>
+  value == null ||
+  (typeof value === "object" &&
+    !Array.isArray(value) &&
+    typeof (value as { then?: unknown }).then !== "function")
+
+const isOptionalBoolean = (value: unknown): value is boolean | null | undefined =>
+  value == null || typeof value === "boolean"
+
+const legacyForm = (
+  fixFirst: unknown,
+  base: string,
+  green: unknown,
+  options: unknown,
+): [string, BuildTailOptions] | undefined =>
+  isOptionalBoolean(fixFirst) && isOptionalBoolean(green) && isOptionalObject(options)
+    ? [base, { ...options, fixFirst: fixFirst ?? undefined, green: green ?? undefined }]
+    : undefined
+
+const currentForm = (
+  base: string,
+  options: unknown,
+  third: unknown,
+  fourth: unknown,
+): [string, BuildTailOptions] | undefined =>
+  isOptionalObject(options) && third == null && fourth == null ? [base, options ?? {}] : undefined
+
+// gtd.config.ts is untyped at runtime, so every argument is checked against the form chosen.
+const callForm = (
+  first: unknown,
+  second: unknown,
+  [third, fourth, ...extra]: readonly unknown[],
+): [string, BuildTailOptions] | undefined => {
+  if (extra.some((value) => value != null)) return undefined
+  if (typeof second === "string") return legacyForm(first, second, third, fourth)
+  if (typeof first === "string") return currentForm(first, second, third, fourth)
+  return undefined
 }
 
 /**

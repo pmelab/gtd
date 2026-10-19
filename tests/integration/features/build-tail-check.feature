@@ -1,9 +1,9 @@
 @inmem
 Feature: a bad buildTail call fails naming both forms
 
-  A gtd.config.ts calling buildTail with a first argument that is neither a
-  string base nor a boolean fixFirst, and a second argument that is not a
-  string, fails naming both call forms.
+  A gtd.config.ts calling buildTail with arguments that fit neither
+  buildTail(base, options?) nor buildTail(fixFirst, base, green?, options?)
+  fails naming both call forms.
 
   Scenario: a numeric first argument is rejected
     Given a test project
