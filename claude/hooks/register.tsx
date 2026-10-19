@@ -993,6 +993,10 @@ export const register: Register = (on) => {
     return next(e)
   })
 
+  // A worker's tool call hands settings hooks the MAIN session's
+  // `transcript_path` (only `agent_id` differs): a worker's own context lives
+  // in `<transcript without .jsonl>/subagents/agent-<agentId>.jsonl`.
+  //
   // The loop lands a turn when it ends; work left running in the background
   // would still be writing the tree gtd is committing.
   on("tool.call", async ($, e, next) => {
