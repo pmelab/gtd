@@ -70,9 +70,26 @@ Feature: kept tips — a keep step's turn is set aside off the branch
       """
     When I run gtd land
     Then it succeeds
+    And no ref exists under "refs/gtd/history/"
+    Given I mark the kept ref of "entry" for step "naive" as "kept"
+    And a file "src/check.ts" with:
+      """
+      export const checked = true
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): checking → none"
+    Given a file "src/none.ts" with:
+      """
+      export const none = true
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): none → idle"
     When I run gtd with args "history list --json"
     Then it succeeds
-    And no ref exists under "refs/gtd/history/"
+    And stdout contains the hash of "entry"
+    And stdout does not contain the hash of "kept"
 
   @inmem
   Scenario: a later step's prompt is built from the kept tip's changes
