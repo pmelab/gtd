@@ -142,14 +142,15 @@ export function wakePrompt(w: Wake): string {
   return [...body, ...notes, RULES, extras].join("\n\n")
 }
 
-// The wake after a background ship or hand-off ended: the model only relays it.
+// The wake after a background ship or hand-off ended. It must not forbid further work:
+// an agent with standing instructions (a review loop, a CI watch) would go idle.
 export function jobPrompt(job: JobName, outcome: Shipped): string {
   const name = JOB_NAME[job]
   if (outcome.ok) {
     return [
       `The ${name} the person asked for finished. gtd's report:`,
       fence(outcome.text),
-      "Relay the result to the person in a line or two, with any link in it. Do nothing else.",
+      "Relay the result to the person in a line or two, with any link in it; then continue with any work the person already asked for.",
     ].join("\n\n")
   }
   const lines = [
