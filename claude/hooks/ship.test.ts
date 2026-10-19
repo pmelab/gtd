@@ -576,6 +576,27 @@ describe("ship", () => {
       expect(ran().some((c) => c.startsWith("gh pr edit"))).toBe(false)
     })
 
+    test("a retry after a failed push still pushes past the stale tracking ref", async () => {
+      const { io, ran } = repo(
+        {
+          ...closed(""),
+          [`git config --local --get ${KEY}`]: { out: "4\n" },
+          "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
+        },
+        writers(),
+      )
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      expect(ran()).toContain("git push --set-upstream origin feat/x")
+      expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
+    })
+
+    test("the record is dropped once the new pull request opens", async () => {
+      const { io, ran } = repo(closed(""), writers())
+      expect(await ship(io, false)).toMatchObject({ ok: true })
+      const create = ran().findIndex((c) => c.startsWith("gh pr create"))
+      expect(ran().indexOf(`git config --local --unset ${KEY}`)).toBeGreaterThan(create)
+    })
+
     test("refuses while origin still has the branch", async () => {
       const { io, ran } = repo(closed(held), writers())
       const out = await ship(io, false)

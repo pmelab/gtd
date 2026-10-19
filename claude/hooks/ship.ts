@@ -660,13 +660,20 @@ async function readPr(
   }
   if (view.state !== "CLOSED") return { view }
   const key = await io.run(["git", "config", "--local", "--get", ABANDONED_KEY(branch)])
-  if (key.out.trim() === String(view.number)) return {}
+  const recorded = key.out.trim() === String(view.number)
   const ls = await io.run(["git", "ls-remote", "origin", `refs/heads/${branch}`])
-  if (ls.code !== 0 || ls.out.trim()) return { view }
-  return { gone: true, abandoned: view.number }
+  const gone = ls.code === 0 && !ls.out.trim()
+  if (recorded) return { gone }
+  return gone ? { gone, abandoned: view.number } : { view }
 }
 
 const ABANDONED_KEY = (branch: string) => `branch.${branch}.gtdAbandonedPr`
+
+// Once the new PR opens, gh pr view finds it: the record has served its purpose.
+async function settled<T extends Shipped>(io: ShipIo, branch: string, done: T) {
+  if (done.ok) await io.run(["git", "config", "--local", "--unset", ABANDONED_KEY(branch)])
+  return done
+}
 
 async function abandon(io: ShipIo, branch: string, pr: number | undefined) {
   if (pr === undefined) return undefined
@@ -1557,6 +1564,7 @@ async function shipLink(
   }
   const done = await sliceStep(io, git, ok, l, view, base, lowerRef, ctx)
   if ("step" in done) return done
+  if (!view) await settled(io, l.branch, done)
   if (done.number === undefined && i < links.length - 1)
     return { step: "pull request", why: "its number could not be read from gh's reply." }
   return done
@@ -1806,7 +1814,11 @@ async function pullRequest(
   const pushed = await pushBranch(io, branch, "HEAD", undefined, gone)
   if (pushed) return fail(pushed)
   if (!existing)
-    return createPr(io, git, branch, baseBranch, baseRef, { from: mergeBase, to: "HEAD" })
+    return settled(
+      io,
+      branch,
+      await createPr(io, git, branch, baseBranch, baseRef, { from: mergeBase, to: "HEAD" }),
+    )
   // A branch once shipped as a stack keeps the PR aimed at a slice branch; any
   // other base is the author's own and stays.
   const onSlice = recorded.some((n) => existing.baseRefName === `${branch}-${n}`)
