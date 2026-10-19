@@ -71,8 +71,7 @@ const feature: Record<string, Scripted> = {
   "git merge-base main HEAD": { out: "m".repeat(40) },
   "git merge-base --is-ancestor main origin/main": { code: 1 },
   "git rev-parse --verify --quiet origin/feat/x": { code: 1 },
-  "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt,headRefOid":
-    noPr("feat/x"),
+  "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": noPr("feat/x"),
   "gh pr create --head feat/x --base main --title feat: add x --body-file -": {
     out: "https://github.com/o/r/pull/7\n",
   },
@@ -534,44 +533,51 @@ describe("ship", () => {
   })
 
   describe("a closed pull request of an earlier ship", () => {
-    const OLD = "0".repeat(40)
     const LS = "git ls-remote origin refs/heads/feat/x"
+    const KEY = "branch.feat/x.gtdAbandonedPr"
     const closed = (ls: string): Record<string, Scripted> => ({
       ...feature,
-      "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt,headRefOid": {
+      "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": {
         out: JSON.stringify({
           number: 4,
           body: "old",
           url: "https://github.com/o/r/pull/4",
           state: "CLOSED",
-          headRefOid: OLD,
         }),
       },
       [LS]: { out: ls },
     })
+    const held = `${TIP}\trefs/heads/feat/x\n`
     const writers = () => ["feat: add x", "feat: add x\n\nbody"]
     const opened = (ran: () => string[]) => ran().some((c) => c.startsWith("gh pr create"))
 
-    test("is ignored when origin lost the branch: a stale tracking ref does not block the push", async () => {
+    test("is ignored when origin lost the branch: recorded, then pushed past a stale tracking ref", async () => {
       const { io, ran } = repo(
         { ...closed(""), "git rev-parse --verify --quiet origin/feat/x": { code: 0 } },
         writers(),
       )
       expect(await ship(io, false)).toMatchObject({ ok: true })
-      expect(ran()).toContain("git push --set-upstream origin feat/x")
+      const at = (c: string) => ran().indexOf(c)
+      expect(at(`git config --local ${KEY} 4`)).toBeGreaterThan(-1)
+      expect(at("git push --set-upstream origin feat/x")).toBeGreaterThan(
+        at(`git config --local ${KEY} 4`),
+      )
       expect(ran().some((c) => c.includes("--force-with-lease"))).toBe(false)
       expect(opened(ran)).toBe(true)
     })
 
-    test("is ignored when origin's branch moved past its head: a retry after a failed create", async () => {
-      const { io, ran } = repo(closed(`${TIP}\trefs/heads/feat/x\n`), writers())
+    test("stays ignored on a retry once ship pushed the branch again", async () => {
+      const { io, ran } = repo(
+        { ...closed(held), [`git config --local --get ${KEY}`]: { out: "4\n" } },
+        writers(),
+      )
       expect(await ship(io, false)).toMatchObject({ ok: true })
       expect(opened(ran)).toBe(true)
       expect(ran().some((c) => c.startsWith("gh pr edit"))).toBe(false)
     })
 
-    test("refuses while origin still holds its head", async () => {
-      const { io, ran } = repo(closed(`${OLD}\trefs/heads/feat/x\n`), writers())
+    test("refuses while origin still has the branch", async () => {
+      const { io, ran } = repo(closed(held), writers())
       const out = await ship(io, false)
       expect(out).toMatchObject({ ok: false, text: expect.stringContaining("CLOSED, not open") })
       expect(opened(ran)).toBe(false)
@@ -582,6 +588,18 @@ describe("ship", () => {
       expect(await ship(io, false)).toMatchObject({ ok: false })
       expect(opened(ran)).toBe(false)
     })
+
+    test("refuses, unpushed, when the record cannot be written", async () => {
+      const { io, ran } = repo(
+        { ...closed(""), [`git config --local ${KEY} 4`]: { code: 1, err: "locked" } },
+        writers(),
+      )
+      expect(await ship(io, false)).toMatchObject({
+        ok: false,
+        text: expect.stringContaining("locked"),
+      })
+      expect(ran().some((c) => c.startsWith("git push --set-upstream origin feat/x"))).toBe(false)
+    })
   })
 
   test("an open pull request gains the issue new commits close, even with NO-UPDATE", async () => {
@@ -591,7 +609,7 @@ describe("ship", () => {
       {
         ...feature,
         "gtd summary": { code: 1 },
-        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt,headRefOid": {
+        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": {
           out: JSON.stringify(pr),
         },
         [`git rev-list --count ${M}..HEAD`]: { out: "2" },
@@ -613,7 +631,7 @@ describe("ship", () => {
     const { io, calls } = repo({
       ...feature,
       "gtd summary": { code: 1 },
-      "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt,headRefOid": {
+      "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": {
         out: JSON.stringify(pr),
       },
       [`git rev-list --count ${M}..HEAD`]: { out: "0" },
@@ -668,7 +686,7 @@ describe("ship", () => {
       {
         ...feature,
         "gtd summary": { code: 1 },
-        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt,headRefOid": {
+        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": {
           out: JSON.stringify(pr),
         },
         [`git rev-list --count ${"m".repeat(40)}..HEAD`]: { out: "2" },
@@ -715,7 +733,7 @@ describe("ship", () => {
       {
         ...feature,
         "gtd summary": { code: 1 },
-        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt,headRefOid": {
+        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": {
           out: JSON.stringify(pr),
         },
         "gh pr ready 9": { code: 1, err: "nope" },
@@ -736,7 +754,7 @@ describe("ship", () => {
       {
         ...feature,
         "gtd summary": { code: 1 },
-        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt,headRefOid": {
+        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": {
           out: JSON.stringify(pr),
         },
         "gh pr edit 9 --title feat: add x --body-file -": { code: 1, err: "nope" },
@@ -1209,7 +1227,7 @@ describe("ship stack", () => {
   const TOP = "branch.feat/x.gtdStackTop"
   const RETIRED = "branch.feat/x.gtdStackRetired"
   const view = (b: string) =>
-    `gh pr view ${b} --json number,title,body,url,state,baseRefName,mergedAt,headRefOid`
+    `gh pr view ${b} --json number,title,body,url,state,baseRefName,mergedAt`
   const create = (head: string, into: string) =>
     `gh pr create --head ${head} --base ${into} --title feat: add x --body-file -`
   const pr = (n: number, over: object = {}) => ({
@@ -1226,10 +1244,10 @@ describe("ship stack", () => {
   const onOrigin = (b: string) => ({
     [`git ls-remote origin refs/heads/${b}`]: { out: `${C1}\trefs/heads/${b}\n` },
   })
-  // a closed PR origin still holds the head of: not abandoned
+  // a closed PR whose branch origin still has: not abandoned
   const kept = (b: string, n: number) => ({
     ...onOrigin(b),
-    [view(b)]: pr(n, { state: "CLOSED", headRefOid: C1 }),
+    [view(b)]: pr(n, { state: "CLOSED" }),
   })
   const sbase: Record<string, Scripted> = {
     ...feature,
@@ -1344,7 +1362,7 @@ describe("ship stack", () => {
         {
           ...sbase,
           ...onOrigin("feat/x-refactor"),
-          [view("feat/x-refactor")]: pr(5, { state, headRefOid: C1 }),
+          [view("feat/x-refactor")]: pr(5, { state }),
           "gtd history list --json": { out: JSON.stringify([entry(ENTRY, C)]) },
         },
         writers(),
@@ -1363,13 +1381,15 @@ describe("ship stack", () => {
         ...sbase,
         [view("feat/x-refactor")]: pr(5, { state: "CLOSED" }),
         [view("feat/x")]: pr(6, { state: "CLOSED", baseRefName: "feat/x-refactor" }),
+        "git ls-remote origin refs/heads/feat/x-refactor": { out: "" },
+        "git ls-remote origin refs/heads/feat/x": { out: "" },
         "git rev-parse --verify --quiet origin/feat/x": { code: 0 },
       },
       writers(),
     )
     expect(await ship(io, false)).toMatchObject({ ok: true })
     expect(ran()).toContain("git push --set-upstream origin feat/x")
-    expect(ran()).toContain("git ls-remote origin refs/heads/feat/x-refactor")
+    expect(ran()).toContain("git config --local branch.feat/x-refactor.gtdAbandonedPr 5")
     expect(ran()).toContain(create("feat/x-refactor", "main"))
     expect(ran()).toContain(create("feat/x", "feat/x-refactor"))
     expect(ran().some((c) => /^gh pr edit [56] /.test(c))).toBe(false)
@@ -1923,7 +1943,7 @@ describe("ship stack", () => {
     "a %s top PR refuses without pointing at commits mode, which ships to it too",
     async (state) => {
       const { io, ran } = repo(
-        { ...sbase, ...onOrigin("feat/x"), [view("feat/x")]: pr(8, { state, headRefOid: C1 }) },
+        { ...sbase, ...onOrigin("feat/x"), [view("feat/x")]: pr(8, { state }) },
         writers(),
       )
       const out = await ship(io, false)
@@ -1938,7 +1958,7 @@ describe("ship stack", () => {
     ...feature,
     [`git config --local --get ${KEY}`]: { out: "refactor feature\n" },
     "gtd summary": { code: 1 },
-    "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt,headRefOid": pr(8, {
+    "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": pr(8, {
       baseRefName: "feat/x-refactor",
       body,
     }),
@@ -1979,13 +1999,10 @@ describe("ship stack", () => {
       {
         ...reshipped("2", "Stacked on #7 — merge that first\n\nstanding"),
         [`git config --local --get ${KEY}`]: { out: record },
-        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt,headRefOid": pr(
-          8,
-          {
-            baseRefName: base,
-            body: "Stacked on #7 — merge that first\n\nstanding",
-          },
-        ),
+        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": pr(8, {
+          baseRefName: base,
+          body: "Stacked on #7 — merge that first\n\nstanding",
+        }),
       },
       ["NO-UPDATE"],
     )
@@ -1998,13 +2015,10 @@ describe("ship stack", () => {
     const { io, ran } = repo(
       {
         ...reshipped("0", "Stacked on #7 — merge that first\n\nstanding"),
-        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt,headRefOid": pr(
-          8,
-          {
-            baseRefName: "main",
-            body: "Stacked on #7 — merge that first\n\nstanding",
-          },
-        ),
+        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": pr(8, {
+          baseRefName: "main",
+          body: "Stacked on #7 — merge that first\n\nstanding",
+        }),
       },
       ["NO-UPDATE"],
     )
@@ -2390,7 +2404,7 @@ describe("ship stack", () => {
   describe("a pull request read that is not JSON", () => {
     const garbled = {
       ...feature,
-      "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt,headRefOid": {
+      "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": {
         out: "not json",
       },
     }
