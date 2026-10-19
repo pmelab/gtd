@@ -10,7 +10,6 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
   Background:
     Given the shipped workflows, as gtd install scaffolds them
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "1"
     And an environment variable "GTD_FLAG_RISK_TIER" set to "0"
 
   Scenario: with a narrowed seamAllow a test file added by the refactor is refused

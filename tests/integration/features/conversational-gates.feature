@@ -1,16 +1,15 @@
 @inmem
 Feature: Conversational gates — the gates always stop, threads get replies, open threads block moving on
 
-  The requirements and architecture gates stop on every process, even with
-  no open question. A footnote written as a `- H:` thread gets an `- A:`
-  reply and the process rests at the same gate again. A thread whose last
-  entry is the agent's is open: every landing at the gate is refused until
-  the human replies with a conclusion or deletes the thread.
+  The requirements gate stops on every process, even with no open question.
+  A footnote written as a `- H:` thread gets an `- A:` reply and the process
+  rests at the same gate again. A thread whose last entry is the agent's is
+  open: every landing at the gate is refused until the human replies with a
+  conclusion or deletes the thread.
 
   Background:
     Given a test project
     And the workflow gtd install scaffolds
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "NOTE.md" with:
       """
       a sketch
@@ -35,7 +34,7 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
     And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → architecture.author"
+    And the last commit subject is "gtd(human): design.gate.answer → seam.naive"
 
   Scenario: a clean re-run at the design gate is refused while a thread is open
     Given a file ".gtd/REQUIREMENTS.md" with:
@@ -211,95 +210,6 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
     And stderr contains "[^b]"
     And stderr does not contain "[^a]"
 
-  Scenario: the architecture gate stops with no open question, and refuses a clean re-run on an open thread
-    Given a file ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Greeting export
-
-      Add a `greet()` export.
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    Given a file ".gtd/ARCHITECTURE.md" with:
-      """
-      ## Greeting export
-
-      One module.[^why]
-
-      [^why]:
-          - H: why one module?
-          - A: nothing to split yet.
-      """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    When I run gtd land
-    Then it fails
-    And stderr contains ".gtd/ARCHITECTURE.md:5: [^why]"
-
-  Scenario: a reply-only round at the architecture gate returns to the author, then to the same gate
-    Given a file ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Greeting export
-
-      Add a `greet()` export.
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    Given a file ".gtd/ARCHITECTURE.md" with:
-      """
-      ## Greeting export
-
-      One module.
-      """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    Given ".gtd/ARCHITECTURE.md" is modified to:
-      """
-      ## Greeting export
-
-      One module.[^why]
-
-      [^why]:
-          - H: why one module?
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(human): architecture.gate.answer → architecture.author"
-    Given ".gtd/ARCHITECTURE.md" is modified to:
-      """
-      ## Greeting export
-
-      One module.[^why]
-
-      [^why]:
-          - H: why one module?
-          - A: nothing to split yet.
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): architecture.author → architecture.gate.answer"
-
-  Scenario: an architecture author turn that leaves a thread ending in "H:" is refused
-    Given a file ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Greeting export
-
-      Add a `greet()` export.
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    Given a file ".gtd/ARCHITECTURE.md" with:
-      """
-      ## Greeting export
-
-      One module.[^why]
-
-      [^why]:
-          - H: why one module?
-      """
-    When I run gtd land
-    Then it fails
-    And stderr contains "unanswered-threads"
-    And stderr contains ".gtd/ARCHITECTURE.md:5: [^why]"
-
   Scenario: a code `// H:` question alone at the design gate goes to design.triage, skipping the tick requirement
     Given a file ".gtd/REQUIREMENTS.md" with:
       """
@@ -369,96 +279,6 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       export const add = (a: number, b: number) => a + b
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    When I run gtd land
-    Then it fails
-    And stderr contains "open-threads"
-    And stderr contains "src/calc.ts:1"
-
-  Scenario: a code `// H:` question alone at the architecture gate goes to architecture.author, skipping the tick requirement
-    Given a file ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Greeting export
-
-      Add a `greet()` export.
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    And a file ".gtd/ARCHITECTURE.md" with:
-      """
-      ## Greeting export
-
-      One module.
-
-      ## Open Questions
-
-      ### Which style?
-
-      - [ ] plain
-      - [ ] fancy
-      """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    Given a file "src/calc.ts" with:
-      """
-      // H: why not multiply?
-      export const add = (a: number, b: number) => a + b
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(human): architecture.gate.answer → architecture.author"
-    Given ".gtd/ARCHITECTURE.md" is modified to:
-      """
-      ## Greeting export
-
-      Revised.
-
-      ## Open Questions
-
-      ### Which style?
-
-      - [ ] plain
-      - [ ] fancy
-      """
-    When I run gtd land
-    Then it fails
-    And stderr contains "unanswered-threads"
-    And stderr contains "src/calc.ts:1"
-
-  Scenario: an open code thread refuses landing at the architecture gate, naming path:line
-    Given a file ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Greeting export
-
-      Add a `greet()` export.
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    And a file ".gtd/ARCHITECTURE.md" with:
-      """
-      ## Greeting export
-
-      One module.
-
-      ## Open Questions
-
-      ### Which style?
-
-      - [ ] plain
-      - [ ] fancy
-      """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    Given a file "src/calc.ts" with:
-      """
-      // H: why not multiply?
-      export const add = (a: number, b: number) => a + b
-      """
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.author"
-    Given "src/calc.ts" is modified to:
-      """
-      // H: why not multiply?
-      // A: this is the addition helper.
-      export const add = (a: number, b: number) => a + b
-      """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
     When I run gtd land
     Then it fails
     And stderr contains "open-threads"

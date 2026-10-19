@@ -213,8 +213,7 @@ _Avoid_: session, context window, conversation, history
 
 **Slice**: A named span of an episode's history, marked by `slice(name, fn)`.
 Distinct from a [memory scope](#memory-scope) (no step renaming, no agent
-conversation) and from a [package](#package) (a build unit, not a flow marker).
-_Avoid_: section, stage
+conversation). _Avoid_: section, stage, package
 
 **Session id**: The agent CLI's own conversation handle — DERIVED from a memory
 scope's key (a `uuidv5` hash), never stored anywhere, so the same scope-run
@@ -241,9 +240,8 @@ consumes.
 carrying `Gtd-Kept: <hash>` instead. Never listed by `gtd history`, never
 deleted by a landing. _Avoid_: beat tip, discarded tip.
 
-**Naive pass**: The `seam.naive` turn under `GTD_FLAG_NAIVE_PASS`: the
-requirements implemented directly, kept as a [kept tip](#kept-tip) and used as
-reading material, never applied.
+**Naive pass**: The `seam.naive` turn: the requirements implemented directly,
+kept as a [kept tip](#kept-tip) and used as reading material, never applied.
 
 **Stray**: A path a naive pass changed that `seamAllow` does not match (a newly
 added file never counts).
@@ -286,13 +284,12 @@ commit. The input's intent isn't lost: it survives in history for
 `design.triage` to read.
 
 **Concern**: One ordered, independently greenable unit of work `design.triage`
-groups the process's start diff into — a unit `architecture.author` may later
-coarsen by re-merging it with another concern whose file footprint coincides.
+groups the process's start diff into.
 
 **Product concern** / **Technical concern**: A concern's classification — a
 product concern is a user-facing/requirements decision, raised (if it has an
 open point) by `design.triage`; a technical concern is an implementation
-decision, raised by `architecture.author`.
+decision, left to the agent that builds it.
 
 **Triage**: `design.triage`'s own job — reading the diff that started the
 process (never rendered into its prompt) and grouping/classifying it into
@@ -302,19 +299,17 @@ concerns.
 change costs. `design.triage` proposes it in `.gtd/REQUIREMENTS.md`'s
 `## Risk Tier` section, the human overrides it at `design.gate.answer`, and a
 missing or unreadable tier is `high`. Recorded as a
-`Gtd-Mark: risk-tier=<low|high>` trailer, only with `GTD_FLAG_RISK_TIER` and
-`GTD_FLAG_NAIVE_PASS` both on. _Avoid_: `critical`/`should`/`could`, severity
-(that is a review note's word).
+`Gtd-Mark: risk-tier=<low|high>` trailer, only with `GTD_FLAG_RISK_TIER` on.
+_Avoid_: `critical`/`should`/`could`, severity (that is a review note's word).
 
 **Production signal**: One line under `## Production Signals` in
 `.gtd/REQUIREMENTS.md`: what to watch after merge to know the change works.
 Recorded as a `Gtd-Mark: production-signal=<line>` trailer; nothing checks that
 it exists.
 
-**Question gate**: The human answer gate (`design.gate.answer`/
-`architecture.gate.answer`) the process rests at only while its phase's steering
-file (`.gtd/REQUIREMENTS.md` or `.gtd/ARCHITECTURE.md`) has an unanswered open
-question — a question-free phase skips the human stop entirely.
+**Question gate**: The human answer gate (`design.gate.answer`) the process
+rests at only while `.gtd/REQUIREMENTS.md` has an unanswered open question — a
+question-free phase skips the human stop entirely.
 
 **Green baseline**: The test run every entry opens with, proving the suite was
 already green before gtd changed anything — so a later red run is attributable.
@@ -332,15 +327,6 @@ to look, and a box a reviewer ticks.
 **Open question**: A `###` heading under `## Open Questions` in a Q&A steering
 file, carrying candidate answers as checkboxes plus a free-text slot. It becomes
 an **answered question** by moving under `## Answered Questions` as prose.
-
-**Package**: One independently buildable and independently greenable slice a
-concern turns into — `architecture.decompose`'s output, one file per concern as
-it stands after `architecture.author`'s possible re-merging.
-
-**Satisfied package**: A package whose acceptance criteria are met before its
-build turn runs, or by that turn's work outside the tree — recorded as evidence
-in `.gtd/SATISFIED.md` rather than implemented, and reviewed and closed out like
-any other.
 
 **Feedback**: What a human or a check writes back to send work around again — a
 review's requested changes, or a failing suite's output.

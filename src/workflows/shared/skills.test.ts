@@ -14,11 +14,6 @@ describe("the bundled workflow's skills export", () => {
     expect(Object.keys(bundled).sort()).toEqual(
       [
         "design",
-        "architecture",
-        "architecture.decompose",
-        "packages.item",
-        "packages.item.fix.suite",
-        "packages.item.health",
         "build",
         "build.health",
         "build.fix.quality",
@@ -54,7 +49,6 @@ describe("the bundled workflow's skills export", () => {
 
   it("keys no group scope or non-agent step", () => {
     for (const group of [
-      "packages.item.fix",
       "build.fix",
       "build.review.fix",
       "build.quality",
@@ -70,11 +64,6 @@ describe("the bundled workflow's skills export", () => {
   it("pins each scope's list", () => {
     expect(bundled).toMatchObject({
       design: ["spec-driven-development", "planning-and-task-breakdown"],
-      architecture: ["api-and-interface-design", "documentation-and-adrs", "ponytail"],
-      "architecture.decompose": ["incremental-implementation", "planning-and-task-breakdown"],
-      "packages.item": ["test-driven-development", "incremental-implementation"],
-      "packages.item.fix.suite": ["debugging-and-error-recovery"],
-      "packages.item.health": ["debugging-and-error-recovery"],
       build: ["debugging-and-error-recovery"],
       "build.health": ["debugging-and-error-recovery"],
       "build.fix.quality": ["incremental-implementation", "code-simplification"],

@@ -22,7 +22,6 @@ export {
 export { lensesOf } from "../workflow-kit/index.js"
 export * from "./feature/steps.js"
 export * from "./feature/planning.js"
-export * from "./feature/packages.js"
 export * from "./feature/refactor.js"
 export * from "./feature/seam.js"
 export {

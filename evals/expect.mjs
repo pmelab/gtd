@@ -4,8 +4,8 @@
 // of each keeping its own `JSON.stringify` equality, which agreed only by
 // coincidence.
 //
-// `expected` is polymorphic: the exact array every case but
-// `architecture-decompose` declares, or a descriptor object for a state
+// `expected` is polymorphic: the exact array every bundled case
+// declares, or a descriptor object for a state
 // whose turn writes a variable-sized set of paths —
 // `{exact: [...], matching: {pattern, count}}`. `exact` paths must all be
 // present; every OTHER changed path must match `pattern`, and there must be

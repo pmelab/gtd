@@ -1327,7 +1327,7 @@ export const side = async () => {
   await agent("working", "w")
 }
 
-export const defaults = { flag_naive_pass: "0" }
+export const defaults = { flag_risk_tier: "0" }
 `
   const start = async (
     flags?: CliIo["flags"],
@@ -1343,24 +1343,24 @@ export const defaults = { flag_naive_pass: "0" }
     return result().stdout
   }
 
-  it("pins flag_naive_pass=1 with the flag on", async () => {
-    expect(await start(undefined, { GTD_FLAG_NAIVE_PASS: "1" })).toContain("flag_naive_pass=1")
+  it("pins flag_risk_tier=1 with the flag on", async () => {
+    expect(await start(undefined, { GTD_FLAG_RISK_TIER: "1" })).toContain("flag_risk_tier=1")
   })
 
   it("honours defaultOn with GTD_FLAG_* unset", async () => {
     const out = await start(
       [
         {
-          name: "naive_pass",
+          name: "risk_tier",
           owner: "pmelab",
           expiry: "2099-01-01",
           kind: "release",
           defaultOn: true,
         },
       ],
-      { GTD_FLAG_NAIVE_PASS: "" },
+      { GTD_FLAG_RISK_TIER: "" },
     )
-    expect(out).toContain("flag_naive_pass=1")
+    expect(out).toContain("flag_risk_tier=1")
   })
 })
 

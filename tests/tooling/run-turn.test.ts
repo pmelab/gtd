@@ -60,9 +60,6 @@ describe("parseArgs", () => {
   })
 })
 
-// `architecture-decompose` is the one bundled case that declares no
-// `artifact` (every other case needs some content read back) — this pins
-// the branch independent of a paid eval run.
 describe("readFeedback", () => {
   let dir: string
 
@@ -188,7 +185,6 @@ describe("checkLandError", () => {
       unformatted: [],
       landedSubject: "",
       structurallyOk: false,
-      packageFiles: {},
       landError: "refusing",
     }
     const verdict = safeGrade(

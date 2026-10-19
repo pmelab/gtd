@@ -14,7 +14,6 @@ export interface FlagDeclaration {
 }
 
 export const FLAGS = [
-  { name: "naive_pass", owner: "pmelab", expiry: "2027-01-15", kind: "release" },
   { name: "risk_tier", owner: "pmelab", expiry: "2027-01-15", kind: "release" },
 ] as const satisfies readonly FlagDeclaration[]
 

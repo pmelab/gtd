@@ -394,11 +394,11 @@ default export is the `feature` factory, and every part of it is a named export
 another workflow can import — its `defaults`, `envDefaults`, `summary` and
 `skills`, the three startable workflows as [factories](#workflow-factories)
 (`feature`, `review`, `fix`) and as plain flows (`ordinaryStart`, `reviewFlow`,
-`fixFlow`), the phases (`unwind`, `planAndBuild`, `design`, `architecture`,
-`packages`, `refactorFirst`, `buildTail`, `handOffTail`, `handOffReview`,
+`fixFlow`), the phases (`unwind`, `planAndBuild`, `design`, `seamBuild`,
+`implement`, `refactorFirst`, `buildTail`, `handOffTail`, `handOffReview`,
 `fixReviewNotes`, `qualityLap`, `healthy`, `gate`, …) and every single step
-(`triage`, `build`, `fixCheck`, `reviewing`, `collecting`, …). A step's name is
-relative to the `scope()` it runs in — the bundled workflow's
+(`triage`, `naivePass`, `fixCheck`, `reviewing`, `collecting`, …). A step's name
+is relative to the `scope()` it runs in — the bundled workflow's
 `scope("build", …)` around `healthy` is what makes `build.health.check` — and
 the full names are part of gtd's versioned API: they never change outside a
 major release, because a rename strands every process resting on the old name.
@@ -685,9 +685,7 @@ repair a failure outside them.
 
 ### The naive-pass path
 
-`GTD_FLAG_NAIVE_PASS` selects it; it is off by default. Off, `feature` plans an
-architecture and package files as before. On, it replaces those two phases with,
-in order:
+The `feature` workflow's only path. After design it runs, in order:
 
 1. `seam.naive` — an agent implements `.gtd/REQUIREMENTS.md` directly; the turn
    is a [kept tip](#kept-tips), not landed on the branch.
@@ -747,20 +745,32 @@ Footnotes are judged like line notes. A `- H:` thread left in `.gtd/REVIEW.md`
 at the refactor review gets one `- A:` reply and the gate rests again; a thread
 folds into `.gtd/REFACTOR.md` only when it asks for a change.
 
-**Upgrading:** two migrations.
+**Upgrading:** three migrations.
 
+- `GTD_FLAG_NAIVE_PASS`, its `flag_naive_pass` setting and the architecture and
+  package path are gone: every process takes the naive-pass path. A process
+  started on the old path (with the flag off — the default) no longer replays at
+  any rest from `architecture.*` on — `architecture.*`, `packages.*`, and every
+  `build.*` step after them — and must be finished or `gtd abandon`ed before
+  upgrading; one resting at `idle`, `unwind`, `start-gate.*` or `design.*` keeps
+  replaying, onto the naive pass. The `architecture`, `packages`, `packageItem`,
+  `nextPackage`, `declaredTests`, `requireDeclaredTests`, `author`, `decompose`,
+  `answerTechnicalQuestions`, `build` and `fixSuite` exports, the `ARCHITECTURE`
+  constant and the `.gtd/ARCHITECTURE.md` steering entry are removed;
+  `planAndBuild` takes only its base. `GTD_FLAG_RISK_TIER` no longer needs the
+  removed flag.
 - `seam.approve` is gone; the refactor's review sign-off is the approval. A
-  `GTD_FLAG_NAIVE_PASS` process from 27.5.0 or later whose judge ruled
-  `refactor-first` no longer replays at any rest from that verdict on —
-  `seam.approve`, every `refactor.*` step, and every `implement.*` and `build.*`
-  step after the refactor — and must `gtd abandon`. Processes that rest at
-  `design.*`, `seam.naive`, `seam.judge`, `seam.steer`, or past a `land` verdict
-  (including after a feature feedback lap) keep replaying.
+  naive-pass process from 27.5.0 or later whose judge ruled `refactor-first` no
+  longer replays at any rest from that verdict on — `seam.approve`, every
+  `refactor.*` step, and every `implement.*` and `build.*` step after the
+  refactor — and must `gtd abandon`. Processes that rest at `design.*`,
+  `seam.naive`, `seam.judge`, `seam.steer`, or past a `land` verdict (including
+  after a feature feedback lap) keep replaying.
 - `seamBuild(tier)` became `seamBuild(base)` and resolves `{ reference, base }`.
   It no longer runs `implement`; a custom workflow calls `implement` itself.
 
-With `GTD_FLAG_RISK_TIER` also on, `design.triage` proposes a risk tier (`low`
-or `high`, with a one-line reason) under `## Risk Tier` and the signals to watch
+With `GTD_FLAG_RISK_TIER` on, `design.triage` proposes a risk tier (`low` or
+`high`, with a one-line reason) under `## Risk Tier` and the signals to watch
 after merge under `## Production Signals` in `.gtd/REQUIREMENTS.md`. Edit the
 first word under `## Risk Tier` at `design.gate.answer` to change the tier; a
 missing or unreadable tier means `high`. The design gate's landing records
@@ -776,8 +786,9 @@ A third `reject` rests at `seam.steer`. Two ways forward, then `gtd land`:
   unaddressed; the choice is recorded in history.
 
 The [`seamAllow`](#the-bundled-workflows-settings) setting is the judge's
-allowlist. The flag is recorded as `flag_naive_pass` when a process starts, so a
-process keeps the path it started on whatever the environment does later.
+allowlist. `GTD_FLAG_RISK_TIER` is recorded as `flag_risk_tier` when a process
+starts, so a process keeps the setting it started with whatever the environment
+does later.
 
 ### Landing rules
 
@@ -1186,10 +1197,10 @@ agent never starts a thread. A thread is **open** when its last entry is the
 agent's. `gtd check`/`gtd validate` flag an item without a `H:`/`A:` prefix, a
 first entry by the agent, two consecutive entries by one author, an empty entry,
 and anything in the body besides the one list; an open thread is not a finding,
-but it refuses every landing at the bundled requirements, architecture and
-review gates until you reply with a conclusion or delete it. Those gates stop on
-every process; a round that only replies returns to the same gate (at review: no
-revert, no development lap). `gtd check <mode> <file> --open-threads` prints
+but it refuses every landing at the bundled requirements and review gates until
+you reply with a conclusion or delete it. Those gates stop on every process; a
+round that only replies returns to the same gate (at review: no revert, no
+development lap). `gtd check <mode> <file> --open-threads` prints
 `file:line: [^name]: <first H entry>` for each open thread and exits non-zero
 when any exist (modes `qa`, `review`). A `review` line note on a hunk pointer
 stays a one-shot note — to discuss a hunk, put a footnote on it.
@@ -1218,10 +1229,10 @@ no `[^name]` marker; the comment's position is the anchor:
   below an `A:` line — the agent's entries are one line, so a comment you write
   there stays an ordinary comment
 - Same rules as a footnote thread: entries alternate, the agent never starts
-  one, an open thread (agent spoke last) refuses landing at the requirements,
-  architecture and review gates, and the agent answers a question with exactly
-  one `A:` line directly below, or folds a conclusion in and deletes the thread.
-  A syntax fault (agent opens, same author twice, empty entry) refuses too
+  one, an open thread (agent spoke last) refuses landing at the requirements and
+  review gates, and the agent answers a question with exactly one `A:` line
+  directly below, or folds a conclusion in and deletes the thread. A syntax
+  fault (agent opens, same author twice, empty entry) refuses too
 - A thread-only code change is not a review code edit: a question at the review
   gate gets its reply and rests there, no lap
 - A code thread is transient — it must not survive the lap that settles it
@@ -1308,7 +1319,7 @@ no skills at all for that scope, and no skills preamble either.
 ```ts
 export const config = defineConfig({
   skills: {
-    "packages.item.fix.suite": ["debugging-and-error-recovery"],
+    "implement.fix.suite": ["debugging-and-error-recovery"],
     build: ["debugging-and-error-recovery", "my-org-runbook"],
   },
 })
@@ -1316,24 +1327,21 @@ export const config = defineConfig({
 
 The bundled workflow's addressable scope full names:
 
-`design`, `architecture`, `architecture.decompose`, `packages.item`,
-`packages.item.fix.suite`, `packages.item.health`, `refactor`,
-`refactor.fix.suite`, `refactor.health`, `refactor.build`,
+`design`, `seam`, `implement`, `implement.fix.suite`, `implement.health`,
+`refactor`, `refactor.fix.suite`, `refactor.health`, `refactor.build`,
 `refactor.build.health`, `refactor.build.fix.quality`, `refactor.build.review`,
 `refactor.build.review.fix.nits`, `refactor.build.review.fix.risks`, one
 `refactor.build.quality.<lens>` per `refactorQualityReviews` entry, `build`,
 `build.health`, `build.fix.quality`, `build.review`, `build.review.fix.nits`,
 `build.review.fix.risks`, and one `build.quality.<lens>` per `qualityReviews`
-entry. `seam`, `implement`, `implement.fix.suite` and `implement.health` run
-only under the `naive_pass` release flag; they are addressable either way, so a
-config keyed on them keeps loading when the flag is off.
+entry.
 
 A nested scope with no entry of its own inherits its parent's list, so a key on
 a parent reaches every scope beneath it that sets none. The group scopes
-`packages.item.fix`, `build.fix`, `build.review.fix`, `build.quality` and
-`refactor.fix` and `implement.fix` run no turn and carry no key, nor do
-`seam.judge`, `seam.steer` and `seam.by-hand`. A custom workflow's own scopes
-are addressable through its own `skills` export (see
+`build.fix`, `build.review.fix`, `build.quality`, `refactor.fix` and
+`implement.fix` run no turn and carry no key, nor do `seam.judge`, `seam.steer`
+and `seam.by-hand`. A custom workflow's own scopes are addressable through its
+own `skills` export (see
 [Reusing the shipped workflows](#reusing-the-shipped-workflows)); the export may
 be a function of the resolved vars, and must list every scope holding an agent
 step. The type can check an entry's VALUE (an array of strings) but never its
@@ -1341,12 +1349,10 @@ KEY, since scope names come from the workflow actually in play — there is no
 editor autocompletion of scope names here.
 
 A key that is not a scope running a turn is a load error, exit 1 — a group scope
-such as `build.fix`, or a step name rather than its scope. The `naive_pass`
-scopes (`seam`, `implement`, `implement.fix.suite`, `implement.health`) are
-always accepted, flag on or off. The message lists the known scope keys. Keying
-config on a scope's full name widens what renaming a scope breaks: it also
-orphans every `config.skills` entry naming it, which becomes an unknown key and
-exits 1.
+such as `build.fix`, or a step name rather than its scope. The message lists the
+known scope keys. Keying config on a scope's full name widens what renaming a
+scope breaks: it also orphans every `config.skills` entry naming it, which
+becomes an unknown key and exits 1.
 
 `qualityReviews` (a process setting, not a `skills` entry — see
 [Settings](#settings)) and the `build.quality.<lens>` keys are a pair:
@@ -1425,19 +1431,17 @@ same strays-plus-`.gtd/**` limit, set at run time; a `config.access` entry on
 the fix scope outranks it, while a `config.access.refactor` entry does not reach
 it.
 
-| Scope                                                               | `write`                                    |
-| ------------------------------------------------------------------- | ------------------------------------------ |
-| `design`                                                            | `[]`                                       |
-| `architecture`                                                      | `.gtd/REQUIREMENTS.md`                     |
-| `architecture.decompose`                                            | `.gtd/packages/**`, `.gtd/ARCHITECTURE.md` |
-| `build.review`                                                      | `.gtd/REVIEW.md`                           |
-| `build.review.defer`                                                | `.gtd/TODO.md`                             |
-| `build.review.fix.nits`, `build.review.fix.risks`                   | `{}` (reopened: fixes edit code)           |
-| `build.quality.<lens>`                                              | `[]`                                       |
-| `refactor.build.quality.<lens>`                                     | `[]`                                       |
-| `refactor.build.review`                                             | `.gtd/REVIEW.md`                           |
-| `refactor.build.review.defer`                                       | `.gtd/TODO.md`                             |
-| `refactor.build.review.fix.nits`, `refactor.build.review.fix.risks` | the strays, `.gtd/**` (run time)           |
+| Scope                                                               | `write`                          |
+| ------------------------------------------------------------------- | -------------------------------- |
+| `design`                                                            | `[]`                             |
+| `build.review`                                                      | `.gtd/REVIEW.md`                 |
+| `build.review.defer`                                                | `.gtd/TODO.md`                   |
+| `build.review.fix.nits`, `build.review.fix.risks`                   | `{}` (reopened: fixes edit code) |
+| `build.quality.<lens>`                                              | `[]`                             |
+| `refactor.build.quality.<lens>`                                     | `[]`                             |
+| `refactor.build.review`                                             | `.gtd/REVIEW.md`                 |
+| `refactor.build.review.defer`                                       | `.gtd/TODO.md`                   |
+| `refactor.build.review.fix.nits`, `refactor.build.review.fix.risks` | the strays, `.gtd/**` (run time) |
 
 ### Validation and errors
 
@@ -1465,7 +1469,7 @@ state, not by every config read (see [Skills](#skills)):
 
 ```
 gtd config:
-  - /path/to/repo/gtd.config.ts: config.skills.build.fix: "skills.build.fix" is not a scope that runs a turn — known scopes: architecture, architecture.decompose, build, …
+  - /path/to/repo/gtd.config.ts: config.skills.build.fix: "skills.build.fix" is not a scope that runs a turn — known scopes: build, build.fix.quality, …
 ```
 
 A workflow declaring one name in both `defaults` and `envDefaults` fails to
@@ -1622,13 +1626,9 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   no brace alternation (`{a,b}` splits at the comma). A file the pass newly adds
   is allowed by its exact path, never as a glob: a new `src/a*.ts` does not
   cover a modified `src/a.ts`.
-- **`flag_naive_pass`** (`0`) — `1` when `GTD_FLAG_NAIVE_PASS` is on, recorded
-  at process start. Not a factory option; `--var flag_naive_pass=1` is the only
-  override. A process keeps the path it started on.
 - **`flag_risk_tier`** (`0`) — `1` when `GTD_FLAG_RISK_TIER` is on, recorded at
-  process start. Acts only together with `flag_naive_pass`. Not a factory
-  option; `--var flag_risk_tier=1` is the only override. Off, no tier is asked
-  for and no commit carries a `Gtd-Mark:`. See
+  process start. Not a factory option; `--var flag_risk_tier=1` is the only
+  override. Off, no tier is asked for and no commit carries a `Gtd-Mark:`. See
   [the naive-pass path](#the-naive-pass-path).
 - **`judgeBudgetBytes`** (`32768`) — the total byte budget split across one
   judge step's evidence keys. Must be a positive integer; blank, zero, negative
@@ -1673,13 +1673,11 @@ ships in gtd's bundle. This is a point-in-time derivation with no refresh
 mechanism — it will silently go stale as upstream moves on.
 
 - **The voice itself** is injected into every agent step that writes a
-  deliverable: the package files, `.gtd/REQUIREMENTS.md`, `.gtd/ARCHITECTURE.md`
-  and `.gtd/REVIEW.md`.
+  deliverable: `.gtd/REQUIREMENTS.md` and `.gtd/REVIEW.md`.
 - **A format contract** follows it for machine-read files: the format contract
   (headings, checkbox rows, marker lines) outranks the voice, and a violation
   refuses the turn. It is injected at the steps whose output a parser reads
-  (`design.triage`, `architecture.author`, `build.review.reviewing`,
-  `build.review.collecting`).
+  (`design.triage`, `build.review.reviewing`, `build.review.collecting`).
 
 Files a script writes carry no injected voice: `.gtd/FEEDBACK.md` holds verbatim
 test output plus a HEAD stamp.
@@ -1704,7 +1702,7 @@ counting escalation rounds since the last green check:
 
 A round is one `health.describe` turn since the last green check; editing the
 file at the human gate never spends one. Both gates release straight into the
-caller's fix step (`build.fix` or `packages.item.fix.suite.fixing`), so the turn
+caller's fix step (`build.fix` or `implement.fix.suite.fixing`), so the turn
 that consumes the document is the very next one. `.gtd/ESCALATION.md` is
 free-form prose with no mode of its own.
 

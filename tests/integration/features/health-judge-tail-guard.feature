@@ -1,4 +1,4 @@
-Feature: build.health.judge/packages.item.health.judge never manufacture "identical" from two unusably-cut tails
+Feature: build.health.judge never manufactures "identical" from two unusably-cut tails
 
   The judge budget's line-boundary cut can render `""` for a report whose
   last bytes hold no full line, or leave two different reports looking

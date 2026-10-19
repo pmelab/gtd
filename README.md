@@ -74,8 +74,8 @@ autonomously run the process for you. Ask your agent if you have any questions.
   misreading it — see
   [History format](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#history-format).
 - **Files, not chat.** Conversation lives in files like `REQUIREMENTS.md` or
-  `ARCHITECTURE.md`. Request changes by editing them, approve by leaving the
-  tree clean — all in your own editor. There is no chat UI that could flicker.
+  `REVIEW.md`. Request changes by editing them, approve by leaving the tree
+  clean — all in your own editor. There is no chat UI that could flicker.
 - **Harness agnostic.** gtd emits prompts to stdout (or JSON). Claude Code, a
   bash loop, a CI job, or you reading it out loud to your sentient cat — the
   workflow doesn't care who executes it.
@@ -355,12 +355,12 @@ stack down from its worktree, delete the top branch with
 process can change hands at any gate: ask Claude to hand it off (or run
 `/gtd throw @dev`) and it opens a draft pull request assigned to them, and
 `/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote the
-requirements can hand the architecture to someone else. Ship, hand-off and throw
-answer at once and run in the background, with progress on the status line; they
-report by waking Claude, a toast, a transcript line and a push notification, and
-a failed push or `gh` call reports as a failure. While a ship or hand-off runs
-or is queued, `/gtd catch`, the doors, `/gtd <requirements>` and bare `/gtd`
-wait for its report. See
+requirements can hand the build to someone else. Ship, hand-off and throw answer
+at once and run in the background, with progress on the status line; they report
+by waking Claude, a toast, a transcript line and a push notification, and a
+failed push or `gh` call reports as a failure. While a ship or hand-off runs or
+is queued, `/gtd catch`, the doors, `/gtd <requirements>` and bare `/gtd` wait
+for its report. See
 [Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
 
 ### Then let an agent build your own
@@ -411,36 +411,26 @@ noted in steps 3 and 4 below.
 1. **You sketch.** Change anything, or write the idea into `.gtd/TODO.md`. Rough
    is fine; it is treated as a sketch, not as work.
 2. **You answer questions and discuss.** Planning works out what the thing
-   should do first, then how it should be built, and hands you a file at either
-   point — every process stops there, even with no open question. Answer open
-   questions in your editor, in the file, and start the loop again; a round that
-   only leaves notes needs no tick. Start a footnote with `- H: <question>` to
-   ask something: the agent replies with `- A: <reply>` and the process stops at
-   the same gate again. Close a thread by replying with a conclusion or deleting
-   it. While a thread's last entry is the agent's, moving on is refused. Leave
-   the file untouched and start the loop to accept the plan as-is, unanswered
-   questions and all. Every plan gets the technical pass: its document has four
-   sections, in order — `## Interfaces`, `## Call Stacks`, `## E2E Scenarios`,
-   `## Unit Tests` — behind a leading `## Open Questions` when there are any.
-   `## E2E Scenarios` is never empty: it names each user-visible behaviour in
-   plain words (the builder writes the scenario itself), or, when nothing
-   user-visible changes, the line `No e2e change.` with a one-line reason.
+   should do and hands you `.gtd/REQUIREMENTS.md` — every process stops there,
+   even with no open question. Answer open questions in your editor, in the
+   file, and start the loop again; a round that only leaves notes needs no tick.
+   Start a footnote with `- H: <question>` to ask something: the agent replies
+   with `- A: <reply>` and the process stops at the same gate again. Close a
+   thread by replying with a conclusion or deleting it. While a thread's last
+   entry is the agent's, moving on is refused. Leave the file untouched and
+   start the loop to accept the plan as-is, unanswered questions and all.
 
-3. **You wait.** The work is split into vertical slices and built one at a time,
-   each one starting from the unit and e2e tests it declares (a build turn
-   missing one is refused; a test the package only relies on is marked
-   `(unchanged)`; it must exist before the turn, and the build turn must not
-   create, edit or delete it — a wrong marker is fixed upstream, in the plan,
-   and a process stuck on one is ended with `gtd abandon`; and a package whose
-   work lies outside the repository, such as filing issues, closes on recorded
-   evidence), checked against the full suite (`testCommand`) and fixed until it
-   passes before moving on — so keep that suite fast; gtd has no lighter one.
-   Scenario wording is not frozen: you sign the scenarios off once, in the
-   review's `## Scenarios` chunk, where any assertion an existing scenario lost
-   is marked `Weakened:`. After the last package the quality lap runs. Two
-   points along the process are judged rather than always asking you outright —
-   each stops and hands you a verdict to make (`gtd judge answer`, or land with
-   a clean tree to accept the conservative default, which never skips work;
+3. **You wait.** The agent first implements the requirements the quickest way
+   that works — the naive pass — and a judge reads where it changed code (see
+   [the naive pass](#the-naive-pass) below). Then the change is built
+   test-first, checked against the full suite (`testCommand`) and fixed until it
+   passes — so keep that suite fast; gtd has no lighter one. Scenario wording is
+   not frozen: you sign the scenarios off once, in the review's `## Scenarios`
+   chunk, where any assertion an existing scenario lost is marked `Weakened:`.
+   After the build the quality lap runs. Two points along the process are judged
+   rather than always asking you outright — each stops and hands you a verdict
+   to make (`gtd judge answer`, or land with a clean tree to accept the
+   conservative default, which never skips work;
    `gtd judge run --provider fixed --answers <path>` — or the
    `GTD_JUDGE_ANSWERS` env var, inline JSON — answers one from a file, piped
    between `gtd judge --json` and `gtd judge answer`;
@@ -469,8 +459,8 @@ noted in steps 3 and 4 below.
    measured probability, so a confidently wrong verdict can clear the 0.7 floor
    and skip a gate unattended.**
 
-   Once the last package is built, the whole change goes through a qualitative
-   review lap before you see anything: six lenses, one turn each, in order —
+   Once the change is built, the whole change goes through a qualitative review
+   lap before you see anything: six lenses, one turn each, in order —
    `correctness`, `owasp-security`, `ponytail-review`, `test-audit`,
    `conventions`, `spec-challenge`. Each traces the change from its own angle
    and records every finding, blocking or not; one fix turn then fixes ALL of
@@ -497,14 +487,15 @@ noted in steps 3 and 4 below.
    you unfixed; risk: a fix lands with no check that the risk was real. Tick the
    boxes to approve, or write what is wrong. Approving ends the process;
    feedback is judged note by note, each as `edit`, `question`, `nit` or
-   `praise`. An `edit` sends the process back to step 2 for a fresh plan — it
-   never patches over a design you rejected. A `question` is answered inline
-   under your note and the process stops at the review again — no new plan. A
-   `nit` is fixed in one batch, the suite must go green (a red one gets fix
-   turns first), then a fresh review of the change stops at the review again.
-   `praise` is dropped; a round of only praise signs off. When a round mixes
-   them, questions are answered and nits fixed first, then the edits are planned
-   — risk: the planning lap may redo nit fixes it touches.
+   `praise`. An `edit` sends the process back to step 2 for fresh requirements
+   and a new implementation — it never patches over a design you rejected. A
+   `question` is answered inline under your note and the process stops at the
+   review again — no new plan. A `nit` is fixed in one batch, the suite must go
+   green (a red one gets fix turns first), then a fresh review of the change
+   stops at the review again. `praise` is dropped; a round of only praise signs
+   off. When a round mixes them, questions are answered and nits fixed first,
+   then the edits are planned — risk: the planning lap may redo nit fixes it
+   touches.
 
    Each `edit` note also gets a severity tier from four judge questions
    (security, reversibility, blast radius, new concept). `critical` and `should`
@@ -523,8 +514,8 @@ noted in steps 3 and 4 below.
 
 You never talk to it. Every exchange is a file in `.gtd/` that you edit in your
 own editor, and every answer you give is a commit. Your test suite is the gate
-throughout: a red baseline stops the process before it starts, and a red package
-is fixed before the next one begins.
+throughout: a red baseline stops the process before it starts, and a red build
+is fixed before review.
 
 Prefer a phone or another device over your editor? `gtd ui` opens the file whose
 turn it is as a small web app, over Tailscale — including a step that names no
@@ -584,11 +575,12 @@ unknown key. `gtd.config.ts` is the only repository config: gtd 23 removed the
 home directory — fails every command until you delete it. See
 [Migrating from `.gtdrc`](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#migrating-from-gtdrc).
 
-**Naive pass (flag `GTD_FLAG_NAIVE_PASS=1`, off by default).** Instead of an
-architecture and package files, the agent first implements the requirements
-directly. A judge checks whether it changed anything outside the expected set
-(tests, steering files; see `seamAllow`). Incidental changes land; a needed seam
-change is refactored first, in its own slice with its own quality lap
+#### The naive pass
+
+After design the agent first implements the requirements directly. A judge
+checks whether it changed anything outside the expected set (tests, steering
+files; see `seamAllow`). Incidental changes land; a needed seam change is
+refactored first, in its own slice with its own quality lap
 (`refactorQualityReviews`) and review, before the feature is implemented and
 reviewed; a wrong approach is retried twice, then rests for you to steer or
 overrule it. `gtd slices` lists the `refactor` and `feature` slices. A refactor
@@ -602,14 +594,13 @@ out is `gtd abandon`. A process from 27.5.0 or later whose judge ruled
 that slice. Details in
 [the naive-pass path](docs/configuration.md#the-naive-pass-path).
 
-**Risk tier (flag `GTD_FLAG_RISK_TIER=1`, off by default, needs
-`GTD_FLAG_NAIVE_PASS=1`).** Triage proposes a risk tier, `low` or `high`, and
-the production signals to watch after merge. Edit the first word under
-`## Risk Tier` at the design gate to change it; a missing or unreadable tier
-means `high`. Each lap lands a `Gtd-Mark: risk-tier=<low|high>` trailer and a
-`Gtd-Mark: production-signal=…` trailer per signal; `gtd summary` reads the last
-lap's only. Its "needs a human reviewer" line for `high` is advisory, not a
-gate.
+**Risk tier (flag `GTD_FLAG_RISK_TIER=1`, off by default).** Triage proposes a
+risk tier, `low` or `high`, and the production signals to watch after merge.
+Edit the first word under `## Risk Tier` at the design gate to change it; a
+missing or unreadable tier means `high`. Each lap lands a
+`Gtd-Mark: risk-tier=<low|high>` trailer and a `Gtd-Mark: production-signal=…`
+trailer per signal; `gtd summary` reads the last lap's only. Its "needs a human
+reviewer" line for `high` is advisory, not a gate.
 
 A `gtd.config.ts` call to `buildTail` or `tail` that fits neither call form is
 rejected; `tail`'s positional form is deprecated for `tail(finish, options?)`.

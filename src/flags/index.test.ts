@@ -92,10 +92,6 @@ describe("FLAGS", () => {
     })
     expect(new Set(names).size).toBe(names.length)
   })
-
-  it("leaves naive_pass off by default", () => {
-    expect(resolveFlags({}).naive_pass).toBe(false)
-  })
 })
 
 describe("flagSettings", () => {

@@ -4,8 +4,8 @@ import { REQUIREMENTS } from "../shared/steps.js"
 
 export type RiskTier = "low" | "high"
 
-/** GTD_FLAG_NAIVE_PASS, GTD_FLAG_RISK_TIER: both pinned at process start, so a mid-process flip never moves a process. */
-export const riskTierOn = (): boolean => vars.flag_naive_pass === "1" && vars.flag_risk_tier === "1"
+/** GTD_FLAG_RISK_TIER: pinned at process start, so a mid-process flip never moves a process. */
+export const riskTierOn = (): boolean => vars.flag_risk_tier === "1"
 
 const sectionLines = (
   text: string | undefined,

@@ -47,13 +47,12 @@ const review = (text?: string): string =>
 
 const CALC = "export const add = (a: number, b: number) => a + b\n"
 
-const naivePlanned = (flag: "0" | "1") => {
+const naivePlanned = () => {
   const repo = testRepo({
     workflow: CONFIG_SCAFFOLD,
     env: {
       GTD_QUALITYREVIEWS: "",
       GTD_REFACTORQUALITYREVIEWS: "",
-      GTD_FLAG_NAIVE_PASS: flag,
       GTD_FLAG_RISK_TIER: "0",
     },
   })
@@ -63,9 +62,9 @@ const naivePlanned = (flag: "0" | "1") => {
   return repo
 }
 
-describe("planAndBuild on the naive pass", () => {
+describe("planAndBuild", () => {
   it("a refactor that carried the whole feature: the empty implement turn passes and the review covers the whole change", async () => {
-    const repo = naivePlanned("1")
+    const repo = naivePlanned()
     const SUBTRACT = `${CALC}export const subtract = (a: number, b: number) => a - b\n`
     expect(
       (
@@ -99,7 +98,7 @@ describe("planAndBuild on the naive pass", () => {
   })
 
   it("after land, feedback rests next at design.triage, then implement.building, never seam.naive", async () => {
-    const repo = naivePlanned("1")
+    const repo = naivePlanned()
     const requirements = (_: unknown, r: typeof repo) =>
       r.write(
         ".gtd/REQUIREMENTS.md",
@@ -149,20 +148,6 @@ describe("planAndBuild on the naive pass", () => {
   })
 })
 
-describe("planAndBuild without the naive pass", () => {
-  it("runs the design → architecture path: no seam, no implement", async () => {
-    const repo = naivePlanned("0")
-    const rest = await repo.drive({
-      unwind: () => undefined,
-      "start-gate.check": () => undefined,
-      "design.triage": (_, r) => r.write(".gtd/REQUIREMENTS.md", "# Requirements\n"),
-      "design.gate.answer": () => undefined,
-    })
-    expect(rest.state).toBe("architecture.author")
-    expect(repo.subjects().some((subject) => /seam|implement/.test(subject))).toBe(false)
-  })
-})
-
 describe("afterTail feedback lap", () => {
   const TAIL = [
     `import { start } from "@pmelab/gtd/flows"`,
@@ -176,14 +161,13 @@ describe("afterTail feedback lap", () => {
 
   const prompts: string[] = []
 
-  const feedbackLap = async (flag: "0" | "1") => {
+  const feedbackLap = async () => {
     prompts.length = 0
     const repo = testRepo({
       workflow: TAIL,
       env: {
         GTD_QUALITYREVIEWS: "",
         GTD_REFACTORQUALITYREVIEWS: "",
-        GTD_FLAG_NAIVE_PASS: flag,
         GTD_FLAG_RISK_TIER: "0",
       },
     })
@@ -219,8 +203,8 @@ describe("afterTail feedback lap", () => {
     "design.gate.answer": () => undefined,
   }
 
-  it("flag_naive_pass=1 rests at design.triage, then implement.building, reaching no seam step", async () => {
-    const repo = await feedbackLap("1")
+  it("rests at design.triage, then implement.building, reaching no seam step", async () => {
+    const repo = await feedbackLap()
     expect(
       (await repo.drive({ "build.review.closing": runsItsScript, "re-unwind": runsItsScript }))
         .state,
@@ -232,46 +216,30 @@ describe("afterTail feedback lap", () => {
     expect(repo.subjects().some((subject) => subject.includes("seam."))).toBe(false)
   })
 
-  it("flag_naive_pass=0 re-plans through architecture and packages", async () => {
-    const repo = await feedbackLap("0")
-    const rest = await repo.drive(afterFeedback)
-    expect(rest.state).toBe("architecture.author")
+  it("the first review says everything since base, the one after feedback only what is new", async () => {
+    const repo = await feedbackLap()
+    expect(prompts[0]).toContain("it covers everything since the base")
+    expect(prompts[0]).not.toContain("only what is new since the previous review")
+    const writes: Record<string, () => [string, string]> = {
+      "design.triage": () => [".gtd/REQUIREMENTS.md", "# Requirements\n\n- multiply, designed\n"],
+      "implement.building": () => ["src/calc.ts", `${CALC}// again\n`],
+    }
+    const actors = new Proxy({} as Record<string, Actor>, {
+      get: (_, state: string): Actor | undefined =>
+        state === "build.review.await-review" || state === "idle"
+          ? undefined
+          : (beat, r) => {
+              if (state === "build.review.reviewing") {
+                prompts.push(beat.content)
+                r.write(".gtd/REVIEW.md", review())
+              } else if (writes[state]) r.write(...writes[state]())
+              else if (state.endsWith("closing") || state === "re-unwind") r.runScript(beat.content)
+            },
+    })
+    await repo.drive(actors, { maxBeats: 80 })
+    expect(prompts[1]).toContain("it covers only what is new since the previous review")
+    expect(prompts[1]).not.toContain("everything since the base")
   })
-
-  it.each(["0", "1"] as const)(
-    "flag_naive_pass=%s: the first review says everything since base, the one after feedback only what is new",
-    async (flag) => {
-      const repo = await feedbackLap(flag)
-      expect(prompts[0]).toContain("it covers everything since the base")
-      expect(prompts[0]).not.toContain("only what is new since the previous review")
-      const writes: Record<string, () => [string, string]> = {
-        "design.triage": () => [".gtd/REQUIREMENTS.md", "# Requirements\n\n- multiply, designed\n"],
-        "implement.building": () => ["src/calc.ts", `${CALC}// again\n`],
-        "packages.item.building": () => ["src/calc.ts", `${CALC}// package\n`],
-        "architecture.author": () => [".gtd/ARCHITECTURE.md", "# Architecture\n\nmultiply\n"],
-        "architecture.decompose.decomposing": () => [
-          ".gtd/packages/01-multiply.md",
-          "# 01 multiply\n",
-        ],
-      }
-      const actors = new Proxy({} as Record<string, Actor>, {
-        get: (_, state: string): Actor | undefined =>
-          state === "build.review.await-review" || state === "idle"
-            ? undefined
-            : (beat, r) => {
-                if (state === "build.review.reviewing") {
-                  prompts.push(beat.content)
-                  r.write(".gtd/REVIEW.md", review())
-                } else if (writes[state]) r.write(...writes[state]())
-                else if (state.endsWith("closing") || state === "re-unwind")
-                  r.runScript(beat.content)
-              },
-      })
-      await repo.drive(actors, { maxBeats: 80 })
-      expect(prompts[1]).toContain("it covers only what is new since the previous review")
-      expect(prompts[1]).not.toContain("everything since the base")
-    },
-  )
 })
 
 describe("an in-flight 28.0.0 naive-pass process", () => {
@@ -340,7 +308,7 @@ describe("an in-flight 28.0.0 naive-pass process", () => {
 
   /** The repo at the judge's rest, then `trail` forged edge by edge as `Gtd-Step:` commits. */
   const forged = async (trail: readonly Edge[], upTo: number) => {
-    const repo = naivePlanned("1")
+    const repo = naivePlanned()
     await repo.drive({
       unwind: () => undefined,
       "start-gate.check": () => undefined,

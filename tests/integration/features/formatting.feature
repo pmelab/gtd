@@ -123,7 +123,6 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     # wanting the file wrapped first runs `gtd validate` ahead of `gtd land`.
     Given a test project
     And the workflow gtd install scaffolds
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And the shell command "wrap-prose $GTD_FILE" rewrites "$GTD_FILE" to:
       """
       A plan, wrapped by the project's formatter.
@@ -162,7 +161,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → architecture.author"
+    And the last commit subject is "gtd(human): design.gate.answer → seam.naive"
 
   Scenario: a formatter plugged into the bundled default's qa mode formats the human-edited requirements at design.gate.answer, when gtd validate runs it first
     Given a test project

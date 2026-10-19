@@ -74,7 +74,7 @@ current directory is the whole workflow. If one already exists, read it and edit
 it in place.
 
 Prefer the bundled workflow's own parts over re-implementing them — `healthy`,
-`escalation`, `gate`, `design`, `architecture`, `packages`, `qualityLap`,
+`escalation`, `gate`, `design`, `seamBuild`, `implement`, `qualityLap`,
 `buildTail`, and single steps like `triage` or `fixCheck`. Their full step names
 are versioned API.
 
@@ -222,41 +222,37 @@ workflow.
 
 ## Worked example: add an approval gate before building
 
-In the bundled default, `planAndBuild` runs the design phase, the architecture
-pass (which writes `.gtd/packages/`), then builds the packages. Add a human
-sign-off between the two:
+In the bundled default, `planAndBuild` runs the design phase, then the naive
+pass and its seam judge, then the implementation. Add a human sign-off between
+design and the naive pass:
 
 ```ts
 const planAndBuild = async (firstBase: string): Promise<void> => {
-  let base = firstBase
-  let lap: "first" | "feedback" = "first"
-  for (;;) {
-    await design(base)
-    await architecture()
-    await human("approve-plan", {
-      message:
-        "The packages under .gtd/packages/ are ready. Edit them to adjust the plan, or change nothing — then run `gtd land` to start building.",
-      label: "Approve the plan",
-      acceptClean: true,
+  await design(firstBase)
+  await human("approve-plan", {
+    message:
+      "`.gtd/REQUIREMENTS.md` is settled. Edit it to adjust the plan, or change nothing — then run `gtd land` to start building.",
+    label: "Approve the plan",
+    acceptClean: true,
+  })
+  const seam = await seamBuild(firstBase)
+  await slice("feature", async () => {
+    await implement({
+      reference: seam.reference,
+      afterRefactor: seam.refactored,
     })
-    await packages()
-    const outcome = await buildTail(base, {
-      green: true,
-      ...(lap === "first" ? {} : { lap }),
-    })
-    if (outcome.verdict === "signoff") return
-    await reUnwind(outcome)
-    base = outcome.base
-    lap = "feedback"
-  }
+    await afterTail(
+      await buildTail(seam.base, { green: true, lensBase: seam.base }),
+    )
+  })
 }
 ```
 
 `acceptClean: true` is what makes an untouched landing approve; without it the
 gate would wait for an edit. `approve-plan` sits in the `root` scope and is a
 new, unique name. Verify: `gtd next` loads without errors, and in a scratch
-repository a landing at `architecture.decompose` now leads to `approve-plan`,
-and an untouched landing there to `packages.item.building`.
+repository a landing at `design.gate.answer` now leads to `approve-plan`, and an
+untouched landing there to `seam.naive`.
 
 ## No migration
 

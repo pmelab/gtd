@@ -113,18 +113,3 @@ Feature: the bundled workflow prepends a skills preamble to its agent prompts
     # build.fix's bundled default (see src/workflows/shared/skills.ts), untouched by the env var.
     And stdout contains "debugging-and-error-recovery"
     And stdout does not contain "code-review, testing"
-
-  Scenario: a config keyed on the implement scope still loads with the naive pass flag off
-    Given a test project
-    And the workflow gtd install scaffolds
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
-    And the file "gtd.config.ts" ends with:
-      """
-      export const config = {
-        skills: {
-          implement: ["my-tdd"],
-        },
-      }
-      """
-    When I run gtd next
-    Then it succeeds

@@ -1,21 +1,14 @@
 import {
   changes,
   hasThreadFor,
-  refuse,
   requireAnswers,
   requireReplies,
   requireThreadsClosed,
   requireProgress,
   scope,
 } from "../../flows/index.js"
-import { ARCHITECTURE, REQUIREMENTS } from "../shared/steps.js"
-import {
-  answerProductQuestions,
-  answerTechnicalQuestions,
-  author,
-  decompose,
-  triage,
-} from "./steps.js"
+import { REQUIREMENTS } from "../shared/steps.js"
+import { answerProductQuestions, triage } from "./steps.js"
 
 /**
  * Always stop for the human. Resolves `true` when the round changed anything
@@ -39,22 +32,4 @@ export const design = (base: string): Promise<void> =>
       requireProgress(REQUIREMENTS)
       requireReplies(REQUIREMENTS)
     } while (await noteGate(REQUIREMENTS, answerProductQuestions))
-  })
-
-/** Work out the technical plan, then decompose it into package files. */
-export const architecture = (): Promise<void> =>
-  scope("architecture", async () => {
-    do {
-      await author()
-      requireReplies(ARCHITECTURE)
-    } while (await noteGate(ARCHITECTURE, answerTechnicalQuestions))
-    await decompose()
-    if (changes(".gtd/packages/**").length === 0) {
-      refuse("gtd land: decompose: write at least one package under .gtd/packages/")
-    }
-    if (changes(ARCHITECTURE).some((c) => c.status === "deleted")) {
-      refuse(
-        "gtd land: decompose: keep .gtd/ARCHITECTURE.md — the packages are built from it; it is removed with the last package",
-      )
-    }
   })

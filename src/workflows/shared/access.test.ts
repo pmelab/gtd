@@ -10,8 +10,6 @@ describe("the bundled workflow's access export", () => {
   it("restricts writes on planning, review and lens scopes only", () => {
     expect(bundled).toEqual({
       design: { write: [] },
-      architecture: { write: [".gtd/REQUIREMENTS.md"] },
-      "architecture.decompose": { write: [".gtd/packages/**", ".gtd/ARCHITECTURE.md"] },
       "build.review": { write: [".gtd/REVIEW.md"] },
       "build.review.defer": { write: [".gtd/TODO.md"] },
       "build.review.fix.nits": {},

@@ -1,7 +1,7 @@
 @inmem
 Feature: a trivial change takes the same few beats at either risk tier, flag-free at low
 
-  With GTD_FLAG_NAIVE_PASS and GTD_FLAG_RISK_TIER on, a one-line copy fix goes
+  With GTD_FLAG_RISK_TIER on, a one-line copy fix goes
   from idle through the naive pass, the seam judge's land, implement and human
   review back to idle. Low tier walks exactly the steps high does; only the
   implementation prompt and the summary differ.
@@ -9,7 +9,6 @@ Feature: a trivial change takes the same few beats at either risk tier, flag-fre
   Background:
     Given the shipped workflows, as gtd install scaffolds them
     And an environment variable "GTD_QUALITYREVIEWS" set to "correctness"
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "1"
     And an environment variable "GTD_FLAG_RISK_TIER" set to "1"
     And a file "src/greeting.ts" with:
       """

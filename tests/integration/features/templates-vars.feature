@@ -171,7 +171,6 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
   Scenario: the bundled template resolves a coder-tier state's model from "env.coderModel"
     Given a test project
     And the workflow gtd install scaffolds
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "NOTE.md" with:
       """
       a sketch
@@ -188,22 +187,10 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
       a sketch
       """
     And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    And gtd lands "gtd(human): design.gate.answer → architecture.author"
-    And the file ".gtd/REQUIREMENTS.md" is deleted
-    And a file ".gtd/ARCHITECTURE.md" with:
-      """
-      the technical plan
-      """
-    And gtd lands "gtd(agent): architecture.author → architecture.gate.answer"
-    And gtd lands "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
-    And a file ".gtd/packages/01-plan.md" with:
-      """
-      the plan
-      """
-    And gtd lands "gtd(agent): architecture.decompose.decomposing → packages.item.building"
+    And gtd lands "gtd(human): design.gate.answer → seam.naive"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"packages.item.building\""
+    And stdout contains "\"state\":\"seam.naive\""
     And stdout contains "\"model\":\"base\""
 
   Scenario: a "GTD_PLANNERMODEL" override repoints every planner-tier state at once

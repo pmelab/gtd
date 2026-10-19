@@ -21,26 +21,6 @@ describe("the feature workflow's own steps declare skills — a step's rendered 
     expect(prompt).toContain("spec-driven-development, planning-and-task-breakdown")
   })
 
-  it("author carries architecture.author's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.author(), "architecture"))
-    expect(prompt).toContain("api-and-interface-design, documentation-and-adrs, ponytail")
-  })
-
-  it("decompose carries architecture.decompose's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.decompose(), "architecture"))
-    expect(prompt).toContain("incremental-implementation, planning-and-task-breakdown")
-  })
-
-  it("build carries packages.item.building's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.build("pkg"), "packages.item"))
-    expect(prompt).toContain("test-driven-development, incremental-implementation")
-  })
-
-  it("fixSuite carries packages.item.fix.suite's bundled skills", async () => {
-    const prompt = agentPrompt(await capture(() => steps.fixSuite(), "packages.item"))
-    expect(prompt).toContain("debugging-and-error-recovery")
-  })
-
   it("collecting carries build.review.collecting's bundled skills", async () => {
     const prompt = agentPrompt(await capture(() => steps.collecting("capture"), "build"))
     expect(prompt).toContain("code-review-and-quality")

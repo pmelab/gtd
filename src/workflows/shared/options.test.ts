@@ -23,11 +23,10 @@ describe("the shipped workflow factories", () => {
       expect(defaults).toHaveProperty(`flag_${name}`, defaultOn ? "1" : "0")
   })
 
-  it("declare seamAllow and flag_naive_pass defaults; flag_naive_pass is no option", () => {
-    expect(Object.keys(ShippedOptions.fields)).not.toContain("flag_naive_pass")
+  it("declare a seamAllow default a factory option overrides", () => {
     expect(configure(feature({ seamAllow: "docs/**" }))).toMatchObject({
       ok: true,
-      build: { defaults: { seamAllow: "docs/**", flag_naive_pass: "0" } },
+      build: { defaults: { seamAllow: "docs/**" } },
     })
   })
 

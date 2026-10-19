@@ -11,10 +11,9 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
   dedicated feature files — see refusals.feature, default-workflow.feature,
   retry.feature.
 
-  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> architecture.author -> architecture.decompose.decomposing -> packages.item.building -> packages.item.health.check
+  Scenario: the one flow's happy path advances idle -> unwind -> start-gate.check -> design.triage -> design.gate.answer -> seam.naive -> seam.judge -> implement.building -> implement.health.check
     Given a test project
     And the workflow gtd install scaffolds
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "0"
     And a file "src/feature.ts" with:
       """
       export const feature = 1
@@ -42,33 +41,33 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → architecture.author"
-    Given the file ".gtd/REQUIREMENTS.md" is deleted
-    And a file ".gtd/ARCHITECTURE.md" with:
+    And the last commit subject is "gtd(human): design.gate.answer → seam.naive"
+    # The naive pass edits an existing file outside the allowlist: a stray the judge rules on.
+    Given a file "README.md" with:
       """
-      Technical plan for the feature. No open questions.
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): architecture.author → architecture.gate.answer"
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(human): architecture.gate.answer → architecture.decompose.decomposing"
-    Given a file ".gtd/packages/01-feature.md" with:
-      """
-      Package: add the feature.
+      # test project, with a feature
       """
     When I run gtd land
     Then it succeeds
-    # The flow picks the lexically first package itself.
-    And the last commit subject is "gtd(agent): architecture.decompose.decomposing → packages.item.building"
-    Given a file "src/feature-impl.ts" with:
+    And the last commit subject is "gtd(agent): seam.naive → seam.judge"
+    Given a file "answers.json" with:
+      """
+      [{"id":"shape","answer":"land","p":0.9}]
+      """
+    When I run in the shell:
+      """
+      gtd judge --json | gtd judge run --provider fixed --answers answers.json | gtd judge answer --json=script | sh
+      """
+    Then it succeeds
+    And the last commit subject is "gtd(judge): seam.judge → implement.building"
+    Given the file "answers.json" is deleted
+    And a file "src/feature-impl.ts" with:
       """
       export const featureImpl = 1
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): packages.item.building → packages.item.health.check"
+    And the last commit subject is "gtd(agent): implement.building → implement.health.check"
 
   Scenario: gtd next --json reports state, actor, kind, and content
     Given a test project

@@ -1,7 +1,7 @@
 @inmem
 Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_TIER
 
-  With GTD_FLAG_NAIVE_PASS and GTD_FLAG_RISK_TIER both on, design.triage asks
+  With GTD_FLAG_RISK_TIER on, design.triage asks
   for a risk tier and production signals, and the design gate's exit lands them
   as Gtd-Mark trailers: one `risk-tier=<low|high>`, one `production-signal`
   per signal. A missing or unreadable tier is high. With the flag off, nothing
@@ -10,7 +10,6 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
   Background:
     Given the shipped workflows, as gtd install scaffolds them
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And an environment variable "GTD_FLAG_NAIVE_PASS" set to "1"
 
   Rule: with GTD_FLAG_RISK_TIER on
 
@@ -35,7 +34,7 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
       And step "unwind" changes nothing
       And step "start-gate.check" changes nothing
 
-    Scenario: with both flags on the triage prompt asks for the tier and the signals
+    Scenario: with the flag on the triage prompt asks for the tier and the signals
       When the process is driven
       Then the process rests at "design.triage"
       And the resting step's content contains "## Risk Tier"
