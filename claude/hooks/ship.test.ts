@@ -990,12 +990,16 @@ describe("ship per slice", () => {
     expect(prompts.slice(0, 2).join("")).not.toContain("PLAIN PROSE")
   })
 
-  test("the format types each commit by its diff, never by its slice's name", async () => {
+  test("every commit and the PR title are typed by the change, never by a slice's name", async () => {
     const prompts: string[] = []
     const { io } = repo(base)
     io.complete = async (p) => (prompts.push(p), "feat: x")
     await ship(io, false, "commits")
-    expect(prompts[0]?.replace(/\s+/g, " ")).toContain("never from the slice's name")
+    const flat = prompts.map((p) => p.replace(/\s+/g, " "))
+    expect(flat.length).toBe(3)
+    for (const p of flat) expect(p).toContain("never from a slice's or branch's name")
+    expect(flat[2]).toMatch(/^Write the title and description for a pull request/)
+    expect(flat[2]).toContain("take the type of the commit that releases the most")
   })
 
   test.each([
