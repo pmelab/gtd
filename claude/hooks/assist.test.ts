@@ -104,6 +104,14 @@ describe("the job prompt", () => {
     expect(p).toMatch(/relay|tell the person/i)
   })
 
+  test("a success lets the model carry on with work the person already asked for", () => {
+    for (const job of ["ship", "handoff"] as const) {
+      const p = jobPrompt(job, { ok: true, text: "done" })
+      expect(p).not.toMatch(/do nothing else/i)
+      expect(p).toMatch(/continue with any work the person already asked for/i)
+    }
+  })
+
   test("a failure says so, carries the step, and ship says /gtd ship pushes the squashed branch", () => {
     const p = jobPrompt("ship", { ok: false, text: "git push failed." })
     expect(p).toMatch(/failed/)
