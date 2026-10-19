@@ -30,8 +30,8 @@ pass, and a seam judge rules `land`/`refactor-first`/`reject`.
 `GTD_FLAG_RISK_TIER` (off by default) adds a proposed risk tier at the design
 gate. See [The naive-pass path](docs/configuration.md#the-naive-pass-path).
 
-The third reject or red check rests at `seam.steer`, where a human steers or
-overrules.
+The third reject, test fault or red check rests at `seam.steer`, where a human
+steers or overrules.
 
 ## Human gates
 
@@ -62,7 +62,8 @@ For non-repudiation use signed commits or branch protection outside gtd.
 Exception rests are listed apart (examples, not exhaustive); they carry no
 approval:
 
-- `seam.steer` — third reject or red check, a human steers or overrules
+- `seam.steer` — third reject, test fault or red check, a human steers or
+  overrules
 - `seam.by-hand` — strays whose content cannot be read; a person reviews those
   files by hand
 - `*.health.stop` and `*.health.exhausted` — escalation stops
@@ -96,7 +97,8 @@ Each path has a `.feature` file:
   ID'd acceptance criteria, and the skip path for a sketch that states clear
   ones
 - [`src/workflows/feature/naive-acceptance.feature`](src/workflows/feature/naive-acceptance.feature):
-  the naive pass's acceptance tests, refused or sent back until green
+  the naive pass's acceptance tests, sent back until they name every criterion
+  and pass
 - [`src/workflows/feature/fast-path.feature`](src/workflows/feature/fast-path.feature):
   a trivial fix takes the same few beats at either risk tier
 
@@ -109,8 +111,8 @@ Paths and text are checked, **never behaviour**.
 - `gtd land` refusals in `rollout` and `cleanup`: see
   [Rolling out and cleaning up a release flag](docs/configuration.md#rolling-out-and-cleaning-up-a-release-flag).
   `cleanup` checks shipped `src/` sources only.
-- `gtd land` refusals in `seam.naive`: a criterion ID no test of the pass names
-  (`acceptance-tests`), a test importing a file the pass added
+- `seam.naive` is sent back, not refused, when a criterion ID no test of the
+  pass names (`acceptance-tests`) or a test imports a file the pass added
   (`acceptance-internals`). See
   [The naive-pass path](docs/configuration.md#the-naive-pass-path). `seam.check`
   is the one place the naive pass's behaviour is run.

@@ -591,21 +591,21 @@ home directory — fails every command until you delete it. See
 After design the agent first implements the requirements directly,
 breadth-first, with a behaviour-level acceptance test per criterion that names
 its ID (`[AC-3] …`) and reaches only code that existed before the pass. The pass
-is refused while a criterion's ID is missing from its tests or a test imports a
-file it added, and sent back while the suite is red on it. A judge checks
-whether it changed anything outside the expected set (tests, steering files; see
-`seamAllow`). Incidental changes land; a needed seam change is refactored first,
-in its own slice with its own quality lap (`refactorQualityReviews`) and review,
-before the feature is implemented and reviewed; a wrong approach is retried
-twice, then rests for you to steer or overrule it. `gtd slices` lists the
-`refactor` and `feature` slices. A refactor that already carried the whole
-feature leaves the implementation nothing to do: its empty turn passes, and the
-feature review covers the whole change. Feedback at the feature review re-runs
-design and the implementation, never the naive pass; feedback at the refactor
-review re-runs the refactor, never design; a refactor-review change the refactor
-cannot build is refused, and the only way out is `gtd abandon`. A process from
-27.5.0 or later whose judge ruled `refactor-first` must `gtd abandon` too. Each
-slice's quality lap reviews only that slice. Details in
+is sent back while a criterion's ID is missing from its tests, a test imports a
+file it added, or the suite is red on it. A judge checks whether it changed
+anything outside the expected set (tests, steering files; see `seamAllow`).
+Incidental changes land; a needed seam change is refactored first, in its own
+slice with its own quality lap (`refactorQualityReviews`) and review, before the
+feature is implemented and reviewed; a wrong approach is retried twice, then
+rests for you to steer or overrule it. `gtd slices` lists the `refactor` and
+`feature` slices. A refactor that already carried the whole feature leaves the
+implementation nothing to do: its empty turn passes, and the feature review
+covers the whole change. Feedback at the feature review re-runs design and the
+implementation, never the naive pass; feedback at the refactor review re-runs
+the refactor, never design; a refactor-review change the refactor cannot build
+is refused, and the only way out is `gtd abandon`. A process from 27.5.0 or
+later whose judge ruled `refactor-first` must `gtd abandon` too. Each slice's
+quality lap reviews only that slice. Details in
 [the naive-pass path](docs/configuration.md#the-naive-pass-path).
 
 **Flag mode (`flagMode`, on by default).** On, the implementation is asked for a

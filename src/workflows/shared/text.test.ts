@@ -1035,6 +1035,20 @@ describe("the seam phase's texts", () => {
     expect(message).toContain("src/flows/helpers.ts")
   })
 
+  it("hands a faulty pass back with the fault and the kept attempt to pick up", () => {
+    const fault = {
+      fault: "acceptance-tests: no test of the naive pass names AC-2",
+      hash: "abc123",
+    }
+    const prompt = renderText(() => naivePassPrompt(fault))
+    expect(prompt).toContain("names AC-2")
+    expect(prompt).toContain("git diff --binary abc123^ abc123 | git apply")
+    const message = renderText(() => seamSteerMessage(fault))
+    expect(message).toContain("names AC-2")
+    expect(message).toContain("`seam.check` runs its suite")
+    expect(message).toContain("Overrule")
+  })
+
   it("names the red suite, its report and what overruling it means", () => {
     const message = renderText(() => seamSteerMessage({ red: "abc123" }))
     expect(message).toContain("The last\nattempt left the suite red")

@@ -9,7 +9,6 @@ import {
   kept,
   quote,
   read,
-  refuse,
   removeScript,
   run,
   scope,
@@ -24,7 +23,13 @@ import { coder, FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
 import { criteriaOf, requireCriteria, requireCriteriaFrozen } from "./criteria.js"
-import { isTestFile, refactorStrays, reviewedRefactor } from "./refactor.js"
+import {
+  COMMENT,
+  holdsCallSites,
+  isTestFile,
+  refactorStrays,
+  reviewedRefactor,
+} from "./refactor.js"
 import { isCode } from "./review.js"
 import { flagModeOn } from "../shared/options.js"
 import type { RiskTier } from "./tier.js"
@@ -54,6 +59,7 @@ export const naivePass = (retry?: t.NaiveRetry): Promise<void> =>
 // Only a string an import, `require` or `mock` call takes: a URL route or path-like data is not one.
 const IMPORTED = /(?:\bfrom|\bimport|\brequire\s*\(|\bmock\s*\()\s*\(?\s*(["'`])([^"'`\n]+)\1/g
 const EXTENSION = /\.[\w-]+$/
+const ALIAS = /^(?:[@~]\/|#)/
 
 /** The specifiers an added `path` answers to: itself, without its extension, and its directory for an `index`. */
 const namesOf = (path: string): string[] => {
@@ -62,25 +68,23 @@ const namesOf = (path: string): string[] => {
 }
 
 /**
- * Whether `test` imports `added` — by a relative specifier resolved from its
- * own directory, or an aliased one matching the path's end. Text only: a
+ * The repository paths `test` imports, each with and without an extension: a
+ * relative specifier resolved from its directory, an aliased one (`@/`, `~/`,
+ * `#`) as a path tail, anything else as written. Comments are skipped; a
  * computed import goes unseen.
  */
-const reaches = (test: Change, added: string): boolean => {
-  const names = namesOf(added)
-  return [...(test.after ?? "").matchAll(IMPORTED)].some(([, , spec]) => {
+const importsOf = (test: Change): { readonly path: string; readonly tail: boolean }[] =>
+  [...(test.after ?? "").replace(COMMENT, "").matchAll(IMPORTED)].flatMap(([, , spec]) => {
     const relative = /^\.\.?(\/|$)/.test(spec!)
-    if (!relative && !spec!.includes("/")) return false
-    const path = relative
-      ? posix.join(posix.dirname(test.path), spec!)
-      : spec!.replace(/^[@~]\//, "")
-    return [path, path.replace(EXTENSION, "")].some((candidate) =>
-      names.some((name) =>
-        relative ? name === candidate : name === candidate || name.endsWith(`/${candidate}`),
-      ),
-    )
+    const tail = ALIAS.test(spec!)
+    const path = relative ? posix.join(posix.dirname(test.path), spec!) : spec!.replace(ALIAS, "")
+    return [path, path.replace(EXTENSION, "")].map((p) => ({ path: p, tail }))
   })
-}
+
+const reaches = (imports: ReturnType<typeof importsOf>, added: string): boolean =>
+  namesOf(added).some((name) =>
+    imports.some(({ path, tail }) => name === path || (tail && name.endsWith(`/${path}`))),
+  )
 
 const named = (id: string, text: string): boolean =>
   new RegExp(`(?<![\\w-])${id}(?!\\d)`).test(text)
@@ -95,63 +99,55 @@ const addedLines = (change: Change): string => {
 }
 
 /**
- * Refuse a naive pass whose tests leave a criterion ID of `file` unnamed, or
- * import a file the pass added: that is naive structure a reset and refactor
- * replaces, and the tests must survive it.
+ * Why `tip`'s tests fall short, or `undefined`: a criterion ID of `file` no
+ * test line of the pass names, or a test importing a file the pass added —
+ * naive structure a reset and refactor replaces, which the tests must survive.
  */
-export const requireAcceptanceTests = (file: string, tip: KeptTip): void => {
+export const acceptanceFault = (file: string, tip: KeptTip): string | undefined => {
   const ids = (criteriaOf(read(file) ?? "") ?? []).map((c) => c.id).filter((id) => id !== "")
   const tests = tip.changes.filter(
     (c) => c.after !== undefined && isCode(c.path) && isTestFile(c.path),
   )
-  const untested = ids.filter((id) => !tests.some((c) => named(id, addedLines(c))))
+  const lines = tests.map(addedLines)
+  const untested = ids.filter((id) => !lines.some((text) => named(id, text)))
   if (untested.length > 0)
-    refuse(
-      `gtd land: acceptance-tests: no test of the naive pass names ${untested.join(", ")} — write a behaviour-level test for each criterion with its ID in the test or scenario name, e.g. "[${untested[0]}] …"`,
-    )
+    return `acceptance-tests: no test of the naive pass names ${untested.join(", ")} — write a behaviour-level test for each criterion with its ID in the test or scenario name, e.g. "[${untested[0]}] …"`
   const added = tip.changes
     .filter((c) => c.status === "added" && isCode(c.path) && !isTestFile(c.path))
     .map((c) => c.path)
-  // A `.feature` or a snapshot names paths as data, never as an import.
   const reaching = tests
-    .filter((test) => !test.path.endsWith(".feature") && !test.path.endsWith(".snap"))
-    .flatMap((test) =>
-      added.filter((path) => reaches(test, path)).map((path) => `  - ${test.path} → ${path}`),
-    )
+    .filter((test) => holdsCallSites(test.path))
+    .flatMap((test) => {
+      const imports = importsOf(test)
+      return added
+        .filter((path) => reaches(imports, path))
+        .map((path) => `  - ${test.path} → ${path}`)
+    })
   if (reaching.length > 0)
-    refuse(
-      `gtd land: acceptance-internals: these tests import files the naive pass added — test through code that existed before it (a public entry point, an existing module's exports):\n${reaching.join("\n")}`,
-    )
+    return `acceptance-internals: these tests import files the naive pass added — test through code that existed before it (a public entry point, an existing module's exports):\n${reaching.join("\n")}`
+  return undefined
 }
 
-/**
- * Run the suite with `tip`'s diff applied, then take it out again; resolves
- * `true` when green. Every path the diff touches is put back to HEAD rather
- * than reverse-applied, before and after: the run may rewrite a file the pass
- * kept (a coverage report), and an interrupted run leaves the pass applied.
- */
-const naiveGreen = (tip: KeptTip): Promise<boolean> => {
-  const range = `${quote(`${tip.hash}^`)} ${quote(tip.hash)}`
-  const restore = [
-    `git diff --name-only ${range} -- | while IFS= read -r path; do`,
-    '  if git cat-file -e "HEAD:$path" 2>/dev/null; then git checkout -q HEAD -- "$path"; else rm -f -- "$path"; fi',
-    "done",
-  ]
-  return check(
+// The kept turn leaves the tree at HEAD, so putting all of it back (`.gtd/`
+// aside: the report is written there) drops only what the apply and the run did.
+const RESTORE = ["git checkout -q HEAD -- :/", "git clean -fdq -e .gtd"]
+
+/** Run the suite with `tip`'s diff applied, then take it out again; resolves `true` when green. */
+const naiveGreen = (tip: KeptTip): Promise<boolean> =>
+  check(
     "check",
     [
-      ...restore,
-      `git diff --binary ${range} -- | git apply || exit $?`,
+      ...RESTORE,
+      `git diff --binary ${quote(`${tip.hash}^`)} ${quote(tip.hash)} -- | git apply || exit $?`,
       "(",
       env.testCommand ?? "",
       ")",
       "code=$?",
-      ...restore,
+      ...RESTORE,
       'exit "$code"',
     ].join("\n"),
     { report: FEEDBACK, label: "Running the naive pass's tests" },
   )
-}
 
 export interface ImplementOptions {
   readonly reference?: string | undefined
@@ -226,38 +222,56 @@ const steer = async (retry: t.NaiveRetry): Promise<boolean> => {
   return true
 }
 
+/** The next attempt's retry (`undefined` after a steer: a fresh start), or `undefined` itself on an overrule. */
+type Again = (
+  next: t.NaiveRetry,
+) => Promise<{ readonly retry: t.NaiveRetry | undefined } | undefined>
+
+/** Rejects, test faults and red checks share one budget; a steer or an overrule refills it. */
+const budget = (): Again => {
+  let retries = 0
+  return async (next) => {
+    if (retries < NAIVE_RETRIES) {
+      retries++
+      return { retry: next }
+    }
+    const steered = await steer(next)
+    retries = 0
+    // A steered or overruled red pass leaves its report behind: nothing reads it any more.
+    if (read(FEEDBACK) !== undefined)
+      await run("clear", removeScript([FEEDBACK]), { label: "Clearing the red check" })
+    return steered ? { retry: undefined } : undefined
+  }
+}
+
+/** Sends a pass whose tests fall short or run red back; an overruled one goes on as it is. */
+const vetted: (tip: KeptTip, again: Again) => ReturnType<Again> = async (tip, again) => {
+  const fault = acceptanceFault(REQUIREMENTS, tip)
+  const sent = fault === undefined ? undefined : await again({ fault, hash: tip.hash })
+  if (sent !== undefined) return sent
+  return (await naiveGreen(tip)) ? undefined : again({ red: tip.hash })
+}
+
 const decide = (): Promise<Decision> =>
   scope("seam", async () => {
+    const again = budget()
     let retry: t.NaiveRetry | undefined
-    let retries = 0
-    // Any steer edit restarts with a fresh budget and no stale retry; a clean landing overrules.
-    const again = async (next: t.NaiveRetry): Promise<"again" | "overrule"> => {
-      retry = next
-      if (retries < NAIVE_RETRIES) {
-        retries++
-        return "again"
-      }
-      const steered = await steer(next)
-      retry = undefined
-      retries = 0
-      // A steered or overruled red pass leaves its report behind: nothing reads it any more.
-      if (read(FEEDBACK) !== undefined)
-        await run("clear", removeScript([FEEDBACK]), { label: "Clearing the red check" })
-      return steered ? "again" : "overrule"
-    }
     for (;;) {
       await naivePass(retry)
       const tip = kept("naive")!
-      requireAcceptanceTests(REQUIREMENTS, tip)
-      // An overruled red pass goes on to the judge as it is.
-      if (!(await naiveGreen(tip)) && (await again({ red: tip.hash })) === "again") continue
+      const sent = await vetted(tip, again)
+      if (sent !== undefined) {
+        retry = sent.retry
+        continue
+      }
       const shape = await judgeSeam(tip)
       if (shape.choice === "land") return { reference: tip.hash }
       if (shape.choice === "refactor-first") {
         return { reference: tip.hash, shape }
       }
-      const rejection = { strays: shape.strays, p: shape.judgment?.answers.shape?.p ?? 0 }
-      if ((await again(rejection)) === "overrule") return { reference: tip.hash }
+      const next = await again({ strays: shape.strays, p: shape.judgment?.answers.shape?.p ?? 0 })
+      if (next === undefined) return { reference: tip.hash }
+      retry = next.retry
     }
   })
 

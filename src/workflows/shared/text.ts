@@ -1139,9 +1139,19 @@ export interface NaiveRed {
   readonly red: string
 }
 
-export type NaiveRetry = SeamRejection | NaiveRed
+/** A naive pass whose tests break the acceptance-test rules; `hash` is its kept tip. */
+export interface NaiveFault {
+  readonly fault: string
+  readonly hash: string
+}
+
+export type NaiveRetry = SeamRejection | NaiveRed | NaiveFault
 
 const isRed = (retry: NaiveRetry): retry is NaiveRed => "red" in retry
+const isFault = (retry: NaiveRetry): retry is NaiveFault => "fault" in retry
+
+const pickUp = (hash: string): string =>
+  `Pick it up — \`git diff --binary ${hash}^ ${hash} | git apply\``
 
 const criteriaBinding = (refused: boolean): string =>
   `- Its \`## Acceptance Criteria\` (\`AC-<n>\`) bind this turn: re-read them from
@@ -1149,13 +1159,19 @@ const criteriaBinding = (refused: boolean): string =>
   settled — ${refused ? "a turn that changes them is refused" : "leave them as they are"}`
 
 const naiveRetry = (retry: NaiveRetry): string =>
-  isRed(retry)
+  isFault(retry)
     ? `
+Your previous attempt's (\`${retry.hash}\`) tests fall short:
+${retry.fault}
+${pickUp(retry.hash)} — and fix its tests; do not start over.
+`
+    : isRed(retry)
+      ? `
 Your previous attempt (\`${retry.red}\`) left the suite red; \`.gtd/FEEDBACK.md\`
-holds the output. Pick it up — \`git diff --binary ${retry.red}^ ${retry.red} | git apply\`
+holds the output. ${pickUp(retry.red)}
 — and fix it until the suite is green; do not start over.
 `
-    : `
+      : `
 Your previous attempt was rejected: the judge answered \`reject\` (p=${retry.p}),
 meaning the naive pass solved the task the wrong way — discard it and
 re-implement. It changed these files outside the expected set:
@@ -1176,8 +1192,8 @@ ${criteriaBinding(false)}
   naming its ID in the test or scenario name (\`[AC-3] …\`). Test through code
   that existed before this pass — a public entry point, the CLI, an existing
   module's exports — never a file this pass adds: that is naive structure a
-  later reset and refactor replaces. \`gtd land\` refuses a pass that leaves a
-  criterion's ID out of its tests, or whose test imports a file it added
+  later reset and refactor replaces. A pass that leaves a criterion's ID out
+  of its tests, or whose test imports a file it added, is sent back
 - Run \`${env.testCommand}\` and finish only once it is green with every
   criterion's test passing: the next step runs it on your diff and sends a red
   pass back
@@ -1241,9 +1257,29 @@ ${fixFeedbackPrompt}
 - Leave everything uncommitted and finish your turn — do not commit
 `
 
+const steerChoices = (overrule: string): string => `Two ways forward (then run \`gtd land\`):
+- **Steer** — edit \`.gtd/REQUIREMENTS.md\` to redirect the change; the naive
+  pass runs again with a fresh retry budget
+- **Overrule** — ${overrule}
+
+An edit together with an approval counts as steer. Only
+\`.gtd/REQUIREMENTS.md\` is meant to change here: any other edit lands on the
+branch unjudged.
+`
+
 export const seamSteerMessage = (retry: NaiveRetry): string =>
-  isRed(retry)
+  isFault(retry)
     ? `The naive pass failed three times and the retries are spent. The last
+attempt's tests (\`git show ${retry.hash}\`) fall short:
+${retry.fault}
+
+${steerChoices(`land a clean tree to go on with the last attempt as it is:
+  \`seam.check\` runs its suite and the seam judge rules on its shape. Use it
+  when the rule cannot fit this change (tests the globs do not see, or no
+  entry point that existed before). Risk: a criterion may have no test that
+  survives a later refactor — the choice is recorded in history.`)}`
+    : isRed(retry)
+      ? `The naive pass failed three times and the retries are spent. The last
 attempt left the suite red: \`.gtd/FEEDBACK.md\` holds the last run's output; \`git show ${retry.red}\` shows
 the last attempt.
 
@@ -1259,7 +1295,7 @@ An edit together with an approval counts as steer. Only
 \`.gtd/REQUIREMENTS.md\` is meant to change here: any other edit lands on the
 branch unjudged.
 `
-    : seamRejectedMessage(retry)
+      : seamRejectedMessage(retry)
 
 const seamRejectedMessage = (rejection: SeamRejection): string =>
   `The naive pass failed three times and the retries are spent. The judge

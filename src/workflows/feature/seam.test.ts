@@ -12,7 +12,7 @@ import {
   implement,
   judgeSeam,
   naivePass,
-  requireAcceptanceTests,
+  acceptanceFault,
   seamBuild,
   type SeamOutcome,
 } from "./seam.js"
@@ -105,7 +105,7 @@ describe("naivePass", () => {
   })
 })
 
-describe("requireAcceptanceTests", () => {
+describe("acceptanceFault", () => {
   const requirements = "# R\n\n## Acceptance Criteria\n\n- AC-1: adds.\n- AC-2: subtracts.\n"
   const file = (path: string, status: Change["status"], after: string): Change => ({
     path,
@@ -118,16 +118,8 @@ describe("requireAcceptanceTests", () => {
       ...fixtureContext({}),
       matches: globMatches,
       read: (path: string) => (path === ".gtd/REQUIREMENTS.md" ? requirements : undefined),
-      refuse: (message: string) => {
-        throw new Error(message)
-      },
     } as unknown as FlowContext)
-    try {
-      requireAcceptanceTests(".gtd/REQUIREMENTS.md", tip(...changes))
-      return undefined
-    } catch (error) {
-      return (error as Error).message
-    }
+    return acceptanceFault(".gtd/REQUIREMENTS.md", tip(...changes))
   }
   const tagged = 'import { add } from "../src/calc.js"\nit("[AC-1] adds")\nit("[AC-2] subtracts")'
 
@@ -139,7 +131,7 @@ describe("requireAcceptanceTests", () => {
 
   it("names every ID no test of the pass mentions", () => {
     const message = refusal(file("tests/calc.test.ts", "added", 'it("[AC-12] x")'))
-    expect(message).toMatch(/^gtd land: acceptance-tests: /)
+    expect(message).toMatch(/^acceptance-tests: /)
     expect(message).toContain("AC-1, AC-2")
   })
 
@@ -152,7 +144,7 @@ describe("requireAcceptanceTests", () => {
       file("src/naive/helper.ts", "added", "export const h = 1"),
       file("src/naive/helper.test.ts", "added", `import { h } from "./helper.js"\n${tagged}`),
     )
-    expect(message).toMatch(/^gtd land: acceptance-internals: /)
+    expect(message).toMatch(/^acceptance-internals: /)
     expect(message).toContain("src/naive/helper.test.ts → src/naive/helper.ts")
   })
 
@@ -204,6 +196,20 @@ describe("requireAcceptanceTests", () => {
       refusal(
         file("src/subtract.ts", "added", ""),
         file("features/calc.feature", "added", `Given a file "src/subtract.ts"\n${tagged}`),
+      ),
+    ).toBe(undefined)
+  })
+
+  it("skips commented-out imports and takes a package subpath as no repository path", () => {
+    expect(
+      refusal(
+        file("src/naive/helper.ts", "added", ""),
+        file("src/date-fns/format.ts", "added", ""),
+        file(
+          "src/naive/a.test.ts",
+          "added",
+          `// import { h } from "./helper.js"\nimport { format } from "date-fns/format"\n${tagged}`,
+        ),
       ),
     ).toBe(undefined)
   })
@@ -292,6 +298,11 @@ const driveSeam = async (
       if (request.kind === "restart") return Promise.resolve()
       const full = [...stack, request.name].join(".")
       red = full === "seam.check" && redsLeft-- > 0
+      if (full === "seam.check") {
+        if (red) files.set(".gtd/FEEDBACK.md", "FAIL")
+        else files.delete(".gtd/FEEDBACK.md")
+      }
+      if (full === "seam.clear") files.delete(".gtd/FEEDBACK.md")
       names.push(full)
       for (const name of open) inside[name]!.push(full)
       effects[request.name]?.()
@@ -341,6 +352,7 @@ describe("seamBuild", () => {
       "seam.naive",
       "seam.check",
       "seam.steer",
+      "seam.clear",
       "seam.judge",
     ])
     expect(h.outcome).toEqual({ reference: "abc", base: "c-base" })

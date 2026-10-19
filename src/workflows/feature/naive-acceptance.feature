@@ -2,10 +2,10 @@
 Feature: a naive pass ends only when a test names every criterion and the suite is green
 
   `seam.naive` writes behaviour-level acceptance tests, each naming its
-  criterion's ID. `gtd land` refuses a pass whose tests leave an ID out or
-  import a file the pass added; `seam.check` then runs the suite with the
-  kept pass applied, and a red run sends the pass back before the judge
-  sees it.
+  criterion's ID. A pass whose tests leave an ID out or import a file the
+  pass added is sent back; `seam.check` then runs the suite with the kept
+  pass applied, and a red run sends it back too, before the judge sees it.
+  Three failed attempts rest at `seam.steer`.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -40,15 +40,31 @@ Feature: a naive pass ends only when a test names every criterion and the suite 
       export const subtract = (a: number, b: number) => a - b
       """
 
-  Scenario: a pass whose tests leave a criterion's ID out is refused
+  Scenario: a pass whose tests leave a criterion's ID out is sent back, and overruling it runs the check
     Given step "seam.naive" writes "tests/calc.test.ts" with:
       """
       import { add, subtract } from "../src/calc.js"
       it("[AC-1] subtracts", () => expect(subtract(5, 3)).toBe(2))
       """
-    Then driving the process is refused with "acceptance-tests: no test of the naive pass names AC-2"
+    When the process is driven
+    Then the process rests at "seam.steer"
+    And the resting step's content contains "acceptance-tests: no test of the naive pass names AC-2"
 
-  Scenario: a test importing a file the pass added is refused
+    Given step "seam.check" changes nothing
+    When gtd lands
+    And the process is driven
+    Then the process rests at "seam.judge"
+    And the commit subjects end with:
+      """
+      gtd(human): design.gate.answer → seam.naive
+      gtd(agent): seam.naive
+      gtd(agent): seam.naive
+      gtd(agent): seam.naive → seam.steer
+      gtd(human): seam.steer → seam.check
+      gtd(check): seam.check → seam.judge
+      """
+
+  Scenario: a test importing a file the pass added is sent back
     Given step "seam.naive" writes "src/subtract.ts" with:
       """
       export const subtract = (a: number, b: number) => a - b
@@ -59,7 +75,9 @@ Feature: a naive pass ends only when a test names every criterion and the suite 
       it("[AC-1] subtracts", () => expect(subtract(5, 3)).toBe(2))
       it("[AC-2] still adds", () => {})
       """
-    Then driving the process is refused with "src/subtract.test.ts → src/subtract.ts"
+    When the process is driven
+    Then the process rests at "seam.steer"
+    And the resting step's content contains "src/subtract.test.ts → src/subtract.ts"
 
   Scenario: a red suite sends the pass back, and it moves on only once green
     Given step "seam.naive" writes "tests/calc.test.ts" with:

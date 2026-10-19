@@ -732,21 +732,26 @@ goes straight to `implement.*`. After design it runs, in order:
 
 1. `seam.naive` — an agent implements `.gtd/REQUIREMENTS.md` directly,
    breadth-first, with behaviour-level acceptance tests; the turn is a
-   [kept tip](#kept-tips), not landed on the branch. `gtd land` refuses a pass
-   whose added or changed test files (the fixed list `**/*.test.*`,
-   `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**`,
-   `**/__tests__/**`) leave an `AC-<n>` of `.gtd/REQUIREMENTS.md` unnamed
-   (`acceptance-tests`; any mention on a line the pass added counts, `[AC-3] …`
-   in the test name is the convention), or that import a non-test file the pass
-   added (`acceptance-internals`: the string a `from`, `import`, `require(` or
-   `mock(` takes, relative ones resolved from the test's directory, `@/`- or
-   `~/`-aliased ones matching the path's end; a computed import goes unseen, and
-   `.feature` and `.snap` files are not read for imports).
+   [kept tip](#kept-tips), not landed on the branch. A pass whose added or
+   changed test files (the fixed list `**/*.test.*`, `**/*.spec.*`,
+   `**/*.feature`, `**/tests/**`, `**/test/**`, `**/__tests__/**`) leave an
+   `AC-<n>` of `.gtd/REQUIREMENTS.md` unnamed (`acceptance-tests`; any mention
+   on a line the pass added counts, `[AC-3] …` in the test name is the
+   convention), or that import a non-test file the pass added
+   (`acceptance-internals`: the string a `from`, `import`, `require(` or `mock(`
+   takes, outside comments; relative ones resolved from the test's directory,
+   `@/`-, `~/`- or `#`-aliased ones matching the path's end, others only as the
+   exact path; a computed import goes unseen, and `.feature` and `.snap` files
+   are not read for imports) runs `seam.naive` again, told why and to pick the
+   attempt up. Tests outside those globs never count: such a project reaches
+   `seam.steer` and overrules there.
 2. `seam.check` — runs [`testCommand`](#the-bundled-workflows-settings) with the
-   kept pass applied to the tree, then puts every path it touches back as `HEAD`
-   has it (so an interrupted run is cleaned up on the next). Red writes
-   `.gtd/FEEDBACK.md` and runs `seam.naive` again, told to pick the last attempt
-   up and fix it; green goes on.
+   kept pass applied to the tree, then resets the tree outside `.gtd/` to `HEAD`
+   (`git checkout HEAD -- :/`, `git clean -fd`, before the run too, so an
+   interrupted one is cleaned up): anything the run wrote that is not ignored, a
+   new snapshot included, is dropped. Red writes `.gtd/FEEDBACK.md` and runs
+   `seam.naive` again, told to pick the last attempt up and fix it; green goes
+   on.
 3. `seam.judge` — a judge rules on the shape of that diff (see
    [Judges](#judges)): `land`, `refactor-first` or `reject`.
 4. `land` goes straight to `implement.*`. `refactor-first` runs the refactor and
@@ -756,8 +761,8 @@ goes straight to `implement.*`. After design it runs, in order:
    review (`refactor.build.review.*`). The review's sign-off is the approval; no
    `Gtd-Approved:` trailer is recorded. Strays whose content cannot be read rest
    at `seam.by-hand`, with no refactor slice; a clean `gtd land` continues.
-   `reject` discards the pass and runs `seam.naive` again. Rejects and red
-   checks share one budget: two retries, then `seam.steer`.
+   `reject` discards the pass and runs `seam.naive` again. Rejects, test faults
+   and red checks share one budget: two retries, then `seam.steer`.
 5. `implement.*` — one build turn that reads the kept pass as material only,
    then the health loop (`implement.health.*`, `implement.fix.suite.fixing`) and
    `implement.closing`, which removes `.gtd/REQUIREMENTS.md`. The turn is asked
@@ -843,12 +848,14 @@ missing or unreadable tier means `high`. The design gate's landing records
 `Gtd-Mark: risk-tier=<low|high>` and one `Gtd-Mark: production-signal=…` per
 signal; no step is added.
 
-A third failed attempt — a `reject` or a red `seam.check` — rests at
-`seam.steer`. Two ways forward, then `gtd land`:
+A third failed attempt — a `reject`, a test fault or a red `seam.check` — rests
+at `seam.steer`. Two ways forward, then `gtd land`:
 
 - **Steer** — edit `.gtd/REQUIREMENTS.md`; `seam.naive` runs again with a fresh
   retry budget. An edit together with an approval counts as steer.
-- **Overrule** — land a clean tree. After a `reject` the implementation is built
+- **Overrule** — land a clean tree. After a test fault the last attempt goes on
+  to `seam.check` as it is, with a fresh retry budget: **a criterion may have no
+  test that survives a refactor**. After a `reject` the implementation is built
   against the last attempt with no refactor: **overrule ships the seam the judge
   objected to**, unaddressed. After a red check the last attempt goes on to
   `seam.judge` as it is, with a fresh retry budget: **its acceptance tests never
@@ -858,9 +865,9 @@ A third failed attempt — a `reject` or a red `seam.check` — rests at
 After either, `seam.clear` removes a red check's `.gtd/FEEDBACK.md`.
 
 **Upgrading:** finish or `gtd abandon` any process that has landed a
-`seam.naive` turn: replay now expects `seam.check` after it, and re-checks the
-turn's acceptance tests. One resting at `seam.naive` or earlier keeps replaying;
-its next naive turn needs ID-tagged tests.
+`seam.naive` turn: replay now expects `seam.check` (or, for a turn whose tests
+fall short, another `seam.naive`) after it. One resting at `seam.naive` or
+earlier keeps replaying; its next naive turn needs ID-tagged tests.
 
 The [`seamAllow`](#the-bundled-workflows-settings) setting is the judge's
 allowlist. `GTD_FLAG_RISK_TIER` is recorded as `flag_risk_tier` when a process
