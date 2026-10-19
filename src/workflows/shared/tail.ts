@@ -13,6 +13,7 @@ import {
   fixCheck,
   fixQuality,
   fixRisks,
+  lensModel,
   QUALITY,
   REVIEW,
   reviewing,
@@ -33,10 +34,11 @@ export const qualityLap = (
   guard?: Guard,
   lenses?: readonly string[],
   base?: string,
+  lensModels?: Readonly<Record<string, string>>,
 ): Promise<"clean" | "findings"> =>
   kit.qualityLap(
     lenses ?? kit.lensesOf(vars.qualityReviews ?? ""),
-    guarded((lens: string) => reviewQuality(lens, base), guard),
+    guarded((lens: string) => reviewQuality(lens, base, lensModel(lens, lensModels)), guard),
     QUALITY,
   )
 
@@ -79,6 +81,8 @@ export interface TailOptions {
   readonly guard?: Guard | undefined
   /** Quality-lap lenses; default `lensesOf(vars.qualityReviews)`. */
   readonly lenses?: readonly string[] | undefined
+  /** Per-lens model hints; default `lensModelsOf(vars.qualityReviews)`. A lens without one runs on its default. */
+  readonly lensModels?: Readonly<Record<string, string>> | undefined
   /** `false` leaves the escalation's human rests unguarded; default `true`. */
   readonly guardRests?: boolean | undefined
   /** The commit the quality lap reviews from; absent: `start()`. */
@@ -149,7 +153,7 @@ const tailForm = <T>(
 
 const runTail = <T>(finish: Finish<T>, options: TailOptions): Promise<T> =>
   scope("build", async () => {
-    const { guard, lenses, lensBase, rules } = options
+    const { guard, lenses, lensBase, lensModels, rules } = options
     // Only undefined defaults: a null reaches every escalation as falsy, as it reaches review's.
     const guardRests = options.guardRests === undefined ? true : options.guardRests
     const escalations: EscalationCount = { rounds: 0 }
@@ -163,7 +167,7 @@ const runTail = <T>(finish: Finish<T>, options: TailOptions): Promise<T> =>
     if (options.fixFirst) await repair()
     else if (!options.green) await healthy(fix, { escalations, guard, guardRests, rules })
     // The lap runs once a tail: after its findings are fixed, review follows.
-    if ((await qualityLap(guard, lenses, lensBase)) === "findings") {
+    if ((await qualityLap(guard, lenses, lensBase, lensModels)) === "findings") {
       if (await fixQualityFindings(escalations, guard, guardRests, rules)) {
         await healthy(fix, { escalations, guard, guardRests, rules })
       } else await repair()

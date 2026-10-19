@@ -124,3 +124,16 @@ describe("the feature workflow's own steps declare skills — a step's rendered 
     expect(request.options).toMatchObject({ file: ".gtd/TODO.md" })
   })
 })
+
+describe("the feature workflow's planning steps run on the planner model", () => {
+  it("design triage defaults to smart and follows plannerModel", async () => {
+    const plain = await captureStep(() => steps.triage("base"), { scope: "design" })
+    const set = await captureStep(() => steps.triage("base"), {
+      scope: "design",
+      env: { plannerModel: "opus" },
+    })
+    if (plain.kind !== "agent" || set.kind !== "agent") throw new Error("unreachable")
+    expect(plain.options.model).toBe("smart")
+    expect(set.options.model).toBe("opus")
+  })
+})

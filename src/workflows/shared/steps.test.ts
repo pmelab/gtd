@@ -107,3 +107,62 @@ describe("the bundled workflow's steps declare skills — a bundled step's rende
     expect(carried.prompt).toContain("Carry-over: commit `abc1234`")
   })
 })
+
+describe("the bundled workflow's model hints", () => {
+  const modelOf = async (
+    fn: () => Promise<void>,
+    context: Parameters<typeof captureStep>[1] = {},
+  ): Promise<string | undefined> => {
+    const request = await captureStep(fn, { scope: "build", ...context })
+    if (request.kind !== "agent") throw new Error(`expected an agent step, got ${request.kind}`)
+    return request.options.model
+  }
+
+  it.each([
+    ["correctness", "smart"],
+    ["owasp-security", "smart"],
+    ["spec-challenge", "smart"],
+    ["conventions", "base"],
+    ["ponytail-review", "base"],
+    ["test-audit", "base"],
+    ["my-lens", "smart"],
+  ])("lens %s defaults to %s", async (lens, model) => {
+    expect(await modelOf(() => steps.reviewQuality(lens))).toBe(model)
+  })
+
+  it("a lens's default follows the planner or coder setting it stands for", async () => {
+    const env = { plannerModel: "opus", coderModel: "sonnet" }
+    expect(await modelOf(() => steps.reviewQuality("correctness"), { env })).toBe("opus")
+    expect(await modelOf(() => steps.reviewQuality("conventions"), { env })).toBe("sonnet")
+  })
+
+  it("a qualityReviews hint wins over the lens's default", async () => {
+    const vars = { qualityReviews: "correctness=base, conventions=opus" }
+    expect(await modelOf(() => steps.reviewQuality("correctness"), { vars })).toBe("base")
+    expect(await modelOf(() => steps.reviewQuality("conventions"), { vars })).toBe("opus")
+  })
+
+  it("a model passed in wins over the qualityReviews hint", async () => {
+    const vars = { qualityReviews: "correctness=base" }
+    expect(
+      await modelOf(() => steps.reviewQuality("correctness", undefined, "haiku"), { vars }),
+    ).toBe("haiku")
+  })
+
+  it("a hinted lens keeps its plain scope name", async () => {
+    const vars = { qualityReviews: "correctness=base" }
+    const request = await captureStep(() => steps.reviewQuality("correctness"), {
+      scope: "build",
+      vars,
+    })
+    if (request.kind !== "agent") throw new Error("unreachable")
+    expect(request.name).toBe("quality.correctness.reviewing")
+    expect(request.prompt).toContain("code-review-and-quality")
+  })
+
+  it("the fix loop runs on the coder model, base by default", async () => {
+    expect(await modelOf(() => steps.fixCheck())).toBe("base")
+    expect(await modelOf(() => steps.fixQuality())).toBe("base")
+    expect(await modelOf(() => steps.fixCheck(), { env: { coderModel: "sonnet" } })).toBe("sonnet")
+  })
+})

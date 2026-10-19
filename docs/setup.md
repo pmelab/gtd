@@ -123,6 +123,12 @@ queue file exists whether or not anything can load it — a typo costs a whole
 turn, silently. Blanking the whole var, in contrast, does switch the lap off
 outright.
 
+An entry may name the model its turn runs on, `<lens>=<model>` —
+`"correctness=smart, conventions=smart"` runs `conventions` on the planner's
+hint instead of its default `base`. See
+[Configuration](configuration.md#the-bundled-workflows-settings) for each lens's
+default.
+
 `qualityReviews` and `config.skills` keys `build.quality.<lens>` are a pair, not
 alternatives: `qualityReviews` decides how many turns the lap runs (one per
 lens, in order), and each lens is its own scope, so its own skills. By default a

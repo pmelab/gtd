@@ -1,5 +1,5 @@
-import { changesSince, env, human, scope, type ScopeAccess } from "../../flows/index.js"
-import { removedAssertions } from "../../workflow-kit/index.js"
+import { changesSince, env, human, scope, vars, type ScopeAccess } from "../../flows/index.js"
+import { lensModelsOf, removedAssertions } from "../../workflow-kit/index.js"
 import * as t from "./text.js"
 
 // The bundled workflow's single steps. A step's name is relative to the
@@ -66,15 +66,28 @@ export const builtInLenses: Readonly<Record<string, BuiltInLens>> = {
   "spec-challenge": { skills: [], brief: t.specChallengeBrief },
 }
 
+/** Lenses that run on the coder model unless hinted; every other lens runs on the planner's. */
+const coderLenses: ReadonlySet<string> = new Set(["conventions", "ponytail-review", "test-audit"])
+
+/** `lens`'s model: its hint in `hints`, else the planner or coder model its default role names. */
+export const lensModel = (
+  lens: string,
+  hints: Readonly<Record<string, string>> = lensModelsOf(vars.qualityReviews ?? ""),
+): string => hints[lens] ?? (coderLenses.has(lens) ? coder() : planner())
+
 /** One quality review through `lens`; each lens is its own scope, so its own conversation and skills. */
-export const reviewQuality = (lens: string, base?: string): Promise<void> =>
+export const reviewQuality = (
+  lens: string,
+  base?: string,
+  model: string = lensModel(lens),
+): Promise<void> =>
   t.agentWithSkills(
     `quality.${lens}.reviewing`,
     t.buildQualityReviewingPrompt(lens, builtInLenses[lens]?.brief, base),
     {
       label: "Reviewing (one quality lens)",
       file: QUALITY,
-      model: planner(),
+      model,
       system: t.reviewerSystem(),
       allowEmpty: true,
     },

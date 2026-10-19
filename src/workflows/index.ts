@@ -19,7 +19,7 @@ export {
   tail,
   type TailOptions,
 } from "./shared/tail.js"
-export { lensesOf } from "../workflow-kit/index.js"
+export { lensesOf, lensModelsOf } from "../workflow-kit/index.js"
 export * from "./feature/steps.js"
 export * from "./feature/criteria.js"
 export * from "./feature/planning.js"

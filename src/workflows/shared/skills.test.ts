@@ -107,4 +107,11 @@ describe("the bundled workflow's skills export", () => {
         .sort(),
     ).toEqual(["build.quality.correctness", "build.quality.my-lens"])
   })
+
+  it("keys a hinted entry by its lens alone, with the lens's own skills", () => {
+    const custom = skills({ ...defaults, qualityReviews: "my-lens=smart, correctness = base" })
+    expect(custom["build.quality.my-lens"]).toEqual(["my-lens"])
+    expect(custom["build.quality.correctness"]).toEqual(["code-review-and-quality"])
+    expect(Object.keys(custom).some((k) => k.includes("="))).toBe(false)
+  })
 })

@@ -208,18 +208,23 @@ describe("the hand-off review", () => {
 })
 
 const prompts: string[] = []
+const models: (string | undefined)[] = []
 
 describe("the quality lap's lenses", () => {
   const lap = async (run: () => Promise<unknown>, vars: Record<string, string> = {}) => {
     const log: string[] = []
     prompts.length = 0
+    models.length = 0
     installContext(
       fixtureContext(
         { vars },
         {
           step: (request: StepRequest) => {
             if (request.kind !== "restart") log.push(request.name)
-            if (request.kind === "agent") prompts.push(request.prompt)
+            if (request.kind === "agent") {
+              prompts.push(request.prompt)
+              models.push(request.options.model)
+            }
             return Promise.resolve()
           },
           pushScope: () => undefined,
@@ -277,6 +282,24 @@ describe("the quality lap's lenses", () => {
     expect(prompts).toHaveLength(1)
     expect(prompts[0]).toContain("from `BASE-SHA`")
     expect(prompts[0]).not.toContain("from `R`")
+  })
+
+  it("each lens runs on its qualityReviews hint, else its default", async () => {
+    await lap(() => qualityLap(), { qualityReviews: "correctness=base, conventions, my-lens" })
+    expect(models).toEqual(["base", "base", "smart"])
+  })
+
+  it("tail's lensModels replace the qualityReviews hints", async () => {
+    await lap(
+      () =>
+        tail(() => Promise.resolve(), {
+          green: true,
+          lenses: ["correctness", "conventions"],
+          lensModels: { conventions: "opus" },
+        }),
+      { qualityReviews: "correctness=base" },
+    )
+    expect(models).toEqual(["smart", "opus"])
   })
 
   it("tail passes lenses to its lap and a guard after each lens turn", async () => {
