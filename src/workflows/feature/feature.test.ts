@@ -50,7 +50,12 @@ const CALC = "export const add = (a: number, b: number) => a + b\n"
 const naivePlanned = (flag: "0" | "1") => {
   const repo = testRepo({
     workflow: CONFIG_SCAFFOLD,
-    env: { GTD_QUALITYREVIEWS: "", GTD_FLAG_NAIVE_PASS: flag, GTD_FLAG_RISK_TIER: "0" },
+    env: {
+      GTD_QUALITYREVIEWS: "",
+      GTD_REFACTORQUALITYREVIEWS: "",
+      GTD_FLAG_NAIVE_PASS: flag,
+      GTD_FLAG_RISK_TIER: "0",
+    },
   })
   repo.write("src/calc.ts", CALC)
   repo.commit("feat: add calculator")
@@ -59,6 +64,40 @@ const naivePlanned = (flag: "0" | "1") => {
 }
 
 describe("planAndBuild on the naive pass", () => {
+  it("a refactor that carried the whole feature: the empty implement turn passes and the review covers the whole change", async () => {
+    const repo = naivePlanned("1")
+    const SUBTRACT = `${CALC}export const subtract = (a: number, b: number) => a - b\n`
+    expect(
+      (
+        await repo.drive({
+          unwind: () => undefined,
+          "start-gate.check": () => undefined,
+          "design.triage": (_, r) =>
+            r.write(".gtd/REQUIREMENTS.md", "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n"),
+          "design.gate.answer": () => undefined,
+          "seam.naive": (_, r) => r.write("src/calc.ts", SUBTRACT),
+          "seam.judge": () => '[{"id":"shape","answer":"refactor-first","p":0.9}]',
+          "refactor.deriving": runsItsScript,
+          "refactor.building": (_, r) => r.write("src/calc.ts", SUBTRACT),
+          "refactor.health.check": () => undefined,
+          "refactor.closing": runsItsScript,
+          "refactor.build.review.reviewing": (_, r) => r.write(".gtd/REVIEW.md", review()),
+        })
+      ).state,
+    ).toBe("refactor.build.review.await-review")
+    await repo.land()
+    const rest = await repo.drive({
+      "refactor.build.review.closing": runsItsScript,
+      "implement.building": () => undefined,
+      "implement.health.check": () => undefined,
+      "implement.closing": runsItsScript,
+      "build.review.reviewing": (_, r) => r.write(".gtd/REVIEW.md", review()),
+    })
+    expect(rest.state).toBe("build.review.await-review")
+    const base = (await repo.gtd("base")).stdout.trim()
+    expect(repo.show(base, "src/calc.ts")).toBe(CALC)
+  })
+
   it("after land, feedback rests next at design.triage, then implement.building, never seam.naive", async () => {
     const repo = naivePlanned("1")
     const requirements = (_: unknown, r: typeof repo) =>
@@ -141,7 +180,12 @@ describe("afterTail feedback lap", () => {
     prompts.length = 0
     const repo = testRepo({
       workflow: TAIL,
-      env: { GTD_QUALITYREVIEWS: "", GTD_FLAG_NAIVE_PASS: flag, GTD_FLAG_RISK_TIER: "0" },
+      env: {
+        GTD_QUALITYREVIEWS: "",
+        GTD_REFACTORQUALITYREVIEWS: "",
+        GTD_FLAG_NAIVE_PASS: flag,
+        GTD_FLAG_RISK_TIER: "0",
+      },
     })
     repo.write("src/calc.ts", CALC)
     repo.commit("feat: add calculator")

@@ -179,7 +179,7 @@ describe("seamBuild", () => {
 
   it("refactor-first runs the reviewed refactor in slice refactor and resolves HEAD after it", async () => {
     const h = await driveSeam("refactor-first")
-    expect(h.outcome).toEqual({ reference: "abc", base: "after-refactor" })
+    expect(h.outcome).toEqual({ reference: "abc", base: "after-refactor", refactored: true })
     expect(h.slices).toEqual(["refactor"])
     expect(h.inside.refactor![0]).toBe("refactor.deriving")
     expect(h.inside.refactor).toContain("refactor.build.review.closing")
@@ -221,6 +221,7 @@ describe("seamBuild", () => {
 })
 
 describe("implement", () => {
+  let lastOptions: Extract<StepRequest, { kind: "agent" }>["options"] | undefined
   const building = async (
     reference: string | undefined,
     tier?: "low" | "high",
@@ -228,6 +229,7 @@ describe("implement", () => {
     call: () => Promise<void> = () => implement({ reference, tier, amend }),
   ) => {
     const requests: StepRequest[] = []
+    lastOptions = undefined
     installContext(
       fixtureContext(
         {},
@@ -245,8 +247,23 @@ describe("implement", () => {
     await call()
     const request = requests.find((r) => r.kind === "agent" && r.name === "building")
     if (request?.kind !== "agent") throw new Error("no building turn")
+    lastOptions = request.options
     return request.prompt
   }
+
+  it("after a refactor, lets an empty turn complete the step and says so", async () => {
+    const prompt = await building("abc", undefined, undefined, () =>
+      implement({ reference: "abc", afterRefactor: true }),
+    )
+    expect(lastOptions?.allowEmpty).toBe(true)
+    expect(prompt).toMatch(/change\s+nothing and finish your turn/)
+  })
+
+  it("without a refactor, an empty turn stays an attempt", async () => {
+    const prompt = await building("abc")
+    expect(lastOptions?.allowEmpty).toBeUndefined()
+    expect(prompt).not.toMatch(/change\s+nothing/)
+  })
 
   it("the deprecated positional form renders the same prompt as the options form", async () => {
     const modern = await building("abc", "low")

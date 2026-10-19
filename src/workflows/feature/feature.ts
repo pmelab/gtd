@@ -1,4 +1,14 @@
-import { changes, head, human, revertScript, run, slice, start, vars } from "../../flows/index.js"
+import {
+  changes,
+  changesSince,
+  head,
+  human,
+  revertScript,
+  run,
+  slice,
+  start,
+  vars,
+} from "../../flows/index.js"
 import { gate } from "../shared/health.js"
 import { shipped } from "../shared/options.js"
 import { FEEDBACK } from "../shared/steps.js"
@@ -6,7 +16,7 @@ import { refusePendingHandOff } from "../shared/tail.js"
 import * as t from "../shared/text.js"
 import { packages } from "./packages.js"
 import { architecture, design } from "./planning.js"
-import { buildTail, reUnwind, type ReviewOutcome } from "./review.js"
+import { buildTail, isCode, reUnwind, type ReviewOutcome } from "./review.js"
 import { implement, seamBuild } from "./seam.js"
 import { recordRisk, riskTierOn } from "./tier.js"
 
@@ -54,11 +64,13 @@ const naivePlanAndBuild = async (firstBase: string): Promise<void> => {
   const tier = riskTierOn() ? recordRisk() : undefined
   const seam = await seamBuild(firstBase)
   await slice("feature", async () => {
-    await implement({ reference: seam.reference, tier })
-    await featureFeedback(
-      await buildTail(seam.base, { green: true, lensBase: seam.base }),
-      seam.base,
-    )
+    await implement({ reference: seam.reference, tier, afterRefactor: seam.refactored })
+    // An empty feature slice: the refactor carried the feature, so review the whole change.
+    const base =
+      seam.refactored === true && !changesSince(seam.base).some((c) => isCode(c.path))
+        ? firstBase
+        : seam.base
+    await featureFeedback(await buildTail(base, { green: true, lensBase: base }), base)
   })
 }
 

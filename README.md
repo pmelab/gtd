@@ -587,9 +587,11 @@ directly. A judge checks whether it changed anything outside the expected set
 change is refactored first, in its own slice with its own quality lap
 (`refactorQualityReviews`) and review, before the feature is implemented and
 reviewed; a wrong approach is retried twice, then rests for you to steer or
-overrule it. `gtd slices` lists the `refactor` and `feature` slices. Feedback at
-the feature review re-runs design and the implementation, never the naive pass;
-feedback at the refactor review re-runs the refactor, never design; a
+overrule it. `gtd slices` lists the `refactor` and `feature` slices. A refactor
+that already carried the whole feature leaves the implementation nothing to do:
+its empty turn passes, and the feature review covers the whole change. Feedback
+at the feature review re-runs design and the implementation, never the naive
+pass; feedback at the refactor review re-runs the refactor, never design; a
 refactor-review change the refactor cannot build is refused, and the only way
 out is `gtd abandon`. A process from 27.5.0 or later whose judge ruled
 `refactor-first` must `gtd abandon` too. Each slice's quality lap reviews only
