@@ -47,10 +47,14 @@ export const buildFeature = async (firstBase: string): Promise<void> => {
       tier,
       afterRefactor: seam.refactored,
       naive: seam.land === true ? seam.reference : undefined,
+      rebuild: seam.rebuild,
     })
-    // An empty feature slice: the refactor carried the feature, so the lap covers the whole change.
+    // A feature slice with no code beyond the carried-over tests: the refactor carried the
+    // feature, so the lap covers the whole change.
+    const carried = seam.rebuild?.acceptance?.tests ?? []
     const base =
-      seam.refactored === true && !changesSince(seam.base).some((c) => isCode(c.path))
+      seam.refactored === true &&
+      !changesSince(seam.base).some((c) => isCode(c.path) && !carried.includes(c.path))
         ? firstBase
         : seam.base
     await tail(settleQuality, { green: true, lensBase: base })

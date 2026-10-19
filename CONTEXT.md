@@ -271,6 +271,17 @@ the strays show it.
 **Seam judge**: The `seam.judge` step: rules `land`, `refactor-first` or
 `reject` on a naive pass's strays.
 
+**Refactor note**: `.gtd/REFACTOR-NOTE.md`, written by `seam.note` from the
+whole [naive pass](#naive-pass) on `refactor-first`: which seams the refactor
+opens and the shape each takes. Read by the refactor and the
+[rebuild](#rebuild); removed when the implementation closes.
+
+**Rebuild**: The `implement.building` turn after a refactor: the change
+re-implemented on the refactored base, behind a release flag, with the naive
+pass as reference. Refused until its tests carry every criterion ID the naive
+pass's [acceptance tests](#acceptance-test) named. _Avoid_: re-implementation,
+second pass
+
 **Flag mode**: The shipped workflows' `flagMode` process setting: whether a
 project ships changes behind release flags. On by default; off, there is no seam
 judge or refactor, and the naive pass lands as it is. Set explicitly, never

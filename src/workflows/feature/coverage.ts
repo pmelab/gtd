@@ -23,7 +23,7 @@ const COVERING_RETRIES = 2
 
 const frozen = (): void => requireCriteriaFrozen(REQUIREMENTS)
 
-export const green = (): Promise<void> =>
+export const green = (guard?: () => void): Promise<void> =>
   healthy(
     () =>
       t.agentWithSkills("fix.suite.fixing", t.implementFixPrompt(), {
@@ -32,7 +32,13 @@ export const green = (): Promise<void> =>
         model: coder(),
         system: t.builderSystem(),
       }),
-    { guard: frozen, guardRests: false },
+    {
+      guard: () => {
+        frozen()
+        guard?.()
+      },
+      guardRests: false,
+    },
   )
 
 // A budget cut keeps the end, so the files naming a criterion ID go last.

@@ -607,13 +607,18 @@ is sent back while a criterion's ID is missing from its tests, a test imports a
 file it added, or the suite is red on it. A judge checks whether it changed
 anything outside the expected set (tests, steering files; see `seamAllow`).
 Incidental changes land: the pass itself is the implementation, with no rebuild,
-straight through the health loop and the quality lap. A needed seam change is
-refactored first, in its own slice with its own quality lap
-(`refactorQualityReviews`) and review, before the feature is implemented afresh;
-a wrong approach is retried twice, then rests for you to steer or overrule it.
-`gtd slices` lists the `refactor` and `feature` slices. A refactor that already
-carried the whole feature leaves the implementation nothing to do: its empty
-turn passes, and the feature's quality lap covers the whole change. Once the
+straight through the health loop and the quality lap. A needed seam change
+resets: the pass is never applied. An agent reads its whole diff and writes a
+refactor note (`.gtd/REFACTOR-NOTE.md`: which seams, which shape); the seam is
+refactored first, flag-free with the existing suite green, in its own slice with
+its own quality lap (`refactorQualityReviews`) and review; then the feature is
+rebuilt on the refactored base, behind a release flag, with the note and the
+naive diff as reference. The rebuild is refused until its tests carry every
+criterion ID the naive pass's tests named, and the suite must be green with
+them. A wrong approach is retried twice, then rests for you to steer or overrule
+it. `gtd slices` lists the `refactor` and `feature` slices. A refactor that
+already carried the whole feature leaves the rebuild only the carried-over
+tests, and the feature's quality lap covers the whole change. Once the
 implementation is green, a judge checks every criterion ID has a covering test:
 an uncovered one goes back to the agent (twice, then to you) instead of ending
 the feature, and each covered ID is recorded as a `Gtd-Mark: covers=<id>`

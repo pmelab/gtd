@@ -56,6 +56,10 @@ Feature: a refactor-first judgment walks one fixed path to idle
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
       """
+    And step "seam.note" writes ".gtd/REFACTOR-NOTE.md" with:
+      """
+      Seam: the existing code the strays touch.
+      """
     And step "refactor.deriving" runs its script
     When the process is driven
     Then the process rests at "refactor.building"
@@ -106,6 +110,10 @@ Feature: a refactor-first judgment walks one fixed path to idle
       export const add = (a: number, b: number) => op(a, b, 1)
       export const subtract = (a: number, b: number) => op(a, b, -1)
       """
+    And step "implement.building" writes "src/acceptance.test.ts" with:
+      """
+      it("[AC-1] holds", () => {})
+      """
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
     And judge step "implement.coverage" answers:
@@ -125,7 +133,8 @@ Feature: a refactor-first judgment walks one fixed path to idle
       gtd(human): design.gate.answer → seam.naive
       gtd(agent): seam.naive → seam.check
       gtd(check): seam.check → seam.judge
-      gtd(judge): seam.judge → refactor.deriving
+      gtd(judge): seam.judge → seam.note
+      gtd(agent): seam.note → refactor.deriving
       gtd(check): refactor.deriving → refactor.building
       gtd(agent): refactor.building → refactor.health.check
       gtd(check): refactor.health.check → refactor.closing
@@ -140,7 +149,7 @@ Feature: a refactor-first judgment walks one fixed path to idle
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"
-    And the commit "gtd(judge): seam.judge → refactor.deriving" has a body containing "\"answer\":\"refactor-first\""
+    And the commit "gtd(judge): seam.judge → seam.note" has a body containing "\"answer\":\"refactor-first\""
     And no commit body contains "Gtd-Approved:"
     And the output lines of gtd "slices" start with:
       """
