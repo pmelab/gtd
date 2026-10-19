@@ -44,7 +44,8 @@ export type Turn = {
   access?: AccessDef
 }
 
-export type TurnEnd = { ok: true } | { ok: false; why: string }
+// `isLost`: the scope's subagent no longer takes messages.
+export type TurnEnd = { ok: true } | { ok: false; why: string; isLost?: true }
 
 export type Io = {
   next(): Promise<Beat>
@@ -138,38 +139,49 @@ async function message(io: Io, b: Beat, beat: number, judged: string | undefined
 }
 
 async function agent(io: Io, b: Beat, landTurn: string | undefined): Promise<Acted> {
-  const memory = memoryOf(b)
-  const t =
-    landTurn === memory
-      ? ({ ok: true } as const)
-      : await io.turn({
-          memory,
-          resume: isTrue(b.session?.resume),
-          prompt: b.content ?? "",
-          label: b.label,
-          model: b.model || undefined,
-          system: b.system || undefined,
-          skills: b.skills ?? [],
-          scope: memory.split("#")[0]!,
-          access: b.access,
-        })
+  const turn = turnOf(b)
+  const t = landTurn === turn.memory ? ({ ok: true } as const) : await io.turn(turn)
   if (!t.ok) return failed(b, t.why)
-  return b.validate ? validated(io, b, b.validate, memory) : {}
+  return b.validate ? validated(io, b, b.validate) : {}
 }
 
 // The step's own validator; its findings go back to the same conversation.
-async function validated(io: Io, b: Beat, validate: string, memory: string): Promise<Acted> {
+async function validated(io: Io, b: Beat, validate: string): Promise<Acted> {
   for (let fixes = 0; ; fixes++) {
     const v = await io.check(validate)
     if (v.ok) return {}
     if (fixes >= MAX_FIXES)
       return failed(b, `validation still failing after ${fixes} fixes\n${v.out}`)
-    const f = await io.resume(memory, v.out)
+    const f = await followUp(io, b, v.out)
     if (!f.ok) return failed(b, f.why)
   }
 }
 
+// A conversation whose subagent is gone starts over with the step's prompt
+// and the follow-up, rather than failing a step a fresh subagent can finish.
+async function followUp(io: Io, b: Beat, text: string): Promise<TurnEnd> {
+  const turn = turnOf(b)
+  const r = await io.resume(turn.memory, text)
+  if (r.ok || !r.isLost) return r
+  return io.turn({ ...turn, resume: false, prompt: `${turn.prompt}\n\n${text}` })
+}
+
 const memoryOf = (b: Beat) => b.memory ?? b.session?.id ?? b.state ?? "root"
+
+function turnOf(b: Beat): Turn {
+  const memory = memoryOf(b)
+  return {
+    memory,
+    resume: isTrue(b.session?.resume),
+    prompt: b.content ?? "",
+    label: b.label,
+    model: b.model || undefined,
+    system: b.system || undefined,
+    skills: b.skills ?? [],
+    scope: memory.split("#")[0]!,
+    access: b.access,
+  }
+}
 
 // A prompt beat whose turn wrote outside its access gets one recovery turn
 // with the refusal text; a second refusal is an error, not another loop.
@@ -201,11 +213,10 @@ async function recover(
   verdict: string | undefined,
   text: string,
 ): Promise<Stop | undefined> {
-  const memory = memoryOf(b)
-  const r = await io.resume(memory, text)
+  const r = await followUp(io, b, text)
   if (!r.ok) return { kind: "error", text: r.why, ...where(b) }
   if (b.validate) {
-    const v = await validated(io, b, b.validate, memory)
+    const v = await validated(io, b, b.validate)
     if (v.stop) return v.stop
   }
   return land(io, b, verdict, false)

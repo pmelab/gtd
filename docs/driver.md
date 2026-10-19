@@ -474,6 +474,9 @@ falls back to the `gtd` on your `PATH`.
   scope fresh, as the minimal driver does when a remembered session is gone. A
   change to that scope's skills or system starts a fresh subagent on the next
   beat, losing the scope's earlier conversation, and says so in the transcript.
+  When a scope's subagent is gone mid-step, a validator's findings or an access
+  refusal go to a fresh subagent together with the step's prompt, and the gone
+  subagent's task is stopped, rather than failing the step.
 - A step's `system` becomes the subagent's whole system prompt, and its `model`
   the subagent's model. Each subagent sees only its scope's `skills`.
 - **The mod's subagents run with `bypassPermissions`**, the equivalent of the
