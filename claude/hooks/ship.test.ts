@@ -990,6 +990,14 @@ describe("ship per slice", () => {
     expect(prompts.slice(0, 2).join("")).not.toContain("PLAIN PROSE")
   })
 
+  test("the format types each commit by its diff, never by its slice's name", async () => {
+    const prompts: string[] = []
+    const { io } = repo(base)
+    io.complete = async (p) => (prompts.push(p), "feat: x")
+    await ship(io, false, "commits")
+    expect(prompts[0]?.replace(/\s+/g, " ")).toContain("never from the slice's name")
+  })
+
   test.each([
     ["unreadable JSON", { out: "{nope" }],
     ["schema 2", { out: JSON.stringify({ schema: 2, slices: [] }) }],

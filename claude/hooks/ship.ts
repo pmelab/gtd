@@ -103,6 +103,10 @@ reader scanning 'git log' has seconds, and the diff is right there.
   perf, docs, test, build, ci, chore. Lowercase summary, imperative mood, no
   trailing period, 72 characters or fewer. The scope is optional — include one
   only when a single part of the codebase clearly owns the change.
+- Pick the type from what the diff changes, never from the slice's name: a
+  'refactor' slice that adds or changes anything a user can reach (an
+  exported API, a config key, a CLI flag, docs describing one) is 'feat' or
+  'fix' — only those cut the release that ships it.
 - Then a blank line.
 - Then the body, if the subject does not already say everything — and often
   it does, so drop the body rather than padding it. Ten lines is a lot.
