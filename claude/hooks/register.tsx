@@ -116,7 +116,8 @@ async function send($: $, agentId: string, text: string) {
 }
 
 // A subagent that no longer takes messages can leave its task listed with a
-// frozen timer: stop it, and forget it as the scope's conversation.
+// frozen timer: stop it, and forget it as the scope's conversation. It must
+// not stay `inflight` either, or a reload would land a turn it never ran.
 async function forget($: $, memory: string, agentId: string) {
   $.ui.log(lostLine(memory.split("#")[0]!))
   accesses.delete(agentId)
@@ -125,11 +126,13 @@ async function forget($: $, memory: string, agentId: string) {
     if (rest[memory]?.agentId === agentId) delete rest[memory]
     return rest
   })
+  await update($, run, (r) => (r.inflight?.agentId === agentId ? { ...r, inflight: undefined } : r))
   try {
     await $.tool.call({ tool: "TaskStop", task_id: agentId })
   } catch {
     // already gone from the task list
   }
+  ended.delete(agentId)
 }
 
 async function settle($: $, end: TurnEnd) {
@@ -221,6 +224,7 @@ function io($: $): Io {
       const end = id ? await send($, id, text) : undefined
       if (end) return end
       if (id) await forget($, memory, id)
+      else $.ui.log(lostLine(memory.split("#")[0]!))
       return { ok: false, isLost: true, why: `no live subagent for ${memory}` }
     },
     progress: (beat, b) => {

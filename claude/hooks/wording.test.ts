@@ -42,7 +42,7 @@ describe("wording", () => {
 })
 
 test("lostLine names the scope", () => {
-  expect(lostLine("build.review")).toBe("build.review: subagent lost — starting a fresh one")
+  expect(lostLine("build.review")).toBe("build.review: subagent lost")
 })
 
 test("restartLine names the scope and the cause", () => {
