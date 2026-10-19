@@ -376,6 +376,11 @@ describe("summaryPrompt", () => {
   type prefix alone (\`feat!:\`/\`refactor!:\`) is NOT enough: this repo's
   own commit-analyzer has missed that marker before, cutting no release
   until a follow-up commit carried the literal footer instead
+- If the process was started for an issue — its entry commit or
+  \`.gtd/REQUIREMENTS.md\` names one as \`#N\`, \`owner/repo#N\` or an issue
+  URL — end the message with a literal \`Closes #N\` footer per issue
+  (\`Closes owner/repo#N\` for another repository). Name only an issue the
+  work resolves, never one it merely mentions
 
 The process's entry commit is \`e1\`. The human contributed at these commits,
 oldest to newest:

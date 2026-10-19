@@ -12,6 +12,7 @@ import {
   shipMode,
   stackLine,
   THROWN,
+  withCloses,
 } from "./ship"
 import type { Ran, ShipIo, Shipped } from "./ship"
 
@@ -515,6 +516,84 @@ describe("ship", () => {
     )
   })
 
+  test("carries the issue a commit closes into the pull-request body", async () => {
+    const { io, calls } = repo(
+      {
+        ...feature,
+        [`git log --no-merges --reverse --format=%H%n%B%n--- ${"m".repeat(40)}..HEAD`]: {
+          out: `${TIP}\nfeat: add x\n\nwhy\n\nCloses #384\n---\n`,
+        },
+      },
+      ["feat: add x\n\nwhy\n\nCloses #384", "feat: add x\n\n## Motivation\n\ntext"],
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(calls.find((c) => c.argv.startsWith("gh pr create"))?.stdin).toBe(
+      "## Motivation\n\ntext\n\nCloses #384\n",
+    )
+  })
+
+  test("an open pull request gains the issue new commits close, even with NO-UPDATE", async () => {
+    const pr = { number: 7, body: "standing", url: "https://github.com/o/r/pull/7", state: "OPEN" }
+    const M = "m".repeat(40)
+    const { io, calls } = repo(
+      {
+        ...feature,
+        "gtd summary": { code: 1 },
+        "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": {
+          out: JSON.stringify(pr),
+        },
+        [`git rev-list --count ${M}..HEAD`]: { out: "2" },
+        [`git log --no-merges --format=%B%n--- ${M}..HEAD`]: {
+          out: "fix: x\n\nCloses #384\n---\n",
+        },
+      },
+      ["NO-UPDATE"],
+    )
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(calls.find((c) => c.argv.startsWith("gh pr edit 7"))?.stdin).toBe(
+      "standing\n\nCloses #384",
+    )
+  })
+
+  test("an open pull request with nothing new still gains the issue its branch closes", async () => {
+    const pr = { number: 7, body: "standing", url: "https://github.com/o/r/pull/7", state: "OPEN" }
+    const M = "m".repeat(40)
+    const { io, calls } = repo({
+      ...feature,
+      "gtd summary": { code: 1 },
+      "gh pr view feat/x --json number,title,body,url,state,baseRefName,mergedAt": {
+        out: JSON.stringify(pr),
+      },
+      [`git rev-list --count ${M}..HEAD`]: { out: "0" },
+      [`git log --no-merges --format=%B%n--- ${M}..HEAD`]: { out: "fix: x\n\nCloses #384\n---\n" },
+    })
+    expect(await ship(io, false)).toMatchObject({ ok: true })
+    expect(calls.find((c) => c.argv.startsWith("gh pr edit 7"))?.stdin).toBe(
+      "standing\n\nCloses #384",
+    )
+  })
+
+  test("reads bullets, a trailing period, 'and' and issue URLs, never across lines", () => {
+    const log =
+      "- Fixes #1.\nResolves #2 and fixes https://github.com/o/r/issues/3\nFixes\n#4 is unrelated\nCloses #5 later\n"
+    expect(withCloses("b", log)).toBe("b\n\nCloses #1\nCloses #2\nCloses o/r#3")
+  })
+
+  test("reads comma-separated closing lists, deduped regardless of case", () => {
+    const log = "Closes #1, #2\nFixes o/R#3, fixes #4\n---\nCloses o/r#3\n"
+    expect(withCloses("body", log)).toBe("body\n\nCloses #1\nCloses #2\nCloses o/R#3\nCloses #4")
+    expect(withCloses("body\n\nCloses #1, #2", "Closes #2")).toBe("body\n\nCloses #1, #2")
+  })
+
+  test("adds each closed issue once, and none the body already closes", () => {
+    const log = "a\n\nFixes #1\nresolves o/r#2\n---\nb\n\nCloses #1\nCloses #3\nsee #4\n---\n"
+    expect(withCloses("text\n\ncloses #3\n", log)).toBe(
+      "text\n\ncloses #3\n\nCloses #1\nCloses o/r#2",
+    )
+    expect(withCloses("text", "a\n\nmentions #9 in prose\n")).toBe("text")
+    expect(withCloses("", "Closes #5")).toBe("Closes #5")
+  })
+
   test("a dirty tree is refused before anything is paid for", async () => {
     const { io, ran } = repo({ ...feature, "git status --porcelain": { out: " M a.ts\n" } })
     expect(await ship(io, false)).toMatchObject({ ok: false })
@@ -901,6 +980,25 @@ describe("ship per slice", () => {
     ).toBe(false)
   })
 
+  test("only a group that absorbed the trailing slice is told it is the last commit", async () => {
+    const prompts: string[] = []
+    const { io } = repo(
+      { ...base, [`git diff --quiet ${B} ${C} -- :(exclude).gtd/`]: { code: 0 } },
+      ["feat: refactor\n\nwhy", "feat: add x\n\nbody"],
+    )
+    const complete = io.complete
+    io.complete = async (p) => (prompts.push(p), complete(p))
+    await ship(io, false, "stack")
+    expect(prompts[0]).toContain("THIS IS THE PROCESS'S LAST COMMIT")
+    const plain = repo(base, ["feat: a", "feat: b", "feat: add x\n\nl", "feat: add x\n\nu"])
+    const seen: string[] = []
+    const inner = plain.io.complete
+    plain.io.complete = async (p) => (seen.push(p), inner(p))
+    await ship(plain.io, false, "commits")
+    expect(seen.length).toBeGreaterThan(1)
+    expect(seen.slice(0, 2).some((p) => p.includes("LAST COMMIT"))).toBe(false)
+  })
+
   test("a .gtd/-only middle slice's cost trailers fold into the next commit", async () => {
     const E = "e".repeat(40)
     const three = slicesDoc(["one", A, B], ["mid", B, C], ["top", C, E])
@@ -1136,6 +1234,31 @@ describe("ship stack", () => {
     const upper = calls.find((c) => c.argv === create("feat/x", "feat/x-refactor"))
     expect(lower?.stdin).toBe("lower\n")
     expect(upper?.stdin).toBe("Stacked on #7 — merge that first\n\nupper\n")
+  })
+
+  test("only the top pull request carries the issues the stack's commits close", async () => {
+    const { io, calls } = repo(
+      {
+        ...sbase,
+        [`git log --no-merges --format=%B%n--- ${M}..${C2}`]: {
+          out: "refactor: x\n\nCloses #9\n---\nfeat: y\n\nCloses #384\n---\n",
+        },
+        [`git log --no-merges --reverse --format=%H%n%B%n--- ${M}..${C1}`]: {
+          out: "refactor: x\n\nCloses #9\n---\n",
+        },
+        [`git log --no-merges --reverse --format=%H%n%B%n--- ${C1}..${C2}`]: {
+          out: "feat: y\n\nCloses #384\n---\n",
+        },
+      },
+      writers(),
+    )
+    await ship(io, false)
+    const lower = calls.find((c) => c.argv === create("feat/x-refactor", "main"))
+    const upper = calls.find((c) => c.argv === create("feat/x", "feat/x-refactor"))
+    expect(lower?.stdin).toBe("lower\n")
+    expect(upper?.stdin).toBe(
+      "Stacked on #7 — merge that first\n\nupper\n\nCloses #9\nCloses #384\n",
+    )
   })
 
   test("an open PR with the wrong base is retargeted", async () => {
