@@ -385,6 +385,7 @@ describe("tail's call forms", () => {
   const fitsNeither: [string, () => Promise<unknown>][] = [
     ["no finish", () => (tail as (...args: unknown[]) => Promise<unknown>)(false)],
     ["a finish followed by a boolean", () => tail(finish, true as never)],
+    ["a finish followed by a function", () => tail(finish, finish as never)],
     ["a finish followed by a Promise", () => tail(finish, Promise.resolve({}) as never)],
     [
       "a finish with a third argument",

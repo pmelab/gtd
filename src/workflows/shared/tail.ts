@@ -73,7 +73,7 @@ export const refusePendingHandOff = (): void => {
 export interface TailOptions {
   /** Fix first when entered red; default `false`. */
   readonly fixFirst?: boolean | undefined
-  /** The caller just left the full suite green (the package loop), so no run opens it; default `false`. */
+  /** Asserts the tree is already green, so the tail skips keep-green; default `false`. */
   readonly green?: boolean | undefined
   /** Runs after every code-changing turn: fix-check, quality fix, risk fix, nit fix, escalation describe. */
   readonly guard?: Guard | undefined
@@ -136,7 +136,8 @@ const tailForm = <T>(
   second: unknown,
   rest: readonly unknown[],
 ): [Finish<T>, TailOptions] | undefined => {
-  if (typeof second === "function") {
+  // A function first is a misplaced finish, never a fixFirst.
+  if (typeof second === "function" && typeof first !== "function") {
     const [green, guard, lenses, guardRests, lensBase, rules] = rest
     const options = { fixFirst: first, green, guard, lenses, guardRests, lensBase, rules }
     return [second as Finish<T>, options as TailOptions]
