@@ -1,7 +1,8 @@
-Feature: review hands its notes to fix — the two workflows meet only in .gtd/REVIEW.md
+Feature: a hand-off review passes its notes to fix — the two meet only in .gtd/REVIEW.md
 
-  The shipped `review` workflow never re-plans. A review the human signs off
-  is closed; one the human leaves notes in ends the process with
+  `handOffTail` — the review `fix` ends with, here exported as `review` —
+  never re-plans. A review the human signs off is closed; one the human leaves
+  notes in ends the process with
   `.gtd/REVIEW.md` kept and the reviewer's own version copied beside it as
   `.gtd/REVIEW.orig.md` (`build.review.handing-off`). `gtd door fix` then
   finds that review in the tree, fixes every note and `Risk:` in one turn
@@ -11,7 +12,30 @@ Feature: review hands its notes to fix — the two workflows meet only in .gtd/R
 
   Background:
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        fix,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review as fix's own tail: a reviewer turn, and a note handed to fix.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        await handOffTail(false, start())
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:

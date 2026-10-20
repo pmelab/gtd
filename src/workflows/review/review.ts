@@ -1,18 +1,38 @@
-import { start, type WorkflowBase } from "../../flows/index.js"
+import { removeScript, run, start, type WorkflowBase } from "../../flows/index.js"
+import { buildTail, reUnwind } from "../shared/review.js"
 import { gate } from "../shared/health.js"
 import { shipped } from "../shared/options.js"
-import { handOffTail, refusePendingHandOff } from "../shared/tail.js"
+import { coder, REQUIREMENTS } from "../shared/steps.js"
+import { refusePendingHandOff } from "../shared/tail.js"
 import * as t from "../shared/text.js"
 
+/** Build the concerns a review round collected into `.gtd/REQUIREMENTS.md`, then remove it. */
+const fixFeedback = async (): Promise<void> => {
+  await t.agentWithSkills("feedback.fixing", t.reviewFeedbackFixPrompt(), {
+    label: "Fixing your review feedback",
+    file: REQUIREMENTS,
+    model: coder(),
+    system: t.finisherSystem(),
+  })
+  await run("feedback.closing", removeScript([REQUIREMENTS]), { label: "Closing the feedback" })
+}
+
 /**
- * Pure review of everything since `reviewBase`: a green gate, the quality
- * lap, then the human review. A note ends the process with `.gtd/REVIEW.md`
- * left for `fix`; it never re-plans.
+ * The feature's review of everything since `reviewBase` — a green gate, the
+ * triaged quality lap, then the human review — with no design phase: a
+ * review that asks for changes is fixed in place and reviewed again, until
+ * sign-off.
  */
 export const reviewFlow = async (): Promise<void> => {
   refusePendingHandOff()
   await gate("review-gate", t.reviewGateBlockedMessage())
-  await handOffTail(false, start())
+  const base = start()
+  let outcome = await buildTail(base)
+  while (outcome.verdict === "feedback") {
+    await reUnwind(outcome)
+    await fixFeedback()
+    outcome = await buildTail(base)
+  }
 }
 
 export const review = shipped(

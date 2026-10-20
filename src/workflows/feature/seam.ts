@@ -45,7 +45,7 @@ import {
   refactorStrays,
   reviewedRefactor,
 } from "./refactor.js"
-import { isCode } from "./review.js"
+import { isCode } from "../shared/review.js"
 import { flagModeOn } from "../shared/options.js"
 import type { RiskTier } from "./tier.js"
 

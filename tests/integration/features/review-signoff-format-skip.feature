@@ -23,7 +23,30 @@ Feature: A review sign-off lands even when its mode declares a format: command t
 
   Scenario: the sign-off still lands when the review mode declares a format command that fails on a missing file
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        fix,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review as fix's own tail: a reviewer turn, and a note handed to fix.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        await handOffTail(false, start())
+      }
+      """
     And the file "gtd.config.ts" ends with:
       """
       export const config = {

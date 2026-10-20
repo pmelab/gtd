@@ -1957,7 +1957,30 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: deleting REVIEW.md at await-review is refused — sign off by leaving no comment, not by deleting
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        fix,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review as fix's own tail: a reviewer turn, and a note handed to fix.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        await handOffTail(false, start())
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
@@ -1989,7 +2012,30 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: gtd next at await-review leaves HEAD untouched and writes no worktree ref
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        fix,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review as fix's own tail: a reviewer turn, and a note handed to fix.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        await handOffTail(false, start())
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:
@@ -2018,7 +2064,30 @@ Feature: The bundled unified workflow — one flow, end to end
   @inmem
   Scenario: a sign-off lands even with a box still unticked — a tick only records that a hunk was read
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        fix,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review as fix's own tail: a reviewer turn, and a note handed to fix.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        await handOffTail(false, start())
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add src/thing.ts" that adds "src/thing.ts" with:

@@ -1,8 +1,7 @@
-Feature: fix fixes the notes review hands it
+Feature: fix fixes the notes a hand-off leaves it
 
-  `review` and `fix` meet only in `.gtd/REVIEW.md`: a review the human leaves
-  a note in ends with the reviewer's copy kept beside it, and `gtd door fix`
-  picks both up.
+  A hand-off is `.gtd/REVIEW.md` with the human's notes beside the reviewer's
+  own `.gtd/REVIEW.orig.md`; `gtd door fix` picks both up.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -13,8 +12,30 @@ Feature: fix fixes the notes review hands it
       """
     And the working tree is committed as "feat: add calculator"
 
-  Scenario: a note left in review is fixed, and both review files are removed
-    Given step "review-gate.check" changes nothing
+  Scenario: a handed-off note is fixed, and both review files are removed
+    Given a file ".gtd/REVIEW.orig.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+
+      - [ ] ./src/calc.ts#1-1
+        new add function
+      """
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+
+      - [ ] ./src/calc.ts#1-1
+        new add function — rename it to sum
+      """
+    And the working tree is committed as "chore: hand off a review"
     And step "build.health.check" changes nothing
     And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
       """
@@ -27,36 +48,14 @@ Feature: fix fixes the notes review hands it
       - [ ] ./src/calc.ts#1-1
         new add function
       """
-    When gtd opens door "review" with "HEAD~1"
-    And the process is driven
-    Then the process rests at "build.review.await-review"
-
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#1-1
-        new add function — rename it to sum
-      """
-    And step "build.review.handing-off" runs its script
-    When gtd lands
-    And the process is driven
-    Then the process rests at "idle"
-    And ".gtd/REVIEW.orig.md" contains "new add function"
-
-    Given step "notes.fixing" writes "src/calc.ts" with:
+    And step "notes.fixing" writes "src/calc.ts" with:
       """
       export const sum = (a: number, b: number) => a + b
       """
     And step "notes.closing" runs its script
     When gtd opens door "fix"
     Then the resting step's content contains "rename it to sum"
-    # The fix goes to its own review, which the same scripted reviewer writes
-    # afresh — the handed-off review itself is gone, as the reviewer's copy shows.
+    # The fix goes to its own review, which the scripted reviewer writes afresh.
     When the process is driven
     Then the process rests at "build.review.await-review"
     And the commit subjects end with:

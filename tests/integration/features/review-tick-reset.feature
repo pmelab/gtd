@@ -21,7 +21,30 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
 
   Scenario: ticking boxes and changing nothing else is a clean sign-off — the ticks are gone from disk and the round reaches idle
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        fix,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review as fix's own tail: a reviewer turn, and a note handed to fix.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        await handOffTail(false, start())
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -134,7 +157,30 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
 
   Scenario: ticking a two-space-indented (nested) hunk is cleared at the review gate too — the live bug this rewrite fixes
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        fix,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review as fix's own tail: a reviewer turn, and a note handed to fix.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        await handOffTail(false, start())
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -178,7 +224,30 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
 
   Scenario: a '- [x]' line inside a fenced code block in a chunk description is never a hunk pointer, and ticking the chunk never touches it
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        fix,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review as fix's own tail: a reviewer turn, and a note handed to fix.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        await handOffTail(false, start())
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:

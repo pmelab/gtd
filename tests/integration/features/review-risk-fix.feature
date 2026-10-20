@@ -8,7 +8,30 @@ Feature: Risk-fix pass — the reviewer's marked risks are fixed before the huma
   @inmem
   Scenario: a marked risk is fixed, kept green and re-reviewed before the gate
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        fix,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review as fix's own tail: a reviewer turn, and a note handed to fix.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        await handOffTail(false, start())
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -60,7 +83,30 @@ Feature: Risk-fix pass — the reviewer's marked risks are fixed before the huma
   @inmem
   Scenario: a risk the re-review still marks rests at the gate with no second fix
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        fix,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review as fix's own tail: a reviewer turn, and a note handed to fix.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        await handOffTail(false, start())
+      }
+      """
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:

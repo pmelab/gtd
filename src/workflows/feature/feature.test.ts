@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import { runsItsScript, testRepo } from "../../testkit/index.js"
 import { CONFIG_SCAFFOLD } from "../../install/index.js"
 import { reviewDoc } from "../shared/config.fixture.js"
+import type * as featureEntry from "./index.js"
 
 describe("an ordinary feature start", () => {
   it("unwinds a captured TODO, checks the baseline and starts design from it", async () => {
@@ -363,3 +364,10 @@ describe("flagMode", () => {
     expect(repo.subjects()).toEqual(["chore: initial commit"])
   })
 })
+
+// pins the public re-exports from the feature entry point
+export type _PublicBuildTailOptions = [
+  featureEntry.BuildTailOptions,
+  featureEntry.FeedbackTarget,
+  featureEntry.ReviewRange,
+]

@@ -588,24 +588,28 @@ the agent may overturn the answer. See
 for its `ui:` settings.
 
 The bundled workflows are named `feature` (the ordinary start above), `review`
-and `fix`. They are independent: `review` and `fix` never plan, and they meet
-only in `.gtd/REVIEW.md`. Each brings its own door. This command:
+and `fix`. `review` and `fix` never plan. Each brings its own door. This
+command:
 
 ```bash
 gtd door review <commitish>
 ```
 
-starts a pure review of everything from `<commitish>` to HEAD. It goes straight
-to the quality lap and a review, with no planning and no building; unlike
-`feature`, its lap fixes every finding and a reviewer turn
-(`build.review.reviewing`) writes `.gtd/REVIEW.md`, risks and all. Sign off and
-it closes. Leave notes and the process ends with `.gtd/REVIEW.md` (and the
-reviewer's original, `.gtd/REVIEW.orig.md`) left for `gtd door fix`. Until `fix`
-consumes them, starting `feature` or `review` is refused; remove both files to
-abandon the hand-off. `gtd door fix` fixes those notes and every `Risk:` in one
-turn, then asks for your review of the fix. With no review waiting, it repairs a
-red baseline as its own reviewed commit instead. `gtd doors` lists the doors of
-the workflows your `gtd.config.ts` exports, plus any it adds.
+starts a review of everything from `<commitish>` to HEAD — the same review a
+`feature` process ends with, minus planning and building. A green gate, then the
+quality lenses: mechanical findings are fixed, noise is dropped, and the rest
+become notes in `.gtd/REVIEW.md`, one tick box each. Tick `fix as suggested` or
+write your own answer and the process fixes it in place — your own answers that
+ask for a change are collected into `.gtd/REQUIREMENTS.md` and built by one
+`feedback.fixing` turn, with no design phase and no criteria — under the health
+loop, then asks for your review again. Sign off (or tick `won't fix`) and it
+closes; nothing is left behind. A note asking for new behaviour belongs in a
+`feature` process: tick `won't fix` and start one. `gtd door fix` repairs a red
+baseline as its own reviewed commit; a note at its review is left in
+`.gtd/REVIEW.md` (beside the reviewer's original, `.gtd/REVIEW.orig.md`) for the
+next `gtd door fix`, and until that runs, starting `feature` or `review` is
+refused — remove both files to abandon the hand-off. `gtd doors` lists the doors
+of the workflows your `gtd.config.ts` exports, plus any it adds.
 `gtd --workflow <name>` starts any workflow by name.
 
 The workflow itself is a plain async TypeScript function, and the

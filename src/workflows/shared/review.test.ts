@@ -9,7 +9,7 @@ import {
 } from "../../flows/index.js"
 import {
   buildTail,
-  review,
+  humanReview,
   reUnwind,
   severityOf,
   type BuildTailOptions,
@@ -17,8 +17,7 @@ import {
 } from "./review.js"
 import type { ReviewNote } from "../../steering/index.js"
 import * as bundled from "../index.js"
-import type * as featureEntry from "./index.js"
-import { fixtureContext } from "../shared/text.fixture.js"
+import { fixtureContext } from "./text.fixture.js"
 import { toRequest } from "../../judges/index.js"
 
 afterEach(() => installContext(undefined))
@@ -155,7 +154,7 @@ const drive = async (d: Drive): Promise<Run> => {
   installContext(context)
   let result: ReviewOutcome | "stopped"
   try {
-    result = await review("base", undefined, {
+    result = await humanReview("base", undefined, {
       ...d.options,
       ...(d.guarded ? { guard: () => void log.push("guard") } : {}),
     })
@@ -975,11 +974,8 @@ describe("BuildTailOptions.lensBase", () => {
   })
 })
 
-// pins the public re-exports from the feature entry point and the published workflows entry
+// pins the public re-exports from the published workflows entry
 export type _PublicBuildTailOptions = [
-  featureEntry.BuildTailOptions,
-  featureEntry.FeedbackTarget,
-  featureEntry.ReviewRange,
   bundled.BuildTailOptions,
   bundled.FeedbackTarget,
   bundled.ReviewRange,
