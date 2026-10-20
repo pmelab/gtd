@@ -109,6 +109,7 @@ export {
 } from "./Output.js"
 import { runStraysCommand } from "./Strays.js"
 import { runHistoryFetchCommand, runHistoryListCommand, runHistoryShowCommand } from "./History.js"
+import { runHistoryJudgesCommand } from "./Judges.js"
 import { runHistoryMetricsCommand } from "./Metrics.js"
 
 /**
@@ -176,6 +177,12 @@ export type Command =
   | { readonly kind: "historyList" }
   | { readonly kind: "historyShow"; readonly ref: string }
   | { readonly kind: "historyMetrics"; readonly refs: readonly string[] }
+  | {
+      readonly kind: "historyJudges"
+      readonly refs: readonly string[]
+      readonly vars: Readonly<Record<string, string>>
+      readonly jsonl: boolean
+    }
   | { readonly kind: "historyFetch"; readonly remote: string }
   | {
       readonly kind: "strays"
@@ -1324,6 +1331,8 @@ const dispatchVoidCommand = (
       return runHistoryShowCommand(command.ref, json, out)
     case "historyMetrics":
       return runHistoryMetricsCommand(command.refs, json, out)
+    case "historyJudges":
+      return runHistoryJudgesCommand(command.refs, command.vars, command.jsonl, json, out)
     case "historyFetch":
       return runHistoryFetchCommand(command.remote, out)
   }

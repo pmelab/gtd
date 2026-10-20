@@ -171,7 +171,8 @@ describe("parseArgv — scope", () => {
   it("--var without --workflow is rejected", () => {
     const plan = parseArgv(["node", "gtd.js", "land", "--var", "a=1"])
     expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toBe("gtd: --var requires --workflow")
+    if (plan.kind === "usage")
+      expect(plan.message).toBe("gtd: --var requires --workflow (or `gtd history judges`)")
   })
 
   it("--cost with --workflow is rejected (landing and starting are different verbs)", () => {
@@ -1027,6 +1028,28 @@ describe("parseArgv — gtd history", () => {
     expect(parse("history", "metrics", "a", "feat/b")).toMatchObject({
       command: { kind: "historyMetrics", refs: ["a", "feat/b"] },
     })
+    expect(parse("history", "judges", "a", "--var", "qualityTriageMinP=0.9")).toMatchObject({
+      command: {
+        kind: "historyJudges",
+        refs: ["a"],
+        vars: { qualityTriageMinP: "0.9" },
+        jsonl: false,
+      },
+    })
+    expect(parse("history", "judges", "--jsonl")).toMatchObject({
+      command: { kind: "historyJudges", refs: [], vars: {}, jsonl: true },
+    })
+  })
+
+  it("judges takes only judge thresholds as --var, and --jsonl alone", () => {
+    expect(usage(parse("history", "judges", "--var", "reviewBase=main"))).toContain(
+      "no judge threshold",
+    )
+    expect(usage(parse("history", "judges", "--jsonl", "--json"))).toContain("mutually exclusive")
+    expect(usage(parse("history", "judges", "--jsonl", "--var", "qualityTriageMinP=1"))).toContain(
+      "mutually exclusive",
+    )
+    expect(usage(parse("history", "metrics", "--jsonl"))).toContain("only valid for")
   })
 
   it("bare history and an unknown subcommand are usage errors naming list, show, metrics, fetch", () => {
@@ -1036,6 +1059,7 @@ describe("parseArgv — gtd history", () => {
       expect(message).toContain("show")
       expect(message).toContain("fetch")
       expect(message).toContain("metrics")
+      expect(message).toContain("judges")
     }
   })
 
@@ -1063,6 +1087,7 @@ describe("parseArgv — gtd history", () => {
     expect(help).toContain("history show <ref>")
     expect(help).toContain("history fetch [remote]")
     expect(help).toContain("history metrics [ref...]")
+    expect(help).toContain("history judges [ref...]")
   })
 })
 
@@ -1148,6 +1173,7 @@ describe("standaloneKinds / needsOf", () => {
       "historyList",
       "historyShow",
       "historyMetrics",
+      "historyJudges",
       "historyFetch",
     ] as const) {
       expect(needsOf(kind)).toBe("state")

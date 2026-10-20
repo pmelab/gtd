@@ -2,7 +2,7 @@ import { Effect, Option } from "effect"
 import { GitService } from "../platform/index.js"
 import { parseCommitMessage } from "../replay/index.js"
 import { UNATTRIBUTED_MODEL } from "../wire/index.js"
-import { historyEntries, resolveHistoryRef, type HistoryEntry } from "./History.js"
+import { selectHistoryEntries, type HistoryEntry } from "./History.js"
 import { writeJson, type ArtifactOut, type CommandRequirements, type JsonMode } from "./Output.js"
 
 // Read from commit subjects and trailers alone, never by replay: a metric over
@@ -248,7 +248,7 @@ export const readProcessMetrics = (
 
 // Keys come from fetched history: never let them put control bytes on a terminal.
 // eslint-disable-next-line no-control-regex -- the control range IS the point
-const printable = (s: string): string => s.replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, "?")
+export const printable = (s: string): string => s.replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, "?")
 
 const listed = (record: Readonly<Record<string, number>>): string =>
   Object.entries(record)
@@ -274,21 +274,8 @@ export const runHistoryMetricsCommand = (
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const entries = yield* historyEntries
-    const chosen =
-      refs.length === 0
-        ? entries
-        : (yield* Effect.forEach(refs, (ref) =>
-            // A branch name means every process kept from it, not just its newest.
-            resolveHistoryRef(ref, entries).pipe(
-              Effect.map((hit) =>
-                hit.branch === ref ? entries.filter((e) => e.branch === ref) : [hit],
-              ),
-            ),
-          )).flat()
-    const unique = chosen.filter((e, i) => chosen.findIndex((o) => o.ref === e.ref) === i)
     const processes = yield* Effect.forEach(
-      unique,
+      yield* selectHistoryEntries(refs),
       (e) =>
         readProcessMetrics(e).pipe(
           Effect.map((metrics) => ({

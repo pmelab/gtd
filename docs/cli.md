@@ -235,6 +235,17 @@ Commands:
                    Reads commit subjects and trailers, never replays, so a
                    changed config is no refusal. --json prints { processes, total
                    } as one document; writes nothing
+  history judges [ref...]
+                   Calibrate the judges of the kept processes from their
+                   recorded Gtd-Judge verdicts: per judge (retry, triage, clear)
+                   and p bucket, how many verdicts later events overturned.
+                   --var <name>=<value> re-decides every past verdict under
+                   another threshold and prints what would have changed;
+                   --jsonl prints one { process, judge, commit, step, question,
+                   state, answer, p, outcome } line per verdict instead. <ref>
+                   is read as by history metrics. Never replays and asks no
+                   model. --json prints { processes, judges, whatIf }; writes
+                   nothing
   history fetch [remote]
                    Print a script that fetches every refs/gtd/history/* from
                    <remote> (default origin) and reports how many arrived — run
@@ -244,7 +255,7 @@ Commands:
 
 Options:
   --json=<path>    (gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd slices/gtd history
-                   list/gtd history show/gtd history metrics/gtd strays only) output structured JSON. Bare --json prints the whole document;
+                   list/gtd history show/gtd history metrics/gtd history judges/gtd strays only) output structured JSON. Bare --json prints the whole document;
                    --json=<path> (a dotted key path into that document, e.g.
                    kind, content, session.id) prints just that value: a
                    scalar raw and unquoted, a boolean as true/false, a list
@@ -292,7 +303,11 @@ Options:
                    (with --workflow; repeatable) pin a process setting for the
                    new process; the name must already be declared by the
                    workflow's defaults (environment settings are not
-                   pinnable)
+                   pinnable). (gtd history judges) re-decide past verdicts
+                   under this threshold: judgeIdenticalMinP or
+                   qualityTriageMinP
+  --jsonl          (gtd history judges only) print one JSON line per verdict
+                   instead of the report
   --open-questions (gtd check only) ignore <mode>'s structural findings and
                    instead run the qa open-questions predicate over <file>,
                    printing each unanswered question one per line and exiting
