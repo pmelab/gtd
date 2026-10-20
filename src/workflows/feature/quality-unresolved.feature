@@ -1,9 +1,9 @@
 @inmem
-Feature: quality findings left unresolved hold a feature process short of idle
+Feature: quality findings left unresolved hold a feature process short of its review
 
-  The quality lap is the last look `feature` takes. When the fix cap leaves
-  `.gtd/QUALITY.md` behind, the process rests for a person instead of ending
-  with findings nobody acted on.
+  When the quality lap's fix cap leaves `.gtd/QUALITY.md` behind, the process
+  rests for a person instead of handing findings nobody acted on to the
+  human review.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -97,10 +97,10 @@ Feature: quality findings left unresolved hold a feature process short of idle
     And step "build.health.check" changes nothing
     When gtd lands
     And the process is driven
-    Then the process rests at "idle"
+    Then the process rests at "build.review.reviewing"
     And the commit subjects end with:
       """
       gtd(check): build.health.check → build.quality-unresolved
       gtd(human): build.quality-unresolved → build.health.check
-      gtd(check): build.health.check → idle
+      gtd(check): build.health.check → build.review.reviewing
       """

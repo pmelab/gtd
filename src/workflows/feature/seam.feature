@@ -152,7 +152,7 @@ Feature: the naive pass and seam judge decide how a feature is built
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """
     When the process is driven
-    Then the process rests at "idle"
+    Then the process rests at "build.review.reviewing"
     And "src/calc.ts" contains "subtract"
     And the commit subjects end with:
       """
@@ -160,7 +160,7 @@ Feature: the naive pass and seam judge decide how a feature is built
       gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
-      gtd(check): implement.closing → idle
+      gtd(check): implement.closing → build.review.reviewing
       """
     And ".gtd/REQUIREMENTS.md" does not exist
 

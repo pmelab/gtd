@@ -151,6 +151,30 @@ export const requireCriteria = (file: string): void => {
   )
 }
 
+/** The IDs a review's feedback lap must respect. */
+export interface StableIds {
+  /** Listed when the build closed: each may stay, reworded or not, or go. */
+  readonly closed: readonly string[]
+  /** Every ID handed out so far: any other is numbered above all of them. */
+  readonly used: readonly string[]
+}
+
+const idNumber = (id: string): number => Number(id.slice("AC-".length))
+
+/** Why `listed` renumbers or reuses an earlier ID; `undefined` when it does neither. */
+export const unstableIds = (listed: readonly string[], ids: StableIds): string | undefined => {
+  const top = Math.max(0, ...ids.used.map(idNumber))
+  const reused = listed.filter((id) => !ids.closed.includes(id) && idNumber(id) <= top)
+  if (reused.length === 0) return undefined
+  return `numbers ${reused.join(", ")} at or below AC-${top}, an ID already handed out — keep a built criterion's ID (reword it in place when the review changes it), and number new ones from AC-${top + 1}`
+}
+
+/** Refuse criteria in `file` that renumber or reuse an earlier ID. */
+export const requireStableIds = (file: string, ids: StableIds): void => {
+  const why = unstableIds(criterionIds(read(file) ?? ""), ids)
+  if (why !== undefined) refuse(`gtd land: criteria-ids: ${file} ${why}`)
+}
+
 /** Refuse a turn that changed the acceptance criteria in `file`: after the design gate only another design lap may. */
 export const requireCriteriaFrozen = (file: string): void => {
   const change = changes().get(file)

@@ -51,7 +51,7 @@ Feature: a change with more criteria than the cap is built in coarse slices
       [{"id":"AC-1","answer":"yes","p":0.9},{"id":"AC-2","answer":"yes","p":0.9}]
       """
     When the process is driven
-    Then the process rests at "idle"
+    Then the process rests at "build.review.reviewing"
     And the commit subjects end with:
       """
       gtd(human): design.gate.answer → seam.naive
@@ -60,7 +60,7 @@ Feature: a change with more criteria than the cap is built in coarse slices
       gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
-      gtd(check): implement.closing → idle
+      gtd(check): implement.closing → build.review.reviewing
       """
     And the output lines of gtd "slices" start with:
       """
@@ -112,7 +112,7 @@ Feature: a change with more criteria than the cap is built in coarse slices
       [{"id":"AC-2","answer":"yes","p":0.9}]
       """
     When the process is driven
-    Then the process rests at "idle"
+    Then the process rests at "build.review.reviewing"
     And the commit subjects end with:
       """
       gtd(agent): design.triage → design.gate.answer
@@ -129,7 +129,7 @@ Feature: a change with more criteria than the cap is built in coarse slices
       gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
-      gtd(check): implement.closing → idle
+      gtd(check): implement.closing → build.review.reviewing
       """
     And the output lines of gtd "slices" start with:
       """
@@ -223,3 +223,62 @@ Feature: a change with more criteria than the cap is built in coarse slices
       - AC-2
       """
     Then driving the process is refused with "wrote outside its write access"
+
+  Scenario: a steer that empties the last slice still ends at the review of the whole change
+    Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
+      """
+      # Requirements
+
+      ## Acceptance Criteria
+
+      - AC-1: subtract(a, b) returns a - b.
+      - AC-2: multiply(a, b) returns a * b.
+      - AC-3: divide(a, b) returns a / b.
+      """
+    And step "design.slicing" writes ".gtd/SLICES.md" with:
+      """
+      # Slices
+
+      ## Subtract and divide
+
+      - AC-1
+      - AC-3
+
+      ## Multiply
+
+      - AC-2
+      """
+    And step "seam.naive" writes "src/sub.test.ts" with:
+      """
+      it("[AC-1] subtracts", () => {})
+      """
+    And judge step "implement.coverage" answers:
+      """
+      [{"id":"AC-1","answer":"yes","p":0.9}]
+      """
+    When the process is driven
+    Then the process rests at "seam.steer"
+    Given a file ".gtd/REQUIREMENTS.md" with:
+      """
+      # Requirements
+
+      ## Acceptance Criteria
+
+      - AC-1: subtract(a, b) returns a - b.
+      """
+    When gtd lands
+    And the process is driven
+    Then the process rests at "build.review.reviewing"
+    And the commit subjects end with:
+      """
+      gtd(human): seam.steer → seam.naive
+      gtd(agent): seam.naive → seam.check
+      gtd(check): seam.check → implement.applying
+      gtd(check): implement.applying → implement.health.check
+      gtd(check): implement.health.check → implement.coverage
+      gtd(judge): implement.coverage → implement.closing
+      gtd(check): implement.closing → build.review.reviewing
+      """
+    And ".gtd/REQUIREMENTS.md" does not exist
+    And ".gtd/SLICES.md" does not exist
+    And the output of gtd "slices" does not contain "feature-2"

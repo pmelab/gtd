@@ -55,19 +55,19 @@ Feature: a feature is done only when every acceptance criterion has a passing te
     And the output of gtd "judge" contains "add is unchanged."
     And the output of gtd "judge" contains "[AC-1] subtracts"
 
-  Scenario: every ID covered ends the feature and marks the IDs it covers
+  Scenario: every ID covered moves on to the review and marks the IDs it covers
     Given judge step "implement.coverage" answers:
       """
       [{"id":"AC-1","answer":"yes","p":0.9},{"id":"AC-2","answer":"yes","p":0.9}]
       """
     When the process is driven
-    Then the process rests at "idle"
+    Then the process rests at "build.review.reviewing"
     And the commit subjects end with:
       """
       gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
-      gtd(check): implement.closing → idle
+      gtd(check): implement.closing → build.review.reviewing
       """
     And the commit "gtd(judge): implement.coverage → implement.closing" has a body containing "Gtd-Mark: covers=AC-1"
     And the commit "gtd(judge): implement.coverage → implement.closing" has a body containing "Gtd-Mark: covers=AC-2"
@@ -132,7 +132,7 @@ Feature: a feature is done only when every acceptance criterion has a passing te
       """
     Then driving the process is refused with "criteria-frozen"
 
-  Scenario: overruling at the gate ends the feature, recording the uncovered IDs
+  Scenario: overruling at the gate moves on to the review, recording the uncovered IDs
     Given judge step "implement.coverage" answers:
       """
       [{"id":"AC-1","answer":"yes","p":0.9},{"id":"AC-2","answer":"no","p":0.9}]
@@ -144,7 +144,7 @@ Feature: a feature is done only when every acceptance criterion has a passing te
       """
     And step "implement.uncovered" changes nothing
     When the process is driven
-    Then the process rests at "idle"
+    Then the process rests at "build.review.reviewing"
     And the commit "gtd(human): implement.uncovered → implement.closing" has a body containing "Gtd-Mark: covers=AC-1"
     And the commit "gtd(human): implement.uncovered → implement.closing" has a body containing "Gtd-Mark: uncovered=AC-2"
 

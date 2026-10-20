@@ -1,6 +1,6 @@
 # One SDLC path per file, so a changed path reds exactly one fixture — do not merge.
 @inmem
-Feature: rejected naive passes walk one fixed path through the steer gate to idle
+Feature: rejected naive passes walk one fixed path through the steer gate to the review gate
 
   With GTD_FLAG_RISK_TIER off, three rejected naive
   passes rest at the steer gate, where a human edit restarts the seam and the
@@ -40,7 +40,7 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
       """
     And step "design.gate.answer" changes nothing
 
-  Scenario: three rejects rest at the steer gate, a steered rerun lands and runs to idle
+  Scenario: three rejects rest at the steer gate, a steered rerun lands and runs to the review gate
     Given step "seam.check" changes nothing
     And step "seam.naive" writes "src/acceptance.test.ts" with:
       """
@@ -100,7 +100,7 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
     And step "implement.applying" runs its script
     When gtd lands
     And the process is driven
-    Then the process rests at "idle"
+    Then the process rests at "build.review.reviewing"
     And the commit subjects end with:
       """
       gtd(human): idle → unwind
@@ -124,7 +124,7 @@ Feature: rejected naive passes walk one fixed path through the steer gate to idl
       gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
-      gtd(check): implement.closing → idle
+      gtd(check): implement.closing → build.review.reviewing
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"

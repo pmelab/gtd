@@ -242,7 +242,7 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """
     When the process is driven
-    Then the process rests at "idle"
+    Then the process rests at "build.review.reviewing"
     And "src/calc.ts" contains "op(a, b, -1)"
     And "src/acceptance.test.ts" contains "[AC-1]"
     And ".gtd/REFACTOR-NOTE.md" does not exist
@@ -260,7 +260,7 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
-      gtd(check): implement.closing → idle
+      gtd(check): implement.closing → build.review.reviewing
       """
     And the output lines of gtd "slices" start with:
       """

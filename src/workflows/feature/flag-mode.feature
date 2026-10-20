@@ -67,7 +67,7 @@ Feature: flag mode off lands the naive pass with no release flag, seam judge or 
       """
     And step "build.quality.correctness.reviewing" changes nothing
     When the process is driven
-    Then the process rests at "idle"
+    Then the process rests at "build.review.reviewing"
     And "src/calc.ts" contains "subtract"
     And "src/calc.test.ts" contains "[AC-1] subtracts"
     And the commit subjects end with:
@@ -85,5 +85,5 @@ Feature: flag mode off lands the naive pass with no release flag, seam judge or 
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
-      gtd(agent): build.quality.correctness.reviewing → idle
+      gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
       """

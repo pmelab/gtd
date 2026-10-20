@@ -68,25 +68,27 @@ within the cap is one `feature` slice. See
 **A feature is done only when every `AC-<n>` has a passing test.** Once the
 implementation's suite is green, `implement.coverage` judges, per criterion ID,
 whether a test file the change touched covers it; an uncovered ID sends the
-process back to a covering turn, never on to idle. The judge's landing records
-`Gtd-Mark: covers=<id>` per ID. After two covering turns `implement.uncovered`
-rests for a human, who adds tests or overrules; an overrule records
-`Gtd-Mark: uncovered=<id>`. See
+process back to a covering turn, never on to the review. The judge's landing
+records `Gtd-Mark: covers=<id>` per ID. After two covering turns
+`implement.uncovered` rests for a human, who adds tests or overrules; an
+overrule records `Gtd-Mark: uncovered=<id>`. See
 [Acceptance-criteria coverage](docs/configuration.md#acceptance-criteria-coverage).
 
 ## Human gates
 
-Each gate is a point where a person must act before work continues.
+Each gate is a point where a person must act before work continues. Counts are
+per design round: a review-feedback round re-runs design.
 
-- `feature`: design only; a refactor review sign-off only on judge
-  `refactor-first`. **1 gate, plus 1 per slice judged `refactor-first`**
-  (design, refactor review). **No human review of the finished change**: the
-  process ends when its last slice lands, after the quality lap. Review it
-  through the `review` door (`gtd door review <commitish>`), started by hand.
-  Overrule at `seam.steer` passes no seam gate. **A sketch whose own acceptance
-  criteria `design.clear` judges clear and checkable passes no design gate**:
-  one gate fewer — none at all on `land` — and the criteria's author is whoever
-  wrote the sketch.
+- `feature`: design and review sign-off; a refactor review sign-off only on
+  judge `refactor-first`. **2 gates, plus 1 per slice judged `refactor-first`**
+  (design, refactor review, feature review). The feature review comes once,
+  after the last slice's quality lap, over the whole change. A review note that
+  asks for a behaviour change runs a feedback lap — design, then implement with
+  no naive pass or seam judge, coverage over every criterion, the quality lap —
+  and the review again. Overrule at `seam.steer` passes no seam gate. **A sketch
+  whose own acceptance criteria `design.clear` judges clear and checkable passes
+  no design gate** on its first lap: one gate fewer, and the criteria's author
+  is whoever wrote the sketch.
 - `cleanup`, `fix`, `review`: review sign-off only.
 - `rollout`: **no human gate** — the green suite and the `rollout-only` refusal
   are its only control.
@@ -97,7 +99,7 @@ record carries the commit author only, no approver trailer, unless stated.
 | Gate                                                | Who approved                         | What was tested                                 | Where the record lives               |
 | --------------------------------------------------- | ------------------------------------ | ----------------------------------------------- | ------------------------------------ |
 | `design.gate.answer`                                | the person who answers the questions | the design questions and the `AC-<n>` criteria  | step commit and `.gtd/` file history |
-| review gate sign-off (not in `feature`)             | the reviewer who signs off           | the diff, against the review checklist          | the sign-off commit                  |
+| review gate sign-off                                | the reviewer who signs off           | the diff, against the review checklist          | the sign-off commit                  |
 | refactor review sign-off (only on `refactor-first`) | the reviewer who signs off           | the refactor diff, against the review checklist | the sign-off commit                  |
 
 For non-repudiation use signed commits or branch protection outside gtd.
@@ -114,7 +116,8 @@ approval:
   round
 - `*.health.stop` and `*.health.exhausted` — escalation stops
 - `build.quality-unresolved` — quality findings the fix cap left; a person fixes
-  what matters, then deletes or empties `.gtd/QUALITY.md`
+  what matters, then deletes or empties `.gtd/QUALITY.md` before the next slice
+  or the review
 - `*.blocked`, `review.review-missing`, `unwind-failed` — a person must clear
   the cause by hand; a red suite after the `rollout` flip rests at
   `rollout.suite.blocked`
@@ -140,9 +143,9 @@ Each path has a `.feature` file:
 - [`src/workflows/feature/refactor-rebuild.feature`](src/workflows/feature/refactor-rebuild.feature):
   the refactor note reaching both turns, the refactor landing only green, the
   rebuild landing only with the naive acceptance tests
-- [`src/workflows/review/review-door.feature`](src/workflows/review/review-door.feature):
-  a feature process ending with no review rest, then the `review` door reviewing
-  it
+- [`src/workflows/feature/review-gate.feature`](src/workflows/feature/review-gate.feature):
+  a feature process ending at the review gate, its sign-off, and a feedback lap
+  keeping the criteria's IDs
 - [`src/workflows/feature/refactor-review.feature`](src/workflows/feature/refactor-review.feature):
   the refactor review's feedback loop, refusals and lenses
 - [`src/workflows/feature/seam-rejection.feature`](src/workflows/feature/seam-rejection.feature):
@@ -185,16 +188,19 @@ Paths and text are checked, **never behaviour**.
 - `implement.coverage` sends uncovered criteria back, not refused. **Its judge
   reads test text and runs nothing**: a `covers` mark means a judge found a
   matching test in a green suite, not that the test checks the criterion well.
-  An overrule at `implement.uncovered` ends the feature with the IDs it leaves
-  uncovered recorded as `uncovered` marks.
+  An overrule at `implement.uncovered` moves on to the review with the IDs it
+  leaves uncovered recorded as `uncovered` marks.
+- A review feedback lap's design is refused when it gives a new criterion a
+  number already handed out (`criteria-ids`). **It reads IDs only**: a built
+  criterion reworded to mean something else keeps its ID unnoticed.
 - `seam.judge` judges the shape of the naive pass. On `land` that pass lands
   unchanged; a rebuild that follows a refactor is checked only for its carried
-  acceptance tests, never re-judged or scoped, and **in `feature` no human looks
-  at the full diff** — only the quality lap does, unless someone opens the
-  `review` door. **Risk: no reviewer `Risk:` fix pass and no weakened-scenario
-  flag run in `feature`, and a `high` risk tier's "needs a human reviewer" is
-  advisory only.** New files are exempt. `gtd strays` works in any repository.
-- The refactor review on `refactor-first` covers only the refactor slice;
-  nothing in `feature` reviews what follows its sign-off. A refactor turn that
-  changes a test file is refused (`gtd land`: `refactor-tests`), whatever
-  `seamAllow` says.
+  acceptance tests, never re-judged or scoped, and review sign-off is the only
+  human look at the full diff. New files are exempt. `gtd strays` works in any
+  repository.
+- Two reviews split the diff on `refactor-first` of a single-slice change: the
+  refactor review covers only the refactor slice, and the feature review only
+  what follows its sign-off — all of it again when the refactor carried the
+  whole feature. A sliced change's feature review covers it all from the process
+  start. A refactor turn that changes a test file is refused (`gtd land`:
+  `refactor-tests`), whatever `seamAllow` says.
