@@ -24,6 +24,8 @@ export const defaults: Readonly<Record<string, string>> = {
   reviewNoteActionable: "0.7",
   reviewSeverityMinP: "0.7",
   qualityTriageMinP: "0.7",
+  // How sure the judge must be that an answer at the review gate is a reusable standard.
+  standardMinP: "0.8",
   refactorFlagPattern: "\\bGTD_FLAG_\\w+",
   seamAllow: [...testFileGlobs, ".gtd/**"].join(", "),
   flagMode: "true",

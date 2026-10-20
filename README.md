@@ -564,6 +564,21 @@ noted in steps 3 and 4 below.
    `gtd judge answer` / conservative-default shape as step 3's own judged
    points.
 
+   **The review learns your taste.** Each won't-fix and each own answer is a
+   candidate standard. A judge (`build.review.standards.judge`) asks whether it
+   is reusable beyond this note; at `standardMinP` (`0.8`) or above it is kept
+   in `.gtd/STANDARDS.md` with no question asked, and the next review lists it
+   under `## Standards added`. Every later agent turn — the lenses, the naive
+   pass, the build, every fix — is handed the kept standards, so a finding you
+   rejected once is not raised again and a rule you wrote is followed, in this
+   process and every later one. One the judge does not rule out contradicting a
+   standard already kept is not applied: it waits under `## Undecided` and
+   becomes a `## Standard conflict <id>` note in the review, with its own three
+   boxes — **keep the new one (drop the old)**, **keep the old one (discard the
+   new)**, or **your own wording**, which replaces both — and the review does
+   not sign off until it is answered. `.gtd/STANDARDS.md` is committed and yours
+   to edit; gtd rewrites it as one bullet per standard when it learns.
+
 You never talk to it. Every exchange is a file in `.gtd/` that you edit in your
 own editor, and every answer you give is a commit. Your test suite is the gate
 throughout: a red baseline stops the process before it starts, and a red build

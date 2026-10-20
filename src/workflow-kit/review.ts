@@ -70,6 +70,12 @@ export interface ReviewPolicy {
   readonly fixNits: (notes: readonly ReviewNote[]) => Promise<void>
   /** Told every note the human answered this round, before any of them is routed. */
   readonly decided?: (decisions: readonly ReviewDecision[]) => void
+  /** An answer the policy settles in `learn` itself: never routed, recorded or told to `decided`. */
+  readonly settles?: (decision: ReviewDecision) => boolean
+  /** Reads every answer of the round once it is recorded, before any is routed. */
+  readonly learn?: (decisions: readonly ReviewDecision[]) => Promise<void>
+  /** Something still waits on the human's answer: a sign-off writes the review again instead. */
+  readonly pending?: () => boolean
   /** Remove `file` at the end of a round at commit `round`. */
   readonly close: (round: string) => Promise<void>
   /** What a collecting turn reads. */
@@ -222,6 +228,20 @@ const record = (p: ReviewPolicy, decisions: readonly ReviewDecision[]): void => 
   for (const d of decisions) if (d.choice === "wontfix") mark("wontfix", oneLine(d.anchor))
 }
 
+/** The answers the policy leaves to routing. */
+const routed = (p: ReviewPolicy, answers: readonly ReviewDecision[]): readonly ReviewDecision[] =>
+  answers.filter((d) => p.settles?.(d) !== true)
+
+/** Record the routed answers on the gate's commit, then hand every answer to `learn`. */
+const recordAndLearn = async (
+  p: ReviewPolicy,
+  decisions: readonly ReviewDecision[],
+  answers: readonly ReviewDecision[],
+): Promise<void> => {
+  record(p, decisions)
+  if (answers.length > 0 && p.learn !== undefined) await p.learn(answers)
+}
+
 /**
  * Judge every note, then run each verdict's route: answers, then nit fixes,
  * then the edits' lap. Of the human's `decisions`, a fix joins the nit batch
@@ -233,8 +253,9 @@ export const routeNotes = async (
   notes: readonly ReviewNote[],
   r: Round,
   decisions: readonly ReviewDecision[] = [],
+  answers: readonly ReviewDecision[] = decisions,
 ): Promise<Finish> => {
-  record(p, decisions)
+  await recordAndLearn(p, decisions, answers)
   const of = (c: ReviewDecision["choice"]) => decisions.filter((d) => d.choice === c)
   const fixes = of("fix").map((d, i) => decisionNote(d, `fix-${i + 1}`, d.body))
   const judged = [
@@ -270,7 +291,8 @@ export const routeNotes = async (
     await r.close()
     return { next: "rereview", carry: answeredAt }
   }
-  return { next: "await", reviewed: answeredAt ?? r.round }
+  // Not the round: `learn` may have written to the review file since.
+  return { next: "await", reviewed: head() }
 }
 
 /** A code edit, not a thread-only change: lines that only add, answer or remove code threads don't count. */
@@ -313,14 +335,14 @@ const settledAfter = (
 
 const finishNotes = async (
   p: ReviewPolicy,
-  before: string | undefined,
-  decisions: readonly ReviewDecision[],
+  notes: readonly ReviewNote[],
+  answers: readonly ReviewDecision[],
   reopened: boolean,
   ctx: Parameters<typeof routeNotes>[2],
 ): Promise<Finish> => {
-  // An unchanged review file has no baseline entry, which would read as all-new.
-  const notes = reviewNotes(before ?? "", read(p.file) ?? "")
-  if (notes.length + decisions.length > 0) return routeNotes(p, notes, ctx, decisions)
+  // An answer the policy settles still routes, if only to learn: there is nothing to collect.
+  if (notes.length + answers.length > 0)
+    return routeNotes(p, notes, ctx, routed(p, answers), answers)
   if (reopened) return ctx.unfolded()
   await ctx.close()
   return ctx.outcome(await collect(p, p.captures.notes(ctx.round), "notes"))
@@ -342,6 +364,12 @@ const decisionsSince = (
   const after = read(p.file) ?? ""
   return reviewDecisions(since.get(p.file)?.before ?? after, after)
 }
+
+// An unchanged review file has no baseline entry, which would read as all-new.
+const notesSince = (
+  p: ReviewPolicy,
+  since: ReturnType<typeof changesSince>,
+): readonly ReviewNote[] => reviewNotes(since.get(p.file)?.before ?? "", read(p.file) ?? "")
 
 const finish = async (
   p: ReviewPolicy,
@@ -368,12 +396,14 @@ const finish = async (
   // Thread-only edits settled the round, but a change note or hand-edit since
   // `reviewed` must still reach a collecting turn when a dropped edit is refused.
   const reopened = isReopened(p, { settled, folded })
-  const decisions = decisionsSince(p, since)
-  if ((settled && !reopened && decisions.length === 0) || (edited.length === 0 && !noted))
+  const answers = decisionsSince(p, since)
+  if ((settled && !reopened && answers.length === 0) || (edited.length === 0 && !noted))
     return unfolded()
+  // Read before `learn`, which may add to the review file.
+  const notes = notesSince(p, since)
   if (edited.length > 0) {
     // A hand-edit plans a lap; its collecting turn reads the answers in the review.
-    record(p, decisions)
+    await recordAndLearn(p, routed(p, answers), answers)
     await close()
     return outcome(
       await collect(p, p.captures.edits(round, reopened ? reviewed : undefined), "edits", {
@@ -382,13 +412,19 @@ const finish = async (
       }),
     )
   }
-  return finishNotes(p, since.get(p.file)?.before, decisions, reopened, {
+  return finishNotes(p, notes, answers, reopened, {
     round,
     close,
     outcome,
     unfolded,
   })
 }
+
+/** A sign-off while something waits on the human writes the review again instead. */
+const unlessPending = (p: ReviewPolicy, result: Finish): Finish =>
+  "verdict" in result && result.verdict === "signoff" && p.pending?.() === true
+    ? { next: "rereview", carry: undefined }
+    : result
 
 /** Write the review; if it marks risks, fix them, keep green, and write it again — once, so the re-review's own risks reach the human unfixed. */
 const reviewOnce = async (
@@ -420,7 +456,7 @@ export const review = async (base: string, p: ReviewPolicy): Promise<ReviewOutco
     for (;;) {
       collectedAt = await converse(p, base, reviewed, collectedAt)
       if (collectedAt === "missing") break
-      const result = await finish(p, reviewed, collectedAt)
+      const result = unlessPending(p, await finish(p, reviewed, collectedAt))
       if (!("next" in result)) return result
       if (result.next === "rereview") {
         carry = result.carry

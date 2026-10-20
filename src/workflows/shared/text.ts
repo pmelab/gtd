@@ -1,6 +1,7 @@
 import {
   agent,
   codeThreads,
+  read,
   displayPath,
   env,
   head,
@@ -19,6 +20,13 @@ import {
   FREE_TEXT_PLACEHOLDER,
 } from "../../steering/index.js"
 import { escapeRegExp } from "./registry.js"
+import {
+  conflictBody,
+  conflictTitle,
+  standardsBlock,
+  STANDARDS,
+  type Conflict,
+} from "./standards.js"
 import { defaultFlagRegistry } from "./vars.js"
 import type { CollectRound, RemovedAssertions, Requested } from "../../workflow-kit/index.js"
 import {
@@ -57,7 +65,8 @@ export const agentWithSkills = (
   options: AgentOptions = {},
 ): Promise<void> => {
   const access = accessPreamble(accessFor(name, options.file))
-  const body = access === "" ? prompt : `${access}\n\n${prompt}`
+  const standards = standardsBlock(read(STANDARDS))
+  const body = [access, prompt, standards].filter((part) => part !== "").join("\n\n")
   return agent(name, withSkills(skillsFor(name).join(", "), body), options)
 }
 
@@ -124,12 +133,17 @@ export interface ComposedReview {
   readonly nitFix?: string | undefined
   /** Titles of notes the human already answered, left out. */
   readonly answered?: ReadonlySet<string> | undefined
+  /** Standards added since the review base, and the conflicts still waiting on the human. */
+  readonly standards?:
+    | { readonly added: readonly string[]; readonly undecided: readonly Conflict[] }
+    | undefined
 }
 
 const SUMMARY_TITLES = [
   "Weakened scenarios",
   "Fixed from your notes",
   "Fixed automatically",
+  "Standards added",
   "Dropped as noise",
   "Nothing to note",
 ]
@@ -157,6 +171,10 @@ export const composedReview = (base: string, report: ComposedReview): string => 
   const chunk = (title: string, body: string): string => `## ${title}\n\n${body.trim()}`
   // The lead-in line keeps a body that ends in a list from absorbing the boxes.
   const answerBoxes = `${ANSWER_LEAD}\n\n- [ ] ${ANSWER_FIX}\n- [ ] ${ANSWER_WONT_FIX}\n- [ ] ${FREE_TEXT_PLACEHOLDER}`
+  const conflicts = (report.standards?.undecided ?? []).map((c) =>
+    chunk(unique(conflictTitle(c)), conflictBody(c)),
+  )
+  const added = report.standards?.added ?? []
   const notes = report.notes
     .map((n) => ({ ...n, title: unique(n.title) }))
     .filter((n) => report.answered?.has(n.title) !== true)
@@ -180,6 +198,7 @@ export const composedReview = (base: string, report: ComposedReview): string => 
             `These scenarios lost an assertion the review base had:\n\n${weakened.join("\n")}`,
           ),
         ]),
+    ...conflicts,
     ...notes.map((n) =>
       chunk(
         n.title,
@@ -198,6 +217,14 @@ export const composedReview = (base: string, report: ComposedReview): string => 
           chunk(
             "Fixed automatically",
             report.fixed.map((f) => `- ${f.title} (${short(f.commit)})`).join("\n"),
+          ),
+        ]),
+    ...(added.length === 0
+      ? []
+      : [
+          chunk(
+            "Standards added",
+            `Learned from your answers and kept in \`${STANDARDS}\`:\n\n${added.map((s) => `- ${s}`).join("\n")}`,
           ),
         ]),
     ...(report.noise.length === 0

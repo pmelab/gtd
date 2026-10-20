@@ -87,6 +87,12 @@ one, then — no tick boxes, no answer required — what was fixed automatically
 (with the fixing commit) and what was dropped as noise. See
 [The triaged quality lap](docs/configuration.md#the-triaged-quality-lap).
 
+**The review learns your taste.** A won't-fix or an own answer the
+`build.review.standards.judge` calls reusable is kept in `.gtd/STANDARDS.md` and
+handed to every later agent turn, lenses and coder alike; one contradicting a
+kept standard is a review note that blocks sign-off until answered. See
+[Learned standards](docs/configuration.md#learned-standards).
+
 ## Human gates
 
 Each gate is a point where a person must act before work continues. Counts are
