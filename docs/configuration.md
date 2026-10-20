@@ -2033,9 +2033,10 @@ the re-run continues as if the check had passed, and that landing carries
 re-check also resets the escalation rounds, as any green check does. Red again
 escalates or rests as above.
 
-**Upgrading:** finish or `gtd abandon` any process that has escalated
-(`*.health.describe` onwards) or rested at a `*.blocked` gate before upgrading:
-its history no longer replays, since a re-check now comes first.
+**Upgrading:** finish or `gtd abandon` any process whose history has ever
+escalated (reached `*.health.describe` or `*.health.exhausted`) or rested at a
+`*.blocked` gate, even if it has moved on since: its history no longer replays,
+since a re-check now comes first.
 
 ## Feature flags
 
