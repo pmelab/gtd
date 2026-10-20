@@ -27,6 +27,7 @@ describe("gate guard", () => {
   const red = {
     first: (_: unknown, r: W) => r.write("f", "1\n"),
     "suite.check": (_: unknown, r: W) => r.write(".gtd/FEEDBACK.md", "red\n"),
+    "suite.recheck": (_: unknown, r: W) => r.write(".gtd/FEEDBACK.md", "red again\n"),
   }
 
   it("runs the guard after a blocked landing and lets its refusal stop it", async () => {
@@ -66,6 +67,7 @@ describe("healthy describeGuard", () => {
   let runs = 0
   const handlers = (extra: Record<string, unknown>) => ({
     "health.check": (_: unknown, r: W) => r.write(".gtd/FEEDBACK.md", `red ${runs++}\n`),
+    "health.recheck": (_: unknown, r: W) => r.write(".gtd/FEEDBACK.md", `red ${runs++}\n`),
     "health.judge": () => '[{"id":"verdict","answer":"progress","p":0.9}]',
     fix: (_: unknown, r: W) => r.write("f", `${runs}\n`),
     first: (_: unknown, r: W) => r.write("start", "1\n"),

@@ -647,10 +647,10 @@ It runs inside the scope `refactor`, whose write access is the strays, the test
 files (the list below) and `.gtd/**`, in these steps: `refactor.deriving`
 (writes `.gtd/REFACTOR.md`, a file a person can read and edit),
 `refactor.building`, the shared health loop (`refactor.health.check`,
-`refactor.health.judge`, `refactor.health.describe`, `refactor.health.stop`,
-`refactor.health.exhausted`) with `refactor.fix.suite.fixing`, and
-`refactor.closing`, which removes only the package file. A red suite goes to the
-fix loop, never to a refusal.
+`refactor.health.judge`, `refactor.health.recheck`, `refactor.health.describe`,
+`refactor.health.stop`, `refactor.health.exhausted`) with
+`refactor.fix.suite.fixing`, and `refactor.closing`, which removes only the
+package file. A red suite goes to the fix loop, never to a refusal.
 
 The package file's `## Scope (read-only)` list is for reading: the guards use
 the strays as fixed when the package was derived, so editing the list widens or
@@ -2020,6 +2020,23 @@ file at the human gate never spends one. Both gates release straight into the
 caller's fix step (`build.fix` or `implement.fix.suite.fixing`), so the turn
 that consumes the document is the very next one. `.gtd/ESCALATION.md` is
 free-form prose with no mode of its own.
+
+### Re-check before a person
+
+No red check reaches a person without running once more. Before escalating, the
+health loop re-runs the suite as `health.recheck`; a red baseline gate
+(`start-gate`, `review-gate`, `rollout`'s `suite`) re-runs it as
+`<gate>.recheck` before resting at `<gate>.blocked`. No judge is asked. Green on
+the re-run continues as if the check had passed, and that landing carries
+`Gtd-Mark: flaky=<check>` (`health.check`, or `<gate>.check`), which
+`gtd history metrics` counts under the re-check's full step name. A green
+re-check also resets the escalation rounds, as any green check does. Red again
+escalates or rests as above.
+
+**Upgrading:** finish or `gtd abandon` any process whose history has ever
+escalated (reached `*.health.describe` or `*.health.exhausted`) or rested at a
+`*.blocked` gate, even if it has moved on since: its history no longer replays,
+since a re-check now comes first.
 
 ## Feature flags
 

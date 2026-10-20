@@ -4,8 +4,10 @@ import {
   env,
   human,
   judge,
+  mark,
   numeric,
   vars,
+  type CheckOptions,
   type JudgeQuestion,
 } from "../../flows/index.js"
 import * as kit from "../../workflow-kit/index.js"
@@ -18,6 +20,24 @@ export const FIX_CAP = 3
 /** Run the suite as step `name`; resolves `true` when it passed. A failure is in `.gtd/FEEDBACK.md`. */
 export const baseline = (name: string, label = "Checking the baseline"): Promise<boolean> =>
   check(name, env.testCommand ?? "", { report: FEEDBACK, label })
+
+/**
+ * Re-run a red check as step `name` before a person sees it. Green records
+ * `Gtd-Mark: flaky=<red>` on the re-check's landing and resolves `true`.
+ */
+export const recheck = async (
+  name: string,
+  red: string,
+  options: Pick<CheckOptions, "sweepOnGreen"> = {},
+): Promise<boolean> => {
+  const green = await check(name, env.testCommand ?? "", {
+    ...options,
+    report: FEEDBACK,
+    label: "Re-running checks",
+  })
+  if (green) mark("flaky", red)
+  return green
+}
 
 export type { EscalationCount } from "../../workflow-kit/index.js"
 
@@ -117,18 +137,24 @@ export interface HealthOptions {
   readonly rules?: string | undefined
 }
 
+// Swept only on green: an unresolved analysis survives every retry.
+const healthSweep = (options: HealthOptions): string[] => [
+  ESCALATION,
+  ...(options.sweepOnGreen ?? []),
+]
+
 const runSuite = (options: HealthOptions): Promise<boolean> =>
   check("health.check", env.testCommand ?? "", {
     report: FEEDBACK,
     label: "Running checks",
-    // Swept only on green: an unresolved analysis survives every retry.
-    sweepOnGreen: [ESCALATION, ...(options.sweepOnGreen ?? [])],
+    sweepOnGreen: healthSweep(options),
   })
 
 /**
  * Loop until the suite is green: check, and on red run `fix` — escalating
  * first once `FIX_CAP` fixes are spent, or a judge calls the failure
- * identical to the previous round's.
+ * identical to the previous round's. An escalation re-runs the suite once
+ * first; a green re-run ends the loop.
  */
 export const healthy = (fix: () => Promise<void>, options: HealthOptions = {}): Promise<void> =>
   kit.healthy(guarded(fix, options.guard), {
@@ -138,6 +164,8 @@ export const healthy = (fix: () => Promise<void>, options: HealthOptions = {}): 
     fixesSoFar: options.fixesSoFar ?? 0,
     sameFailure,
     escalations: options.escalations ?? { rounds: 0 },
+    recheck: () =>
+      recheck("health.recheck", "health.check", { sweepOnGreen: healthSweep(options) }),
     escalation: guardedSteps(
       options.guard,
       options.describeGuard,
@@ -147,13 +175,14 @@ export const healthy = (fix: () => Promise<void>, options: HealthOptions = {}): 
   })
 
 /**
- * Hold the process at `<name>.blocked` until the suite is green. `guard` runs
+ * Hold the process at `<name>.blocked` until the suite is green, re-running a
+ * red check once as `<name>.recheck` before resting. `guard` runs
  * after each `blocked` landing only — never after a check, whose refusal would
  * re-run the same script forever.
  */
 export const gate = (name: string, message: string, guard?: Guard): Promise<void> =>
   kit.gate(
     name,
-    () => baseline("check"),
+    async () => (await baseline("check")) || recheck("recheck", `${name}.check`),
     guarded(() => human("blocked", { message, label: "Baseline is red", file: FEEDBACK }), guard),
   )

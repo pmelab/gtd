@@ -160,6 +160,7 @@ describe("the cleanup guard over every later agent turn", () => {
         "build.health.check": (_, r) => {
           if (!stopped) r.write(FEEDBACK, `failing ${runs++}\n`)
         },
+        "build.health.recheck": (_, r) => r.write(FEEDBACK, `failing ${runs++}\n`),
         "build.health.describe": () => undefined,
         "build.health.judge": () => '[{"id":"verdict","answer":"progress","p":0.9}]',
         "build.fix": (_, r) => r.write("src/other.ts", `export const n = ${runs}\n`),
@@ -176,6 +177,7 @@ describe("the cleanup guard over every later agent turn", () => {
     await expect(
       driven(guarded("", NO_ACCESS), {
         "build.health.check": (_, r) => r.write(FEEDBACK, `failing ${runs++}\n`),
+        "build.health.recheck": (_, r) => r.write(FEEDBACK, `failing ${runs++}\n`),
         "build.health.judge": () => '[{"id":"verdict","answer":"progress","p":0.9}]',
         "build.fix": (_, r) => r.write("src/other.ts", `export const n = ${runs}\n`),
         "build.health.describe": (_, r) => r.write("src/b.ts", NAMED),

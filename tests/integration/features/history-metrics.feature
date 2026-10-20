@@ -123,3 +123,37 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
     When I run gtd with args "history metrics nope"
     Then the exit code is 1
     And stderr contains "no history ref matches \"nope\""
+
+  @inmem
+  Scenario: a red check that passed on its re-check is counted as flaky
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+      import { gate } from "@pmelab/gtd/workflows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await gate("start-gate", "the baseline is red")
+      }
+      """
+    And the working tree is committed as "chore: gated config"
+    And a file "NOTE.md" with:
+      """
+      Gate a thing.
+      """
+    And gtd lands "gtd(human): idle → start-gate.check"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test timed out
+      """
+    And gtd lands "gtd(check): start-gate.check → start-gate.recheck"
+    And the file ".gtd/FEEDBACK.md" is deleted
+    And gtd lands "gtd(check): start-gate.recheck → idle"
+    When I run gtd with args "history metrics main"
+    Then it succeeds
+    And stdout contains "1 flaky (start-gate.recheck 1)"
+    When I run gtd with args "history metrics --json=total.flaky.total"
+    Then stdout is:
+      """
+      1
+      """

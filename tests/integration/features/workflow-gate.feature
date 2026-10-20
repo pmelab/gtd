@@ -5,9 +5,10 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
   opening commit's diff out of the working tree before `start-gate.check`
   ever runs. By the time the gate's own suite run happens, the working tree
   already IS the baseline, so all three workflows (`feature`, `review`, `fix`) now share the exact same plain rule: block on
-  any red tree, full stop. A red run halts at the human `start-gate.blocked`
-  gate that loops back to the check once the human repairs the failures — the
-  same shape as `escalate`.
+  any red tree, full stop. A red run is re-run once as `start-gate.recheck`;
+  green there proceeds, recorded as `Gtd-Mark: flaky=start-gate.check`. Red
+  again halts at the human `start-gate.blocked` gate that loops back to the
+  check once the human repairs the failures — the same shape as `escalate`.
 
   Some scenarios simulate the scripts' outcome directly — the unwind's revert
   by deleting whatever the entry commit added, the check's suite run by
@@ -38,7 +39,15 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): start-gate.check → start-gate.blocked"
+    And the last commit subject is "gtd(check): start-gate.check → start-gate.recheck"
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failing: baseline still broken
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): start-gate.recheck → start-gate.blocked"
+    And the last commit body does not contain "Gtd-Mark: flaky="
     When I run gtd next
     Then it succeeds
     And stdout contains "test baseline is red"
@@ -117,7 +126,14 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): start-gate.check → start-gate.blocked"
+    And the last commit subject is "gtd(check): start-gate.check → start-gate.recheck"
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failing: baseline still broken
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): start-gate.recheck → start-gate.blocked"
 
   @inmem
   Scenario: a green baseline proceeds from the gate into design.triage
@@ -221,5 +237,41 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     And I execute the printed check script
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): start-gate.check → start-gate.blocked"
+    And the last commit subject is "gtd(check): start-gate.check → start-gate.recheck"
+
+    When I run gtd next with "--json"
+    Then it succeeds
+    And I execute the printed check script
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): start-gate.recheck → start-gate.blocked"
     And ".gtd/FEEDBACK.md" contains "the test command failed"
+
+  @inmem
+  Scenario: a red baseline that passes on its re-check proceeds to design.triage, recorded as flaky
+    Given a test project
+    And the workflow gtd install scaffolds
+    Given a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    When I run gtd land
+    Then it succeeds
+    Given the file "NOTE.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): unwind → start-gate.check"
+
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failing: timed out
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): start-gate.check → start-gate.recheck"
+
+    Given the file ".gtd/FEEDBACK.md" is deleted
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): start-gate.recheck → design.triage"
+    And the last commit body contains "Gtd-Mark: flaky=start-gate.check"

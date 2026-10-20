@@ -436,6 +436,8 @@ const drive = async (
           checks++
           phase = "check"
         }
+        // Re-runs the red check it follows, so it reads red as well.
+        if (request.kind === "run" && name === "health.recheck") phase = "check"
         return Promise.resolve(
           request.kind === "judge" ? { answers: {}, truncated: [] } : undefined,
         )
@@ -806,6 +808,8 @@ const driveReviewed = async (
     // Red checks apply to the tail's own runs, never the refactor lap's.
     checking = request.name === "health.check" && stack.includes("build")
     if (checking && reds > 0) reds--
+    // Re-runs the red check it follows, so it reads red as well.
+    if (request.name === "health.recheck" && stack.includes("build")) checking = true
   }
   const lensEffects = ["correctness", "ponytail-review", "conventions"].map(
     (lens): [string, () => void] => [
