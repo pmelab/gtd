@@ -44,6 +44,8 @@ export interface JudgeCommit {
   readonly review?: { readonly before: string; readonly after: string }
   /** The commit changed the `## Acceptance Criteria` of `.gtd/REQUIREMENTS.md`. */
   readonly criteriaChanged?: boolean
+  /** The commit changed a path outside `.gtd/`. */
+  readonly code?: true
   /** The `TODO.md` the opening commit's sketch wrote. */
   readonly sketch?: string
 }
@@ -130,12 +132,22 @@ export const findingsOf = (text: string): readonly Finding[] => {
   ].map((f, i) => ({ id: `Q${i + 1}`, ...f }))
 }
 
+/** The criteria list, one item per line, wrapping undone: prose around it is no criterion. */
 const criteriaOf = (text: string | undefined): string | undefined => {
   if (text === undefined) return undefined
   const section = headingSectionBodies(text).find((s) =>
     /^acceptance criteria$/i.test(s.title.trim()),
   )
-  return section?.body.split("\n").slice(1).join(" ").replace(/\s+/g, " ").trim()
+  if (section === undefined) return undefined
+  const items: string[] = []
+  let open = false
+  for (const line of section.body.split("\n").slice(1)) {
+    const item = /^\s*[-*+]\s+(.*)$/.exec(line)
+    if (item !== null) items.push(item[1]!.trim())
+    else if (open && line.trim() !== "") items.push(`${items.pop()!} ${line.trim()}`)
+    open = item !== null || (open && line.trim() !== "")
+  }
+  return items.map((i) => i.replace(/\s+/g, " ")).join("\n")
 }
 
 export const criteriaChanged = (before: string | undefined, after: string | undefined): boolean =>
@@ -151,22 +163,39 @@ const chunkLines = (doc: string, title: string): readonly string[] =>
 
 const retryOutcome = (reads: readonly Read[], i: number, scope: string): Outcome | null => {
   const isCheck = (r: Read) => r.at === `${scope}health.check` || r.at === `${scope}health.recheck`
-  let fixed = false
-  for (const r of reads.slice(i + 1)) {
-    if (!fixed) {
-      // A re-check that passed before any fix ends the loop: no fix turn to judge by.
-      if (isCheck(r) && r.commit.feedback === undefined) return null
-      fixed = r.actor === "agent" && !r.at.startsWith(`${scope}health.`)
-    } else if (r.at === `${scope}health.check`) {
-      return r.commit.feedback === undefined ? "overturned" : "held"
-    }
-  }
-  return null
+  const after = reads.slice(i + 1)
+  const fix = after.findIndex(
+    // A re-check that passed before any fix ends the loop: no fix turn to judge by.
+    (r) =>
+      (isCheck(r) && r.commit.feedback === undefined) ||
+      (r.actor === "agent" && !r.at.startsWith(`${scope}health.`)),
+  )
+  if (fix === -1 || after[fix]!.actor !== "agent") return null
+  const check = after.findIndex((r, k) => k > fix && r.at === `${scope}health.check`)
+  if (check === -1) return null
+  // A person's own code edit (narrowing an escalation) would earn the green, not the fix turn.
+  if (after.slice(0, check).some((r) => r.actor === "human" && r.commit.code === true)) return null
+  return after[check]!.commit.feedback === undefined ? "overturned" : "held"
 }
 
 const RESHOWN: Readonly<Record<string, string>> = {
   mechanical: "Fixed automatically",
   noise: "Dropped as noise",
+}
+
+/** Whether the review edited `finding`'s line in `chunk`; null when the review did not list it there. */
+const reviewedLine = (
+  review: NonNullable<JudgeCommit["review"]>,
+  chunk: string,
+  title: string,
+): Outcome | null => {
+  // The ` (` after the title keeps "a test" apart from "a test for x".
+  const own = (l: string) => l.startsWith(`- ${title} (`)
+  const listed = chunkLines(review.before, chunk).find(own)
+  // Only a finding the review listed as fixed or dropped was acted on: one the fix cap left is a note.
+  if (listed === undefined) return null
+  const after = chunkLines(review.after, chunk)
+  return !after.includes(listed) && after.some(own) ? "overturned" : "held"
 }
 
 const triageOutcome = (
@@ -177,21 +206,20 @@ const triageOutcome = (
 ): Outcome | null => {
   const chunk = RESHOWN[answer]
   if (chunk === undefined || finding === undefined) return null
-  for (const r of reads.slice(i + 1)) {
-    if (judgeOf(r.at) === "triage") return null
-    const review = r.commit.review
-    if (r.actor !== "human" || review === undefined) continue
-    const before = chunkLines(review.before, chunk)
-    // Only a finding the review listed as fixed or dropped was acted on: one the fix cap left is a note.
-    if (!before.some((l) => l.startsWith(`- ${finding.title} (`))) return null
-    const added = chunkLines(review.after, chunk).filter((l) => !before.includes(l))
-    return added.some((l) => l.includes(finding.title)) ? "overturned" : "held"
-  }
-  return null
+  const next = reads
+    .slice(i + 1)
+    .find(
+      (r) => judgeOf(r.at) === "triage" || (r.actor === "human" && r.commit.review !== undefined),
+    )
+  const review = next?.actor === "human" ? next.commit.review : undefined
+  return review === undefined ? null : reviewedLine(review, chunk, finding.title)
 }
 
-const clearOutcome = (reads: readonly Read[], i: number, answer: string): Outcome | null => {
-  if (answer !== "yes") return null
+// The bundled criteria judge's own floor: below it the flow ran design anyway.
+const CLEAR_MIN_P = 0.8
+
+const clearOutcome = (reads: readonly Read[], i: number, v: JudgeVerdict): Outcome | null => {
+  if (!answered(verdictOf(v.answer, v.p), "yes", CLEAR_MIN_P)) return null
   const edited = reads
     .slice(i + 1)
     .some(
@@ -262,11 +290,14 @@ type Verdict = (at: Site, v: JudgeVerdict) => Pick<Judgment, "state" | "outcome"
 const JUDGES: Readonly<Record<JudgeName, Verdict>> = {
   retry: ({ reads, i, scope }, v) => {
     const reports = reportsBefore(reads, i, scope)
+    const previous = reports.at(-2)
+    const current = reports.at(-1)
+    // The flow hands the judge no reports when either is empty.
+    const comparable = previous?.trim() !== "" && current?.trim() !== ""
     return {
-      state: {
-        ...field("previous", reports.at(-2)),
-        ...field("current", reports.at(-1)),
-      },
+      state: comparable
+        ? { ...field("previous", previous), ...field("current", current) }
+        : { tailsNotComparable: "true" },
       outcome: answerOf(v.answer) === "identical" ? retryOutcome(reads, i, scope) : null,
     }
   },
@@ -279,7 +310,7 @@ const JUDGES: Readonly<Record<JudgeName, Verdict>> = {
   },
   clear: ({ reads, i, sketch }, v) => ({
     state: field("sketch", sketch),
-    outcome: clearOutcome(reads, i, answerOf(v.answer)),
+    outcome: clearOutcome(reads, i, v),
   }),
 }
 
@@ -359,6 +390,8 @@ export const whatIf = (
   const threshold = THRESHOLDS[name]!
   const changes = new Map<string, Change>()
   for (const { vars, judgments } of processes) {
+    // A process that never recorded the setting decided under no threshold to compare against.
+    if (!Object.hasOwn(vars, name)) continue
     const was = numeric(vars[name], Infinity)
     const now = numeric(value, Infinity)
     for (const j of judgments) {
@@ -444,7 +477,15 @@ const commitFacts = (
     reviewFact(at, c, parent),
     criteriaFact(at, c, parent),
     sketchFact(at, c, opening),
-  ]).pipe(Effect.map((facts) => Object.assign({ hash: c.hash, message: c.message }, ...facts)))
+  ]).pipe(
+    Effect.map((facts) =>
+      Object.assign(
+        { hash: c.hash, message: c.message },
+        c.touched.some((p) => p !== ".gtd" && !p.startsWith(".gtd/")) ? { code: true } : {},
+        ...facts,
+      ),
+    ),
+  )
 }
 
 const readProcessJudgments = (
@@ -454,6 +495,12 @@ const readProcessJudgments = (
     const git = yield* GitService
     const base = Option.getOrUndefined(yield* git.readRefOption(`${entry.entry}^`))
     const commits = yield* git.commitHistory(base, entry.tip)
+    const vars = commits[0] === undefined ? {} : parseCommitMessage(commits[0].message).vars
+    const judged = commits.some((c) => {
+      const m = parseCommitMessage(c.message)
+      return m.judge.length > 0 && judgeOf(m.parsed?.from ?? "") !== undefined
+    })
+    if (!judged) return { vars, judgments: [] }
     const at: FileAt = (ref, path) =>
       ref === undefined
         ? Effect.succeed(undefined)
@@ -464,7 +511,6 @@ const readProcessJudgments = (
     const read = yield* Effect.forEach(commits, (commit, i) =>
       commitFacts(at, commit, i === 0 ? base : commits[i - 1]!.hash, i === 0),
     )
-    const vars = commits[0] === undefined ? {} : parseCommitMessage(commits[0].message).vars
     return { vars, judgments: processJudgments(read) }
   })
 

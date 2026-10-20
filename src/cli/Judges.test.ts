@@ -59,6 +59,26 @@ describe("processJudgments — retry", () => {
     expect(j?.outcome).toBe("held")
   })
 
+  it("has no outcome when a person edited code before the deciding check", () => {
+    const [j] = processJudgments([
+      c("gtd(judge): build.health.judge → build.health.recheck", identical()),
+      red("gtd(check): build.health.recheck → build.health.describe", "x"),
+      c("gtd(human): build.health.stop → build.fix", { code: true }),
+      c("gtd(agent): build.fix → build.health.check"),
+      c("gtd(check): build.health.check → idle"),
+    ])
+    expect(j?.outcome).toBeNull()
+  })
+
+  it("hands an empty report on as the flow does: not comparable", () => {
+    const [j] = processJudgments([
+      red("gtd(check): health.check → fix", " "),
+      red("gtd(check): health.check → health.judge", "x"),
+      c("gtd(judge): health.judge → fix", identical()),
+    ])
+    expect(j?.state).toEqual({ tailsNotComparable: "true" })
+  })
+
   it("has no outcome when the re-check passes before any fix, or for another answer", () => {
     const js = processJudgments([
       c("gtd(judge): build.health.judge → build.health.recheck", identical()),
@@ -115,6 +135,31 @@ describe("processJudgments — triage", () => {
     expect(js[1]?.state).toEqual({ Q2: "## a missing test\n\nadd one" })
   })
 
+  it("credits a written-back line to its own finding only", () => {
+    const listed = [
+      "# Review",
+      "",
+      "## Dropped as noise",
+      "",
+      "- a test (p=0.8)",
+      "- a test for x (p=0.8)",
+      "",
+    ].join("\n")
+    const js = processJudgments([
+      c("gtd(judge): build.quality.triage → build.quality.sorting", {
+        findings: findingsOf("## a test\n\n## a test for x\n"),
+        verdicts: [
+          { id: "Q1", answer: "noise", p: 0.8 },
+          { id: "Q2", answer: "noise", p: 0.8 },
+        ],
+      }),
+      c("gtd(human): build.review.await → build.review.triage", {
+        review: { before: listed, after: listed.replace("x (p=0.8)", "x (p=0.8) — needed") },
+      }),
+    ])
+    expect(js.map((j) => j.outcome)).toEqual(["held", "overturned"])
+  })
+
   it("scores only a finding the review listed as fixed or dropped", () => {
     const js = processJudgments([
       c("gtd(judge): build.quality.triage → build.quality.sorting", {
@@ -161,8 +206,12 @@ describe("processJudgments — clear", () => {
     expect(j?.outcome).toBe("held")
   })
 
-  it("has no outcome for a no", () => {
+  it("has no outcome for a no, or a yes below the skip floor", () => {
     expect(processJudgments([clear("no")])[0]?.outcome).toBeNull()
+    const low = c("gtd(judge): design.clear → design.triage", {
+      verdicts: [{ id: "clear", answer: "yes", p: 0.75 }],
+    })
+    expect(processJudgments([low])[0]?.outcome).toBeNull()
   })
 })
 
@@ -182,6 +231,7 @@ describe("criteriaChanged", () => {
     expect(criteriaChanged(doc("- AC-1: a b"), doc("- AC-1: a\n  b").replace("x", "y"))).toBe(false)
     expect(criteriaChanged(doc("- AC-1: a"), doc("- AC-1: a\n- AC-2: b"))).toBe(true)
     expect(criteriaChanged(undefined, doc("- AC-1: a"))).toBe(true)
+    expect(criteriaChanged(doc("- AC-1: a"), doc("Settled.\n\n- AC-1: a"))).toBe(false)
   })
 })
 
@@ -243,12 +293,12 @@ describe("whatIf", () => {
     })
   })
 
-  it("decides nothing under an unrecorded threshold, as the flow reads an unset var", () => {
+  it("leaves out a process that recorded no such threshold", () => {
     const w = whatIf(
       [{ vars: {}, judgments: [judgment({ judge: "retry", answer: "identical", p: 0.8 })] }],
       "judgeIdenticalMinP",
       "0.7",
     )
-    expect(w.changes).toEqual([{ from: "retry", to: "identical", count: 1, overturned: 0 }])
+    expect(w.changes).toEqual([])
   })
 })

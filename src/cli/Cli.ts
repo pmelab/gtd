@@ -1450,10 +1450,19 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
 
   if (kind === "historyJudges") {
     const vars = bag["--var"] ?? {}
-    const unknown = Object.keys(vars).find((name) => !(name in THRESHOLDS))
+    const unknown = Object.keys(vars).find((name) => !Object.hasOwn(THRESHOLDS, name))
     if (unknown !== undefined) {
       return usagePlan(
         `gtd history judges: --var ${unknown} is no judge threshold — use ${Object.keys(THRESHOLDS).join(" or ")}`,
+        jsonSeen,
+      )
+    }
+    const nan = Object.entries(vars).find(
+      ([, value]) => value.trim() === "" || !Number.isFinite(Number(value)),
+    )
+    if (nan !== undefined) {
+      return usagePlan(
+        `gtd history judges: --var ${nan[0]} must be a number — got "${nan[1]}"`,
         jsonSeen,
       )
     }

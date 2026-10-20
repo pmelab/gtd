@@ -778,18 +778,18 @@ from the `Gtd-Judge` verdicts the kept refs recorded. It never replays and asks
 no model. A verdict is **overturned** when later history contradicts it:
 
 - **retry** (`health.judge`) — an `identical` verdict, when the next fix turn's
-  check went green anyway
+  check went green anyway (no outcome when a person edited code in between)
 - **triage** (`quality.triage`) — a `mechanical` or `noise` verdict the review
-  listed under _Fixed automatically_ or _Dropped as noise_, when the human wrote
-  a line naming that finding into the chunk
-- **clear** (`design.clear`) — a `yes` (design skipped), when a later human
-  design step in the same process changed the acceptance criteria
+  listed under _Fixed automatically_ or _Dropped as noise_, when the human
+  edited that finding's line there
+- **clear** (`design.clear`) — a `yes` at `p` 0.8 or more (design skipped), when
+  a later human design step in the same process changed the acceptance criteria
 
 Any other verdict has no outcome. The report counts verdicts, scored verdicts
 and overturns per judge and per `p` bucket (`0.8-0.9: 1/2` — one of two
 overturned). `--var <threshold>=<value>` re-decides every past verdict under
 another threshold and prints the decisions that would change, against the
-threshold each process recorded:
+threshold each process recorded (a process that recorded none is left out):
 
 ```sh
 gtd history judges --var qualityTriageMinP=0.9
@@ -801,8 +801,9 @@ The thresholds are `judgeIdenticalMinP` (retry) and `qualityTriageMinP`
 re-decides as if it was whole. `--json` prints `{ processes, judges, whatIf }`.
 `--jsonl` prints one line per verdict instead — `process`, `judge`, `commit`,
 `step`, `question`, `state` (the evidence the tree still shows: the finding, the
-two check reports, the sketch), `answer`, `p` and `outcome` (`overturned`,
-`held` or `null`) — ready to fine-tune a local model on:
+two check reports, the sketch without its numbered criteria), `answer`, `p` and
+`outcome` (`overturned`, `held` or `null`) — ready to fine-tune a local model
+on:
 
 ```sh
 gtd history judges --jsonl > judges.jsonl

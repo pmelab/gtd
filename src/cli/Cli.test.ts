@@ -1045,6 +1045,12 @@ describe("parseArgv — gtd history", () => {
     expect(usage(parse("history", "judges", "--var", "reviewBase=main"))).toContain(
       "no judge threshold",
     )
+    expect(usage(parse("history", "judges", "--var", "toString=0.9"))).toContain(
+      "no judge threshold",
+    )
+    expect(usage(parse("history", "judges", "--var", "qualityTriageMinP=0,9"))).toContain(
+      "must be a number",
+    )
     expect(usage(parse("history", "judges", "--jsonl", "--json"))).toContain("mutually exclusive")
     expect(usage(parse("history", "judges", "--jsonl", "--var", "qualityTriageMinP=1"))).toContain(
       "mutually exclusive",
