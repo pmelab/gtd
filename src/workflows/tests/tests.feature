@@ -120,6 +120,10 @@ Feature: the tests workflow revives skipped tests or proposes their deletion
     Then the process rests at "idle"
 
   Scenario: a ticked keep it skipped leaves the test skipped and ends the process
+    Given judge step "build.review.standards.judge" answers:
+      """
+      [{"id":"standard-1","answer":"no","p":0.9}]
+      """
     When gtd starts workflow "tests"
     And the process is driven
     And the text "- [ ] keep it skipped" in ".gtd/REVIEW.md" is replaced with "- [x] keep it skipped"
@@ -127,7 +131,7 @@ Feature: the tests workflow revives skipped tests or proposes their deletion
     And the process is driven
     Then the process rests at "idle"
     And "src/legacy.test.ts" contains "it.skip"
-    And the commit "gtd(human): build.review.await-review → build.review.closing" has a body containing "Gtd-Mark: wontfix=calls the v1 api"
+    And the commit "gtd(human): build.review.await-review → build.review.standards.judge" has a body containing "Gtd-Mark: wontfix=calls the v1 api"
 
   Scenario: a rewrite leaving a test skipped without a proposal is refused
     Given step "tests.rewriting", when prompted with "\"calls the v1 api\" is skipped", writes ".gtd/RETIRE.md" with:
