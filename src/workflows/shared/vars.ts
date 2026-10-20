@@ -21,7 +21,7 @@ export const testsDefaults: Readonly<Record<string, string>> = {
   testFiles: testFileGlobs.join(", "),
   // JS/TS runners' `.skip`/`.todo` and `x`-prefixed blocks, and cucumber's skip tags.
   skipPattern:
-    "\\b(?:describe|context|suite|it|test|specify)\\.(?:skip|todo)\\b|\\bx(?:describe|context|it|test|specify)\\s*\\(|(?:^|\\s)@(?:skip|ignore)\\b",
+    "^\\s*(?:(?:describe|context|suite|it|test|specify)\\.(?:skip|todo)\\b|x(?:describe|context|it|test|specify)\\s*\\(|(?:@\\S+\\s+)*@(?:skip|ignore)(?:\\s|$))",
 }
 
 /** Process settings. */

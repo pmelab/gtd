@@ -747,9 +747,9 @@ repository — every skipped test plus the `test-audit` skill's findings — int
 own turn until nothing in it is skipped and the suite is green. A test the agent
 calls obsolete stays skipped and is proposed for deletion: the review in
 `.gtd/REVIEW.md` gives each proposal `delete it`, `keep it skipped` or
-`_your answer_`, and refuses sign-off until each holds one tick. Only that tick
-deletes a test — no agent turn and no judge may. Skip detection is a factory
-option with JavaScript/TypeScript and cucumber defaults; see
+`_your answer_`, and refuses sign-off until each holds one tick. An agent turn
+that deletes a test file is refused. Skip detection is a factory option with
+JavaScript/TypeScript and cucumber defaults; see
 [Reviving skipped tests](docs/configuration.md#reviving-skipped-tests).
 
 ## Checking a range for stray files

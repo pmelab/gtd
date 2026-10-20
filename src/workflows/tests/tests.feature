@@ -128,7 +128,7 @@ Feature: the tests workflow revives skipped tests or proposes their deletion
     And the process is driven
     Then the process rests at "idle"
     And "src/legacy.test.ts" contains "it.skip"
-    And no commit body contains "Gtd-Mark: wontfix=delete"
+    And the commit "gtd(human): build.review.await-review → build.review.closing" has a body containing "Gtd-Mark: wontfix=calls the v1 api"
 
   Scenario: a rewrite leaving a test skipped without a proposal is refused
     Given step "tests.rewriting", when prompted with "\"calls the v1 api\" is skipped", writes ".gtd/RETIRE.md" with:
@@ -142,6 +142,21 @@ Feature: the tests workflow revives skipped tests or proposes their deletion
     Given step "tests.rewriting" deletes "src/legacy.test.ts"
     When gtd starts workflow "tests"
     Then driving the process is refused with "src/legacy.test.ts deleted"
+
+  Scenario: a sweep deleting a test file is refused
+    Given step "tests.sweeping" deletes "src/legacy.test.ts"
+    When gtd starts workflow "tests"
+    Then driving the process is refused with "src/legacy.test.ts deleted"
+
+  Scenario: one proposal covers one skip, not every skip in its file
+    Given a file "src/legacy.test.ts" with:
+      """
+      it.skip("calls the v1 api", () => {})
+      it.skip("calls the v1 batch api", () => {})
+      """
+    And the working tree is committed as "test: another legacy test"
+    When gtd starts workflow "tests"
+    Then driving the process is refused with "src/legacy.test.ts:2 still skipped"
 
   Scenario: a sweep leaving out a file with a skipped test is refused
     Given step "tests.sweeping" writes ".gtd/TESTS.md" with:

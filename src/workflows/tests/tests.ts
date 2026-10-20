@@ -153,8 +153,17 @@ const guardFor =
       refuse(
         `gtd land: tests: ${deleted.join(", ")} deleted — a test goes only once a person ticks "delete it" at the review`,
       )
-    const retire = read(RETIRE) ?? ""
-    const left = scan([...revised], expression).filter((s) => !retire.includes(s.path))
+    // One proposal per skip left: a section naming the file covers one skip in it, never all.
+    const named = new Map<string, number>()
+    for (const s of sectionBodies(read(RETIRE) ?? "")) {
+      const paths = new Set(s.body.match(/[\w./-]+/g)?.map(pathOf) ?? [])
+      for (const path of paths) named.set(path, (named.get(path) ?? 0) + 1)
+    }
+    const left = scan([...revised], expression).filter((s) => {
+      const n = named.get(s.path) ?? 0
+      named.set(s.path, n - 1)
+      return n <= 0
+    })
     if (left.length > 0)
       refuse(
         `gtd land: tests: ${left.map((s) => `${s.path}:${s.line}`).join(", ")} still skipped — revive it, or propose its deletion in ${RETIRE}`,
@@ -187,13 +196,13 @@ export const testsFlow = async (): Promise<void> => {
       system: t.finisherSystem(),
       allowEmpty: true,
     })
+    guard()
     const packages = sectionBodies(read(TESTS) ?? "").map((s) => ({
       path: pathOf(s.title),
       found: below(s.body),
     }))
-    const tree = new Set(glob("**"))
     const missing = [
-      ...packages.filter((p) => !tree.has(p.path)).map((p) => `"${p.path}" is no file`),
+      ...packages.filter((p) => read(p.path) === undefined).map((p) => `"${p.path}" is no file`),
       ...[...new Set(skips.map((s) => s.path))]
         .filter((path) => !packages.some((p) => p.path === path))
         .map((path) => `${path} has no section`),
@@ -206,9 +215,12 @@ export const testsFlow = async (): Promise<void> => {
         file: RETIRE,
         model: coder(),
         system: t.finisherSystem(),
+        // A file the audit only flagged may already be fine.
+        allowEmpty: true,
       })
       guard()
-      await healthy(() => fixCheck(), { guard })
+      // Unguarded human rests: a person at the escalation may delete or keep what they like.
+      await healthy(() => fixCheck(), { guard, guardRests: false })
     }
     const retired = proposals(read(RETIRE) ?? "")
     if (read(TESTS) !== undefined || read(RETIRE) !== undefined) {
@@ -218,13 +230,17 @@ export const testsFlow = async (): Promise<void> => {
   })
   if (report === undefined) return
   let outcome = await tail(
-    (escalations) => humanReview(base, escalations, { report, awaitMessage }),
+    (escalations) =>
+      humanReview(base, escalations, {
+        report,
+        awaitMessage: report.notes.length > 0 ? awaitMessage : undefined,
+      }),
     { lenses: [], green: true },
   )
   while (outcome.verdict === "feedback") {
     await reUnwind(outcome)
     await fixFeedback()
-    outcome = await tail((escalations) => humanReview(base, escalations, { awaitMessage }), {
+    outcome = await tail((escalations) => humanReview(base, escalations), {
       lenses: [],
     })
   }

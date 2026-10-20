@@ -25,6 +25,9 @@ describe("the default skipPattern", () => {
     "@skipped-by-nobody",
     "fixit()",
     "user@skip.example",
+    '  "it.skip(x)",',
+    "// xit( is how jasmine skips",
+    "@skip-ci",
   ])("does not read %s as skipped", (line) => {
     expect(skipped(line)).toEqual([])
   })

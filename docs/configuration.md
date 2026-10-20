@@ -2317,8 +2317,9 @@ gtd door tests
 3. `tests.rewriting`, once per section: the file's tests are rewritten until
    none is skipped, then `tests.health.check` (the shared health loop) keeps the
    suite green. A test the agent calls obsolete stays skipped and gets a
-   `## <title>` section in `.gtd/RETIRE.md` naming its file and why it should
-   go.
+   `## <title>` section in `.gtd/RETIRE.md` naming its file and why it should go
+   — one section per test left skipped. A file needing no change may land an
+   empty turn.
 4. `tests.closing` removes both files, and `.gtd/REVIEW.md` holds one chunk per
    proposal, ending in three boxes:
 
@@ -2336,17 +2337,19 @@ gtd door tests
    `keep it skipped` is dropped and recorded as `Gtd-Mark: wontfix=<title>`; an
    own answer is judged like any review note.
 
-Only that tick deletes a test: the sweep, the rewrites and their fix turns are
-refused when they delete a test file, and no judge decides a deletion.
+Only a person deletes a test: the sweep, the rewrites and their fix turns are
+refused when they delete a test file. A person at the health loop's escalation
+rests is not checked.
 
 Two factory options say what a skipped test is; each is also a process setting
 (`--var`, `GTD_<NAME>`):
 
 - `testFiles` — comma-separated globs of the files scanned, default
   `**/*.test.*, **/*.spec.*, **/*.feature, **/tests/**, **/test/**, **/__tests__/**`.
-- `skipPattern` — a regular expression tested against each line, default
-  `.skip`/`.todo` on `describe`/`context`/`suite`/`it`/`test`/`specify`,
-  `xdescribe(`/`xit(`/… and the cucumber tags `@skip` and `@ignore`.
+- `skipPattern` — a regular expression tested against each line, default: a line
+  opening with `.skip`/`.todo` on
+  `describe`/`context`/`suite`/`it`/`test`/`specify`, with
+  `xdescribe(`/`xit(`/…, or with a tag line holding `@skip` or `@ignore`.
 
 ```ts
 import { tests as shipped } from "@pmelab/gtd/workflows/tests"
@@ -2358,13 +2361,13 @@ export const tests = shipped({
 
 Refusals, each exiting non-zero with the text on stderr:
 
-| Text                                                                                                             | When                                                                 |
-| ---------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------- |
-| `gtd: <file> is left over — finish or remove it first.`                                                          | `.gtd/REQUIREMENTS.md`, `.gtd/TESTS.md` or `.gtd/RETIRE.md` at start |
-| `gtd: skipPattern must not be blank`, `… is not a valid regular expression`, `… must not match the empty string` | an unusable `skipPattern`                                            |
-| `gtd land: tests: in .gtd/TESTS.md, <faults>`                                                                    | a section names no file, or a file with a skipped test has none      |
-| `gtd land: tests: <path>:<line> still skipped — revive it, or propose …`                                         | a rewritten file keeps a skip `.gtd/RETIRE.md` does not name         |
-| `gtd land: tests: <paths> deleted — a test goes only once a person ticks …`                                      | a sweep, rewrite or fix turn deleted a test file                     |
+| Text                                                                                                             | When                                                                           |
+| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `gtd: <file> is left over — finish or remove it first.`                                                          | `.gtd/REQUIREMENTS.md`, `.gtd/TESTS.md` or `.gtd/RETIRE.md` at start           |
+| `gtd: skipPattern must not be blank`, `… is not a valid regular expression`, `… must not match the empty string` | an unusable `skipPattern`                                                      |
+| `gtd land: tests: in .gtd/TESTS.md, <faults>`                                                                    | a section names no file, or a file with a skipped test has none                |
+| `gtd land: tests: <path>:<line> still skipped — revive it, or propose …`                                         | a rewritten file keeps more skips than `.gtd/RETIRE.md` has sections naming it |
+| `gtd land: tests: <paths> deleted — a test goes only once a person ticks …`                                      | a sweep, rewrite or fix turn deleted a test file                               |
 
 ## Migrating from `.gtdrc`
 
