@@ -140,6 +140,11 @@ Given(
   },
 )
 
+Given("{string} gets appended:", (world: TestkitWorld, path: string, text: string) => {
+  const content = world.repo().read(path) ?? ""
+  world.repo().write(path, `${content.trimEnd()}\n\n${text}\n`)
+})
+
 Given("the working tree is committed as {string}", (world: TestkitWorld, message: string) => {
   world.repo().commit(message)
 })

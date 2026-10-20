@@ -10,6 +10,20 @@ export type Stop = {
   mode?: string
 }
 
+export type PrThread = {
+  id: string
+  path?: string
+  line?: number
+  comments: { author: string; body: string; url: string }[]
+}
+
+export type PrFeedback = {
+  threads: PrThread[]
+  host: string
+  branch: string
+  importedAt?: string
+}
+
 export type Run = {
   isRunning: boolean
   beat: number
@@ -33,6 +47,10 @@ export type Run = {
   inflight?: { agentId: string; memory: string }
   // a script (beat or landing) is running, so a reload must not run it again
   isScripting?: boolean
+  // `/gtd pr`'s review threads, for the pull request of `branch`;
+  // `importedAt` is HEAD when they were written into the review gate's file,
+  // and the replies wait on a gate after it
+  pr?: PrFeedback
 }
 
 declare module "claude-code" {

@@ -156,3 +156,41 @@ Feature: the review door fixes its notes in the same process
       """
     And the working tree is committed as "chore: leftover requirements"
     Then opening door "review" is refused with ".gtd/REQUIREMENTS.md is left over"
+
+  Scenario: a note added with its own boxes is fixed as ticked, never judged
+    Given judge step "build.review.standards.judge" answers:
+      """
+      [{"id":"standard-1","answer":"no","p":0.9}]
+      """
+    And step "build.review.fix.nits.fixing" writes "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number): number => a + b
+      """
+    When gtd opens door "review" with "HEAD~1"
+    And the process is driven
+    And the text "- [ ] won't fix" in ".gtd/REVIEW.md" is replaced with "- [x] won't fix"
+    And ".gtd/REVIEW.md" gets appended:
+      """
+      ## src/calc.ts:1 (thread PRRT_1)
+
+      > Annotate the return type.
+
+      Tick exactly one:
+
+      - [x] fix as suggested
+      - [ ] won't fix
+      - [ ] _your answer_
+      """
+    And gtd lands
+    And the process is driven
+    Then the process rests at "build.review.await-review"
+    And the commit subjects end with:
+      """
+      gtd(human): build.review.await-review → build.review.standards.judge
+      gtd(judge): build.review.standards.judge → build.review.fix.nits.fixing
+      gtd(agent): build.review.fix.nits.fixing → build.health.check
+      gtd(check): build.health.check → build.review.closing
+      gtd(check): build.review.closing → build.review.composing
+      gtd(check): build.review.composing → build.review.await-review
+      """
+    And "src/calc.ts" contains "): number =>"

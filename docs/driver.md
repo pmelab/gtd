@@ -420,11 +420,31 @@ falls back to the `gtd` on your `PATH`.
   `/gtd <verb> …` enters a door only when one by that name exists and the word
   count fits its args; otherwise the text, bare `/gtd rollout` included, starts
   a process as requirements.
+- `/gtd pr` reads the unresolved review threads of the branch's pull request
+  (`gh api`, the first 100 threads with up to 50 comments each) and adds each to
+  `.gtd/REVIEW.md` as a note headed `<path>:<line> (thread <id>)`, the comments
+  quoted (code, such as a suggestion, verbatim), ticked "fix as suggested". At a
+  review gate it adds them at once; otherwise it enters the `review` door and
+  adds them at its first review gate (refused while another process is
+  underway). A repository door named `pr` takes precedence. Untick to answer
+  otherwise: "won't fix" needs a reason written after it on the same line
+  (`- [x] won't fix: out of scope`), checked before `continue` lands the gate,
+  or write your own answer. Once the review door has acted on them and rests at
+  a review gate again or finishes, and before it wakes Claude there, the mod
+  pushes the branch, replies to each thread — `Fixed in <sha>` naming the first
+  commit after that gate that changed code outside `.gtd/` (the fix turn), your
+  own answer, or `Won't fix: <reason>` — and resolves it. A failed push replies
+  to nothing; the next review gate, or `/gtd pr` at a review gate or the
+  finished process, retries it, and until then, as while threads still wait for
+  the review door's first review gate, another `/gtd pr` imports nothing. A
+  thread whose reply fails is named and left open. Threads are dropped
+  unanswered when the process ends before a review gate, the branch changes, or
+  the history was reset past the import.
 - `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
   `/gtd ui` starts the browser view of the rest it waits at.
 - `/gtd throw`, `/gtd ship [-n]` and their tools (`handoff`, `ship`) answer at
   once and run in the background, one at a time; progress shows on the status
-  line. While one runs or is queued, `/gtd catch`, `/gtd <door>`,
+  line. While one runs or is queued, `/gtd catch`, `/gtd pr`, `/gtd <door>`,
   `/gtd <requirements>`, `/gtd ui` and bare `/gtd` refuse with "wait for its
   report"; `/gtd throw` and `/gtd ship` refuse for themselves on the same
   grounds, and only `/gtd status` and `/gtd stop` always work. When the job ends

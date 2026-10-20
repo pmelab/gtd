@@ -371,11 +371,15 @@ the top branch with `git push origin --delete`, since
 ask Claude to hand it off (or run `/gtd throw @dev`) and it opens a draft pull
 request assigned to them, and `/gtd catch <pr>` picks it up exactly where it
 waits, so whoever wrote the requirements can hand the build to someone else.
-Ship, hand-off and throw answer at once and run in the background, with progress
-on the status line; they report by waking Claude, a toast, a transcript line and
-a push notification, and a failed push or `gh` call reports as a failure. While
-a ship or hand-off runs or is queued, `/gtd catch`, the doors,
-`/gtd <requirements>` and bare `/gtd` wait for its report. See
+`/gtd pr` brings a pull request's unresolved review threads into the review:
+each becomes a note in `.gtd/REVIEW.md` ticked "fix as suggested" (untick it for
+"won't fix" plus a reason, or your own answer), the review door fixes them in
+place, and each thread then gets a reply naming the fixing commit (or your
+reason) and is resolved. Ship, hand-off and throw answer at once and run in the
+background, with progress on the status line; they report by waking Claude, a
+toast, a transcript line and a push notification, and a failed push or `gh` call
+reports as a failure. While a ship or hand-off runs or is queued, `/gtd catch`,
+the doors, `/gtd <requirements>` and bare `/gtd` wait for its report. See
 [Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
 
 ### Then let an agent build your own
