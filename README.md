@@ -534,23 +534,24 @@ noted in steps 3 and 4 below.
    suggested joins the nit batch below, unjudged; won't fix drops the note and
    records it as `Gtd-Mark: wontfix=<title>` on the gate's commit; your own
    answer is judged like a note. A note you answered is left out of the fresh
-   review after a nit fix. Land with every note answered and nothing else
-   changed to approve, or write what is wrong — disagreeing with a fix or a drop
-   means writing a note of your own. Approving ends the process (at the refactor
-   review, it moves on to the feature); feedback is judged note by note, each as
-   `edit`, `question`, `nit` or `praise`. An `edit` sends the process back to
-   step 2 for re-derived requirements — the built criteria keep their IDs
-   (reworded in place when their behaviour changes) and new behaviour gets new
-   ones — then the implementation is amended to meet them, with no new naive
-   pass or seam judge, every criterion's coverage is judged again, the quality
-   lap runs, and you review again. At the refactor review an `edit` re-derives
-   the refactor instead. A `question` is answered inline under your note and the
-   process stops at the review again — no new plan. A `nit` is fixed in one
-   batch, the suite must go green (a red one gets fix turns first), then a fresh
-   review of the change stops at the review again. `praise` is dropped; a round
-   of only praise signs off. When a round mixes them, questions are answered and
-   nits fixed first, then the edits are planned — risk: the planning lap may
-   redo nit fixes it touches.
+   review after a nit fix; a round that also answered a question restores the
+   review instead, your ticks kept. Land with every note answered and nothing
+   else changed to approve, or write what is wrong — disagreeing with a fix or a
+   drop means writing a note of your own. Approving ends the process (at the
+   refactor review, it moves on to the feature); feedback is judged note by
+   note, each as `edit`, `question`, `nit` or `praise`. An `edit` sends the
+   process back to step 2 for re-derived requirements — the built criteria keep
+   their IDs (reworded in place when their behaviour changes) and new behaviour
+   gets new ones — then the implementation is amended to meet them, with no new
+   naive pass or seam judge, every criterion's coverage is judged again, the
+   quality lap runs, and you review again. At the refactor review an `edit`
+   re-derives the refactor instead. A `question` is answered inline under your
+   note and the process stops at the review again — no new plan. A `nit` is
+   fixed in one batch, the suite must go green (a red one gets fix turns first),
+   then a fresh review of the change stops at the review again. `praise` is
+   dropped; a round of only praise signs off. When a round mixes them, questions
+   are answered and nits fixed first, then the edits are planned — risk: the
+   planning lap may redo nit fixes it touches.
 
    Each `edit` note also gets a severity tier from four judge questions
    (security, reversibility, blast radius, new concept). Every tier is

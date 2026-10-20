@@ -1848,6 +1848,8 @@ describe("answer boxes", async () => {
       "",
       "Should subtract round?",
       "",
+      "Tick exactly one:",
+      "",
       `- [${boxes[0]}] fix as suggested`,
       `- [${boxes[1]}] won't fix`,
       `- [${boxes[2] === "" ? " " : "x"}] ${boxes[2] === "" || boxes[2] === "x" ? "_your answer_" : boxes[2]}`,
@@ -1907,6 +1909,24 @@ describe("answer boxes", async () => {
     expect(reviewDecisions(answered, doc(note("Rounding", [" ", "x", ""])))).toMatchObject([
       { choice: "wontfix" },
     ])
+  })
+
+  it("are read by position: an edited label or a path-like answer still answers", () => {
+    const edited = doc(
+      note("Rounding", [" ", " ", ""]).replace("- [ ] fix as suggested", "- [x] fix it, but floor"),
+    )
+    expect(reviewDecisions("", edited)).toMatchObject([{ choice: "fix" }])
+    const pathy = doc(note("Rounding", [" ", " ", "./src/calc.ts#1-1 round here"]))
+    expect(steeringFormatFor("review")!.validate(pathy)).toEqual([])
+    expect(reviewDecisions("", pathy)).toMatchObject([
+      { choice: "answer", text: "./src/calc.ts#1-1 round here" },
+    ])
+    expect(steeringFormatFor("review")!.clearTicks(pathy)).toBe(pathy)
+  })
+
+  it("a box added or removed leaves the note unanswered", () => {
+    const four = doc(note("Rounding", ["x", " ", ""]).concat("\n- [ ] another"))
+    expect(unansweredNotes(four)).toHaveLength(1)
   })
 
   it("a box list other than gtd's three is a pointer gone wrong", () => {

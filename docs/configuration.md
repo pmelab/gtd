@@ -898,7 +898,8 @@ need no answer; disagreeing with one means writing a note of your own. With
 nothing to list, the file holds one `## Nothing to note` chunk. Task boxes in a
 finding are written as plain bullets. The fresh review after a nit fix adds
 `## Fixed from your notes` with the fixing commit and leaves out every note
-already answered.
+already answered; after a round that also answered a question, the review is
+restored as answered instead, ticks kept.
 
 An answer routes without the note judge: `fix as suggested` joins the nit batch
 (`build.review.fix.nits.fixing`) with the note's text; `won't fix` drops the

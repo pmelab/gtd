@@ -474,6 +474,8 @@ describe("a note's answer boxes", () => {
       "",
       "Should subtract round?",
       "",
+      "Tick exactly one:",
+      "",
       `- [${fix}] fix as suggested`,
       `- [${wont}] won't fix`,
       "- [ ] _your answer_",
@@ -508,6 +510,8 @@ describe("a note's answer boxes", () => {
       "",
       "Round?",
       "",
+      "Tick exactly one:",
+      "",
       "- [ ] fix as suggested",
       "- [ ] won't fix",
       "- [ ] _your answer_",
@@ -516,5 +520,43 @@ describe("a note's answer boxes", () => {
     const r = await driveRound(base, replied, { inGate: replied })
     expect(r.rounds).toEqual(["reply"])
     expect((r.result as Error).message).toContain("answer-completeness")
+  })
+
+  const threaded = (wont: string, withThread: boolean): string =>
+    doc(
+      withThread ? `${POINTER}[^t]` : POINTER,
+      ...(withThread ? ["", thread("H: why?", "A: because")] : []),
+      "",
+      "## Rounding",
+      "",
+      "Round?",
+      "",
+      "Tick exactly one:",
+      "",
+      "- [ ] fix as suggested",
+      `- [${wont}] won't fix`,
+      "- [ ] _your answer_",
+    )
+
+  it("a reply that folds the last thread away rests at the gate again for the answers", async () => {
+    const base = threaded(" ", true).replace("\n    - A: because", "")
+    const r = await driveRound(base, threaded("x", false), { inGate: threaded(" ", false) })
+    expect(r.rounds).toEqual(["reply"])
+    expect(r.result).toEqual({ verdict: "signoff" })
+    expect(state.marks).toEqual(["wontfix=Rounding"])
+  })
+
+  it("an answer ticked beside a thread still routes once the thread settles", async () => {
+    const base = threaded(" ", true).replace("\n    - A: because", "")
+    const ticked = threaded("x", true)
+    const r = await driveRound(base, ticked, { inGate: ticked, settled: true, noDropped: true })
+    expect(r.result).toEqual({ verdict: "signoff" })
+    expect(state.marks).toEqual(["wontfix=Rounding"])
+  })
+
+  it("a hand-edit round still records its answers", async () => {
+    const r = await driveRound(open, boxes(" ", "x"), { handEdit: true })
+    expect(r.rounds).toEqual(["edits"])
+    expect(state.marks).toEqual(["wontfix=Rounding"])
   })
 })

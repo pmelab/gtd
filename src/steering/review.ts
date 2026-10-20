@@ -85,6 +85,7 @@ interface AnswerOption {
   readonly text: string
 }
 
+export const ANSWER_LEAD = "Tick exactly one:"
 export const ANSWER_FIX = "fix as suggested"
 export const ANSWER_WONT_FIX = "won't fix"
 
@@ -488,18 +489,34 @@ const itemText = (content: string, item: ListItem): string => {
   return paragraph === undefined ? "" : sourceText(content, paragraph).replace(/^\[[ xX]\]\s*/, "")
 }
 
-/** A list of exactly the three answer boxes gtd writes under a note — fix, won't fix, free text — else `undefined`. */
-const answerOptions = (content: string, node: RootContent): readonly AnswerOption[] | undefined => {
-  if (node.type !== "list" || node.children.length !== 3) return undefined
-  if (node.children.some((item) => item.checked == null || hasPointerToken(content, item)))
-    return undefined
-  const texts = node.children.map((item) => itemText(content, item))
-  if (texts[0] !== ANSWER_FIX || texts[1] !== ANSWER_WONT_FIX) return undefined
-  return node.children.map((item, i) => ({
-    checked: item.checked === true,
-    text:
-      i === 2 && texts[2]!.toLowerCase() === FREE_TEXT_PLACEHOLDER.toLowerCase() ? "" : texts[i]!,
-  }))
+/**
+ * The task list right after the `Tick exactly one:` paragraph, with that
+ * paragraph's index. Read by position, never by label, so an edited label or
+ * a free text opening with `./path` is still an answer, not a pointer. Any
+ * count but three boxes is kept, and reads as unanswered.
+ */
+const answerListOf = (
+  content: string,
+  body: readonly RootContent[],
+): { readonly lead: number; readonly list: List; readonly options: AnswerOption[] } | undefined => {
+  const lead = body.findIndex(
+    (n, i) =>
+      n.type === "paragraph" &&
+      sourceText(content, n) === ANSWER_LEAD &&
+      body[i + 1]?.type === "list" &&
+      (body[i + 1] as List).children.every((item) => item.checked != null),
+  )
+  if (lead === -1) return undefined
+  const list = body[lead + 1] as List
+  const last = list.children.length - 1
+  const options = list.children.map((item, i) => {
+    const text = itemText(content, item)
+    return {
+      checked: item.checked === true,
+      text: i === last && text.toLowerCase() === FREE_TEXT_PLACEHOLDER.toLowerCase() ? "" : text,
+    }
+  })
+  return { lead, list, options }
 }
 
 /** Splits one chunk's body nodes into its file pointers (hunk pointers are task items, collected recursively at ANY nesting depth via `taskItems` — a nested hunk is the same kind of hunk as a top-level one) and description prose. The description is the chunk's own leading run and never a node that contains a hunk pointer: it stops at the first node whose `taskItems` include a real pointer (at any depth — a blockquote wrapping a pointer list stops it just as a top-level list would). Every node kind in what's left before that point contributes — a `footnoteDefinition` is the one exception, excluded by `blockNodesOfRun` itself (it's a note, never document content). */
@@ -515,13 +532,17 @@ const parseChunkBody = (
   readonly files: readonly ReviewFile[]
   readonly errors: readonly SteeringFinding[]
   readonly answers?: readonly AnswerOption[]
+  /** Whether a task box outside the answer list exists. */
+  readonly boxed: boolean
 } => {
-  const firstPointerIndex = body.findIndex((n) =>
-    taskItems(n).some((item) => hasPointerToken(content, item)),
+  const answer = answerListOf(content, body)
+  const isAnswer = (n: RootContent): boolean =>
+    answer !== undefined && (n === answer.list || n === body[answer.lead])
+  const firstPointerIndex = body.findIndex(
+    (n) => !isAnswer(n) && taskItems(n).some((item) => hasPointerToken(content, item)),
   )
-  const answerList = body.find((n): n is List => answerOptions(content, n) !== undefined)
   const leadingRun = (firstPointerIndex === -1 ? body : body.slice(0, firstPointerIndex)).filter(
-    (n) => n !== answerList,
+    (n) => !isAnswer(n),
   )
   const descriptionNodes = blockNodesOfRun(content, leadingRun)
   const descriptionInline = collapseImages(blockRunInline(content, leadingRun))
@@ -533,20 +554,20 @@ const parseChunkBody = (
 
   const files: ReviewFile[] = []
   const errors: SteeringFinding[] = []
-  for (const item of body.flatMap((n) => taskItems(n))) {
+  for (const item of body.filter((n) => !isAnswer(n)).flatMap((n) => taskItems(n))) {
     const parsed = parseHunk(content, lines, title, item)
     if (!parsed) continue
     files.push(parsed.file)
     errors.push(...parsed.errors)
   }
-  const answers = answerList === undefined ? undefined : answerOptions(content, answerList)
   return {
     description,
     descriptionNodes,
     descriptionInline,
     files,
     errors,
-    ...(answers === undefined ? {} : { answers }),
+    ...(answer === undefined ? {} : { answers: answer.options }),
+    boxed: body.some((n) => !isAnswer(n) && taskItems(n).length > 0),
   }
 }
 
@@ -595,14 +616,12 @@ const parseChangesets = (
       descriptionInline,
       files,
       answers,
+      boxed,
       errors: bodyErrors,
     } = parseChunkBody(content, lines, title, body)
     errors.push(...bodyErrors)
     // A prose-only chunk is a note gtd composed; a box with no pointer is a pointer gone wrong.
-    if (
-      files.length === 0 &&
-      body.some((n) => answerOptions(content, n) === undefined && taskItems(n).length > 0)
-    ) {
+    if (files.length === 0 && boxed) {
       errors.push({
         message: `Chunk "${title}" has no file pointers`,
         line: headingLine,
@@ -701,8 +720,13 @@ const isHunkPointerItem = (content: string, item: ListItem): boolean => {
  */
 const reviewClearTicks = (content: string): string => {
   const tree = parseMarkdown(content)
+  const answers = new Set(
+    splitChunks(tree).flatMap(({ body }) => answerListOf(content, body)?.list.children ?? []),
+  )
   const offsets = taskItems(tree)
-    .filter((item) => item.checked === true && isHunkPointerItem(content, item))
+    .filter(
+      (item) => item.checked === true && !answers.has(item) && isHunkPointerItem(content, item),
+    )
     .map((item) => checkboxOffset(content, item))
     .filter((o): o is number => o !== undefined)
     .sort((a, b) => a - b)
@@ -1258,7 +1282,8 @@ export interface ReviewDecision {
 const CHOICES: readonly ReviewChoice[] = ["fix", "wontfix", "answer"]
 
 const decisionOf = (chunk: Changeset): ReviewDecision | undefined => {
-  const ticked = (chunk.answers ?? []).flatMap((o, i) => (o.checked ? [i] : []))
+  if (chunk.answers?.length !== 3) return undefined
+  const ticked = chunk.answers.flatMap((o, i) => (o.checked ? [i] : []))
   if (ticked.length !== 1) return undefined
   const i = ticked[0]!
   const text = i === 2 ? chunk.answers![2]!.text : ""

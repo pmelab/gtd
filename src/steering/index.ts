@@ -10,6 +10,7 @@ import { qaDescriptor } from "./qa.js"
 import { reviewDescriptor } from "./review.js"
 export {
   ANSWER_FIX,
+  ANSWER_LEAD,
   ANSWER_WONT_FIX,
   reviewDecisions,
   reviewNotes,

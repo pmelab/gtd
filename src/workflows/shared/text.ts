@@ -12,7 +12,12 @@ import {
   type JudgeQuestion,
   type SummaryContext,
 } from "../../flows/index.js"
-import { ANSWER_FIX, ANSWER_WONT_FIX, FREE_TEXT_PLACEHOLDER } from "../../steering/index.js"
+import {
+  ANSWER_FIX,
+  ANSWER_LEAD,
+  ANSWER_WONT_FIX,
+  FREE_TEXT_PLACEHOLDER,
+} from "../../steering/index.js"
 import { escapeRegExp } from "./registry.js"
 import { defaultFlagRegistry } from "./vars.js"
 import type { CollectRound, RemovedAssertions, Requested } from "../../workflow-kit/index.js"
@@ -151,7 +156,7 @@ export const composedReview = (base: string, report: ComposedReview): string => 
   }
   const chunk = (title: string, body: string): string => `## ${title}\n\n${body.trim()}`
   // The lead-in line keeps a body that ends in a list from absorbing the boxes.
-  const answerBoxes = `Tick exactly one:\n\n- [ ] ${ANSWER_FIX}\n- [ ] ${ANSWER_WONT_FIX}\n- [ ] ${FREE_TEXT_PLACEHOLDER}`
+  const answerBoxes = `${ANSWER_LEAD}\n\n- [ ] ${ANSWER_FIX}\n- [ ] ${ANSWER_WONT_FIX}\n- [ ] ${FREE_TEXT_PLACEHOLDER}`
   const notes = report.notes
     .map((n) => ({ ...n, title: unique(n.title) }))
     .filter((n) => report.answered?.has(n.title) !== true)
@@ -915,7 +920,8 @@ Also judge each note's severity, one id per note: \`note-<n>.security\`,
 const closedFold = (round: CollectRound, target: string): string =>
   round === "edits"
     ? `- Fold every hand-edit and every note the human left that round into
-  \`${target}\`
+  \`${target}\` — a note ticked \`fix as suggested\` or answered in its
+  own words included; one ticked \`won't fix\` is dropped
 `
     : round === "notes"
       ? `- Fold each note that asks for a change into \`${target}\`

@@ -176,7 +176,9 @@ const converse = async (
     await p.collecting(p.captures.edits(head()), "reply")
     collectedAt = head()
     requireReplies(p.file)
-    if (!hasThreadFor("human", p.file)) return collectedAt
+    // A reply that folds the last thread away still leaves the notes to answer at the gate.
+    if (!hasThreadFor("human", p.file) && unansweredNotes(read(p.file) ?? "").length === 0)
+      return collectedAt
   }
 }
 
@@ -208,6 +210,12 @@ const oneLine = (text: string): string =>
   // eslint-disable-next-line no-control-regex -- the control range IS the point
   text.replace(/[\s\x00-\x1f\x7f-\x9f\u2028\u2029]+/g, " ").trim() || "untitled"
 
+/** Tell the policy, and mark each won't-fix on the gate's commit. */
+const record = (p: ReviewPolicy, decisions: readonly ReviewDecision[]): void => {
+  p.decided?.(decisions)
+  for (const d of decisions) if (d.choice === "wontfix") mark("wontfix", oneLine(d.anchor))
+}
+
 /**
  * Judge every note, then run each verdict's route: answers, then nit fixes,
  * then the edits' lap. Of the human's `decisions`, a fix joins the nit batch
@@ -220,8 +228,7 @@ export const routeNotes = async (
   r: Round,
   decisions: readonly ReviewDecision[] = [],
 ): Promise<Finish> => {
-  p.decided?.(decisions)
-  for (const d of decisions) if (d.choice === "wontfix") mark("wontfix", oneLine(d.anchor))
+  record(p, decisions)
   const of = (c: ReviewDecision["choice"]) => decisions.filter((d) => d.choice === c)
   const fixes = of("fix").map((d, i) => decisionNote(d, `fix-${i + 1}`, d.body))
   const judged = [
@@ -301,14 +308,12 @@ const settledAfter = (
 const finishNotes = async (
   p: ReviewPolicy,
   before: string | undefined,
+  decisions: readonly ReviewDecision[],
   reopened: boolean,
   ctx: Parameters<typeof routeNotes>[2],
 ): Promise<Finish> => {
-  const after = read(p.file) ?? ""
   // An unchanged review file has no baseline entry, which would read as all-new.
-  const notes = reviewNotes(before ?? "", after)
-  // A carried answer is unchanged, never routed twice.
-  const decisions = reviewDecisions(before ?? after, after)
+  const notes = reviewNotes(before ?? "", read(p.file) ?? "")
   if (notes.length + decisions.length > 0) return routeNotes(p, notes, ctx, decisions)
   if (reopened) return ctx.unfolded()
   await ctx.close()
@@ -322,6 +327,15 @@ const toOutcome = (
 
 const isReopened = (p: ReviewPolicy, r: { settled: boolean; folded: boolean }): boolean =>
   r.settled && !r.folded && p.refusals.dropped !== undefined
+
+/** A carried answer is unchanged, never routed twice; one ticked beside a thread still routes once the thread has settled. */
+const decisionsSince = (
+  p: ReviewPolicy,
+  since: ReturnType<typeof changesSince>,
+): readonly ReviewDecision[] => {
+  const after = read(p.file) ?? ""
+  return reviewDecisions(since.get(p.file)?.before ?? after, after)
+}
 
 const finish = async (
   p: ReviewPolicy,
@@ -348,8 +362,12 @@ const finish = async (
   // Thread-only edits settled the round, but a change note or hand-edit since
   // `reviewed` must still reach a collecting turn when a dropped edit is refused.
   const reopened = isReopened(p, { settled, folded })
-  if ((settled && !reopened) || (edited.length === 0 && !noted)) return unfolded()
+  const decisions = decisionsSince(p, since)
+  if ((settled && !reopened && decisions.length === 0) || (edited.length === 0 && !noted))
+    return unfolded()
   if (edited.length > 0) {
+    // A hand-edit plans a lap; its collecting turn reads the answers in the review.
+    record(p, decisions)
     await close()
     return outcome(
       await collect(p, p.captures.edits(round, reopened ? reviewed : undefined), "edits", {
@@ -358,7 +376,7 @@ const finish = async (
       }),
     )
   }
-  return finishNotes(p, since.get(p.file)?.before, reopened, {
+  return finishNotes(p, since.get(p.file)?.before, decisions, reopened, {
     round,
     close,
     outcome,
