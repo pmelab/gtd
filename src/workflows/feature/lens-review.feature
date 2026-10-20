@@ -3,9 +3,10 @@ Feature: the quality lenses are the only agentic review
 
   A judge classifies each `## ` finding the lenses wrote to `.gtd/QUALITY.md`:
   a mechanical one is fixed by the fixer, noise is dropped with its `p` kept in
-  a trailer, and a design one becomes a note in `.gtd/REVIEW.md`. gtd writes
-  that file itself — no reviewer turn runs — and lists, without tick boxes,
-  what was fixed automatically and what was dropped as noise.
+  a trailer, and a design one becomes a note in `.gtd/REVIEW.md`, with answer
+  boxes. gtd writes that file itself — no reviewer turn runs — and lists,
+  without tick boxes, what was fixed automatically and what was dropped as
+  noise.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -97,6 +98,12 @@ Feature: the quality lenses are the only agentic review
 
       Should subtract round? The criterion does not say.
 
+      Tick exactly one:
+
+      - [ ] fix as suggested
+      - [ ] won't fix
+      - [ ] _your answer_
+
       ## Fixed automatically
 
       - subtract has no negative test (
@@ -108,7 +115,12 @@ Feature: the quality lenses are the only agentic review
 
       - add could be a method (p=0.85)
       """
-    And ".gtd/REVIEW.md" does not contain "[ ]"
+    And ".gtd/REVIEW.md" contains:
+      """
+      ## Fixed automatically
+
+      - subtract has no negative test (
+      """
     And the commit subjects end with:
       """
       gtd(check): implement.closing → build.quality.correctness.reviewing

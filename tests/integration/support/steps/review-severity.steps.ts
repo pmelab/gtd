@@ -218,18 +218,6 @@ When(
   },
 )
 
-When(
-  "I run gtd judge answer with note-{int} judged a confident could and note-{int} a confident one-way edit",
-  async (world: GtdWorld, could: number, door: number) => {
-    await world.runGtdJudgeAnswerWithStdin(
-      JSON.stringify([
-        ...answers(`note-${could}`, "edit", "two-way"),
-        ...answers(`note-${door}`, "edit", "one-way"),
-      ]),
-    )
-  },
-)
-
 // Landing runs the emitted script (the harness drives it), then commits.
 When("I run the emitted script and land", async (world: GtdWorld) => {
   await world.runGtd("next")
@@ -239,31 +227,6 @@ When("I run the emitted script and land", async (world: GtdWorld) => {
   assert.strictEqual(run.exitCode, 0, `the emitted script failed:\n${run.output}`)
   await world.runGtd("land")
 })
-
-Then("the last commit changes {string}", (world: GtdWorld, path: string) => {
-  const changed =
-    world.tier === "inmem"
-      ? world.repo!.fileAtRef("HEAD", path) !== world.repo!.fileAtRef("HEAD~1", path)
-      : execFileSync("git", ["diff", "--name-only", "HEAD~1", "HEAD"], {
-          cwd: world.repoDir,
-          encoding: "utf-8",
-        })
-          .split("\n")
-          .includes(path)
-  assert.ok(changed, `Expected the last commit to change "${path}".\n${world.gitLog()}`)
-})
-
-Then(
-  "{string} lists notes {int} to {int} and not notes {int} or {int}",
-  (world: GtdWorld, path: string, from: number, to: number, a: number, b: number) => {
-    const content = world.readRepoFile(path)
-    const has = (n: number): boolean => new RegExp(`note-${n}\\b`).test(content)
-    for (let n = from; n <= to; n++)
-      assert.ok(has(n), `Expected "${path}" to list note-${n}:\n${content}`)
-    for (const n of [a, b])
-      assert.ok(!has(n), `Expected "${path}" NOT to list note-${n}:\n${content}`)
-  },
-)
 
 Then("the log has no {string} commit", (world: GtdWorld, step: string) => {
   assert.ok(!world.gitLog().includes(step), `Expected no "${step}" commit.\n${world.gitLog()}`)
@@ -284,8 +247,4 @@ Then("the process rests at {string}", async (world: GtdWorld, step: string) => {
   const rest = (JSON.parse(world.lastResult.stdout) as { state?: string }).state
   world.lastResult = reported
   assert.strictEqual(rest, step)
-})
-
-Then(/^\.gtd\/TODO\.md does not exist$/, (world: GtdWorld) => {
-  assert.ok(!world.repoFileExists(".gtd/TODO.md"), 'Expected ".gtd/TODO.md" NOT to exist.')
 })

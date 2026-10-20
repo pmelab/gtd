@@ -8,7 +8,17 @@ import type {
 export { formatFinding } from "./SteeringFormat.js"
 import { qaDescriptor } from "./qa.js"
 import { reviewDescriptor } from "./review.js"
-export { reviewNotes, reviewRisks, type ReviewNote } from "./review.js"
+export {
+  ANSWER_FIX,
+  ANSWER_WONT_FIX,
+  reviewDecisions,
+  reviewNotes,
+  reviewRisks,
+  unansweredNotes,
+  type ReviewChoice,
+  type ReviewDecision,
+  type ReviewNote,
+} from "./review.js"
 export { applySteeringEdits } from "./Edits.js"
 
 export type { InlineNode } from "./Inline.js"

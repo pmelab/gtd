@@ -3,6 +3,7 @@ import {
   changesSince,
   hasThreadFor,
   head,
+  mark,
   read,
   refuse,
   requireReplies,
@@ -11,9 +12,12 @@ import {
 } from "../flows/index.js"
 import {
   parseThreads,
+  reviewDecisions,
   reviewNotes,
   reviewRisks,
   stripCodeThreads,
+  unansweredNotes,
+  type ReviewDecision,
   type ReviewNote,
 } from "../steering/index.js"
 
@@ -39,7 +43,7 @@ export interface Requested {
   readonly paths: readonly string[]
 }
 
-export type Verdict = "edit" | "question" | "nit" | "praise" | "defer"
+export type Verdict = "edit" | "question" | "nit" | "praise"
 
 export type ReviewRisk = ReturnType<typeof reviewRisks>[number]
 
@@ -64,8 +68,8 @@ export interface ReviewPolicy {
   readonly triage: (notes: readonly ReviewNote[]) => Promise<ReadonlyMap<string, Verdict>>
   readonly answerQuestions: (notes: readonly ReviewNote[]) => Promise<void>
   readonly fixNits: (notes: readonly ReviewNote[]) => Promise<void>
-  /** Leave `defer` notes out of the round. */
-  readonly defer: (notes: readonly ReviewNote[]) => Promise<void>
+  /** Told every note the human answered this round, before any of them is routed. */
+  readonly decided?: (decisions: readonly ReviewDecision[]) => void
   /** Remove `file` at the end of a round at commit `round`. */
   readonly close: (round: string) => Promise<void>
   /** What a collecting turn reads. */
@@ -112,6 +116,16 @@ const collect = async (
   return refuse(p.refusals.unmatched)
 }
 
+/** Refuse while a note's answer boxes hold anything but exactly one tick. */
+const requireDecisions = (file: string): void => {
+  const open = unansweredNotes(read(file) ?? "")
+  if (open.length === 0) return
+  const list = open.map((n) => `  - ${file}:${n.line}: ${n.title}`).join("\n")
+  refuse(
+    `gtd land: answer-completeness: ${open.length} note(s) in ${file} not answered — tick exactly one box per note: fix as suggested, won't fix, or your own answer written over _your answer_:\n${list}`,
+  )
+}
+
 const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 
 /**
@@ -155,7 +169,10 @@ const converse = async (
       return "missing"
     }
     requireThreadsClosed(p.file)
-    if (!hasThreadFor("agent", p.file)) return collectedAt
+    if (!hasThreadFor("agent", p.file)) {
+      requireDecisions(p.file)
+      return collectedAt
+    }
     await p.collecting(p.captures.edits(head()), "reply")
     collectedAt = head()
     requireReplies(p.file)
@@ -177,16 +194,46 @@ interface Round {
   readonly unfolded: () => Promise<Finish>
 }
 
-/** Judge every note, then run each verdict's route: answers, then nit fixes, then deferrals, then the edits' lap. */
+const decisionNote = (d: ReviewDecision, id: string, text: string): ReviewNote => ({
+  id,
+  kind: "chunk",
+  anchor: d.anchor,
+  before: d.body,
+  text,
+  forced: /^!(\s|$)/.test(text),
+})
+
+/** One `Gtd-Mark` value per line: a control character would make mark() throw on every replay. */
+const oneLine = (text: string): string =>
+  // eslint-disable-next-line no-control-regex -- the control range IS the point
+  text.replace(/[\s\x00-\x1f\x7f-\x9f\u2028\u2029]+/g, " ").trim() || "untitled"
+
+/**
+ * Judge every note, then run each verdict's route: answers, then nit fixes,
+ * then the edits' lap. Of the human's `decisions`, a fix joins the nit batch
+ * unjudged, an own answer is judged like a note, and a won't-fix is dropped
+ * with a `Gtd-Mark` on the gate's commit.
+ */
 export const routeNotes = async (
   p: ReviewPolicy,
   notes: readonly ReviewNote[],
   r: Round,
+  decisions: readonly ReviewDecision[] = [],
 ): Promise<Finish> => {
-  const verdicts = await p.triage(notes)
-  const of = (v: Verdict): ReviewNote[] => notes.filter((n) => (verdicts.get(n.id) ?? "edit") === v)
-  const [edits, questions, nits, deferred] = [of("edit"), of("question"), of("nit"), of("defer")]
-  if (edits.length + questions.length + nits.length + deferred.length === 0) return r.unfolded()
+  p.decided?.(decisions)
+  for (const d of decisions) if (d.choice === "wontfix") mark("wontfix", oneLine(d.anchor))
+  const of = (c: ReviewDecision["choice"]) => decisions.filter((d) => d.choice === c)
+  const fixes = of("fix").map((d, i) => decisionNote(d, `fix-${i + 1}`, d.body))
+  const judged = [
+    ...notes,
+    ...of("answer").map((d, i) => decisionNote(d, `answer-${i + 1}`, d.text)),
+  ]
+  const verdicts = judged.length === 0 ? new Map<string, Verdict>() : await p.triage(judged)
+  const ofVerdict = (v: Verdict): ReviewNote[] =>
+    judged.filter((n) => (verdicts.get(n.id) ?? "edit") === v)
+  const [edits, questions] = [ofVerdict("edit"), ofVerdict("question")]
+  const nits = [...ofVerdict("nit"), ...fixes]
+  if (edits.length + questions.length + nits.length === 0) return r.unfolded()
 
   let answeredAt: string | undefined
   if (questions.length > 0) {
@@ -197,7 +244,6 @@ export const routeNotes = async (
     await p.fixNits(nits)
     await p.keepGreen()
   }
-  if (deferred.length > 0) await p.defer(deferred)
   if (edits.length > 0) {
     await r.close()
     return r.outcome(
@@ -219,10 +265,13 @@ const isCodeEdit = (p: ReviewPolicy, c: Change): boolean =>
   p.isCode(c.path) &&
   stripCodeThreads(c.path, c.before ?? "") !== stripCodeThreads(c.path, c.after ?? "")
 
-/** Whether anything but thread edits and ticks landed in the review file since `commit`. */
+/** Whether a note or an answer, not just thread edits and pointer ticks, landed in the review file since `commit`. */
 const notedSince = (p: ReviewPolicy, commit: string): boolean =>
   changesSince(commit).some(
-    (c) => c.path === p.file && notesOf(c.before ?? "") !== notesOf(read(p.file) ?? ""),
+    (c) =>
+      c.path === p.file &&
+      (notesOf(c.before ?? "") !== notesOf(read(p.file) ?? "") ||
+        reviewDecisions(c.before ?? "", read(p.file) ?? "").length > 0),
   )
 
 /**
@@ -251,13 +300,16 @@ const settledAfter = (
 
 const finishNotes = async (
   p: ReviewPolicy,
-  before: string,
+  before: string | undefined,
   reopened: boolean,
   ctx: Parameters<typeof routeNotes>[2],
 ): Promise<Finish> => {
+  const after = read(p.file) ?? ""
   // An unchanged review file has no baseline entry, which would read as all-new.
-  const notes = reviewNotes(before, read(p.file) ?? "")
-  if (notes.length > 0) return routeNotes(p, notes, ctx)
+  const notes = reviewNotes(before ?? "", after)
+  // A carried answer is unchanged, never routed twice.
+  const decisions = reviewDecisions(before ?? after, after)
+  if (notes.length + decisions.length > 0) return routeNotes(p, notes, ctx, decisions)
   if (reopened) return ctx.unfolded()
   await ctx.close()
   return ctx.outcome(await collect(p, p.captures.notes(ctx.round), "notes"))
@@ -306,7 +358,7 @@ const finish = async (
       }),
     )
   }
-  return finishNotes(p, since.get(p.file)?.before ?? "", reopened, {
+  return finishNotes(p, since.get(p.file)?.before, reopened, {
     round,
     close,
     outcome,

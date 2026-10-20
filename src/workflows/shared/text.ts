@@ -12,6 +12,7 @@ import {
   type JudgeQuestion,
   type SummaryContext,
 } from "../../flows/index.js"
+import { ANSWER_FIX, ANSWER_WONT_FIX, FREE_TEXT_PLACEHOLDER } from "../../steering/index.js"
 import { escapeRegExp } from "./registry.js"
 import { defaultFlagRegistry } from "./vars.js"
 import type { CollectRound, RemovedAssertions, Requested } from "../../workflow-kit/index.js"
@@ -116,6 +117,8 @@ export interface ComposedReview {
   readonly weakened?: readonly RemovedAssertions[]
   /** The commit that fixed the human's nits, on the review that follows it. */
   readonly nitFix?: string | undefined
+  /** Titles of notes the human already answered, left out. */
+  readonly answered?: ReadonlySet<string> | undefined
 }
 
 const SUMMARY_TITLES = [
@@ -133,9 +136,9 @@ const unboxed = (body: string): string =>
 const short = (hash: string): string => hash.slice(0, 7)
 
 /**
- * \`.gtd/REVIEW.md\` as gtd writes it: one chunk per note, then the fixed and
- * noise lists, with no tick boxes. Chunk titles are made unique — notes are
- * matched to their chunk by title.
+ * \`.gtd/REVIEW.md\` as gtd writes it: one chunk per note, each ending in its
+ * answer boxes, then the fixed and noise lists. Chunk titles are made unique —
+ * notes and answers are matched to their chunk by title.
  */
 export const composedReview = (base: string, report: ComposedReview): string => {
   // Summary titles are taken first, so no note can claim one.
@@ -147,6 +150,11 @@ export const composedReview = (base: string, report: ComposedReview): string => 
     return name
   }
   const chunk = (title: string, body: string): string => `## ${title}\n\n${body.trim()}`
+  // The lead-in line keeps a body that ends in a list from absorbing the boxes.
+  const answerBoxes = `Tick exactly one:\n\n- [ ] ${ANSWER_FIX}\n- [ ] ${ANSWER_WONT_FIX}\n- [ ] ${FREE_TEXT_PLACEHOLDER}`
+  const notes = report.notes
+    .map((n) => ({ ...n, title: unique(n.title) }))
+    .filter((n) => report.answered?.has(n.title) !== true)
   const weakened = (report.weakened ?? []).flatMap(({ path, lines }) =>
     lines.map((a) => `- ${path} — ${a.scenario} — ${a.line}`),
   )
@@ -156,7 +164,7 @@ export const composedReview = (base: string, report: ComposedReview): string => 
       : [
           chunk(
             "Fixed from your notes",
-            `Your nits were fixed in ${short(report.nitFix)}; the list below is from before.`,
+            `Your nits were fixed in ${short(report.nitFix)}; the notes you answered are left out.`,
           ),
         ]),
     ...(weakened.length === 0
@@ -167,14 +175,16 @@ export const composedReview = (base: string, report: ComposedReview): string => 
             `These scenarios lost an assertion the review base had:\n\n${weakened.join("\n")}`,
           ),
         ]),
-    ...report.notes.map((n) =>
+    ...notes.map((n) =>
       chunk(
-        unique(n.title),
-        n.unresolved === true
-          ? `_The fixer left this unresolved._\n\n${unboxed(n.body)}`
-          : n.unclear === true
-            ? `_A fix turn removed this while renaming another finding — check whether it was fixed._\n\n${unboxed(n.body)}`
-            : unboxed(n.body) || "_No detail given._",
+        n.title,
+        `${
+          n.unresolved === true
+            ? `_The fixer left this unresolved._\n\n${unboxed(n.body)}`
+            : n.unclear === true
+              ? `_A fix turn removed this while renaming another finding — check whether it was fixed._\n\n${unboxed(n.body)}`
+              : unboxed(n.body) || "_No detail given._"
+        }\n\n${answerBoxes}`,
       ),
     ),
     ...(report.fixed.length === 0
@@ -288,10 +298,6 @@ ${stateFileRules}
 ${footnoteFoldIn}${codeThreadReplies()}
 - The only state file this turn touches is \`.gtd/REQUIREMENTS.md\`
   — no other files for notes or output
-- Lines of a \`## Deferred review notes\` section of \`.gtd/TODO.md\`
-  that the start diff does not touch are parked by review, never folded;
-  the human's edits to such a line (or its removal) are input like any
-  other part of the start diff
 - \`.gtd/TODO.md\` is the likely home of the sketch that started
   this process — the human's input, folded into the concerns
   below like any other part of the start diff; never a state
@@ -893,34 +899,6 @@ const wrapItem = (item: string): string[] => {
   }
   return [...out, line]
 }
-
-/** Appends one section of `notes` to `.gtd/TODO.md`, wrapped the way oxfmt writes it; an existing file is only ever appended to. */
-export const deferNotesScript = (notes: readonly NoteInput[], round: string): string => {
-  const lines = [
-    `## Deferred review notes (${round.slice(0, 7)})`,
-    "",
-    ...notes.flatMap((n) => wrapItem(`- ${noteHead(n)}: ${n.text.replace(/\s+/g, " ")}`)),
-  ]
-  return `mkdir -p .gtd
-if [ -s .gtd/TODO.md ]; then
-  [ -z "$(tail -c1 .gtd/TODO.md)" ] || printf '\\n' >> .gtd/TODO.md
-  printf '\\n' >> .gtd/TODO.md
-fi
-printf '%s\\n' ${lines.map(quote).join(" ")} >> .gtd/TODO.md
-`
-}
-
-/** The gate right after a deferral: landing clean signs off without these notes. */
-export const buildReviewAwaitAfterDeferMessage = (
-  base: string,
-  deferred: readonly NoteInput[],
-): string =>
-  `${buildReviewAwaitReviewMessage(base)}
-Deferred to \`.gtd/TODO.md\` just now, NOT acted on in this process — landing
-clean signs off without them:
-
-${deferred.map((n) => `- ${noteHead(n)}: ${n.text.replace(/\s*\n\s*/g, " ")}`).join("\n")}
-`
 
 export const buildReviewTriageMessage = (): string =>
   `Judging each note the human added to \`.gtd/REVIEW.md\` (a line note, a

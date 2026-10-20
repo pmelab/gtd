@@ -363,11 +363,10 @@ falls back to the `gtd` on your `PATH`.
 
 - `/gtd <requirements>` starts a new process: the requirements are written to
   the top of the steering file the idle rest names (`.gtd/TODO.md`), above
-  whatever it already holds — deferred review notes stay — and the opening beat
-  captures them. It refuses while another process is underway. A long,
-  multi-line paste works too; if Claude Code did not expand it, the mod says it
-  could not read it: add the requirements to the top of `.gtd/TODO.md` and run
-  `/gtd`.
+  whatever it already holds, and the opening beat captures them. It refuses
+  while another process is underway. A long, multi-line paste works too; if
+  Claude Code did not expand it, the mod says it could not read it: add the
+  requirements to the top of `.gtd/TODO.md` and run `/gtd`.
 - `/gtd` drives beats until the process rests on you, exactly as the minimal
   driver below does: the opening beat lands, a later gate stops. At idle with
   nothing pending it only tells you how to start.

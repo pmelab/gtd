@@ -11,6 +11,7 @@ const state = vi.hoisted(() => ({
     | undefined,
   agentThread: false,
   humanThread: false,
+  marks: [] as string[],
 }))
 
 vi.mock("../flows/index.js", () => ({
@@ -24,6 +25,7 @@ vi.mock("../flows/index.js", () => ({
   },
   hasThreadFor: (who: string) => (who === "agent" ? state.agentThread : state.humanThread),
   head: () => state.head,
+  mark: (name: string, value: string) => void state.marks.push(`${name}=${value}`),
   read: (path: string) => (path === "f.md" ? state.feedback : state.files[path]),
   refuse: (m: string) => {
     throw new Error(m)
@@ -41,20 +43,29 @@ import {
   type ReviewPolicy,
   type Verdict,
 } from "./review.js"
-import type { ReviewNote } from "../steering/index.js"
+import type { ReviewDecision, ReviewNote } from "../steering/index.js"
 
 const note = (id: string) => ({ id }) as unknown as ReviewNote
 
 const setup = (verdicts: Record<string, Verdict>, silent = false, dropped = false) => {
   const calls: string[] = []
-  const deferred: string[][] = []
+  const judged: ReviewNote[][] = []
+  const fixed: ReviewNote[][] = []
+  const decided: ReviewDecision[][] = []
   const collected: ReviewNote[][] = []
   const p = {
     file: "r.md",
     feedback: "f.md",
-    triage: async () => new Map(Object.entries(verdicts)),
+    triage: async (ns: readonly ReviewNote[]) => {
+      judged.push([...ns])
+      return new Map(Object.entries(verdicts))
+    },
     answerQuestions: async () => void calls.push("answer"),
-    fixNits: async () => void calls.push("nits"),
+    fixNits: async (ns: readonly ReviewNote[]) => {
+      calls.push("nits")
+      fixed.push([...ns])
+    },
+    decided: (ds: readonly ReviewDecision[]) => void decided.push([...ds]),
     keepGreen: async () => void calls.push("green"),
     collecting: async () => {
       calls.push("collect")
@@ -72,10 +83,6 @@ const setup = (verdicts: Record<string, Verdict>, silent = false, dropped = fals
             `dropped: ${r.notes.map((n) => n.id).join(",")} / ${r.paths.join(",")}`,
         }
       : {},
-    defer: async (ns: readonly ReviewNote[]) => {
-      calls.push("defer")
-      deferred.push(ns.map((n) => n.id))
-    },
   } as unknown as ReviewPolicy
   const r = {
     round: "r1",
@@ -83,7 +90,7 @@ const setup = (verdicts: Record<string, Verdict>, silent = false, dropped = fals
     outcome: (verdict: "signoff" | "feedback") => ({ verdict }) as never,
     unfolded: async () => ({ verdict: "signoff" }) as never,
   }
-  return { p, r, calls, deferred, collected }
+  return { p, r, calls, judged, fixed, decided, collected }
 }
 
 beforeEach(() => {
@@ -95,29 +102,47 @@ beforeEach(() => {
   state.head = "h1"
   state.agentThread = false
   state.humanThread = false
+  state.marks = []
 })
 
-describe("routeNotes defer", () => {
-  it("defer-only round awaits again, no collecting turn", async () => {
-    const t = setup({ a: "defer", b: "defer" })
-    const res = await routeNotes(t.p, [note("a"), note("b")], t.r)
-    expect(res).toEqual({ next: "await", reviewed: "r1" })
-    expect(t.deferred).toEqual([["a", "b"]])
-    expect(t.calls).toEqual(["defer"])
+describe("routeNotes decisions", () => {
+  const decision = (
+    anchor: string,
+    choice: ReviewDecision["choice"],
+    text = "",
+  ): ReviewDecision => ({ anchor, body: `${anchor} body`, choice, text })
+
+  it("a fix joins the nit batch unjudged", async () => {
+    const t = setup({})
+    const res = await routeNotes(t.p, [], t.r, [decision("Rounding", "fix")])
+    expect(res).toEqual({ next: "rereview", carry: undefined })
+    expect(t.judged).toEqual([])
+    expect(t.fixed[0]).toMatchObject([{ anchor: "Rounding", text: "Rounding body" }])
+    expect(t.calls).toEqual(["nits", "green", "close"])
   })
 
-  it("defer + edit collects only the edits and ends feedback", async () => {
-    const t = setup({ a: "defer", b: "edit" })
-    const res = await routeNotes(t.p, [note("a"), note("b")], t.r)
+  it("an own answer is judged like a note", async () => {
+    const t = setup({ "answer-1": "edit" })
+    const res = await routeNotes(t.p, [], t.r, [decision("Rounding", "answer", "round up")])
     expect(res).toEqual({ verdict: "feedback" })
-    expect(t.calls).toEqual(["defer", "close", "collect"])
-    expect(t.collected[0]!.map((n) => n.id)).toEqual(["b"])
+    expect(t.judged[0]).toMatchObject([{ id: "answer-1", anchor: "Rounding", text: "round up" }])
+    expect(t.collected[0]!.map((n) => n.id)).toEqual(["answer-1"])
   })
 
-  it("runs after nit fixes and before the collecting turn", async () => {
-    const t = setup({ a: "nit", b: "defer", c: "edit" })
-    await routeNotes(t.p, [note("a"), note("b"), note("c")], t.r)
-    expect(t.calls).toEqual(["nits", "green", "defer", "close", "collect"])
+  it("a won't-fix is dropped, marked, and signs off a round with nothing else", async () => {
+    const t = setup({})
+    const res = await routeNotes(t.p, [], t.r, [decision("Rounding", "wontfix")])
+    expect(res).toEqual({ verdict: "signoff" })
+    expect(t.calls).toEqual([])
+    expect(t.judged).toEqual([])
+    expect(state.marks).toEqual(["wontfix=Rounding"])
+  })
+
+  it("tells the policy every decision before routing", async () => {
+    const t = setup({})
+    const ds = [decision("A", "fix"), decision("B", "wontfix")]
+    await routeNotes(t.p, [], t.r, ds)
+    expect(t.decided).toEqual([ds])
   })
 })
 
@@ -221,7 +246,6 @@ const driveRound = async (
     },
     answerQuestions: async () => {},
     fixNits: async () => {},
-    defer: async () => {},
     close: async () => {},
     captures: {
       edits: (_round: string, from?: string) => (
@@ -438,5 +462,59 @@ describe("reviewToHandOff", () => {
     } as unknown as HandOffPolicy
     await reviewToHandOff("base", p)
     expect(calls).toEqual(["handOff"])
+  })
+})
+
+describe("a note's answer boxes", () => {
+  const boxes = (fix: string, wont: string): string =>
+    doc(
+      POINTER,
+      "",
+      "## Rounding",
+      "",
+      "Should subtract round?",
+      "",
+      `- [${fix}] fix as suggested`,
+      `- [${wont}] won't fix`,
+      "- [ ] _your answer_",
+    )
+  const open = boxes(" ", " ")
+
+  it("a sign-off with a note unanswered is refused", async () => {
+    const r = await driveRound(open, open)
+    expect(r.result).toBeInstanceOf(Error)
+    expect((r.result as Error).message).toContain("answer-completeness: 1 note(s) in r.md")
+  })
+
+  it("two ticks on one note are refused", async () => {
+    const r = await driveRound(open, boxes("x", "x"))
+    expect((r.result as Error).message).toContain("answer-completeness")
+  })
+
+  it("a won't-fix answer signs off with no judge", async () => {
+    const r = await driveRound(open, boxes(" ", "x"))
+    expect(r.result).toEqual({ verdict: "signoff" })
+    expect(r.triaged).toEqual([])
+    expect(state.marks).toEqual(["wontfix=Rounding"])
+  })
+
+  it("a thread round may leave notes unanswered until the agent replied", async () => {
+    const base = doc(
+      `${POINTER}[^t]`,
+      "",
+      thread("H: why?"),
+      "",
+      "## Rounding",
+      "",
+      "Round?",
+      "",
+      "- [ ] fix as suggested",
+      "- [ ] won't fix",
+      "- [ ] _your answer_",
+    )
+    const replied = base.replace("    - H: why?", "    - H: why?\n    - A: because")
+    const r = await driveRound(base, replied, { inGate: replied })
+    expect(r.rounds).toEqual(["reply"])
+    expect((r.result as Error).message).toContain("answer-completeness")
   })
 })

@@ -888,12 +888,24 @@ and removes `.gtd/QUALITY.md`: a `## Weakened scenarios` chunk naming each
 `Then` line a `.feature` file at the review base has lost, then one prose `## `
 chunk per note (a mechanical one the fixer left is marked so), then
 `## Fixed automatically` (one line per finding, with the fixing commit's short
-hash) and `## Dropped as noise` (one line per finding, with its `p`). None
-carries a tick box or needs an answer; disagreeing with one means writing a note
-of your own. With nothing to list, the file holds one `## Nothing to note`
-chunk. Task boxes in a finding are written as plain bullets. The fresh review
-after a nit fix adds `## Fixed from your notes` with the fixing commit. The
-`review` and `fix` workflows keep the untriaged lap and their reviewer turn.
+hash) and `## Dropped as noise` (one line per finding, with its `p`). Each note
+chunk ends in `Tick exactly one:` and three boxes — `fix as suggested`,
+`won't fix`, `_your answer_` — and the review gate refuses to land
+(`answer-completeness`) until every note holds exactly one tick, a ticked
+`_your answer_` replaced by the human's text; only a round with a `- H:` thread
+waiting on the agent may leave one open. The summary chunks carry no box and
+need no answer; disagreeing with one means writing a note of your own. With
+nothing to list, the file holds one `## Nothing to note` chunk. Task boxes in a
+finding are written as plain bullets. The fresh review after a nit fix adds
+`## Fixed from your notes` with the fixing commit and leaves out every note
+already answered.
+
+An answer routes without the note judge: `fix as suggested` joins the nit batch
+(`build.review.fix.nits.fixing`) with the note's text; `won't fix` drops the
+note and records `Gtd-Mark: wontfix=<title>` on the gate's commit; an own answer
+is judged like any other note, keyed `answer-<n>`. Nothing is written to
+`.gtd/TODO.md`. The `review` and `fix` workflows keep the untriaged lap and
+their reviewer turn.
 
 #### The feature review
 
@@ -912,6 +924,14 @@ review again. A custom workflow ending in `afterTail` runs the same lap, without
 the `criteria-ids` check. `seam.naive` and `seam.judge` never run again once
 judged, so a seam a re-plan turns up is built unjudged and unrefactored; a wrong
 or missing refactor means `gtd abandon` and a restart.
+
+**Upgrading:** `feature`'s review notes carry answer boxes and nothing is
+deferred. `build.review.defer` and `refactor.build.review.defer` are gone: a
+process resting at either no longer replays — finish or `gtd abandon` it first.
+A `could` edit note is re-planned like any other. A driver or fixture that signs
+off a review holding notes ticks one box per note first. Workflow-kit's
+`Verdict` has no `defer`, and `ReviewPolicy` loses `defer` and gains an optional
+`decided`.
 
 **Upgrading:** `feature`'s reviews are composed from the quality lap. A process
 resting at `build.review.reviewing`, `build.review.fix.risks.fixing`, a
@@ -997,7 +1017,7 @@ The only way out is `gtd abandon`, which throws away the naive pass, the
 refactor and its review. A praise-only round still signs off. A settled round,
 one where the human only added thread replies after the in-gate reply turn,
 refuses the same way when anything since the review asked for a change: a note
-judged `edit`, `nit` or `defer`, or a hand-edited path. The refusal names them.
+judged `edit` or `nit`, or a hand-edited path. The refusal names them.
 
 Footnotes are judged like line notes. A `- H:` thread left in `.gtd/REVIEW.md`
 at the refactor review gets one `- A:` reply and the gate rests again; a thread
@@ -1776,12 +1796,10 @@ it.
 | ------------------------------------------------------------------- | -------------------------------- |
 | `design`                                                            | `[]`                             |
 | `build.review`                                                      | `.gtd/REVIEW.md`                 |
-| `build.review.defer`                                                | `.gtd/TODO.md`                   |
 | `build.review.fix.nits`, `build.review.fix.risks`                   | `{}` (reopened: fixes edit code) |
 | `build.quality.<lens>`                                              | `[]`                             |
 | `refactor.build.quality.<lens>`                                     | `[]`                             |
 | `refactor.build.review`                                             | `.gtd/REVIEW.md`                 |
-| `refactor.build.review.defer`                                       | `.gtd/TODO.md`                   |
 | `refactor.build.review.fix.nits`, `refactor.build.review.fix.risks` | the strays, `.gtd/**` (run time) |
 
 ### Validation and errors

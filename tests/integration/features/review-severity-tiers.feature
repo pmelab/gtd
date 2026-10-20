@@ -1,4 +1,4 @@
-Feature: Review severity tiers — critical and should notes re-plan, could notes defer to TODO.md
+Feature: Review severity tiers — every edit note re-plans, ordered and labelled by tier
 
   Background:
     Given a test project
@@ -66,12 +66,8 @@ Feature: Review severity tiers — critical and should notes re-plan, could note
         {"id": "note-8.newConcept", "answer": "no", "p": 0.9}
       ]
       """
-    Then the last commit subject is "gtd(judge): build.review.triage → build.review.defer"
-    When I run the emitted script and land
-    Then the last commit changes ".gtd/TODO.md"
-    And ".gtd/TODO.md" contains "## Deferred review notes"
-    And ".gtd/TODO.md" lists notes 3 to 8 and not notes 1 or 2
-    And the last commit subject is "gtd(check): build.review.defer → build.review.closing"
+    Then the last commit subject is "gtd(judge): build.review.triage → build.review.closing"
+    And ".gtd/TODO.md" does not exist
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd land
     Then the last commit subject is "gtd(check): build.review.closing → build.review.collecting"
@@ -79,7 +75,8 @@ Feature: Review severity tiers — critical and should notes re-plan, could note
     Then stdout lists "note-2" before "note-1"
     And stdout contains "critical: one-way door"
     And stdout contains "should: new concept"
-    And stdout does not contain "note-3"
+    And stdout lists "note-1" before "note-3"
+    And stdout contains "note-8 — "
 
   @inmem
   Scenario: a `!` note is critical and never reaches the judge
@@ -122,37 +119,15 @@ Feature: Review severity tiers — critical and should notes re-plan, could note
     Then the last commit subject is "gtd(judge): build.review.triage → build.review.fix.nits.fixing"
 
   @inmem
-  Scenario: deferral appends to an existing TODO.md
-    Given a commit "chore: notes" that adds ".gtd/TODO.md" with:
-      """
-      # Later
-
-      - keep this line
-      """
-    And gtd started workflow "review" with "--var reviewBase=base"
-    And a file ".gtd/REVIEW.md" with 2 pointer notes on "src/calc.ts"
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
-    And ".gtd/REVIEW.md" note 1 reads "use a single quote" and note 2 reads "rename the file format version field"
-    When I run gtd land
-    And I run gtd judge answer with note-1 judged a confident could and note-2 a confident one-way edit
-    And I run the emitted script and land
-    Then ".gtd/TODO.md" contains "- keep this line"
-    And ".gtd/TODO.md" contains "## Deferred review notes"
-
-  @inmem
-  Scenario: a defer-only round rests at the review gate again, then signs off
+  Scenario: a could note is re-planned like any other edit, never deferred
     Given a file ".gtd/REVIEW.md" with 1 pointer note on "src/calc.ts"
     And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     And ".gtd/REVIEW.md" note 1 reads "use a single quote"
     When I run gtd land
     And I run gtd judge answer with note-1 judged a confident could
-    And I run the emitted script and land
-    Then the last commit subject is "gtd(check): build.review.defer → build.review.await-review"
-    When I run gtd land
-    Then the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
+    Then the last commit subject is "gtd(judge): build.review.triage → build.review.closing"
+    And ".gtd/TODO.md" does not exist
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd land
-    Then the last commit subject is "gtd(check): build.review.closing → idle"
-    When I run gtd next
-    Then the process rests at "idle"
-    And ".gtd/TODO.md" contains "use a single quote"
+    And I run gtd next
+    Then stdout contains "(could)"

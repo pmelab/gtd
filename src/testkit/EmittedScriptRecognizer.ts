@@ -670,19 +670,6 @@ const splitBlocks = (script: string): readonly string[] => {
   return blocks
 }
 
-/** `deferNotesScript`: append its one section to `.gtd/TODO.md`, reading the section's lines off the final `printf`. */
-const DEFER_HEAD = "mkdir -p .gtd\nif [ -s .gtd/TODO.md ]; then"
-const recognizeDeferNotes = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
-  if (!block.startsWith(DEFER_HEAD)) return undefined
-  const at = block.lastIndexOf("\nprintf '%s\\n' ")
-  if (at === -1) return undefined
-  const lines = extractQuotedTokens(block.slice(at + "\nprintf '%s\\n' ".length))
-  const old = repo.readFile(".gtd/TODO.md") ?? ""
-  const sep = old === "" ? "" : `${old.endsWith("\n") ? "" : "\n"}\n`
-  repo.writeFile(".gtd/TODO.md", `${old}${sep}${lines.join("\n")}\n`)
-  return { kind: "applied" }
-}
-
 /** `mkdir -p <dir>` then `printf '%s\n' <quoted lines> > <path>`: a flow's one-file write. Re-rendered from what was extracted, so any other shape stays unrecognized. */
 const recognizeWriteLines = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
   const [mkdir, printf, ...rest] = block.split("\n")
@@ -715,7 +702,6 @@ const recognizersFor = (
   (block) => recognizeFileExistsGuard(repo, block),
   (block) => recognizeBinaryGuard(commands, block),
   (block) => (git ? recognizeGitBuilders(repo, block) : undefined),
-  (block) => recognizeDeferNotes(repo, block),
   (block) => recognizeWriteLines(repo, block),
   (block) => recognizeFailurePromptWrapper(repo, commands, block),
   (block) => recognizePresentationSubshell(repo, commands, block, git),

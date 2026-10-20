@@ -8,8 +8,8 @@ describe("withRequirements", () => {
     expect(withRequirements("\n\n", "add a greeting")).toBe("add a greeting\n")
   })
 
-  test("deferred review notes survive below the new requirements", () => {
-    const notes = "## Deferred review notes (abcdef1)\n\n- note-1 — a.ts:3 (could: tiny): plain\n"
+  test("existing notes survive below the new requirements", () => {
+    const notes = "## Later\n\n- keep this line\n"
     expect(withRequirements(notes, "add a greeting")).toBe(`add a greeting\n\n${notes}`)
   })
 
