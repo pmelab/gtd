@@ -1177,8 +1177,11 @@ const pointerLabel = (f: ReviewFile): string =>
 
 type Found = { line: number; note: Omit<ReviewNote, "id" | "forced"> }
 
+// A chunk added with its own answer boxes (a driver's imported note) is
+// answered by its tick, never judged as prose as well.
 const chunkNote = (chunk: Changeset, prior: Changeset | undefined): Found[] =>
-  chunk.description === (prior?.description ?? "")
+  chunk.description === (prior?.description ?? "") ||
+  (prior === undefined && chunk.answers !== undefined)
     ? []
     : [
         {

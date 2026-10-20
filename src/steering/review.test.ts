@@ -1875,6 +1875,12 @@ describe("answer boxes", async () => {
     expect(reviewNotes(open, doc(note("Rounding", [" ", "x", ""])))).toEqual([])
   })
 
+  it("a note added with its own boxes is a decision, never also a note", () => {
+    const added = doc(note("Rounding", [" ", " ", ""]), note("PR thread", ["x", " ", ""]))
+    expect(reviewNotes(open, added)).toEqual([])
+    expect(reviewDecisions(open, added)).toMatchObject([{ anchor: "PR thread", choice: "fix" }])
+  })
+
   it("an unticked note, or one with two ticks, is unanswered", () => {
     expect(unansweredNotes(open)).toEqual([
       { title: "Rounding", line: 5, reason: "tick exactly one box" },

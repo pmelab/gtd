@@ -10,6 +10,15 @@ import type { Io, Opening, Turn, TurnEnd } from "./drive"
 import { doorFor, doors, enter } from "./doors"
 import { subagentModel } from "./models"
 import { pastedCommand } from "./paste"
+import {
+  currentPr,
+  decided,
+  missingReasons,
+  reply,
+  REVIEW_FILE,
+  unresolvedThreads,
+  withThreads,
+} from "./pr"
 import { personaSpec, resumable } from "./persona"
 import { JUDGE_SYSTEM, judgePrompt, judgeQuestions, judgeRunEnv, toVerdicts } from "./judge"
 import type { Judgment } from "./judge"
@@ -277,8 +286,8 @@ async function start($: $, opening: Opening = {}) {
   moveOn($)
   stopRequested = false
   await findRoot($)
-  // Requests not yet handed to a rest outlive a restart.
-  await update($, run, (r) => ({ isRunning: true, beat: 0, notes: r.notes }))
+  // Requests not yet handed to a rest, and review threads not yet replied to, outlive a restart.
+  await update($, run, (r) => ({ isRunning: true, beat: 0, notes: r.notes, pr: r.pr }))
   void drive(io($), opening)
     .catch((err: unknown): Stop => ({ kind: "error", text: String(err) }))
     .then(async (stop) => {
@@ -290,6 +299,8 @@ async function start($: $, opening: Opening = {}) {
       const rest = restId(at.head, stop.state)
       await update($, run, (r) => ({ ...r, isRunning: false, stop, rest, isRepeat }))
       $.ui.status(undefined)
+      // Before the wake, so nothing the model starts there races the push.
+      await prRest($, stop)
       $.ui.toast(headline(stop))
       await push($, stop)
       await wake($)
@@ -500,6 +511,125 @@ async function enterNow($: $, door: string, args: string[]) {
   const entered = await enter(shipIo($), door, args)
   if (entered.ok) await start($)
   return entered.text
+}
+
+const isReviewGate = (stop: Stop | undefined) =>
+  stop?.kind === "gate" &&
+  !stop.isJudge &&
+  stop.file === REVIEW_FILE &&
+  /(^|\.)review\.await-review$/.test(stop.state ?? "")
+
+// The pull request's unresolved threads go into the review gate's file: now,
+// when gtd waits there, or through the review door at its first gate.
+async function prNow($: $) {
+  const r = await read($, run)
+  if (r.isRunning) return "Stop the loop first: /gtd stop."
+  if (r.pending) return "A continue is already waiting for this turn to end."
+  if (r.pr?.importedAt !== undefined) return retryReplies($, r.stop)
+  if (r.pr && !isReviewGate(r.stop)) {
+    return "Review threads from an earlier /gtd pr wait for the review's first review gate."
+  }
+  const io = shipIo($)
+  const pr = await currentPr(io)
+  if (typeof pr === "string") return pr
+  const threads = await unresolvedThreads(io, pr)
+  if (typeof threads === "string") return threads
+  if (threads.length === 0) return `${pr.url} has no unresolved review threads.`
+  await update($, run, (x) => ({ ...x, pr: { threads, host: pr.host, branch: pr.branch } }))
+  if (isReviewGate(r.stop)) {
+    await importThreads($)
+    return `Added ${threads.length} review thread(s) of ${pr.url} to ${REVIEW_FILE}, ticked fix as suggested.`
+  }
+  const entered = await enter(io, "review", [])
+  if (!entered.ok) {
+    await update($, run, (x) => ({ ...x, pr: undefined }))
+    return `${entered.text}\nRun /gtd pr at a review gate, or once nothing is underway.`
+  }
+  await start($)
+  return `Started a review of ${pr.url}; its ${threads.length} review thread(s) join the review.`
+}
+
+// Replies whose push failed are retried here, at a rest that sends them.
+async function retryReplies($: $, stop: Stop | undefined) {
+  // prRest, not a bare reply: threads of another branch must be dropped, never answered.
+  if (stop) {
+    await prRest($, stop)
+    if ((await read($, run)).pr === undefined) return "Done with the earlier review threads."
+  }
+  return "Review threads from an earlier /gtd pr still wait for their replies, sent at the next review gate or when the process ends; /gtd pr retries them there."
+}
+
+async function importThreads($: $) {
+  const pr = (await read($, run)).pr
+  if (!pr || pr.importedAt !== undefined) return
+  const path = `${root}/${REVIEW_FILE}`
+  const review = (await $.fs.exists(path)) ? await $.fs.read(path) : ""
+  await $.fs.write(path, withThreads(review, pr.threads))
+  const importedAt = await head($)
+  await update($, run, (x) => ({ ...x, pr: { ...pr, importedAt } }))
+}
+
+const forgetPr = ($: $) => update($, run, (x) => ({ ...x, pr: undefined }))
+
+// A failing import or reply is reported, never allowed to swallow the rest.
+async function guardedPr($: $, work: () => Promise<unknown>) {
+  try {
+    await work()
+  } catch (err) {
+    $.ui.log(`gtd pr: ${String(err)}`)
+    $.ui.toast("gtd pr: handling the review threads failed")
+  }
+}
+
+async function prRest($: $, stop: Stop) {
+  const pr = (await read($, run)).pr
+  if (!pr) return
+  const branch = (
+    await $.process.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: root })
+  ).stdout.trim()
+  const action = prAction(pr, {
+    isReviewGate: isReviewGate(stop),
+    isDone: stop.kind === "done",
+    branch,
+  })
+  if (action === "forget") await forgetPr($)
+  if (action === "import") await guardedPr($, () => importThreads($))
+  if (action === "reply") await guardedPr($, () => replyThreads($, stop))
+}
+
+// Once a gate answered the imported threads and the process rests at a review
+// gate again or is done, each thread is replied to and resolved. Only a failed
+// push keeps them for the next rest.
+async function replyThreads($: $, stop: Stop) {
+  const pr = (await read($, run)).pr
+  if (!pr?.importedAt) return
+  const io = shipIo($)
+  const found = await decided(
+    io,
+    pr.importedAt,
+    pr.threads.map((t) => t.id),
+  )
+  if (found === "gone") {
+    $.ui.log("gtd pr: the history moved since the review threads were added; they get no replies.")
+    await forgetPr($)
+    return
+  }
+  if (!found) {
+    if (stop.kind === "done") await forgetPr($)
+    return
+  }
+  // Nothing has acted on the answers yet, unless the process already ended.
+  if (stop.kind !== "done" && found.gate === (await head($))) return
+  $.ui.status("replying to the review threads…")
+  let replied
+  try {
+    replied = await reply(io, pr.host, found.gate, found.answers)
+  } finally {
+    $.ui.status(undefined)
+  }
+  for (const line of replied.text.split("\n")) $.ui.log(line)
+  $.ui.toast(replied.text.split("\n")[0]!)
+  if (replied.isPushed) await forgetPr($)
 }
 
 // Picks the process up where it was thrown: a rest that waits on a person is
@@ -743,8 +873,15 @@ async function proceed(
   return undefined
 }
 
-// The rest's own `gtd validate` script, run.
+// The rest's own `gtd validate` script, run; a declined review thread needs
+// the reason its reply carries.
 async function validateRest($: $) {
+  const r = await read($, run)
+  if (r.pr?.importedAt !== undefined && isReviewGate(r.stop)) {
+    const path = `${root}/${REVIEW_FILE}`
+    const missing = (await $.fs.exists(path)) ? missingReasons(await $.fs.read(path)) : []
+    if (missing.length > 0) return { ok: false, out: missing.join("\n") }
+  }
   const script = await gtd($, ["validate"])
   if (script.trim().startsWith("nothing to validate")) return { ok: true, out: "" }
   const v = await $.process.run(["sh", "-c", script], { cwd: root, timeoutMs: TEN_MINUTES })
@@ -872,8 +1009,14 @@ async function command($: $, arg: string): Promise<string | undefined> {
     case "":
       return resume($)
     default:
-      return doorFor(await doors(shipIo($)), verb, rest) ? enterNow($, verb, rest) : begin($, arg)
+      return routed($, verb, rest, arg)
   }
+}
+
+// A door wins over the bare `pr` verb; anything else is requirements.
+async function routed($: $, verb: string, rest: string[], arg: string) {
+  if (doorFor(await doors(shipIo($)), verb, rest)) return enterNow($, verb, rest)
+  return verb === "pr" && rest.length === 0 ? prNow($) : begin($, arg)
 }
 
 async function resume($: $) {
@@ -1020,7 +1163,7 @@ export const register: Register = (on) => {
       name: "gtd",
       description: "Drive gtd until it rests on you; pass requirements to start a new process",
       argumentHint:
-        "[requirements | <door> [args] | stop | status | ui | ship [-n] | throw [@user] | catch <pr|branch>]",
+        "[requirements | <door> [args] | stop | status | ui | ship [-n] | pr | throw [@user] | catch <pr|branch>]",
       immediate: true,
     })
     return next(e)
