@@ -22,6 +22,8 @@ describe("the bundled workflow's skills export", () => {
         "build.review.fix.risks",
         "notes",
         "feedback",
+        "tests",
+        "tests.health",
         "refactor",
         "refactor.fix.suite",
         "refactor.health",

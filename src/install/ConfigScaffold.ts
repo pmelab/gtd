@@ -6,7 +6,8 @@ export const CONFIG_SCAFFOLD = `// The workflows gtd runs here: gtd's shipped fe
 // its own doors: \`gtd door review [base]\` and \`gtd door fix\`. Export \`rollout\`
 // from \`@pmelab/gtd/workflows/rollout\` and \`cleanup\` from
 // \`@pmelab/gtd/workflows/cleanup\` to add \`gtd door rollout <flag>\` and
-// \`gtd door cleanup <flag>\`.
+// \`gtd door cleanup <flag>\`, and \`tests\` from \`@pmelab/gtd/workflows/tests\`
+// to add \`gtd door tests\`.
 export {
   feature as default,
   feature,

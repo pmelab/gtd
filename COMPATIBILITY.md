@@ -48,12 +48,13 @@ histories written by an older or newer gtd.
   `strays`, `history list`, `history show`, `history metrics`, `history judges`,
   `history fetch`, `version`, `help`, `ui`, `lsp`, `loop`, `context-hook`,
   `judge`, `judge answer`, `judge run`), option and argument in
-  [CLI reference](docs/cli.md), the doors the bundled `fix`, `review`, `rollout`
-  and `cleanup` build (`fix`, `review [base]`, `rollout <flag>`,
-  `cleanup <flag>`), and the `gtd doors --json` and `gtd history list --json`
-  arrays (bare arrays with no `schema`), and `gtd history show --json`,
-  `gtd history metrics --json`, `gtd history judges --json` and its `--jsonl`
-  lines (no `schema`; not driver documents).
+  [CLI reference](docs/cli.md), the doors the bundled `fix`, `review`,
+  `rollout`, `cleanup` and `tests` build (`fix`, `review [base]`,
+  `rollout <flag>`, `cleanup <flag>`, `tests`), and the `gtd doors --json` and
+  `gtd history list --json` arrays (bare arrays with no `schema`), and
+  `gtd history show --json`, `gtd history metrics --json`,
+  `gtd history judges --json` and its `--jsonl` lines (no `schema`; not driver
+  documents).
 - **The error envelope and stream discipline** — `{ "state": "error", … }` on
   stderr with `--json`, stdout byte-empty on failure (`gtd ui` excepted). See
   [Error envelope](docs/cli.md#error-envelope).
@@ -70,7 +71,7 @@ histories written by an older or newer gtd.
     [Reusing the shipped workflows](docs/configuration.md#reusing-the-shipped-workflows))
   - `@pmelab/gtd/workflows/feature`, `@pmelab/gtd/workflows/review`,
     `@pmelab/gtd/workflows/fix`, `@pmelab/gtd/workflows/rollout`,
-    `@pmelab/gtd/workflows/cleanup`
+    `@pmelab/gtd/workflows/cleanup`, `@pmelab/gtd/workflows/tests`
   - `@pmelab/gtd/testkit`'s `testRepo`, `runsItsScript` and `InMemRepo`, with
     the `TestRepo` and `TestkitWorld` types and its optional peers `vitest` and
     `quickpickle`
@@ -83,10 +84,10 @@ histories written by an older or newer gtd.
   `skills`, `access`) and their values. See
   [The `config` export](docs/configuration.md#the-config-export).
 - **Bundled workflow and step names** — `feature`, `fix`, `review`, `rollout`,
-  `cleanup`, and each step's full name, plus which steps a bundled workflow
-  reaches and in what order: changing either strands every process resting on
-  it. Adding `approve` to an existing step strands every process that already
-  passed it.
+  `cleanup`, `tests`, and each step's full name, plus which steps a bundled
+  workflow reaches and in what order: changing either strands every process
+  resting on it. Adding `approve` to an existing step strands every process that
+  already passed it.
 - **The review hand-off** — what `fix`'s review leaves for the next `fix`:
   `.gtd/REVIEW.md` with the human's notes beside the reviewer's own
   `.gtd/REVIEW.orig.md`, read as review notes (see

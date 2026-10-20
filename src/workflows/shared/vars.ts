@@ -16,6 +16,14 @@ export const testFileGlobs: readonly string[] = [
 
 export const defaultFlagRegistry = "src/flags/index.ts"
 
+/** The `tests` workflow's own process settings: where it looks for skipped tests, and how a skip reads. */
+export const testsDefaults: Readonly<Record<string, string>> = {
+  testFiles: testFileGlobs.join(", "),
+  // JS/TS runners' `.skip`/`.todo` and `x`-prefixed blocks, and cucumber's skip tags.
+  skipPattern:
+    "^\\s*(?:(?:describe|context|suite|it|test|specify)\\.(?:skip|todo)\\b|x(?:describe|context|it|test|specify)\\s*\\(|(?:@\\S+\\s+)*@(?:skip|ignore)(?:\\s|$))",
+}
+
 /** Process settings. */
 export const defaults: Readonly<Record<string, string>> = {
   reviewBase: "",
