@@ -45,6 +45,8 @@ export interface Metrics {
     }
   }
   readonly findings: { readonly total: number; readonly byLens: Readonly<Record<string, number>> }
+  /** Red checks that passed on their re-run, keyed by the `Gtd-Mark: flaky=<step>` value. */
+  readonly flaky: { readonly total: number; readonly byStep: Readonly<Record<string, number>> }
 }
 
 type Phase = keyof Metrics["cost"]["byPhase"]
@@ -87,6 +89,7 @@ interface Tally {
   readonly byPhase: Record<Phase, number>
   readonly doubleWork: { naive: number; rebuild: number }
   readonly byLens: Record<string, number>
+  readonly flaky: Record<string, number>
 }
 
 const emptyTally = (): Tally => ({
@@ -96,6 +99,7 @@ const emptyTally = (): Tally => ({
   byPhase: { naive: 0, refactor: 0, implement: 0, other: 0 },
   doubleWork: { naive: 0, rebuild: 0 },
   byLens: record(),
+  flaky: record(),
 })
 
 const sum = (record: Readonly<Record<string, number>>): number =>
@@ -116,6 +120,7 @@ const finish = (t: Tally): Metrics => ({
     },
   },
   findings: { total: sum(t.byLens), byLens: t.byLens },
+  flaky: { total: sum(t.flaky), byStep: t.flaky },
 })
 
 /** The open slice: its naive cost so far, and whether its implement turns rebuild it. */
@@ -186,6 +191,7 @@ export const processMetrics = (commits: readonly MetricCommit[]): Metrics => {
       add(t.continuations, at.replace(CONTINUE, "$1"), 1)
     const lens = LENS.exec(at)?.[1]
     if (lens !== undefined && commit.findings > 0) add(t.byLens, lens, commit.findings)
+    for (const m of message.marks) if (m.name === "flaky") add(t.flaky, m.value, 1)
     tallyDecision(t, open, at, subject.to)
   }
   return finish(t)
@@ -202,6 +208,7 @@ export const totalMetrics = (all: readonly Metrics[]): Metrics & { readonly proc
     t.doubleWork.naive += m.cost.doubleWork.naive
     t.doubleWork.rebuild += m.cost.doubleWork.rebuild
     for (const [k, v] of Object.entries(m.findings.byLens)) add(t.byLens, k, v)
+    for (const [k, v] of Object.entries(m.flaky.byStep)) add(t.flaky, k, v)
   }
   return { processes: all.length, ...finish(t) }
 }
@@ -257,6 +264,7 @@ const line = (label: string, m: Metrics): string => {
     `${continued} continuations${continued > 0 ? ` (${listed(m.continuations)})` : ""}`,
     `cost ${cost.total} (${listed(cost.byPhase)}; by model ${listed(cost.byModel) || "-"}), double work ${cost.doubleWork.total}`,
     `${m.findings.total} findings${m.findings.total > 0 ? ` (${listed(m.findings.byLens)})` : ""}`,
+    `${m.flaky.total} flaky${m.flaky.total > 0 ? ` (${listed(m.flaky.byStep)})` : ""}`,
   ].join("; ")
 }
 

@@ -1414,7 +1414,14 @@ Feature: The bundled unified workflow — one flow, end to end
     And gtd lands "gtd(check): implement.health.check → implement.health.judge"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(judge): implement.health.judge → implement.health.describe"
+    And the last commit subject is "gtd(judge): implement.health.judge → implement.health.recheck"
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      failing again on re-run
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): implement.health.recheck → implement.health.describe"
     # implement.health.describe's prompt names its bundled skill — the
     # same list build.health.describe's own rename guard (below) checks,
     # grounding BOTH full names this shared escalation loop can resolve to.
@@ -1469,7 +1476,14 @@ Feature: The bundled unified workflow — one flow, end to end
     And gtd lands "gtd(check): build.health.check → build.health.judge"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.recheck"
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      failing again on re-run
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.recheck → build.health.describe"
     # build.health.describe's prompt names its bundled skill — grounds this
     # step's own map key against the real scoped name it resolves to.
     When I run gtd next
@@ -1568,7 +1582,14 @@ Feature: The bundled unified workflow — one flow, end to end
       [{"id":"verdict","answer":"identical","p":0.99}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.recheck"
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      failing again on re-run
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.recheck → build.health.describe"
     Given a file ".gtd/ESCALATION.md" with:
       """
       Round 1: the suite fails inside the same setup fixture every attempt.
@@ -1618,7 +1639,14 @@ Feature: The bundled unified workflow — one flow, end to end
       [{"id":"verdict","answer":"identical","p":0.99}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.recheck"
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      failing again on re-run
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.recheck → build.health.describe"
 
   @inmem
   Scenario: landing build.health.stop with a genuinely clean tree still advances to build.fix — "land it untouched" as its message promises
@@ -1657,7 +1685,14 @@ Feature: The bundled unified workflow — one flow, end to end
       [{"id":"verdict","answer":"identical","p":0.99}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.recheck"
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      failing again on re-run
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.recheck → build.health.describe"
     Given a file ".gtd/ESCALATION.md" with:
       """
       Round 1: the suite fails inside the same setup fixture every attempt.
@@ -1711,7 +1746,14 @@ Feature: The bundled unified workflow — one flow, end to end
       [{"id":"verdict","answer":"identical","p":0.99}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.recheck"
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      failing again on re-run
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.recheck → build.health.describe"
     Given a file ".gtd/ESCALATION.md" with:
       """
       Round 1: the suite fails inside the same setup fixture every attempt.
@@ -1771,7 +1813,14 @@ Feature: The bundled unified workflow — one flow, end to end
       [{"id":"verdict","answer":"identical","p":0.99}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.recheck"
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      failing again on re-run
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.recheck → build.health.describe"
     # Round 2's describe OVERWRITES round 1's still-surviving document — an
     # M, not an A, since nothing ever swept it in between.
     Given a file ".gtd/ESCALATION.md" with:
@@ -1838,7 +1887,14 @@ Feature: The bundled unified workflow — one flow, end to end
       [{"id":"verdict","answer":"identical","p":0.99}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.health.judge → build.health.exhausted"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.recheck"
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      failing again on re-run
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.recheck → build.health.exhausted"
     And ".gtd/ESCALATION.md" contains "Round 2: still the same fixture"
     And ".gtd/ESCALATION.md" does not contain "Round 1: the suite fails"
     When I run gtd next

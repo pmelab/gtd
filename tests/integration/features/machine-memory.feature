@@ -120,10 +120,15 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       test failed again: widget() still returns undefined
       """
     And gtd lands "gtd(check): build.health.check → build.health.judge"
-    And gtd lands "gtd(judge): build.health.judge → build.health.describe" judging:
+    And gtd lands "gtd(judge): build.health.judge → build.health.recheck" judging:
       """
       [{"id": "verdict", "answer": "identical", "p": 0.95}]
       """
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      test failed on re-run: widget() still returns undefined
+      """
+    And gtd lands "gtd(check): build.health.recheck → build.health.describe"
 
     # build.health.describe is a real `prompt` state — its own memory key,
     # scoped to build.health (the healthGate instance), distinct from

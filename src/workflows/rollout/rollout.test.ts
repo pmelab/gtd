@@ -114,6 +114,7 @@ describe("the rollout workflow", () => {
     const rest = await repo.drive({
       "rollout.flipping": (_, r) => r.write("src/flags/index.ts", FLIPPED),
       "rollout.suite.check": (_, r) => r.write(".gtd/FEEDBACK.md", "1 failing\n"),
+      "rollout.suite.recheck": (_, r) => r.write(".gtd/FEEDBACK.md", "still 1 failing\n"),
     })
     expect(rest).toMatchObject({ state: "rollout.suite.blocked", actor: "human" })
   })
@@ -125,6 +126,7 @@ describe("the rollout workflow", () => {
       await repo.drive({
         "rollout.flipping": (_, r) => r.write("src/flags/index.ts", FLIPPED),
         "rollout.suite.check": (_, r) => r.write(".gtd/FEEDBACK.md", "1 failing\n"),
+        "rollout.suite.recheck": (_, r) => r.write(".gtd/FEEDBACK.md", "still 1 failing\n"),
       })
       return repo
     }

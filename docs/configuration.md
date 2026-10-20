@@ -2021,6 +2021,20 @@ caller's fix step (`build.fix` or `implement.fix.suite.fixing`), so the turn
 that consumes the document is the very next one. `.gtd/ESCALATION.md` is
 free-form prose with no mode of its own.
 
+### Re-check before a person
+
+No red check reaches a person without running once more. Before escalating, the
+health loop re-runs the suite as `health.recheck`; a red baseline gate
+(`start-gate`, `review-gate`, `rollout`'s `suite`) re-runs it as
+`<gate>.recheck` before resting at `<gate>.blocked`. No judge is asked. Green on
+the re-run continues as if the check had passed, and that landing carries
+`Gtd-Mark: flaky=<check>` (`health.check`, or `<gate>.check`), which
+`gtd history metrics` counts. Red again escalates or rests as above.
+
+**Upgrading:** finish or `gtd abandon` any process that has escalated
+(`*.health.describe` onwards) or rested at a `*.blocked` gate before upgrading:
+its history no longer replays, since a re-check now comes first.
+
 ## Feature flags
 
 A feature flag is an environment variable, `GTD_FLAG_<NAME>`, one per feature

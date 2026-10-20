@@ -157,6 +157,10 @@ Feature: rollout turns one release flag default-on and touches nothing else
       """
       1 test failing
       """
+    And step "rollout.suite.recheck" writes ".gtd/FEEDBACK.md" with:
+      """
+      1 test still failing
+      """
     When gtd starts workflow "rollout" with "--var flag=alpha"
     And the process is driven
     Then the process rests at "rollout.suite.blocked"
@@ -175,6 +179,10 @@ Feature: rollout turns one release flag default-on and touches nothing else
     And step "rollout.suite.check" writes ".gtd/FEEDBACK.md" with:
       """
       1 test failing
+      """
+    And step "rollout.suite.recheck" writes ".gtd/FEEDBACK.md" with:
+      """
+      1 test still failing
       """
     When gtd starts workflow "rollout" with "--var flag=alpha"
     And the process is driven
@@ -199,6 +207,10 @@ Feature: rollout turns one release flag default-on and touches nothing else
     And step "rollout.suite.check" writes ".gtd/FEEDBACK.md" with:
       """
       1 test failing
+      """
+    And step "rollout.suite.recheck" writes ".gtd/FEEDBACK.md" with:
+      """
+      1 test still failing
       """
     When gtd starts workflow "rollout" with "--var flag=alpha"
     And the process is driven
@@ -228,6 +240,10 @@ Feature: rollout turns one release flag default-on and touches nothing else
     And step "rollout.suite.check" writes ".gtd/FEEDBACK.md" with:
       """
       1 test failing
+      """
+    And step "rollout.suite.recheck" writes ".gtd/FEEDBACK.md" with:
+      """
+      1 test still failing
       """
     When gtd starts workflow "rollout" with "--var flag=alpha"
     And the process is driven

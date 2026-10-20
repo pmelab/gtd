@@ -213,9 +213,10 @@ Label: Checking the baseline
 ```
 
 A green suite leaves the tree clean, so the process moves on to triage. A red
-suite instead writes `.gtd/FEEDBACK.md`, and the process goes to
-`start-gate.blocked` — same two commands, different outcome, decided entirely by
-what the beat left in the tree.
+suite instead writes `.gtd/FEEDBACK.md`; the process runs it once more at
+`start-gate.recheck`, and only a second red goes to `start-gate.blocked` — same
+two commands, different outcome, decided entirely by what the beat left in the
+tree.
 
 Land the green one, and the beat after it belongs to an agent.
 
@@ -508,7 +509,10 @@ you open the `review` door.
    as-is, handing that document to the next fix turn as its instruction. Two
    such rounds with no fix is the terminal stop: the last analysis stays on disk
    instead of a third being written, and editing it is what gets the next
-   attempt anywhere new.
+   attempt anywhere new. Before any escalation or red-baseline stop the suite
+   runs once more; a pass there continues without you and is recorded as
+   `Gtd-Mark: flaky=<check>` (see
+   [Re-check before a person](docs/configuration.md#re-check-before-a-person)).
 
 4. **You review — the refactor, or on request.** The feature workflow asks for
    one review only on `refactor-first`: of the refactor slice, before the
@@ -745,6 +749,8 @@ it never replays and a config changed since is no refusal:
 - **findings** — the net count of `## ` findings each quality-lap lens added to
   `.gtd/QUALITY.md`, keyed by the lap's lens path (`build.quality.correctness`,
   `refactor.build.quality.correctness`, …)
+- **flaky** — red checks that passed on their re-check, keyed by the
+  `Gtd-Mark: flaky=<check>` value (`health.check`, `start-gate.check`, …)
 
 `--json` prints `{ processes, total }`; `--json=total.refactorFirstRate` prints
 one value. Model, phase and lens keys may hold dots a path cannot reach: select

@@ -298,7 +298,12 @@ Feature: refactorFirst derives a behaviour-neutral refactor package from a stray
       attempt 4 failed
       """
     And gtd lands "gtd(check): refactor.health.check → refactor.health.judge"
-    And gtd lands "gtd(judge): refactor.health.judge → refactor.health.describe"
+    And gtd lands "gtd(judge): refactor.health.judge → refactor.health.recheck"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      failing again on re-run
+      """
+    And gtd lands "gtd(check): refactor.health.recheck → refactor.health.describe"
     And a file ".gtd/ESCALATION.md" with:
       """
       The suite keeps failing.
@@ -360,7 +365,12 @@ Feature: refactorFirst derives a behaviour-neutral refactor package from a stray
       attempt 4 failed
       """
     And gtd lands "gtd(check): refactor.health.check → refactor.health.judge"
-    And gtd lands "gtd(judge): refactor.health.judge → refactor.health.describe"
+    And gtd lands "gtd(judge): refactor.health.judge → refactor.health.recheck"
+    And a file ".gtd/FEEDBACK.md" with:
+      """
+      failing again on re-run
+      """
+    And gtd lands "gtd(check): refactor.health.recheck → refactor.health.describe"
     And a file ".gtd/ESCALATION.md" with:
       """
       The suite keeps failing.

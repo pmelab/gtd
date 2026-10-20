@@ -150,4 +150,13 @@ Feature: build.health.judge never manufactures "identical" from two unusably-cut
       [{"id":"verdict","answer":"identical","p":0.99}]
       """
     Then it succeeds
-    And the last commit subject is "gtd(judge): build.health.judge → build.health.describe"
+    And the last commit subject is "gtd(judge): build.health.judge → build.health.recheck"
+
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      the same failure, restated
+      <!-- gtd check 0123abc -->
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.health.recheck → build.health.describe"
