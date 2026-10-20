@@ -244,7 +244,7 @@ Commands:
                    --jsonl prints one { process, judge, commit, step, question,
                    state, answer, p, outcome } line per verdict instead. <ref>
                    is read as by history metrics. Never replays and asks no
-                   model. --json prints { processes, judges, whatIf }; writes
+                   model. --json prints { processes, total, whatIf }; writes
                    nothing
   history fetch [remote]
                    Print a script that fetches every refs/gtd/history/* from

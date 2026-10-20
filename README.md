@@ -781,7 +781,7 @@ no model. A verdict is **overturned** when later history contradicts it:
   check went green anyway (no outcome when a person edited code in between)
 - **triage** (`quality.triage`) — a `mechanical` or `noise` verdict the review
   listed under _Fixed automatically_ or _Dropped as noise_, when the human
-  edited that finding's line there
+  edited that finding's line there or wrote under it
 - **clear** (`design.clear`) — a `yes` at `p` 0.8 or more (design skipped), when
   a later human design step in the same process changed the acceptance criteria
 
@@ -797,8 +797,10 @@ gtd history judges --var qualityTriageMinP=0.9
 ```
 
 The thresholds are `judgeIdenticalMinP` (retry) and `qualityTriageMinP`
-(triage). The judge's evidence-budget cut is not recorded, so a cut verdict
-re-decides as if it was whole. `--json` prints `{ processes, judges, whatIf }`.
+(triage). The judge's evidence-budget cut is not recorded, so a cut verdict is
+scored and re-decides as if it was whole. A retry verdict on an empty report is
+not scored, as the flow drops it. `--json` prints
+`{ processes, total, whatIf }`, each process and the total with its `judges`.
 `--jsonl` prints one line per verdict instead — `process`, `judge`, `commit`,
 `step`, `question`, `state` (the evidence the tree still shows: the finding, the
 two check reports, the sketch without its numbered criteria), `answer`, `p` and

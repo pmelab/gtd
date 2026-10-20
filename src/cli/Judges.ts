@@ -84,11 +84,10 @@ export const THRESHOLDS: Readonly<Record<string, Threshold>> = {
   judgeIdenticalMinP: {
     judge: "retry",
     decide: (answer, p, minP) =>
-      (["identical", "progress"] as const).find((k) => answered(verdictOf(answer, p), k, minP)) ??
-      "retry",
+      // Progress only changes anything at the fix cap, which history does not say was reached.
+      answered(verdictOf(answer, p), "identical", minP) ? "identical" : "retry",
     labels: {
       identical: ["escalation", "escalations", "an escalation"],
-      progress: ["progress verdict", "progress verdicts", "a progress verdict"],
       retry: ["plain retry", "plain retries", "a plain retry"],
     },
   },
@@ -183,19 +182,32 @@ const RESHOWN: Readonly<Record<string, string>> = {
   noise: "Dropped as noise",
 }
 
-/** Whether the review edited `finding`'s line in `chunk`; null when the review did not list it there. */
+const isItem = (line: string): boolean => line.startsWith("- ")
+
+/** The line at `at` and the note lines under it, up to the next list item. */
+const block = (lines: readonly string[], at: number): string => {
+  const next = lines.findIndex((l, k) => k > at && isItem(l))
+  return lines.slice(at, next === -1 ? undefined : next).join("\n")
+}
+
+/** Whether the review edited `title`'s line in `chunk`, or wrote under it; null when the review did not list it there. */
 const reviewedLine = (
   review: NonNullable<JudgeCommit["review"]>,
   chunk: string,
   title: string,
 ): Outcome | null => {
+  const before = chunkLines(review.before, chunk)
   // The ` (` after the title keeps "a test" apart from "a test for x".
-  const own = (l: string) => l.startsWith(`- ${title} (`)
-  const listed = chunkLines(review.before, chunk).find(own)
+  const at = before.findIndex((l) => l.startsWith(`- ${title} (`))
   // Only a finding the review listed as fixed or dropped was acted on: one the fix cap left is a note.
-  if (listed === undefined) return null
+  if (at === -1) return null
   const after = chunkLines(review.after, chunk)
-  return !after.includes(listed) && after.some(own) ? "overturned" : "held"
+  const kept = after.indexOf(before[at]!)
+  const edited =
+    kept === -1
+      ? after.some((l) => !before.includes(l) && l.startsWith(`- ${title}`))
+      : block(after, kept) !== block(before, at)
+  return edited ? "overturned" : "held"
 }
 
 const triageOutcome = (
@@ -282,6 +294,8 @@ interface Site {
   readonly sketch: string | undefined
 }
 
+const NOT_COMPARABLE = { tailsNotComparable: "true" }
+
 const field = (key: string, value: string | undefined): Record<string, string> =>
   value === undefined ? {} : { [key]: value }
 
@@ -292,13 +306,14 @@ const JUDGES: Readonly<Record<JudgeName, Verdict>> = {
     const reports = reportsBefore(reads, i, scope)
     const previous = reports.at(-2)
     const current = reports.at(-1)
-    // The flow hands the judge no reports when either is empty.
+    // The flow hands the judge no reports when either is empty, and drops its verdict.
     const comparable = previous?.trim() !== "" && current?.trim() !== ""
     return {
       state: comparable
         ? { ...field("previous", previous), ...field("current", current) }
-        : { tailsNotComparable: "true" },
-      outcome: answerOf(v.answer) === "identical" ? retryOutcome(reads, i, scope) : null,
+        : NOT_COMPARABLE,
+      outcome:
+        comparable && answerOf(v.answer) === "identical" ? retryOutcome(reads, i, scope) : null,
     }
   },
   triage: ({ reads, i }, v) => {
@@ -324,7 +339,6 @@ export interface Bucket {
 
 export interface Calibration {
   readonly verdicts: number
-  /** Verdicts with an outcome. */
   readonly scored: number
   readonly overturned: number
   /** Non-empty buckets only, lowest p first. */
@@ -364,7 +378,6 @@ export interface Change {
   readonly from: string
   readonly to: string
   readonly count: number
-  /** Of those, verdicts later overturned. */
   readonly overturned: number
 }
 
@@ -376,39 +389,54 @@ export interface WhatIf {
 }
 
 export interface ProcessJudgments {
-  /** The process's recorded `Gtd-Var` settings. */
   readonly vars: Readonly<Record<string, string>>
   readonly judgments: readonly Judgment[]
 }
 
 /** Each past verdict decided under its process's recorded threshold, then under `value`. */
+/** Every verdict of `threshold`'s judge as `[decided then, decided under value]`. */
+const redecided = (
+  processes: readonly ProcessJudgments[],
+  name: string,
+  value: string,
+): (readonly [string, string, Judgment])[] => {
+  const threshold = THRESHOLDS[name]!
+  const now = numeric(value, Infinity)
+  return (
+    processes
+      // A process that never recorded the setting decided under no threshold to compare against.
+      .filter(({ vars }) => Object.hasOwn(vars, name))
+      .flatMap(({ vars, judgments }) =>
+        judgments
+          .filter((j) => j.judge === threshold.judge && j.state !== NOT_COMPARABLE)
+          .map((j) => {
+            const was = numeric(vars[name], Infinity)
+            return [
+              threshold.decide(j.answer, j.p, was),
+              threshold.decide(j.answer, j.p, now),
+              j,
+            ] as const
+          }),
+      )
+  )
+}
+
 export const whatIf = (
   processes: readonly ProcessJudgments[],
   name: string,
   value: string,
 ): WhatIf => {
-  const threshold = THRESHOLDS[name]!
   const changes = new Map<string, Change>()
-  for (const { vars, judgments } of processes) {
-    // A process that never recorded the setting decided under no threshold to compare against.
-    if (!Object.hasOwn(vars, name)) continue
-    const was = numeric(vars[name], Infinity)
-    const now = numeric(value, Infinity)
-    for (const j of judgments) {
-      if (j.judge !== threshold.judge) continue
-      const from = threshold.decide(j.answer, j.p, was)
-      const to = threshold.decide(j.answer, j.p, now)
-      if (from === to) continue
-      const key = `${from} ${to}`
-      const c = changes.get(key) ?? { from, to, count: 0, overturned: 0 }
-      changes.set(key, {
-        ...c,
-        count: c.count + 1,
-        overturned: c.overturned + (j.outcome === "overturned" ? 1 : 0),
-      })
-    }
+  for (const [from, to, j] of redecided(processes, name, value)) {
+    if (from === to) continue
+    const c = changes.get(`${from} ${to}`) ?? { from, to, count: 0, overturned: 0 }
+    changes.set(`${from} ${to}`, {
+      ...c,
+      count: c.count + 1,
+      overturned: c.overturned + (j.outcome === "overturned" ? 1 : 0),
+    })
   }
-  return { var: name, value, judge: threshold.judge, changes: [...changes.values()] }
+  return { var: name, value, judge: THRESHOLDS[name]!.judge, changes: [...changes.values()] }
 }
 
 const changeLine = (labels: Threshold["labels"], c: Change): string => {
@@ -441,15 +469,16 @@ const findingsFact = (at: FileAt, parent: string | undefined, from: string) =>
     ? at(parent, QUALITY).pipe(Effect.map((q) => ({ findings: findingsOf(q ?? "") })))
     : Effect.succeed({})
 
-const reviewFact = (at: FileAt, c: Touched, parent: string | undefined) =>
-  c.touched.includes(REVIEW)
+// Only a person's edit can overturn a verdict: no other actor's file is read.
+const reviewFact = (at: FileAt, c: Touched, parent: string | undefined, human: boolean) =>
+  human && c.touched.includes(REVIEW)
     ? Effect.all([at(parent, REVIEW), at(c.hash, REVIEW)]).pipe(
         Effect.map(([before, after]) => ({ review: { before: before ?? "", after: after ?? "" } })),
       )
     : Effect.succeed({})
 
-const criteriaFact = (at: FileAt, c: Touched, parent: string | undefined) =>
-  c.touched.includes(REQUIREMENTS)
+const criteriaFact = (at: FileAt, c: Touched, parent: string | undefined, human: boolean) =>
+  human && c.touched.includes(REQUIREMENTS)
     ? Effect.all([at(parent, REQUIREMENTS), at(c.hash, REQUIREMENTS)]).pipe(
         Effect.map(([before, after]) => ({ criteriaChanged: criteriaChanged(before, after) })),
       )
@@ -474,8 +503,8 @@ const commitFacts = (
   return Effect.all([
     reportFact(at, c, from),
     findingsFact(at, parent, from),
-    reviewFact(at, c, parent),
-    criteriaFact(at, c, parent),
+    reviewFact(at, c, parent, step?.actor === "human"),
+    criteriaFact(at, c, parent, step?.actor === "human"),
     sketchFact(at, c, opening),
   ]).pipe(
     Effect.map((facts) =>
@@ -498,7 +527,7 @@ const readProcessJudgments = (
     const vars = commits[0] === undefined ? {} : parseCommitMessage(commits[0].message).vars
     const judged = commits.some((c) => {
       const m = parseCommitMessage(c.message)
-      return m.judge.length > 0 && judgeOf(m.parsed?.from ?? "") !== undefined
+      return m.judge.length > 0 && judgeOf(m.parsed?.from ?? m.parsed?.to ?? "") !== undefined
     })
     if (!judged) return { vars, judgments: [] }
     const at: FileAt = (ref, path) =>
@@ -539,7 +568,9 @@ export const runHistoryJudgesCommand = (
     const processes = yield* Effect.forEach(
       entries,
       (e) =>
-        readProcessJudgments(e).pipe(Effect.map((p) => ({ ...p, entry: e.entry, ref: e.ref }))),
+        readProcessJudgments(e).pipe(
+          Effect.map((p) => ({ ...p, entry: e.entry, ref: e.ref, branch: e.branch })),
+        ),
       { concurrency: 4 },
     )
     if (jsonl) {
@@ -552,8 +583,18 @@ export const runHistoryJudgesCommand = (
     }
     const judges = calibrate(processes.flatMap((p) => p.judgments))
     const whatIfs = Object.entries(vars).map(([name, value]) => whatIf(processes, name, value))
-    if (yield* writeJson(json, out, { processes: processes.length, judges, whatIf: whatIfs }))
-      return
+    // Shaped like `history metrics --json`: per process, then the total.
+    const document = {
+      processes: processes.map((p) => ({
+        ref: p.ref,
+        entry: p.entry,
+        branch: p.branch,
+        judges: calibrate(p.judgments),
+      })),
+      total: { processes: processes.length, judges },
+      whatIf: whatIfs,
+    }
+    if (yield* writeJson(json, out, document)) return
     if (processes.length === 0) {
       out.write("no history refs; run gtd history fetch | sh to pull them\n")
       return

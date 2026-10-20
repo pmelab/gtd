@@ -81,7 +81,7 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
     And stdout contains "triage: 2 verdicts, 2 scored, 1 overturned (0.8-0.9: 1/1, 0.9-1.0: 0/1)"
     And stdout contains "retry: 0 verdicts, 0 scored, 0 overturned"
     And stdout contains "clear: 0 verdicts, 0 scored, 0 overturned"
-    When I run gtd with args "history judges --json=judges.triage.overturned"
+    When I run gtd with args "history judges --json=total.judges.triage.overturned"
     Then it succeeds
     And stdout is:
       """

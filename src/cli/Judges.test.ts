@@ -70,13 +70,21 @@ describe("processJudgments — retry", () => {
     expect(j?.outcome).toBeNull()
   })
 
-  it("hands an empty report on as the flow does: not comparable", () => {
-    const [j] = processJudgments([
+  it("hands an empty report on as the flow does, and scores none of it", () => {
+    const js = processJudgments([
       red("gtd(check): health.check → fix", " "),
       red("gtd(check): health.check → health.judge", "x"),
       c("gtd(judge): health.judge → fix", identical()),
+      c("gtd(agent): fix → health.check"),
+      c("gtd(check): health.check → idle"),
     ])
-    expect(j?.state).toEqual({ tailsNotComparable: "true" })
+    expect(js[0]).toMatchObject({ state: { tailsNotComparable: "true" }, outcome: null })
+    const w = whatIf(
+      [{ vars: { judgeIdenticalMinP: "0.99" }, judgments: js }],
+      "judgeIdenticalMinP",
+      "0.5",
+    )
+    expect(w.changes).toEqual([])
   })
 
   it("has no outcome when the re-check passes before any fix, or for another answer", () => {
@@ -158,6 +166,31 @@ describe("processJudgments — triage", () => {
       }),
     ])
     expect(js.map((j) => j.outcome)).toEqual(["held", "overturned"])
+  })
+
+  it("overturns a note written under the line, or a rewrite of it", () => {
+    const listed = "# R\n\n## Dropped as noise\n\n- a test (p=0.8)\n- b (p=0.8)\n"
+    const triaged = (after: string) =>
+      processJudgments([
+        c("gtd(judge): build.quality.triage → build.quality.sorting", {
+          findings: findingsOf("## a test\n\n## b\n"),
+          verdicts: [
+            { id: "Q1", answer: "noise", p: 0.8 },
+            { id: "Q2", answer: "noise", p: 0.8 },
+          ],
+        }),
+        c("gtd(human): build.review.await → build.review.triage", {
+          review: { before: listed, after },
+        }),
+      ]).map((j) => j.outcome)
+    expect(triaged(listed.replace("(p=0.8)\n", "(p=0.8)\n  we need it\n"))).toEqual([
+      "overturned",
+      "held",
+    ])
+    expect(triaged(listed.replace("- a test (p=0.8)", "- a test: not noise"))).toEqual([
+      "overturned",
+      "held",
+    ])
   })
 
   it("scores only a finding the review listed as fixed or dropped", () => {
