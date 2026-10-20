@@ -5,7 +5,6 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   buildReviewTriageMessage,
-  deferNotesScript,
   buildReviewReviewingPrompt,
   agentWithSkills,
   buildFixPrompt,
@@ -32,8 +31,7 @@ import {
   withSkills,
   composedReview,
 } from "./text.js"
-import { steeringFormatFor } from "../../steering/index.js"
-import { applyEmittedScript, InMemRepo } from "../../testkit/index.js"
+import { steeringFormatFor, unansweredNotes } from "../../steering/index.js"
 import { captureStep, renderText } from "./text.fixture.js"
 
 describe("withSkills", () => {
@@ -829,53 +827,6 @@ describe("buildReviewReviewingPrompt risk marking", () => {
   })
 })
 
-describe("deferNotesScript", () => {
-  const run = (notes: Parameters<typeof deferNotesScript>[0], existing?: string): string => {
-    const dir = mkdtempSync(join(tmpdir(), "defer-"))
-    mkdirSync(join(dir, ".gtd"))
-    if (existing !== undefined) writeFileSync(join(dir, ".gtd/TODO.md"), existing)
-    execFileSync("sh", ["-c", deferNotesScript(notes, "abcdef1234567890")], { cwd: dir })
-    return readFileSync(join(dir, ".gtd/TODO.md"), "utf8")
-  }
-  const notes = [{ id: "note-1", anchor: "a.ts:3", text: "plain", label: "could: tiny" }]
-
-  it("creates the file with one section headed by the round's short sha", () => {
-    expect(run(notes)).toBe(
-      "## Deferred review notes (abcdef1)\n\n- note-1 — a.ts:3 (could: tiny): plain\n",
-    )
-  })
-
-  it("appends after a blank line, never truncating", () => {
-    const out = run(notes, "# Sketch\n\nkeep me\n")
-    expect(out.startsWith("# Sketch\n\nkeep me\n\n## Deferred review notes (abcdef1)\n")).toBe(true)
-  })
-
-  it("separates from a file lacking a trailing newline", () => {
-    expect(run(notes, "keep")).toContain("keep\n\n## Deferred")
-  })
-
-  it("lands quotes, dollars and backticks verbatim", () => {
-    const text = 'it\'s $HOME `x` "q" \\n'
-    const out = run([{ id: "note-1", anchor: "a", text }])
-    expect(out).toContain(text)
-  })
-
-  it("is an oxfmt fixed point, for a note longer than one line", () => {
-    const long = [
-      {
-        id: "note-3",
-        anchor: "Parser accepts CRLF ./src/parse.ts#30-31",
-        text: "rename the helper to something clearer please",
-        label: "could",
-      },
-    ]
-    const dir = mkdtempSync(join(tmpdir(), "fmt-"))
-    const file = join(dir, "TODO.md")
-    writeFileSync(file, run(long, "# Sketch\n"))
-    execFileSync("npx", ["oxfmt", "--check", file], { cwd: process.cwd() })
-  })
-})
-
 describe("severity wording", () => {
   it("triage message names the four severity ids", () => {
     const m = renderText(() => buildReviewTriageMessage())
@@ -887,44 +838,6 @@ describe("severity wording", () => {
     const p = renderText(() => buildReviewCollectingPrompt("capture"))
     expect(p).toContain("capture order")
     expect(p).toContain("(tier: reason)")
-  })
-
-  it("design triage parks deferred review notes", () => {
-    expect(renderText(() => designTriagePrompt("base"))).toContain("## Deferred review notes")
-  })
-})
-
-describe("deferNotesScript — the in-memory recognizer agrees with the real sh script", () => {
-  const notes = [
-    { id: "note-1", anchor: "a.ts:3", text: 'it\'s $HOME `x` "q" 100%', label: "could" },
-    {
-      id: "note-2",
-      anchor: "Parser accepts CRLF ./src/parse.ts#30-31",
-      text: "rename the helper to something clearer please",
-      label: "could",
-    },
-  ]
-  const cases: [string, string | undefined][] = [
-    ["no file", undefined],
-    ["an empty file", ""],
-    ["a file without a trailing newline", "keep"],
-    ["a file with a trailing newline", "# Sketch\n\nkeep\n"],
-  ]
-
-  it.each(cases)("%s", (_name, existing) => {
-    const script = deferNotesScript(notes, "abcdef1234567890")
-    const dir = mkdtempSync(join(tmpdir(), "defer-contract-"))
-    if (existing !== undefined) {
-      mkdirSync(join(dir, ".gtd"))
-      writeFileSync(join(dir, ".gtd/TODO.md"), existing)
-    }
-    execFileSync("sh", ["-c", script], { cwd: dir })
-    const real = readFileSync(join(dir, ".gtd/TODO.md"), "utf8")
-
-    const repo = new InMemRepo()
-    if (existing !== undefined) repo.writeFile(".gtd/TODO.md", existing)
-    expect(applyEmittedScript(repo, new Map(), script).ok).toBe(true)
-    expect(repo.readFile(".gtd/TODO.md")).toBe(real)
   })
 })
 
@@ -1319,6 +1232,15 @@ it("asks the refactor review, and only it, to flag a test-file hunk that is more
   expect(first).not.toContain("give any test-file hunk its own chunk")
 })
 
+describe("buildReviewCollectingPrompt answer boxes", () => {
+  it("a hand-edit round folds fix and own answers, other rounds leave them to gtd", () => {
+    const edits = renderText(() => buildReviewCollectingPrompt("cap", undefined, "edits"))
+    expect(edits).toContain("A hand-edit round routes no answer box itself")
+    const triaged = renderText(() => buildReviewCollectingPrompt("cap", undefined, "triaged"))
+    expect(triaged).toContain("Never fold a note's ticked answer box")
+  })
+})
+
 describe("composedReview", () => {
   const BASE = "0123456789abcdef0123456789abcdef01234567"
 
@@ -1380,6 +1302,35 @@ describe("composedReview", () => {
 
   it("names the nit fix on the review after it", () => {
     const doc = composedReview(BASE, { notes: [], fixed: [], noise: [], nitFix: "abcdef0123" })
-    expect(doc).toContain("## Fixed from your notes\n\nYour nits were fixed in abcdef0;")
+    expect(doc).toContain(
+      "## Fixed from your notes\n\nYour nits and fix-as-suggested notes were worked on in abcdef0;",
+    )
+  })
+
+  it("ends every note, and only a note, in its three answer boxes", () => {
+    const doc = composedReview(BASE, {
+      notes: [{ title: "a", body: "- ends in a list" }],
+      fixed: [{ title: "f", commit: "fedcba9876543210" }],
+      noise: [],
+    })
+    expect(doc).toContain(
+      "## a\n\n- ends in a list\n\nTick exactly one:\n\n- [ ] fix as suggested\n- [ ] won't fix\n- [ ] _your answer_\n\n## Fixed automatically",
+    )
+    expect(doc.match(/fix as suggested/g)).toHaveLength(1)
+    expect(unansweredNotes(doc)).toEqual([{ title: "a", line: 5, reason: "tick exactly one box" }])
+  })
+
+  it("leaves out the notes already answered", () => {
+    const doc = composedReview(BASE, {
+      notes: [
+        { title: "a", body: "1" },
+        { title: "a", body: "2" },
+      ],
+      fixed: [],
+      noise: [],
+      answered: new Set(["a"]),
+    })
+    expect(doc).not.toContain("## a\n")
+    expect(doc).toContain("## a (2)\n\n2")
   })
 })

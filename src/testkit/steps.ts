@@ -267,6 +267,10 @@ Then(
   },
 )
 
+Then("landing is refused with {string}", async (world: TestkitWorld, message: string) => {
+  await assert.rejects(world.repo().land(), (error: Error) => error.message.includes(message))
+})
+
 Then(
   "driving the process is refused with {string}",
   async (world: TestkitWorld, message: string) => {

@@ -2109,7 +2109,7 @@ Feature: The bundled unified workflow — one flow, end to end
     And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     When I run gtd next
     Then it succeeds
-    And stdout contains "**Sign off** — leave no comment"
+    And stdout contains "**Sign off** — answer every finding, leave no other comment"
     And stdout contains "**Leave notes** — a note on a"
     And stdout contains "Deleting `.gtd/REVIEW.md` is refused."
 

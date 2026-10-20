@@ -12,6 +12,12 @@ import {
   type JudgeQuestion,
   type SummaryContext,
 } from "../../flows/index.js"
+import {
+  ANSWER_FIX,
+  ANSWER_LEAD,
+  ANSWER_WONT_FIX,
+  FREE_TEXT_PLACEHOLDER,
+} from "../../steering/index.js"
 import { escapeRegExp } from "./registry.js"
 import { defaultFlagRegistry } from "./vars.js"
 import type { CollectRound, RemovedAssertions, Requested } from "../../workflow-kit/index.js"
@@ -116,6 +122,8 @@ export interface ComposedReview {
   readonly weakened?: readonly RemovedAssertions[]
   /** The commit that fixed the human's nits, on the review that follows it. */
   readonly nitFix?: string | undefined
+  /** Titles of notes the human already answered, left out. */
+  readonly answered?: ReadonlySet<string> | undefined
 }
 
 const SUMMARY_TITLES = [
@@ -133,9 +141,9 @@ const unboxed = (body: string): string =>
 const short = (hash: string): string => hash.slice(0, 7)
 
 /**
- * \`.gtd/REVIEW.md\` as gtd writes it: one chunk per note, then the fixed and
- * noise lists, with no tick boxes. Chunk titles are made unique — notes are
- * matched to their chunk by title.
+ * \`.gtd/REVIEW.md\` as gtd writes it: one chunk per note, each ending in its
+ * answer boxes, then the fixed and noise lists. Chunk titles are made unique —
+ * notes and answers are matched to their chunk by title.
  */
 export const composedReview = (base: string, report: ComposedReview): string => {
   // Summary titles are taken first, so no note can claim one.
@@ -147,6 +155,11 @@ export const composedReview = (base: string, report: ComposedReview): string => 
     return name
   }
   const chunk = (title: string, body: string): string => `## ${title}\n\n${body.trim()}`
+  // The lead-in line keeps a body that ends in a list from absorbing the boxes.
+  const answerBoxes = `${ANSWER_LEAD}\n\n- [ ] ${ANSWER_FIX}\n- [ ] ${ANSWER_WONT_FIX}\n- [ ] ${FREE_TEXT_PLACEHOLDER}`
+  const notes = report.notes
+    .map((n) => ({ ...n, title: unique(n.title) }))
+    .filter((n) => report.answered?.has(n.title) !== true)
   const weakened = (report.weakened ?? []).flatMap(({ path, lines }) =>
     lines.map((a) => `- ${path} — ${a.scenario} — ${a.line}`),
   )
@@ -156,7 +169,7 @@ export const composedReview = (base: string, report: ComposedReview): string => 
       : [
           chunk(
             "Fixed from your notes",
-            `Your nits were fixed in ${short(report.nitFix)}; the list below is from before.`,
+            `Your nits and fix-as-suggested notes were worked on in ${short(report.nitFix)}; the notes you answered are left out — check the diff.`,
           ),
         ]),
     ...(weakened.length === 0
@@ -167,14 +180,16 @@ export const composedReview = (base: string, report: ComposedReview): string => 
             `These scenarios lost an assertion the review base had:\n\n${weakened.join("\n")}`,
           ),
         ]),
-    ...report.notes.map((n) =>
+    ...notes.map((n) =>
       chunk(
-        unique(n.title),
-        n.unresolved === true
-          ? `_The fixer left this unresolved._\n\n${unboxed(n.body)}`
-          : n.unclear === true
-            ? `_A fix turn removed this while renaming another finding — check whether it was fixed._\n\n${unboxed(n.body)}`
-            : unboxed(n.body) || "_No detail given._",
+        n.title,
+        `${
+          n.unresolved === true
+            ? `_The fixer left this unresolved._\n\n${unboxed(n.body)}`
+            : n.unclear === true
+              ? `_A fix turn removed this while renaming another finding — check whether it was fixed._\n\n${unboxed(n.body)}`
+              : unboxed(n.body) || "_No detail given._"
+        }\n\n${answerBoxes}`,
       ),
     ),
     ...(report.fixed.length === 0
@@ -288,10 +303,6 @@ ${stateFileRules}
 ${footnoteFoldIn}${codeThreadReplies()}
 - The only state file this turn touches is \`.gtd/REQUIREMENTS.md\`
   — no other files for notes or output
-- Lines of a \`## Deferred review notes\` section of \`.gtd/TODO.md\`
-  that the start diff does not touch are parked by review, never folded;
-  the human's edits to such a line (or its removal) are input like any
-  other part of the start diff
 - \`.gtd/TODO.md\` is the likely home of the sketch that started
   this process — the human's input, folded into the concerns
   below like any other part of the start diff; never a state
@@ -680,8 +691,12 @@ export const buildReviewAwaitReviewMessage = (base: string): string =>
 per finding that needs your judgement — it questions a criterion or the
 approach, or the fixer could not resolve it — then, for reference only, what
 was **fixed automatically** (with the fixing commit) and what was **dropped
-as noise**. Nothing there needs an answer; disagreeing with a fix or a drop
-means writing a note of your own.
+as noise**. Each finding chunk ends in three boxes — tick exactly one:
+\`fix as suggested\` (fixed in the nit batch below), \`won't fix\` (dropped,
+recorded in the commit), or write your own answer over \`_your answer_\` and
+tick it (judged like a note). Every landing here is refused until each
+finding holds exactly one tick. The fixed and noise lists need no answer;
+disagreeing with a fix or a drop means writing a note of your own.
 
 Review the diff yourself, with whatever tool you like — gtd checks
 nothing out and touches no ref; \`gtd base\` prints this same hash any
@@ -691,8 +706,8 @@ working tree:
     git diff ${base}
 When you've been through the whole diff, run \`gtd land\`:
 
-- **Sign off** — leave no comment — no note in
-  \`.gtd/REVIEW.md\`, no code edit — to close the process.
+- **Sign off** — answer every finding, leave no other comment — no note
+  in \`.gtd/REVIEW.md\`, no code edit — to close the process.
   Every turn commit stays on the
   branch; run \`gtd summary\` afterward for a closing-message
   prompt.
@@ -894,34 +909,6 @@ const wrapItem = (item: string): string[] => {
   return [...out, line]
 }
 
-/** Appends one section of `notes` to `.gtd/TODO.md`, wrapped the way oxfmt writes it; an existing file is only ever appended to. */
-export const deferNotesScript = (notes: readonly NoteInput[], round: string): string => {
-  const lines = [
-    `## Deferred review notes (${round.slice(0, 7)})`,
-    "",
-    ...notes.flatMap((n) => wrapItem(`- ${noteHead(n)}: ${n.text.replace(/\s+/g, " ")}`)),
-  ]
-  return `mkdir -p .gtd
-if [ -s .gtd/TODO.md ]; then
-  [ -z "$(tail -c1 .gtd/TODO.md)" ] || printf '\\n' >> .gtd/TODO.md
-  printf '\\n' >> .gtd/TODO.md
-fi
-printf '%s\\n' ${lines.map(quote).join(" ")} >> .gtd/TODO.md
-`
-}
-
-/** The gate right after a deferral: landing clean signs off without these notes. */
-export const buildReviewAwaitAfterDeferMessage = (
-  base: string,
-  deferred: readonly NoteInput[],
-): string =>
-  `${buildReviewAwaitReviewMessage(base)}
-Deferred to \`.gtd/TODO.md\` just now, NOT acted on in this process — landing
-clean signs off without them:
-
-${deferred.map((n) => `- ${noteHead(n)}: ${n.text.replace(/\s*\n\s*/g, " ")}`).join("\n")}
-`
-
 export const buildReviewTriageMessage = (): string =>
   `Judging each note the human added to \`.gtd/REVIEW.md\` (a line note, a
 footnote, or prose under a chunk) with one verdict: \`edit\` (a change
@@ -932,12 +919,14 @@ default; a skipped judgment never dismisses a note).
 
 Also judge each note's severity, one id per note: \`note-<n>.security\`,
 \`note-<n>.reversibility\`, \`note-<n>.blastRadius\` and
-\`note-<n>.newConcept\`.
+\`note-<n>.newConcept\`. An own answer under a finding's boxes is judged
+the same way, keyed \`answer-<n>\`.
 `
 const closedFold = (round: CollectRound, target: string): string =>
   round === "edits"
     ? `- Fold every hand-edit and every note the human left that round into
-  \`${target}\`
+  \`${target}\` — a note ticked \`fix as suggested\` or answered in its
+  own words included; one ticked \`won't fix\` is dropped
 `
     : round === "notes"
       ? `- Fold each note that asks for a change into \`${target}\`
@@ -954,6 +943,7 @@ export const buildReviewCollectingPrompt = (
     /** `"reply"` is the in-gate reply turn; any other round is closed and folds what that round left. */
     readonly round: CollectRound
   },
+  round?: CollectRound,
 ): string => {
   const target = refactor ? ".gtd/REFACTOR.md" : ".gtd/REQUIREMENTS.md"
   const fence = refactor
@@ -1038,12 +1028,20 @@ ${closedFold(refactor.round, target)}`
     : `- This turn writes \`${target}\` (the folded concerns) and
   replies inside \`.gtd/REVIEW.md\` (thread replies only; the file stays
   in the tree) — you classify, you do not build
-- Fold every concluded thread, ticked answer and hand-edit — and each
-  \`edit\` note the capture lists, no other note — into
-  \`${target}\` and delete the folded threads from
-  \`.gtd/REVIEW.md\`; append one \`- A:\` reply to each thread
-  whose last entry is a \`- H:\` question
+- Fold every concluded thread and hand-edit — and each \`edit\` note
+  the capture lists, no other note — into \`${target}\` and
+  delete the folded threads from \`.gtd/REVIEW.md\`; append one \`- A:\`
+  reply to each thread whose last entry is a \`- H:\` question
+${
+  round === "edits"
+    ? `- A hand-edit round routes no answer box itself: fold each note
+  ticked \`fix as suggested\` or answered in its own words, too; drop one
+  ticked \`won't fix\`
 `
+    : `- Never fold a note's ticked answer box the capture does not list: gtd
+  routes those itself
+`
+}`
 }- When the capture names an answering commit, carry each answered
   question into \`${target}\`'s \`## Answered Questions\` as
   \`### <the note>\` plus its answer — the lap replaces \`.gtd/REVIEW.md\`

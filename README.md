@@ -339,10 +339,10 @@ Then, in any repository:
 ```
 
 That starts a process from your requirements and drives it until it needs you.
-The requirements go to the top of `.gtd/TODO.md`; deferred review notes already
-there stay. A long, multi-line requirements paste still starts a process; if
-Claude Code never expanded the paste, gtd says it could not read it, and you add
-the requirements to the top of `.gtd/TODO.md` and run `/gtd`. `/gtd fix`,
+The requirements go to the top of `.gtd/TODO.md`, above whatever it already
+holds. A long, multi-line requirements paste still starts a process; if Claude
+Code never expanded the paste, gtd says it could not read it, and you add the
+requirements to the top of `.gtd/TODO.md` and run `/gtd`. `/gtd fix`,
 `/gtd review [base]`, `/gtd rollout <flag>` and `/gtd cleanup <flag>` (where the
 config exports them) take the doors described below; text whose word count does
 not fit a door's args (bare `/gtd rollout` included) starts a process from that
@@ -522,37 +522,41 @@ noted in steps 3 and 4 below.
 
 4. **You review.** After the last slice's quality lap gtd writes the review
    document itself (`build.review.composing`; no reviewer turn runs): one `## `
-   chunk per design note the lap left, then — for reference, no tick boxes, no
-   answer needed — what was **fixed automatically** (with the fixing commit) and
-   what was **dropped as noise**. On `refactor-first` the refactor slice gets
-   one of its own first, before the feature is built; see
-   [the naive pass](#the-naive-pass). Review the diff yourself (`gtd base`
-   prints its base). Land with no change to approve, or write what is wrong —
-   disagreeing with a fix or a drop means writing a note of your own. Approving
-   ends the process (at the refactor review, it moves on to the feature);
-   feedback is judged note by note, each as `edit`, `question`, `nit` or
-   `praise`. An `edit` sends the process back to step 2 for re-derived
-   requirements — the built criteria keep their IDs (reworded in place when
-   their behaviour changes) and new behaviour gets new ones — then the
-   implementation is amended to meet them, with no new naive pass or seam judge,
-   every criterion's coverage is judged again, the quality lap runs, and you
-   review again. At the refactor review an `edit` re-derives the refactor
-   instead. A `question` is answered inline under your note and the process
-   stops at the review again — no new plan. A `nit` is fixed in one batch, the
-   suite must go green (a red one gets fix turns first), then a fresh review of
-   the change stops at the review again. `praise` is dropped; a round of only
-   praise signs off. When a round mixes them, questions are answered and nits
-   fixed first, then the edits are planned — risk: the planning lap may redo nit
-   fixes it touches.
+   chunk per design note the lap left, each ending in three tick boxes — **fix
+   as suggested**, **won't fix**, or **your own answer** written over
+   `_your answer_` — then, for reference, no tick boxes, no answer needed — what
+   was **fixed automatically** (with the fixing commit) and what was **dropped
+   as noise**. On `refactor-first` the refactor slice gets one of its own first,
+   before the feature is built; see [the naive pass](#the-naive-pass). Review
+   the diff yourself (`gtd base` prints its base). **Every note needs exactly
+   one tick before `gtd land` accepts the review** (`answer-completeness`; an
+   open `- H:` thread waiting on the agent is the one exception). Fix as
+   suggested joins the nit batch below, unjudged; won't fix drops the note and
+   records it as `Gtd-Mark: wontfix=<title>` on the gate's commit; your own
+   answer is judged like a note. A note you answered is left out of the fresh
+   review after a nit fix; a round that also answered a question restores the
+   review instead, your ticks kept. Land with every note answered and nothing
+   else changed to approve, or write what is wrong — disagreeing with a fix or a
+   drop means writing a note of your own. Approving ends the process (at the
+   refactor review, it moves on to the feature); feedback is judged note by
+   note, each as `edit`, `question`, `nit` or `praise`. An `edit` sends the
+   process back to step 2 for re-derived requirements — the built criteria keep
+   their IDs (reworded in place when their behaviour changes) and new behaviour
+   gets new ones — then the implementation is amended to meet them, with no new
+   naive pass or seam judge, every criterion's coverage is judged again, the
+   quality lap runs, and you review again. At the refactor review an `edit`
+   re-derives the refactor instead. A `question` is answered inline under your
+   note and the process stops at the review again — no new plan. A `nit` is
+   fixed in one batch, the suite must go green (a red one gets fix turns first),
+   then a fresh review of the change stops at the review again. `praise` is
+   dropped; a round of only praise signs off. When a round mixes them, questions
+   are answered and nits fixed first, then the edits are planned — risk: the
+   planning lap may redo nit fixes it touches.
 
    Each `edit` note also gets a severity tier from four judge questions
-   (security, reversibility, blast radius, new concept). `critical` and `should`
-   notes are re-planned this round; `could` notes are deferred. A leading `!` on
-   a note forces `critical` and skips the judge. Deferral appends to the
-   committed `.gtd/TODO.md`; it never starts a process on its own, and it ships
-   in the branch/PR unless you delete it. Landing clean at the gate after a
-   deferral signs off without the deferred notes; the gate lists them. To pull
-   one in, edit its line in `.gtd/TODO.md` when you start a process.
+   (security, reversibility, blast radius, new concept). Every tier is
+   re-planned this round, `critical` first, then `should`, then `could`; nothing
+   is deferred. A leading `!` on a note forces `critical` and skips the judge.
    `reviewSeverityMinP` sets the confidence floor (see
    [configuration](docs/configuration.md)). A hand-edit to code always plans a
    lap. Only a confident non-`edit` verdict skips the replan — a note whose

@@ -675,7 +675,7 @@ describe("severity routing", () => {
     expect(run.prompts.get("review.collecting")).toContain("(critical: forced by `!`)")
   })
 
-  it("a confident could edit defers and, alone, returns to the review gate", async () => {
+  it("a confident could edit is still re-planned, labelled could", async () => {
     const run = await drive({
       notes: ["add — quote", "sub", "mul"],
       answers: { "note-1": verdict("edit"), ...sev("note-1", could) },
@@ -684,9 +684,10 @@ describe("severity routing", () => {
       "review.composing",
       "review.await-review",
       "review.triage",
-      "review.defer",
-      "review.await-review",
+      "review.closing",
+      "review.collecting",
     ])
+    expect(run.prompts.get("review.collecting")).toContain("(could)")
   })
 
   it("severity answers on a nit leave it a nit", async () => {
@@ -730,58 +731,10 @@ describe("severity routing", () => {
     expect(run.judged).toContain("note-1.security")
   })
 
-  it("the gate after a deferral accepts a clean land and lists the deferred notes", async () => {
-    const run = await drive({
-      notes: ["add — quote", "sub", "mul"],
-      answers: { "note-1": verdict("edit"), ...sev("note-1", could) },
-    })
-    expect(run.gates).toEqual([true, true])
-    expect(run.gateMessages[1]).toContain("NOT acted on")
-    expect(run.gateMessages[1]).toContain("note-1")
-    expect(run.gateMessages[0]).not.toContain("NOT acted on")
-  })
-
   it("the first round's gate accepts a clean land", async () => {
     const run = await drive({ notes: ["add", "sub", "mul"] })
     expect(run.gates.length).toBeGreaterThan(0)
     expect(run.gates.every((g) => g)).toBe(true)
-  })
-
-  it("a later gate still accepts a clean land after a deferral round with a nit", async () => {
-    const run = await drive({
-      notes: ["add — quote", "sub — typo", "mul"],
-      answers: {
-        "note-1": verdict("edit"),
-        ...sev("note-1", could),
-        "note-2": verdict("nit"),
-      },
-      reviewDocs: [undefined, doc(["add", "sub"])],
-    })
-    expect(run.log).toContain("review.defer")
-    expect(run.log.at(-1)).toBe("review.await-review")
-    expect(run.gates).toEqual([true, true])
-  })
-
-  it("a question and a could note in one round: the gate's base is the answering commit", async () => {
-    const run = await drive({
-      notes: ["add — why?", "sub — quote", "mul"],
-      answers: {
-        "note-1": verdict("question"),
-        "note-2": verdict("edit"),
-        ...sev("note-2", could),
-      },
-      passSecondGate: true,
-    })
-    expect(run.log).toEqual([
-      "review.composing",
-      "review.await-review",
-      "review.triage",
-      "review.answer-review-questions",
-      "review.defer",
-      "review.await-review",
-    ])
-    // c4 is the answering commit, not the defer commit (c5) or the round (c2)
-    expect(run.since.at(-1)).toBe("c4")
   })
 
   it("a blank reviewSeverityMinP makes every confident could critical", async () => {
@@ -790,8 +743,7 @@ describe("severity routing", () => {
       answers: { "note-1": verdict("edit"), ...sev("note-1", could) },
       vars: { reviewSeverityMinP: "" },
     })
-    expect(run.log).toContain("review.collecting")
-    expect(run.log).not.toContain("review.defer")
+    expect(run.prompts.get("review.collecting")).toContain("(critical: judge unsure)")
   })
 })
 

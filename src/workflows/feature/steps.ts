@@ -1,4 +1,4 @@
-import { human, run, scope, type ScopeAccess } from "../../flows/index.js"
+import { human, scope, type ScopeAccess } from "../../flows/index.js"
 import type { CollectRound } from "../../workflow-kit/index.js"
 import * as t from "../shared/text.js"
 import { riskTierOn } from "./tier.js"
@@ -52,8 +52,8 @@ export const fixNits = (
 }
 
 /** Turn the review round `capture` describes into `.gtd/REQUIREMENTS.md`, or change nothing. */
-export const collecting = (capture: string): Promise<void> =>
-  t.agentWithSkills("review.collecting", t.buildReviewCollectingPrompt(capture), {
+export const collecting = (capture: string, round?: CollectRound): Promise<void> =>
+  t.agentWithSkills("review.collecting", t.buildReviewCollectingPrompt(capture, undefined, round), {
     label: "Collecting your feedback",
     file: REQUIREMENTS,
     mode: "qa",
@@ -79,10 +79,3 @@ export const refactorCollecting = (
       allowEmpty: true,
     },
   )
-
-/** `build.review.defer`: append `notes` to `.gtd/TODO.md` as one section; the step's landing is the commit. */
-export const deferNotes = (notes: readonly t.NoteInput[], round: string): Promise<void> =>
-  run("review.defer", t.deferNotesScript(notes, round), {
-    label: "Deferring could-notes to TODO.md",
-    file: ".gtd/TODO.md",
-  })

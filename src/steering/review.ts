@@ -1,4 +1,4 @@
-import type { ListItem, Root, RootContent } from "mdast"
+import type { List, ListItem, Root, RootContent } from "mdast"
 import { blockNodesOfRun, blockRunInline } from "./Blocks.js"
 import type { FootnoteAnchor } from "./Footnotes.js"
 import {
@@ -35,6 +35,7 @@ import {
   toLspPositionFromOffset,
   type HeadingBlock,
 } from "./MarkdownTree.js"
+import { FREE_TEXT_PLACEHOLDER } from "./qa.js"
 import type {
   SteeringAnchor,
   SteeringAnnotateResult,
@@ -74,7 +75,19 @@ interface Changeset {
   readonly files: readonly ReviewFile[]
   /** 0-based index of this chunk's `##` heading. */
   readonly headingLine: number
+  /** The chunk's answer boxes, when gtd gave it some. */
+  readonly answers?: readonly AnswerOption[]
 }
+
+interface AnswerOption {
+  readonly checked: boolean
+  /** The free-text slot's unfilled placeholder normalizes to `""`. */
+  readonly text: string
+}
+
+export const ANSWER_LEAD = "Tick exactly one:"
+export const ANSWER_FIX = "fix as suggested"
+export const ANSWER_WONT_FIX = "won't fix"
 
 interface ReviewDoc {
   readonly shortHash?: string
@@ -470,6 +483,44 @@ const parseHunk = (
   return { file, errors }
 }
 
+const itemText = (content: string, item: ListItem): string =>
+  item.children
+    .map((c) => sourceText(content, c))
+    .join(" ")
+    // A ticked item's first paragraph span starts at its `[x]`.
+    .replace(/^\[[ xX]\]\s*/, "")
+    .trim()
+
+/**
+ * The task list right after the `Tick exactly one:` paragraph, with that
+ * paragraph's index. Read by position, never by label, so an edited label or
+ * a free text opening with `./path` is still an answer, not a pointer. Any
+ * count but three boxes is kept, and reads as unanswered.
+ */
+const answerListOf = (
+  content: string,
+  body: readonly RootContent[],
+): { readonly lead: number; readonly list: List; readonly options: AnswerOption[] } | undefined => {
+  const lead = body.findIndex(
+    (n, i) =>
+      n.type === "paragraph" &&
+      sourceText(content, n) === ANSWER_LEAD &&
+      body[i + 1]?.type === "list" &&
+      (body[i + 1] as List).children.every((item) => item.checked != null),
+  )
+  if (lead === -1) return undefined
+  const list = body[lead + 1] as List
+  const last = list.children.length - 1
+  const options = list.children.map((item, i) => {
+    const text = itemText(content, item)
+    return {
+      checked: item.checked === true,
+      text: i === last && text.toLowerCase() === FREE_TEXT_PLACEHOLDER.toLowerCase() ? "" : text,
+    }
+  })
+  return { lead, list, options }
+}
+
 /** Splits one chunk's body nodes into its file pointers (hunk pointers are task items, collected recursively at ANY nesting depth via `taskItems` — a nested hunk is the same kind of hunk as a top-level one) and description prose. The description is the chunk's own leading run and never a node that contains a hunk pointer: it stops at the first node whose `taskItems` include a real pointer (at any depth — a blockquote wrapping a pointer list stops it just as a top-level list would). Every node kind in what's left before that point contributes — a `footnoteDefinition` is the one exception, excluded by `blockNodesOfRun` itself (it's a note, never document content). */
 const parseChunkBody = (
   content: string,
@@ -482,11 +533,19 @@ const parseChunkBody = (
   readonly descriptionInline: readonly InlineNode[]
   readonly files: readonly ReviewFile[]
   readonly errors: readonly SteeringFinding[]
+  readonly answers?: readonly AnswerOption[]
+  /** Whether a task box outside the answer list exists. */
+  readonly boxed: boolean
 } => {
-  const firstPointerIndex = body.findIndex((n) =>
-    taskItems(n).some((item) => hasPointerToken(content, item)),
+  const answer = answerListOf(content, body)
+  const isAnswer = (n: RootContent): boolean =>
+    answer !== undefined && (n === answer.list || n === body[answer.lead])
+  const firstPointerIndex = body.findIndex(
+    (n) => !isAnswer(n) && taskItems(n).some((item) => hasPointerToken(content, item)),
   )
-  const leadingRun = firstPointerIndex === -1 ? body : body.slice(0, firstPointerIndex)
+  const leadingRun = (firstPointerIndex === -1 ? body : body.slice(0, firstPointerIndex)).filter(
+    (n) => !isAnswer(n),
+  )
   const descriptionNodes = blockNodesOfRun(content, leadingRun)
   const descriptionInline = collapseImages(blockRunInline(content, leadingRun))
   const description = leadingRun
@@ -497,13 +556,21 @@ const parseChunkBody = (
 
   const files: ReviewFile[] = []
   const errors: SteeringFinding[] = []
-  for (const item of body.flatMap((n) => taskItems(n))) {
+  for (const item of body.filter((n) => !isAnswer(n)).flatMap((n) => taskItems(n))) {
     const parsed = parseHunk(content, lines, title, item)
     if (!parsed) continue
     files.push(parsed.file)
     errors.push(...parsed.errors)
   }
-  return { description, descriptionNodes, descriptionInline, files, errors }
+  return {
+    description,
+    descriptionNodes,
+    descriptionInline,
+    files,
+    errors,
+    ...(answer === undefined ? {} : { answers: answer.options }),
+    boxed: body.some((n) => !isAnswer(n) && taskItems(n).length > 0),
+  }
 }
 
 /** One `##` chunk heading node with its raw body block nodes (up to the next `##`-or-shallower heading). */
@@ -550,18 +617,28 @@ const parseChangesets = (
       descriptionNodes,
       descriptionInline,
       files,
+      answers,
+      boxed,
       errors: bodyErrors,
     } = parseChunkBody(content, lines, title, body)
     errors.push(...bodyErrors)
     // A prose-only chunk is a note gtd composed; a box with no pointer is a pointer gone wrong.
-    if (files.length === 0 && body.some((n) => taskItems(n).length > 0)) {
+    if (files.length === 0 && boxed) {
       errors.push({
         message: `Chunk "${title}" has no file pointers`,
         line: headingLine,
         range: nodeRange(heading),
       })
     }
-    changesets.push({ title, description, descriptionNodes, descriptionInline, files, headingLine })
+    changesets.push({
+      title,
+      description,
+      descriptionNodes,
+      descriptionInline,
+      files,
+      headingLine,
+      ...(answers === undefined ? {} : { answers }),
+    })
   }
   if (changesets.length === 0) errors.push({ message: "REVIEW.md has no '##' chunks" })
   return { changesets, errors }
@@ -645,8 +722,13 @@ const isHunkPointerItem = (content: string, item: ListItem): boolean => {
  */
 const reviewClearTicks = (content: string): string => {
   const tree = parseMarkdown(content)
+  const answers = new Set(
+    splitChunks(tree).flatMap(({ body }) => answerListOf(content, body)?.list.children ?? []),
+  )
   const offsets = taskItems(tree)
-    .filter((item) => item.checked === true && isHunkPointerItem(content, item))
+    .filter(
+      (item) => item.checked === true && !answers.has(item) && isHunkPointerItem(content, item),
+    )
     .map((item) => checkboxOffset(content, item))
     .filter((o): o is number => o !== undefined)
     .sort((a, b) => a - b)
@@ -1185,3 +1267,71 @@ export const reviewRisks = (
       ),
     )
     .map((r, i) => ({ id: `risk-${i + 1}`, ...r }))
+
+export type ReviewChoice = "fix" | "wontfix" | "answer"
+
+/** A note's answer: one box ticked, and a ticked free-text slot filled in. */
+export interface ReviewDecision {
+  /** The note's chunk title. */
+  readonly anchor: string
+  /** The note's text as gtd wrote it. */
+  readonly body: string
+  readonly choice: ReviewChoice
+  /** The human's free text; empty unless `choice` is `answer`. */
+  readonly text: string
+}
+
+const CHOICES: readonly ReviewChoice[] = ["fix", "wontfix", "answer"]
+
+const decisionOf = (chunk: Changeset): ReviewDecision | undefined => {
+  if (chunk.answers?.length !== 3) return undefined
+  const ticked = chunk.answers.flatMap((o, i) => (o.checked ? [i] : []))
+  if (ticked.length !== 1) return undefined
+  const i = ticked[0]!
+  const text = i === 2 ? chunk.answers![2]!.text : ""
+  if (i === 2 && text === "") return undefined
+  return { anchor: chunk.title, body: chunk.description, choice: CHOICES[i]!, text }
+}
+
+/**
+ * Notes whose answer boxes do not hold exactly one tick (a ticked free-text
+ * slot filled in), with their 1-based heading line and why; and, given the
+ * file `before` the edit, every note whose boxes were deleted.
+ */
+export const unansweredNotes = (
+  content: string,
+  before?: string,
+): readonly { title: string; line: number; reason: string }[] => {
+  const now = parseReviewDoc(content).changesets
+  const boxed = new Set(now.filter((c) => c.answers !== undefined).map((c) => c.title))
+  const removed = (before === undefined ? [] : parseReviewDoc(before).changesets)
+    .filter((c) => c.answers !== undefined && !boxed.has(c.title))
+    .map((c) => ({
+      title: c.title,
+      line: 0,
+      reason: "its answer boxes were deleted — restore them",
+    }))
+  const open = now
+    .filter((c) => c.answers !== undefined && decisionOf(c) === undefined)
+    .map((c) => ({
+      title: c.title,
+      line: c.headingLine + 1,
+      reason:
+        c.answers!.length === 3
+          ? "tick exactly one box"
+          : `it has ${c.answers!.length} boxes — restore the three gtd wrote`,
+    }))
+  return [...open, ...removed]
+}
+
+/** Every answer in `after` that `before` did not already hold for the same note, in document order. */
+export const reviewDecisions = (before: string, after: string): readonly ReviewDecision[] => {
+  const prior = new Map(parseReviewDoc(before).changesets.map((c) => [c.title, c]))
+  return parseReviewDoc(after).changesets.flatMap((chunk) => {
+    const decision = decisionOf(chunk)
+    if (decision === undefined) return []
+    const was = prior.get(chunk.title)
+    const old = was === undefined ? undefined : decisionOf(was)
+    return old?.choice === decision.choice && old.text === decision.text ? [] : [decision]
+  })
+}

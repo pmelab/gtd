@@ -45,11 +45,12 @@ You are judging and classifying a round of review feedback.
 - This turn writes `.gtd/REQUIREMENTS.md` (the folded concerns) and
   replies inside `.gtd/REVIEW.md` (thread replies only; the file stays
   in the tree) — you classify, you do not build
-- Fold every concluded thread, ticked answer and hand-edit — and each
-  `edit` note the capture lists, no other note — into
-  `.gtd/REQUIREMENTS.md` and delete the folded threads from
-  `.gtd/REVIEW.md`; append one `- A:` reply to each thread
-  whose last entry is a `- H:` question
+- Fold every concluded thread and hand-edit — and each `edit` note
+  the capture lists, no other note — into `.gtd/REQUIREMENTS.md` and
+  delete the folded threads from `.gtd/REVIEW.md`; append one `- A:`
+  reply to each thread whose last entry is a `- H:` question
+- Never fold a note's ticked answer box the capture does not list: gtd
+  routes those itself
 - When the capture names an answering commit, carry each answered
   question into `.gtd/REQUIREMENTS.md`'s `## Answered Questions` as
   `### <the note>` plus its answer — the lap replaces `.gtd/REVIEW.md`

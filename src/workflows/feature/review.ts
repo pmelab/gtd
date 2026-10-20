@@ -29,7 +29,7 @@ import {
 } from "../shared/steps.js"
 import { closeReview, isOptionalObject, tail, type TailOptions } from "../shared/tail.js"
 import * as t from "../shared/text.js"
-import { answerReviewQuestions, collecting, deferNotes, fixNits } from "./steps.js"
+import { answerReviewQuestions, collecting, fixNits } from "./steps.js"
 
 export type { ReviewOutcome } from "../../workflow-kit/index.js"
 
@@ -46,6 +46,12 @@ const verdictQuestion = (note: ReviewNote): JudgeQuestion => ({
 
 type Tier = "critical" | "should" | "could"
 
+const TIER_ORDER: Readonly<Record<Tier, number>> = { critical: 0, should: 1, could: 2 }
+
+/** Capture order: critical, should, could; within a tier one-way doors, then new concepts. */
+const captureKey = (s: Severity | undefined): number =>
+  s === undefined ? 2 : TIER_ORDER[s.tier] * 3 + s.rank
+
 const SEVERITY_ANSWERS: Readonly<Record<string, readonly string[]>> = {
   security: ["yes", "no"],
   reversibility: ["one-way", "two-way"],
@@ -60,10 +66,7 @@ interface Severity {
   readonly rank: 0 | 1 | 2
 }
 
-/**
- * Deferring is the risky direction: anything unanswered, unrecognised, cut or
- * below `minP` is `critical`, never `could`.
- */
+/** Anything unanswered, unrecognised, cut or below `minP` is `critical`, never `could`. */
 export const severityOf = (note: ReviewNote, judgment: Judgment, minP: number): Severity => {
   const ans = (q: string) => judgment.answers[`${note.id}.${q}`]
   const a = (q: string): string | undefined => ans(q)?.answer
@@ -125,7 +128,7 @@ const severityQuestions = (note: ReviewNote): JudgeQuestion[] => [
  * nothing) plus four severity answers. Dismissing a note is the risky
  * direction, so only a confident non-`edit` verdict on uncut evidence counts;
  * a cut, unanswered or below-floor note is an `edit`. Severity answers on a
- * non-`edit` note are ignored. A confident `could` edit becomes `defer`.
+ * non-`edit` note are ignored; on an `edit` they order the collecting turn.
  */
 const triage =
   (severities: Map<string, Severity>) =>
@@ -155,9 +158,8 @@ const triage =
           ? undefined
           : VERDICTS.find((v) => v !== "edit" && answered(answers[n.id], v, minP))
         if (verdict !== undefined && !truncated.includes(n.id)) return [n.id, verdict]
-        const severity = severityOf(n, judgment, severityMinP)
-        severities.set(n.id, severity)
-        return [n.id, severity.tier === "could" ? "defer" : "edit"]
+        severities.set(n.id, severityOf(n, judgment, severityMinP))
+        return [n.id, "edit"]
       }),
     )
   }
@@ -167,13 +169,15 @@ export const isCode = (path: string): boolean => path !== ".gtd" && !path.starts
 /**
  * gtd writes `.gtd/REVIEW.md` from the quality lap's `report` — no reviewer
  * turn — and removes what the fixer left in `.gtd/QUALITY.md`. A re-review
- * after fixed nits restores the doc as committed at `carry`, answers kept.
+ * after fixed nits restores the doc as committed at `carry`, answers kept;
+ * a fresh one leaves out the notes the human already answered.
  */
 const composing = (
   base: string,
   report: LensReport,
   carry?: string,
   nitFix?: string,
+  answered: ReadonlySet<string> = new Set(),
 ): Promise<void> =>
   run(
     "review.composing",
@@ -184,6 +188,7 @@ const composing = (
             ...report,
             weakened: kit.removedAssertions(changesSince(base)),
             nitFix,
+            answered,
           }),
           [QUALITY],
         )
@@ -193,9 +198,10 @@ const composing = (
 
 /**
  * The quality lap's notes reach a human over everything since `base`, who
- * signs off or comments, and each note is judged: edits go to another
- * planning lap, questions are answered in place, nits fixed in one batch,
- * praise dropped.
+ * answers each one — fix as suggested, won't fix, or their own answer — and
+ * may comment. A fix joins the nit batch, a won't-fix is dropped, and an own
+ * answer or comment is judged: edits go to another planning lap, questions
+ * are answered in place, nits fixed in one batch, praise dropped.
  */
 export const review = (
   base: string,
@@ -210,42 +216,26 @@ export const review = (
       "gtd land: no declared pattern matches the pending changes — write .gtd/REQUIREMENTS.md from the feedback, or change nothing when it asks for nothing",
   }
   const severities = new Map<string, Severity>()
-  // Armed by a defer-only round to pick the next gate's message; a fresh
-  // review (`reviewing`) disarms it.
-  let deferred: readonly t.NoteInput[] = []
   // Set by a nit fix, so the fresh review that follows names its commit.
   let nitFix: string | undefined
+  // Every note the human answered in this review, left out of a fresh one.
+  const answered = new Set<string>()
   return kit.review(base, {
     file: REVIEW,
     feedback: feedback.file,
     isCode,
     reviewing: (b, carry) => {
-      deferred = []
       const fixedAt = nitFix
       nitFix = undefined
-      return composing(b, options.report ?? NO_FINDINGS, carry, fixedAt)
+      return composing(b, options.report ?? NO_FINDINGS, carry, fixedAt, answered)
     },
     fixRisks: guarded((notes) => fixRisks(notes, fixAccess, rules), guard),
     keepGreen: () => healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules }),
-    awaitReview: (b) => {
-      const notes = deferred
-      deferred = []
-      return notes.length > 0
-        ? awaitReview(b, t.buildReviewAwaitAfterDeferMessage(b, notes))
-        : awaitReview(b)
-    },
+    awaitReview: (b) => awaitReview(b),
     reviewMissing,
     collecting: feedback.collecting,
     triage: triage(severities),
-    defer: (notes) => {
-      deferred = notes.map((n) => ({
-        id: n.id,
-        anchor: n.anchor,
-        text: n.text,
-        label: severities.get(n.id)!.reason,
-      }))
-      return deferNotes(deferred, head())
-    },
+    decided: (decisions) => decisions.forEach((d) => answered.add(d.anchor)),
     answerQuestions: answerReviewQuestions,
     fixNits: async (notes) => {
       await guarded((n: typeof notes) => fixNits(n, fixAccess, rules), guard)(notes)
@@ -259,14 +249,13 @@ export const review = (
         t.reviewEditNotesCapture(
           round,
           edits
-            .map((n, i) => ({ n, i, s: severities.get(n.id) }))
-            // critical before should, then one-way doors, then new concepts
-            .sort(
-              (x, y) =>
-                Number(x.s?.tier === "should") - Number(y.s?.tier === "should") ||
-                (x.s?.rank ?? 2) - (y.s?.rank ?? 2) ||
-                x.i - y.i,
-            )
+            .map((n, i) => ({
+              n,
+              i,
+              s: severities.get(n.id),
+              key: captureKey(severities.get(n.id)),
+            }))
+            .sort((x, y) => x.key - y.key || x.i - y.i)
             .map(({ n, s }) => ({
               id: n.id,
               anchor: n.anchor,

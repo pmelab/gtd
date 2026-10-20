@@ -1839,3 +1839,110 @@ describe("reviewRisks", async () => {
     expect(reviewRisks(doc("Prose.", ["- [ ] ./src/a.ts#1-3 — fine"]))).toEqual([])
   })
 })
+
+describe("answer boxes", async () => {
+  const { reviewDecisions, reviewNotes, unansweredNotes } = await import("./review.js")
+  const note = (title: string, boxes: readonly [string, string, string]): string =>
+    [
+      `## ${title}`,
+      "",
+      "Should subtract round?",
+      "",
+      "Tick exactly one:",
+      "",
+      `- [${boxes[0]}] fix as suggested`,
+      `- [${boxes[1]}] won't fix`,
+      `- [${boxes[2] === "" ? " " : "x"}] ${boxes[2] === "" || boxes[2] === "x" ? "_your answer_" : boxes[2]}`,
+    ].join("\n")
+  const doc = (...chunks: string[]): string =>
+    ["# Review: abc1234", "", "<!-- base: abc1234 -->", "", ...chunks, ""].join("\n")
+  const open = doc(note("Rounding", [" ", " ", ""]))
+
+  it("are no file pointers, no finding and no part of the note's text", () => {
+    expect(steeringFormatFor("review")!.validate(open)).toEqual([])
+    expect(parseReviewDoc(open).changesets[0]).toMatchObject({
+      description: "Should subtract round?",
+      files: [],
+    })
+  })
+
+  it("survive the gate's tick reset", () => {
+    const ticked = doc(note("Rounding", ["x", " ", ""]))
+    expect(steeringFormatFor("review")!.clearTicks(ticked)).toBe(ticked)
+  })
+
+  it("a tick is never a note", () => {
+    expect(reviewNotes(open, doc(note("Rounding", [" ", "x", ""])))).toEqual([])
+  })
+
+  it("an unticked note, or one with two ticks, is unanswered", () => {
+    expect(unansweredNotes(open)).toEqual([
+      { title: "Rounding", line: 5, reason: "tick exactly one box" },
+    ])
+    expect(unansweredNotes(doc(note("Rounding", ["x", "x", ""])))).toHaveLength(1)
+  })
+
+  it("a ticked free-text slot still holding the placeholder is unanswered", () => {
+    expect(unansweredNotes(doc(note("Rounding", [" ", " ", "x"])))).toHaveLength(1)
+  })
+
+  it("each box decides its note", () => {
+    const after = doc(
+      note("Fix it", ["x", " ", ""]),
+      note("Leave it", [" ", "x", ""]),
+      note("Answer it", [" ", " ", "round half up"]),
+    )
+    expect(unansweredNotes(after)).toEqual([])
+    expect(reviewDecisions("", after)).toEqual([
+      { anchor: "Fix it", body: "Should subtract round?", choice: "fix", text: "" },
+      { anchor: "Leave it", body: "Should subtract round?", choice: "wontfix", text: "" },
+      {
+        anchor: "Answer it",
+        body: "Should subtract round?",
+        choice: "answer",
+        text: "round half up",
+      },
+    ])
+  })
+
+  it("an answer the baseline already held is no new decision", () => {
+    const answered = doc(note("Rounding", ["x", " ", ""]))
+    expect(reviewDecisions(answered, answered)).toEqual([])
+    expect(reviewDecisions(answered, doc(note("Rounding", [" ", "x", ""])))).toMatchObject([
+      { choice: "wontfix" },
+    ])
+  })
+
+  it("are read by position: an edited label or a path-like answer still answers", () => {
+    const edited = doc(
+      note("Rounding", [" ", " ", ""]).replace("- [ ] fix as suggested", "- [x] fix it, but floor"),
+    )
+    expect(reviewDecisions("", edited)).toMatchObject([{ choice: "fix" }])
+    const pathy = doc(note("Rounding", [" ", " ", "./src/calc.ts#1-1 round here"]))
+    expect(steeringFormatFor("review")!.validate(pathy)).toEqual([])
+    expect(reviewDecisions("", pathy)).toMatchObject([
+      { choice: "answer", text: "./src/calc.ts#1-1 round here" },
+    ])
+    expect(steeringFormatFor("review")!.clearTicks(pathy)).toBe(pathy)
+  })
+
+  it("a note whose boxes were deleted is unanswered", () => {
+    const gone = doc("## Rounding\n\nShould subtract round?")
+    expect(unansweredNotes(gone, open)).toEqual([
+      { title: "Rounding", line: 0, reason: "its answer boxes were deleted — restore them" },
+    ])
+    expect(unansweredNotes(doc(), open)).toHaveLength(1)
+  })
+
+  it("a box added or removed leaves the note unanswered", () => {
+    const four = doc(note("Rounding", ["x", " ", ""]).concat("\n- [ ] another"))
+    expect(unansweredNotes(four)).toHaveLength(1)
+  })
+
+  it("a box list other than gtd's three is a pointer gone wrong", () => {
+    const stray = doc("## Chunk\n\n- [ ] fix as suggested\n- [ ] something else\n- [ ] third")
+    expect(steeringFormatFor("review")!.validate(stray)).toEqual([
+      expect.objectContaining({ message: 'Chunk "Chunk" has no file pointers' }),
+    ])
+  })
+})

@@ -11,7 +11,6 @@ describe("the bundled workflow's access export", () => {
     expect(bundled).toEqual({
       design: { write: [] },
       "build.review": { write: [".gtd/REVIEW.md"] },
-      "build.review.defer": { write: [".gtd/TODO.md"] },
       "build.review.fix.nits": {},
       "build.review.fix.risks": {},
       "build.quality.correctness": { write: [] },
@@ -21,7 +20,6 @@ describe("the bundled workflow's access export", () => {
       "build.quality.conventions": { write: [] },
       "build.quality.spec-challenge": { write: [] },
       "refactor.build.review": { write: [".gtd/REVIEW.md"] },
-      "refactor.build.review.defer": { write: [".gtd/TODO.md"] },
       "refactor.build.quality.correctness": { write: [] },
       "refactor.build.quality.ponytail-review": { write: [] },
       "refactor.build.quality.conventions": { write: [] },
@@ -32,7 +30,6 @@ describe("the bundled workflow's access export", () => {
     expect(bundled).not.toHaveProperty(["refactor.build.review.fix.nits"])
     expect(bundled).not.toHaveProperty(["refactor.build.review.fix.risks"])
     expect(bundled["refactor.build.review"]).toEqual({ write: [".gtd/REVIEW.md"] })
-    expect(bundled["refactor.build.review.defer"]).toEqual({ write: [".gtd/TODO.md"] })
   })
 
   it("keys one lens scope per qualityReviews entry", () => {
@@ -54,17 +51,11 @@ describe("the bundled workflow's access export", () => {
       "refactor.build.quality.correctness",
       "refactor.build.quality.my-lens",
       "refactor.build.review",
-      "refactor.build.review.defer",
     ])
   })
 
-  it("keys only turn or script scopes", () => {
-    // `build.review.defer` is a script scope: no turn, so no skills entry.
-    const known = [
-      ...Object.keys(workflow.skills(defaults)),
-      "build.review.defer",
-      "refactor.build.review.defer",
-    ]
+  it("keys only turn scopes", () => {
+    const known = Object.keys(workflow.skills(defaults))
     for (const key of Object.keys(bundled)) expect(known).toContain(key)
   })
 })

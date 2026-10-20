@@ -111,18 +111,6 @@ describe("the feature workflow's own steps declare skills — a step's rendered 
     expect(scopes).toEqual([{ name: "review.fix.nits", access }])
     expect(steps_.map((r) => ("name" in r ? r.name : ""))).toEqual(["fixing"])
   })
-
-  it("deferNotes rests at build.review.defer as a script writing .gtd/TODO.md", async () => {
-    const request = await capture(
-      () =>
-        steps.deferNotes([{ id: "note-1", anchor: "a", text: "x", label: "could" }], "abcdef123"),
-      "build",
-    )
-    if (request.kind !== "run") throw new Error("unreachable")
-    expect(request.name).toBe("review.defer")
-    expect(request.body).toContain("## Deferred review notes (abcdef1)")
-    expect(request.options).toMatchObject({ file: ".gtd/TODO.md" })
-  })
 })
 
 describe("the feature workflow's planning steps run on the planner model", () => {

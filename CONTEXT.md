@@ -291,6 +291,11 @@ the strays show it.
 **Seam judge**: The `seam.judge` step: rules `land`, `refactor-first` or
 `reject` on a naive pass's strays.
 
+**Answer**: The one box a human ticks under a review note gtd wrote —
+`fix as suggested`, `won't fix`, or their own text over `_your answer_`. The
+review gate lands only when every note holds exactly one. _Avoid_: verdict (the
+judge's word), defer (gone)
+
 **Refactor note**: `.gtd/REFACTOR-NOTE.md`, written by `seam.note` from the
 whole [naive pass](#naive-pass) on `refactor-first`: which seams the refactor
 opens and the shape each takes. Read by the refactor and the
