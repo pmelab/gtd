@@ -17,6 +17,7 @@ import {
   isConflictTitle,
   oneLine,
   parseStandards,
+  standardKey,
   renderStandards,
   STANDARDS,
   type Conflict,
@@ -31,8 +32,11 @@ interface Candidate {
 
 const SUMMARY_MAX = 200
 
+// gtd's own italic banners (`_The fixer left this unresolved._`) say nothing about the finding.
 const summary = (body: string): string => {
-  const first = oneLine(body.split(/\n\s*\n/).find((p) => p.trim() !== "") ?? "")
+  const first = oneLine(
+    body.split(/\n\s*\n/).find((p) => p.trim() !== "" && !/^_[^\n]*_$/.test(p.trim())) ?? "",
+  )
   return first.length > SUMMARY_MAX ? `${first.slice(0, SUMMARY_MAX - 1)}…` : first
 }
 
@@ -55,7 +59,8 @@ const adding = (list: readonly string[], text: string): string[] =>
 
 /**
  * Keep the new one, keep the old one, or replace both with the human's own
- * wording. Another conflict naming a replaced standard names its replacement.
+ * wording. Another open conflict stops naming a replaced standard: the human
+ * never judged it against the replacement, so keeping it must not drop that.
  */
 const resolve = (standards: Standards, d: ReviewDecision): Standards => {
   const c = conflictFor(standards, d.anchor)
@@ -63,10 +68,7 @@ const resolve = (standards: Standards, d: ReviewDecision): Standards => {
   const others = standards.undecided.filter((u) => u !== c)
   if (d.choice === "wontfix") return { decided: standards.decided, undecided: others }
   const kept = d.choice === "fix" ? c.text : oneLine(d.text)
-  const undecided = others.map((u) => ({
-    text: u.text,
-    olds: u.olds.reduce<string[]>((olds, o) => adding(olds, c.olds.includes(o) ? kept : o), []),
-  }))
+  const undecided = others.map((u) => ({ text: u.text, olds: without(u.olds, c.olds) }))
   return { decided: adding(without(standards.decided, c.olds), kept), undecided }
 }
 
@@ -107,7 +109,7 @@ const evidenceOf = (c: Candidate): string =>
  * One judge rest over every candidate. Only a confident `yes` on uncut
  * evidence makes a standard; a contradiction the judge does not confidently
  * rule out goes to the human instead of overwriting what they decided before.
- * Each kept standard is its own evidence key, so a long file cuts one, not all.
+ * A cut kept standard leaves the round unlearned: raise `judgeBudgetBytes`.
  */
 const judged = async (
   candidates: readonly Candidate[],
@@ -152,10 +154,15 @@ export const learnStandards = async (decisions: readonly ReviewDecision[]): Prom
   const before = parseStandards(read(STANDARDS) ?? "")
   const rest = decisions.filter((d) => !isConflictTitle(d.anchor))
   const settled = decisions.filter((d) => isConflictTitle(d.anchor)).reduce(resolve, before)
-  const known = new Set([...settled.decided, ...settled.undecided.map((c) => c.text)])
-  const candidates = rest
-    .flatMap(candidateOf)
-    .filter((c, i, all) => !known.has(c.text) && all.findIndex((o) => o.text === c.text) === i)
+  const known = new Set(
+    [...settled.decided, ...settled.undecided.map((c) => c.text)].map(standardKey),
+  )
+  const candidates = rest.flatMap(candidateOf).filter((c) => {
+    const key = standardKey(c.text)
+    if (known.has(key)) return false
+    known.add(key)
+    return true
+  })
   // Blank keeps none, so there is nothing to ask.
   const minP = numeric(vars.standardMinP, Infinity)
   const { added, raised } =
@@ -181,14 +188,11 @@ export const learnStandards = async (decisions: readonly ReviewDecision[]): Prom
   }
 }
 
-/** A conflict's answer is settled by `learnStandards` alone. */
 export const settlesStandard = (d: ReviewDecision): boolean => isConflictTitle(d.anchor)
 
-/** Whether a standard conflict still waits on the human. */
 export const standardsPending = (): boolean =>
   parseStandards(read(STANDARDS) ?? "").undecided.length > 0
 
-/** Standards decided now that were not at `base`. */
 export const standardsAddedSince = (base: string): readonly string[] => {
   const change = changesSince(base).get(STANDARDS)
   if (change === undefined) return []

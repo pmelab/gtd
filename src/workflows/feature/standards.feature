@@ -249,7 +249,7 @@ Feature: the review learns standards from the human's answers
       """
       # Standards
 
-      Learned from your review answers and read by every agent turn. Edit freely.
+      Kept from your review answers for every agent turn. One standard per bullet.
 
       - Calculators are classes.
       """

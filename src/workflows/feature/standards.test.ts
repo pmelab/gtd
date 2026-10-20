@@ -32,7 +32,7 @@ const file = (...lines: string[]): string =>
   [
     "# Standards",
     "",
-    "Learned from your review answers and read by every agent turn. Edit freely.",
+    "Kept from your review answers for every agent turn. One standard per bullet.",
     "",
     ...lines,
     "",
@@ -97,7 +97,7 @@ describe("learnStandards", () => {
     expect(state.written).toEqual({})
   })
 
-  it("points another conflict at the standard that replaced its old one", async () => {
+  it("drops a replaced standard from another open conflict", async () => {
     state.files[STANDARDS] = file(
       "- O.",
       "",
@@ -110,8 +110,29 @@ describe("learnStandards", () => {
     )
     // The conflict note's title hashes its new standard, "A.".
     await learnStandards([
-      { anchor: "Standard conflict 80d5a5c6", body: "", choice: "fix", text: "" },
+      { anchor: "Standard conflict 01248e26", body: "", choice: "fix", text: "" },
     ])
-    expect(kept()).toBe(file("- A.", "", "## Undecided", "", "- B.", "  - contradicts: A."))
+    expect(kept()).toBe(file("- A.", "", "## Undecided", "", "- B."))
+  })
+})
+
+describe("learnStandards, from a won't-fix", () => {
+  it("states the finding, not gtd's banner", async () => {
+    state.answers = { "standard-1": yes }
+    await learnStandards([
+      {
+        anchor: "Slow loop",
+        body: "_The fixer left this unresolved._\n\nThe loop is quadratic.",
+        choice: "wontfix",
+        text: "",
+      },
+    ])
+    expect(kept()).toBe(file("- Won't fix: Slow loop — The loop is quadratic."))
+  })
+
+  it("does not learn again what a formatter rewrote", async () => {
+    state.files[STANDARDS] = file("- Prefer _named_ exports. (re: A)")
+    await learnStandards([answer("A", "Prefer *named* exports.")])
+    expect(state.judged).toEqual([])
   })
 })

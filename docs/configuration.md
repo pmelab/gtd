@@ -939,8 +939,13 @@ Every agent turn the shipped workflows open with their skills preamble — the
 lenses, naive pass, build, every fix, collecting and answering turns — gets the
 kept standards (never the undecided ones) appended to its prompt; `seam.note`
 and the `rollout`/`cleanup` turns do not. Any top-level bullet is a standard,
-grouped under any heading but `## Undecided`; gtd rewrites the file as one list
-when it learns.
+numbered or not, grouped under any heading but `## Undecided`; gtd rewrites the
+file as one list when it learns, dropping prose and duplicates. Standards
+compare without emphasis marks or case, so a formatter's rewrite never makes a
+standard new. A kept standard the judge's evidence budget cuts leaves that round
+unlearned — raise `judgeBudgetBytes` once the file grows long. Answering a
+conflict drops the standards it replaces from every other open conflict, which
+then asks only whether to keep, discard or reword its new standard.
 
 #### The feature review
 

@@ -228,7 +228,6 @@ const record = (p: ReviewPolicy, decisions: readonly ReviewDecision[]): void => 
   for (const d of decisions) if (d.choice === "wontfix") mark("wontfix", oneLine(d.anchor))
 }
 
-/** The answers the policy leaves to routing. */
 const routed = (p: ReviewPolicy, answers: readonly ReviewDecision[]): readonly ReviewDecision[] =>
   answers.filter((d) => p.settles?.(d) !== true)
 

@@ -23,7 +23,7 @@ describe("standards file", () => {
       "",
       "## Testing",
       "",
-      "* Every bug fix",
+      "1. Every bug fix",
       "  gets a test.",
       "",
       "## Undecided",
@@ -57,6 +57,18 @@ describe("a formatter-wrapped file", () => {
 })
 
 describe("conflict notes", () => {
+  it("keep their title when a formatter rewrites the emphasis", () => {
+    const standards = { decided: [], undecided: [{ text: "Use _named_ exports.", olds: [] }] }
+    expect(
+      conflictFor(standards, conflictTitle({ text: "Use *named* exports.", olds: [] })),
+    ).toBeDefined()
+  })
+
+  it("are one per standard, however often the file lists it", () => {
+    const text = "## Undecided\n\n- New\n  - contradicts: Old\n- New\n  - contradicts: Old\n"
+    expect(parseStandards(text).undecided).toHaveLength(1)
+  })
+
   it("title back to the conflict it asks about", () => {
     const standards = { decided: [], undecided: [conflict] }
     expect(conflictFor(standards, conflictTitle(conflict))).toBe(conflict)
