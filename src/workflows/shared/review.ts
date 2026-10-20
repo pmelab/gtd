@@ -202,8 +202,9 @@ const composing = (
  * The quality lap's notes reach a human over everything since `base`, who
  * answers each one — fix as suggested, won't fix, or their own answer — and
  * may comment. A fix joins the nit batch, a won't-fix is dropped, and an own
- * answer or comment is judged: edits go to another planning lap, questions
- * are answered in place, nits fixed in one batch, praise dropped.
+ * answer or comment is judged: edits end the review as `feedback` for the
+ * caller to build, questions are answered in place, nits fixed in one batch,
+ * praise dropped.
  */
 export const humanReview = (
   base: string,

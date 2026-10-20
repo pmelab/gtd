@@ -937,14 +937,12 @@ longer kept out of a new process's triage: delete or move it before starting
 one.
 
 **Upgrading:** `review` runs `feature`'s review and fixes its notes in place. A
-`review` process resting at `build.health.check` right after its gate,
-`build.review.reviewing`, `build.review.fix.risks.fixing` or
-`build.fix.quality.fixing` no longer replays: finish or `gtd abandon` it before
-upgrading. A driver or fixture scripting the `review` door's
-`build.review.reviewing` scripts `build.review.composing` and, with lenses on,
-the `build.quality.triage` judge instead; a note there no longer reaches
-`build.review.handing-off`, and a `.gtd/REVIEW.md` an older `review` handed off
-is still read by `fix`.
+`review` process past its `review-gate.check` no longer replays: finish or
+`gtd abandon` it before upgrading. A driver or fixture scripting the `review`
+door's `build.review.reviewing` scripts `build.review.composing` and, with
+lenses on, the `build.quality.triage` judge instead; a note there no longer
+reaches `build.review.handing-off`, and a `.gtd/REVIEW.md` an older `review`
+handed off is still read by `fix`.
 
 **Upgrading:** `feature`'s reviews are composed from the quality lap. A process
 resting at `build.review.reviewing`, `build.review.fix.risks.fixing`, a

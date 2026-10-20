@@ -13,6 +13,8 @@ const fixFeedback = async (): Promise<void> => {
     file: REQUIREMENTS,
     model: coder(),
     system: t.finisherSystem(),
+    // An earlier nit fix may already have built the concern.
+    allowEmpty: true,
   })
   await run("feedback.closing", removeScript([REQUIREMENTS]), { label: "Closing the feedback" })
 }
