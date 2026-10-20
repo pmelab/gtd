@@ -133,7 +133,10 @@ Given(
   (world: TestkitWorld, text: string, path: string, replacement: string) => {
     const content = world.repo().read(path) ?? ""
     assert.ok(content.includes(text), `${path}: ${content}`)
-    world.repo().write(path, content.replace(text, replacement))
+    world.repo().write(
+      path,
+      content.replace(text, () => replacement),
+    )
   },
 )
 

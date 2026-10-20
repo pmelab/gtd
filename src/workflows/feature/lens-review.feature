@@ -197,6 +197,23 @@ Feature: the quality lenses are the only agentic review
     And ".gtd/REVIEW.md" contains "check whether it was fixed"
     And ".gtd/REVIEW.md" does not contain "Fixed automatically"
 
+  Scenario: prose the fixer leaves outside every chunk does not hide its fixes
+    Given judge step "build.quality.triage" answers:
+      """
+      [{"id":"Q1","answer":"mechanical","p":0.9},{"id":"Q2","answer":"mechanical","p":0.9},{"id":"Q3","answer":"mechanical","p":0.9}]
+      """
+    And step "build.fix.quality.fixing" writes ".gtd/QUALITY.md" with:
+      """
+      # Quality
+
+      All fixed.
+      """
+    And step "build.health.check" changes nothing
+    When the process is driven
+    Then the process rests at "build.review.await-review"
+    And ".gtd/REVIEW.md" contains "- subtract has no negative test ("
+    And ".gtd/REVIEW.md" does not contain "check whether it was fixed"
+
   Scenario: signing off a composed review ends the process
     Given judge step "build.quality.triage" answers:
       """

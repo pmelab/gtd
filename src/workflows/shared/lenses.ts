@@ -79,7 +79,11 @@ interface FixTurn {
 }
 
 /** What one fix turn did to `findings`, from the chunks `left` in the file: it deletes the ones it resolved. */
-const afterFix = (findings: readonly Finding[], left: readonly Finding[]): FixTurn => {
+const afterFix = (findings: readonly Finding[], written: readonly Finding[]): FixTurn => {
+  // Prose the fixer left outside every chunk ("all fixed") is no finding it was given.
+  const left = findings.some((f) => f.title === UNTITLED)
+    ? written
+    : written.filter((f) => f.title !== UNTITLED)
   const titles = findings.map((f) => f.title)
   const known = left.every((f) => take(titles, f.title))
   const remaining = left.map((f) => f.title)
