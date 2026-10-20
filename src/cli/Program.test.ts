@@ -1694,6 +1694,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     judgeRun: { kind: "judgeRun", provider: "fixed" },
     historyList: { kind: "historyList" },
     historyShow: { kind: "historyShow", ref: "x" },
+    historyMetrics: { kind: "historyMetrics", refs: [] },
     historyFetch: { kind: "historyFetch", remote: "origin" },
     strays: { kind: "strays", base: "HEAD", tip: "HEAD", globs: [] },
   }
@@ -1705,7 +1706,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
 
-  it("derives exactly the seventeen non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the eighteen non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
       [
         "abandon",
@@ -1724,6 +1725,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
         "judgeAnswer",
         "historyList",
         "historyShow",
+        "historyMetrics",
         "historyFetch",
       ].sort(),
     )

@@ -109,6 +109,7 @@ export {
 } from "./Output.js"
 import { runStraysCommand } from "./Strays.js"
 import { runHistoryFetchCommand, runHistoryListCommand, runHistoryShowCommand } from "./History.js"
+import { runHistoryMetricsCommand } from "./Metrics.js"
 
 /**
  * `Edge.ts`'s `Rest` is module-private (`.gtd/packages/05-step-core.md`
@@ -174,6 +175,7 @@ export type Command =
   | { readonly kind: "judgeAnswer" }
   | { readonly kind: "historyList" }
   | { readonly kind: "historyShow"; readonly ref: string }
+  | { readonly kind: "historyMetrics"; readonly refs: readonly string[] }
   | { readonly kind: "historyFetch"; readonly remote: string }
   | {
       readonly kind: "strays"
@@ -1320,6 +1322,8 @@ const dispatchVoidCommand = (
       return runHistoryListCommand(json, out)
     case "historyShow":
       return runHistoryShowCommand(command.ref, json, out)
+    case "historyMetrics":
+      return runHistoryMetricsCommand(command.refs, json, out)
     case "historyFetch":
       return runHistoryFetchCommand(command.remote, out)
   }

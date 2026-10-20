@@ -723,8 +723,29 @@ full trail with `gtd history fetch | sh`, then `gtd history show <ref>`.
 ```sh
 gtd history list                 # one line per kept process
 gtd history show <ref>           # replay its steps, judge verdicts and approvals
+gtd history metrics [ref...]     # how the kept processes went, per process and in total
 gtd history fetch | sh           # pull every kept ref from origin
 ```
+
+`gtd history metrics` measures the bundled `feature` workflow from the kept refs
+— every ref, or the ones named. It reads commit subjects and trailers only, so
+it never replays and a config changed since is no refusal:
+
+- **refactor-first rate** — of the slices whose naive pass was decided, the
+  share rebuilt rather than landed as it is (`refactored` counts the rebuilds a
+  refactor came first for)
+- **continuations** — agent turns that picked up a turn stopped at its context
+  limit, per phase (`seam.naive`, `implement.building`, `refactor.building`, …)
+- **cost** — the `Gtd-Cost` a driver recorded with `gtd land --cost --model`, by
+  model and by phase (`naive`, `refactor`, `implement`, `other`), and the
+  **double work** of a rebuild: its naive pass plus the implement turns that
+  rebuilt it. By-model costs make two coder models comparable over the same kind
+  of work
+- **findings** — the `## ` findings each quality-lap lens added to
+  `.gtd/QUALITY.md`
+
+`--json` prints `{ processes, total }`; `--json=total.refactorFirstRate` (any
+dotted path) prints one value. A rate is `null` without a decided slice.
 
 `gtd history fetch` only prints a fetch script; pipe it into `sh` to run it.
 Beyond that one ship push, refs are not pushed or fetched by default. The ref
@@ -781,9 +802,9 @@ install for any of these but `./testkit`: gtd resolves a `gtd.config.ts`'s
 
 The `gtd` bin's commands — `next`, `land`, `abandon`, `restore`, `validate`,
 `check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `slices`,
-`version`, `help`, `history list`, `history show`, `history fetch`, `strays`,
-and the tools `ui`, `lsp`, `loop`, `context-hook`, `judge` (`judge answer`,
-`judge run`) — are listed in the
+`version`, `help`, `history list`, `history show`, `history metrics`,
+`history fetch`, `strays`, and the tools `ui`, `lsp`, `loop`, `context-hook`,
+`judge` (`judge answer`, `judge run`) — are listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
 `gtd slices` lists the spans a flow's `slice()` calls mark. It refuses (exit 1)
 when HEAD neither closes nor sits inside a process, or when today's config

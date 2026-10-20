@@ -1021,6 +1021,12 @@ describe("parseArgv — gtd history", () => {
     expect(parse("history", "fetch", "upstream")).toMatchObject({
       command: { kind: "historyFetch", remote: "upstream" },
     })
+    expect(parse("history", "metrics")).toMatchObject({
+      command: { kind: "historyMetrics", refs: [] },
+    })
+    expect(parse("history", "metrics", "a", "feat/b")).toMatchObject({
+      command: { kind: "historyMetrics", refs: ["a", "feat/b"] },
+    })
   })
 
   it("bare history and an unknown subcommand are usage errors naming list, show, fetch", () => {
@@ -1029,6 +1035,7 @@ describe("parseArgv — gtd history", () => {
       expect(message).toContain("list")
       expect(message).toContain("show")
       expect(message).toContain("fetch")
+      expect(message).toContain("metrics")
     }
   })
 
@@ -1039,19 +1046,23 @@ describe("parseArgv — gtd history", () => {
     expect(usage(parse("history", "fetch", "a", "b"))).toContain("too many arguments")
   })
 
-  it("--json is accepted for list and show, rejected for fetch", () => {
+  it("--json is accepted for list, show and metrics, rejected for fetch", () => {
     expect(parse("history", "list", "--json")).toMatchObject({ json: { kind: "document" } })
     expect(parse("history", "show", "x", "--json=ended")).toMatchObject({
       json: { kind: "select", path: "ended" },
     })
+    expect(parse("history", "metrics", "--json=total.refactorFirstRate")).toMatchObject({
+      json: { kind: "select", path: "total.refactorFirstRate" },
+    })
     expect(parse("history", "fetch", "--json").kind).toBe("usage")
   })
 
-  it("help lists the three history rows", () => {
+  it("help lists the four history rows", () => {
     const help = renderHelp()
     expect(help).toMatch(/^ {2}history list\b/m)
     expect(help).toContain("history show <ref>")
     expect(help).toContain("history fetch [remote]")
+    expect(help).toContain("history metrics [ref...]")
   })
 })
 
@@ -1136,6 +1147,7 @@ describe("standaloneKinds / needsOf", () => {
       "slices",
       "historyList",
       "historyShow",
+      "historyMetrics",
       "historyFetch",
     ] as const) {
       expect(needsOf(kind)).toBe("state")

@@ -97,29 +97,33 @@ const share = (raw: string, flag: string): Either.Either<number, string> => {
     : Either.left(`gtd: ${flag} must be a share of the context window in (0, 1] — got "${raw}"`)
 }
 
+const JSON_KINDS: ReadonlySet<Command["kind"] | undefined> = new Set<Command["kind"]>([
+  "next",
+  "land",
+  "judge",
+  "judgeAnswer",
+  "doors",
+  "slices",
+  "historyList",
+  "historyShow",
+  "historyMetrics",
+  "strays",
+])
+
 const FLAGS: readonly FlagRow[] = [
   {
     name: "--json",
     arity: "optional",
     repeatable: false,
-    scope: (kind) =>
-      kind === "next" ||
-      kind === "land" ||
-      kind === "judge" ||
-      kind === "judgeAnswer" ||
-      kind === "doors" ||
-      kind === "slices" ||
-      kind === "historyList" ||
-      kind === "historyShow" ||
-      kind === "strays",
+    scope: (kind) => JSON_KINDS.has(kind),
     decode: ([raw]) => Either.right(raw ?? ""),
     scopeError:
-      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors`/`gtd slices`/`gtd history list`/`gtd history show`/`gtd strays` — " +
+      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors`/`gtd slices`/`gtd history list`/`gtd history show`/`gtd history metrics`/`gtd strays` — " +
       "every other command prints plain text; see `gtd install` for the driver protocol briefing",
     valueHint: "<path>",
     help: [
       "(gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd slices/gtd history",
-      "list/gtd history show/gtd strays only) output structured JSON. Bare --json prints the whole document;",
+      "list/gtd history show/gtd history metrics/gtd strays only) output structured JSON. Bare --json prints the whole document;",
       "--json=<path> (a dotted key path into that document, e.g.",
       "kind, content, session.id) prints just that value: a",
       "scalar raw and unquoted, a boolean as true/false, a list",
@@ -445,6 +449,8 @@ type Arity =
   | { readonly name: string; readonly variadic: string }
   // At most one trailing positional.
   | { readonly name: string; readonly optional: true }
+  // Any number of positionals, none included.
+  | { readonly name: string; readonly many: true }
 
 interface CommandRow {
   readonly token: string
@@ -825,6 +831,21 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     ],
   },
   {
+    token: "history metrics",
+    kind: "historyMetrics",
+    arity: { name: "ref", many: true },
+    details: [
+      "Report how the kept processes went: slices whose naive pass",
+      "landed or was rebuilt (the refactor-first rate), continuations",
+      "per phase, Gtd-Cost by model and phase with the double work of",
+      "a rebuild, and quality-lap findings per lens — per process and",
+      "in total. Each <ref> is read as by history show; none means",
+      "every ref. Reads commit subjects and trailers, never replays,",
+      "so a changed config is no refusal. --json prints { processes,",
+      "total } as one document; writes nothing",
+    ],
+  },
+  {
     token: "history fetch",
     kind: "historyFetch",
     arity: { name: "remote", optional: true },
@@ -883,7 +904,9 @@ export const renderHelp = (): string => {
             ? `${row.token} <${row.arity.name}> [${row.arity.variadic}...]`
             : "optional" in row.arity
               ? `${row.token} [${row.arity.name}]`
-              : `${row.token} <${row.arity.name}>`
+              : "many" in row.arity
+                ? `${row.token} [${row.arity.name}...]`
+                : `${row.token} <${row.arity.name}>`
     return renderBlock(header, row.details)
   })
   const commands = [
@@ -1051,23 +1074,23 @@ const conflictViolation = (present: ReadonlySet<string>): string | undefined => 
   return undefined
 }
 
+const tooMany = (
+  cmd: string,
+  rest: readonly string[],
+  expected: string,
+  max: number,
+): string | undefined =>
+  rest.length > max
+    ? `gtd ${cmd}: too many arguments — expected ${expected}, got: ${rest.join(", ")}`
+    : undefined
+
 const arityError = (cmd: string, rest: readonly string[], arity: Arity): string | undefined => {
-  if (arity === "none") {
-    return rest.length > 0
-      ? `gtd ${cmd}: too many arguments — expected none, got: ${rest.join(", ")}`
-      : undefined
-  }
+  if (arity === "none") return tooMany(cmd, rest, "none", 0)
   if ("names" in arity) return pairArityError(cmd, rest, arity.names)
-  if ("optional" in arity) {
-    return rest.length > 1
-      ? `gtd ${cmd}: too many arguments — expected at most one ${arity.name}, got: ${rest.join(", ")}`
-      : undefined
-  }
+  if ("many" in arity) return undefined
+  if ("optional" in arity) return tooMany(cmd, rest, `at most one ${arity.name}`, 1)
   if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
-  if (!("variadic" in arity) && rest.length > 1) {
-    return `gtd ${cmd}: too many arguments — expected one ${arity.name}, got: ${rest.join(", ")}`
-  }
-  return undefined
+  return "variadic" in arity ? undefined : tooMany(cmd, rest, `one ${arity.name}`, 1)
 }
 
 const pairArityError = (
@@ -1138,7 +1161,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
 
   if (isHistory && row === undefined) {
     return usagePlan(
-      "gtd history: expected a subcommand — list, show <ref> or fetch [remote]",
+      "gtd history: expected a subcommand — list, show <ref>, metrics [ref...] or fetch [remote]",
       jsonSeen,
     )
   }
@@ -1376,6 +1399,15 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     return {
       kind: "command",
       command: { kind: "historyShow", ref: restPositionals[0]! },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "historyMetrics") {
+    return {
+      kind: "command",
+      command: { kind: "historyMetrics", refs: restPositionals },
       json,
       verbose,
     }

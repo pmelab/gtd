@@ -81,7 +81,7 @@ export const resolveHistoryRef = (
 const seven = (hash: string): string => hash.slice(0, 7)
 
 /** Writes `document` per `json` (bare → whole, `=path` → one value); returns false for `off`. */
-const writeJson = (
+export const writeJson = (
   json: JsonMode,
   out: ArtifactOut,
   document: unknown,
