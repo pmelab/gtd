@@ -976,7 +976,9 @@ describe("the seam phase's texts", () => {
   it("has a red retry pick up the kept attempt instead of starting over", () => {
     const prompt = renderText(() => naivePassPrompt({ red: "abc123" }))
     expect(prompt).toContain("left the suite red")
-    expect(prompt).toContain("git diff --binary abc123^ abc123 | git apply")
+    expect(prompt).toContain(
+      "git diff --binary --no-color --no-ext-diff --no-textconv abc123^ abc123 | git apply",
+    )
     expect(prompt).toContain(".gtd/FEEDBACK.md")
     expect(prompt).not.toContain("rejected")
   })
@@ -1042,7 +1044,9 @@ describe("the seam phase's texts", () => {
     }
     const prompt = renderText(() => naivePassPrompt(fault))
     expect(prompt).toContain("names AC-2")
-    expect(prompt).toContain("git diff --binary abc123^ abc123 | git apply")
+    expect(prompt).toContain(
+      "git diff --binary --no-color --no-ext-diff --no-textconv abc123^ abc123 | git apply",
+    )
     const message = renderText(() => seamSteerMessage(fault))
     expect(message).toContain("names AC-2")
     expect(message).toContain("`seam.check` runs its suite")

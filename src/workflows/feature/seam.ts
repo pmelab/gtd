@@ -18,13 +18,15 @@ import {
   run,
   scope,
   slice as sliced,
+  start,
   vars,
   wrote,
   type Change,
   type DiffShapeResult,
   type KeptTip,
 } from "../../flows/index.js"
-import { coder, FEEDBACK, REFACTOR_NOTE, REQUIREMENTS, SLICES } from "../shared/steps.js"
+import { continuing, phase, type Handoff, type Phase } from "../shared/continuation.js"
+import { coder, FEEDBACK, HANDOFF, REFACTOR_NOTE, REQUIREMENTS, SLICES } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
 import { green, requireCoverage } from "./coverage.js"
@@ -32,6 +34,7 @@ import {
   criterionIds,
   requireCriteria,
   requireCriteriaFrozen,
+  requireCriteriaIfEdited,
   sliceIds,
   type CriteriaSlice,
 } from "./criteria.js"
@@ -60,12 +63,45 @@ export const judgeSeam = (tip: KeptTip): Promise<DiffShapeResult> =>
     exempt: tip.changes.filter((c) => c.status === "added").map((c) => c.path),
   })
 
-export const naivePass = (retry?: t.NaiveRetry, slice?: CriteriaSlice): Promise<void> =>
-  t.agentWithSkills("naive", t.naivePassPrompt(retry, sliceIds(slice)), {
-    label: retry === undefined ? "Writing the naive pass" : "Rewriting the naive pass",
+export const naivePass = (
+  retry?: t.NaiveRetry,
+  slice?: CriteriaSlice,
+  from?: Handoff,
+): Promise<void> =>
+  t.agentWithSkills("naive", t.naivePassPrompt(retry, sliceIds(slice), from), {
+    label:
+      from !== undefined
+        ? "Continuing the naive pass"
+        : retry === undefined
+          ? "Writing the naive pass"
+          : "Rewriting the naive pass",
     keep: true,
     model: coder(),
     system: t.builderSystem(),
+  })
+
+const handoffOf = (tip: KeptTip, slice: CriteriaSlice | undefined): Handoff | undefined => {
+  const note = tip.changes.find((c) => c.path === HANDOFF && c.after !== undefined)
+  if (note === undefined) return undefined
+  return {
+    snapshot: tip.hash,
+    note: note.after!.trim(),
+    open: unnamed(idsOf(REQUIREMENTS, slice), acceptanceTests(tip.changes)),
+  }
+}
+
+/** A naive pass, continued until a pass ends without a handoff note: the snapshot is its kept tip. */
+const naiveContinued = (
+  retry: t.NaiveRetry | undefined,
+  slice: CriteriaSlice | undefined,
+  naive: Phase,
+) =>
+  continuing(naive, async (from, fresh) => {
+    const tip = await fresh(async () => {
+      await naivePass(retry, slice, from)
+      return kept("naive")!
+    })
+    return { result: tip, handoff: handoffOf(tip, slice) }
   })
 
 // Only a string an import, `require` or `mock` call takes: a URL route or path-like data is not one.
@@ -258,6 +294,56 @@ const applied = async (tip: string): Promise<boolean> => {
   return !wrote(FEEDBACK) && codeChanges().length > 0
 }
 
+/** `carried` limited to the criteria `.gtd/REQUIREMENTS.md` lists now; a file listing none narrows nothing. */
+const settled = (
+  carried: readonly string[] | undefined,
+  slice: CriteriaSlice | undefined,
+): readonly string[] => {
+  const listed = idsOf(REQUIREMENTS, slice)
+  if (carried === undefined) return listed
+  return listed.length === 0 ? carried : carried.filter((id) => listed.includes(id))
+}
+
+// A snapshot lands on the branch as it is; the health loop greens the whole build after.
+// Open IDs count every test line since the process start, so an amend lap's earlier tests close theirs.
+const build = (options: ImplementOptions): Promise<void> =>
+  continuing(phase("build", requireCriteriaIfEdited), async (from, fresh) => {
+    await fresh(() =>
+      t.agentWithSkills(
+        "building",
+        t.implementBuildingPrompt(
+          options.reference,
+          options.tier,
+          options.amend,
+          options.afterRefactor,
+          flagModeOn(),
+          options.rebuild,
+          sliceIds(options.slice),
+          from,
+        ),
+        {
+          label: from === undefined ? "Implementing" : "Continuing the implementation",
+          model: coder(),
+          system: t.builderSystem(),
+          ...(options.afterRefactor === true ? { allowEmpty: true } : {}),
+        },
+      ),
+    )
+    requireCriteriaFrozen(REQUIREMENTS)
+    // Committed by the snapshot, so a turn stopped again may leave it as it was: present means stopped.
+    const note = read(HANDOFF)
+    if (note === undefined) return { result: undefined }
+    const ids = settled(options.rebuild?.acceptance?.ids, options.slice)
+    return {
+      result: undefined,
+      handoff: {
+        snapshot: head(),
+        note: note.trim(),
+        open: unnamed(ids, acceptanceTests(changesSince(start()))),
+      },
+    }
+  })
+
 export function implement(options?: ImplementOptions): Promise<void>
 /** @deprecated Pass `implement({ reference, tier, amend })`. */
 export function implement(
@@ -276,27 +362,11 @@ export function implement(
     const since = head()
     const acceptance = options.rebuild?.acceptance
     const built = options.naive === undefined || !(await applied(options.naive))
-    if (built)
-      await t.agentWithSkills(
-        "building",
-        t.implementBuildingPrompt(
-          options.reference,
-          options.tier,
-          options.amend,
-          options.afterRefactor,
-          flagModeOn(),
-          options.rebuild,
-          sliceIds(options.slice),
-        ),
-        {
-          label: "Implementing",
-          model: coder(),
-          system: t.builderSystem(),
-          ...(options.afterRefactor === true ? { allowEmpty: true } : {}),
-        },
-      )
-    requireCriteriaFrozen(REQUIREMENTS)
-    if (built && acceptance !== undefined) requireAcceptance(acceptance, since)
+    if (built) await build(options)
+    else requireCriteriaFrozen(REQUIREMENTS)
+    // Only the criteria still listed: a person may narrow them at `implement.oversized`.
+    if (built && acceptance !== undefined)
+      requireAcceptance({ ...acceptance, ids: settled(acceptance.ids, options.slice) }, since)
     // Fix turns are held to the carried tests too: deleting a red one must not buy a green suite.
     await green(
       built && acceptance !== undefined ? () => requireAcceptanceKept(acceptance) : undefined,
@@ -311,9 +381,11 @@ export const closeOut = (): Promise<void> => scope("implement", () => closing(fa
 
 /** A slice with `more` after it keeps the criteria and the slicing for the next one. */
 const closing = (more: boolean): Promise<void> =>
-  run("closing", removeScript(more ? [REFACTOR_NOTE] : [REQUIREMENTS, REFACTOR_NOTE, SLICES]), {
-    label: "Closing out the implementation",
-  })
+  run(
+    "closing",
+    removeScript(more ? [REFACTOR_NOTE, HANDOFF] : [REQUIREMENTS, REFACTOR_NOTE, SLICES, HANDOFF]),
+    { label: "Closing out the implementation" },
+  )
 
 interface Decision {
   readonly reference: string
@@ -392,10 +464,10 @@ const ruled = async (tip: KeptTip, again: Vetting["again"]): Promise<Decision | 
 const decide = (slice: CriteriaSlice | undefined): Promise<Decision> =>
   scope("seam", async () => {
     const vetting: Vetting = { again: budget(), waived: false }
+    const naive = phase("naive pass", requireCriteriaIfEdited)
     let retry: t.NaiveRetry | undefined
     for (;;) {
-      await naivePass(retry, slice)
-      const tip = kept("naive")!
+      const tip = await naiveContinued(retry, slice, naive)
       const outcome =
         (await vetted(tip, vetting, slice)) ??
         (flagModeOn() ? await ruled(tip, vetting.again) : { reference: tip.hash, tip })

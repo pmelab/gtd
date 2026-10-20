@@ -227,7 +227,10 @@ cache-read and cache-creation tokens — and compares it with the shares of
 
 - **Past `soft`**, it answers `{"decision":"block","reason":…}`: the agent is
   told to stop and end its turn with a short handoff note — what it touched and
-  what was next. The turn ends normally and lands like any other.
+  what was next — written to a file too where its instructions name one. The
+  turn ends normally and lands like any other; the bundled `feature` workflow
+  continues such a turn in a fresh one (see
+  [Continuations](./configuration.md#continuations)).
 - **Past `hard`**, it answers `{"continue":false,"stopReason":…}` with a
   `stopReason` starting `gtd: context limit` — the context-limit marker. Claude
   Code ends the turn; its `result` envelope reads

@@ -869,6 +869,51 @@ judge ruled `land`, that overruled a reject at `seam.steer`, or — with
 `refactor-first`: replay now expects `seam.note` after the verdict where its
 history names `refactor.deriving`, and refuses it as divergence.
 
+### Continuations
+
+A driver asks an agent turn past its [context limit](#step-options)'s `soft`
+share to stop and end with a handoff note. In `feature`, three turns are told to
+write that note to `.gtd/HANDOFF.md`: the naive pass (`seam.naive`), the
+refactor (`refactor.building`) and the build (`implement.building`, the rebuild
+included). A turn that writes it stopped at its limit; what it left is the
+**snapshot**, broken or not:
+
+- **Naive pass** — its [kept tip](#kept-tips), off the branch. The continuation,
+  `seam.continue.naive`, applies the tip (`.gtd/HANDOFF.md` left out) and works
+  on the `AC-<n>` its tests do not name yet. The pass that finally ends without
+  a note is vetted, checked and judged as one.
+- **Refactor** — the turn's own commit, then the health loop: every sub-step
+  keeps the existing suite green before `refactor.continue.building` picks up.
+  What is still open is the refactor's paths it has not changed yet.
+- **Build** — the turn's own commit, on the branch, still behind the release
+  flag. `implement.continue.building` works on the `AC-<n>` the build's tests do
+  not name yet; the health loop runs once the build ends without a note.
+
+Each continuation is a fresh conversation (`<phase>.continue` is its memory
+scope), told the snapshot, the note and what is still open, and asked to delete
+`.gtd/HANDOFF.md` once done: in the refactor and the build, a note still in the
+tree after a turn means that turn stopped again (`implement.closing` and
+`refactor.closing` remove it). Once a phase has continued, its later turns — a
+naive retry, the next refactor lap — are fresh conversations too, under
+`<phase>.fresh` (`seam.fresh.naive`, `refactor.fresh.building`). Per phase —
+across its retries and laps — [`continuations`](#the-bundled-workflows-settings)
+continuations run (default 3); one more stop, or
+[`continuationStall`](#the-bundled-workflows-settings) continuations in a row
+that close nothing still open (default 2; a stop with nothing countable left
+open is never a stall), rests at `seam.oversized`, `refactor.oversized` or
+`implement.oversized`. Landing there, clean or — at `seam.oversized` and
+`implement.oversized` — after narrowing `.gtd/REQUIREMENTS.md` (refused unless
+its criteria stay valid, and never deleted; a rebuild then carries only the
+criteria still listed), starts a fresh round from the last snapshot;
+`gtd abandon` gives the change up. A refactor's scope is fixed, so at
+`refactor.oversized` only a raised context limit makes room. A continuation that
+forgets to delete the note is read as stopped again, so it costs another
+continuation, never a half-finished phase going on.
+
+**A turn stopped at its `hard` limit is not a snapshot**: the driver lands
+nothing, as in [Context limits](./driver.md#context-limits). Only the soft
+stop's note continues.
+
 A review note at the refactor review is collected into `.gtd/REFACTOR.md`, and
 `refactor.deriving` runs again with the notes under `## Review feedback` — never
 `design.triage`. A concern that needs a path outside the strays, a new or
@@ -1916,6 +1961,13 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   from the refactor's sign-off); blank runs no refactor quality lap. Each lens
   is its own scope, keyed `refactor.build.quality.<lens>`. Entries take the same
   `<lens>=<model>` hints, read from this list alone.
+- **`continuations`** (`3`) — per phase (naive pass, refactor, build), how many
+  [continuations](#continuations) run before a turn that still stops at its
+  context limit rests at `<phase>.oversized`. A whole number, `0` or more;
+  anything else refuses the landing that reaches it.
+- **`continuationStall`** (`2`) — how many continuations in a row may close
+  nothing still open before the phase rests at `<phase>.oversized`. A whole
+  number, `1` or more.
 - **`reviewBase`** (empty) — the commitish `--workflow review` reviews from
   (`gtd door review` sets it).
 

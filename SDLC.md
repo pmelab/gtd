@@ -109,6 +109,9 @@ approval:
   overrules
 - `seam.by-hand` — strays whose content cannot be read; a person reviews those
   files by hand
+- `seam.oversized`, `refactor.oversized`, `implement.oversized` — a phase whose
+  continuations hit the `continuations` cap or stalled; landing grants a fresh
+  round
 - `*.health.stop` and `*.health.exhausted` — escalation stops
 - `build.quality-unresolved` — quality findings the fix cap left; a person fixes
   what matters, then deletes or empties `.gtd/QUALITY.md`

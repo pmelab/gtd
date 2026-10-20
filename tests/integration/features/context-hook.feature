@@ -35,7 +35,7 @@ Feature: gtd context-hook stops an agent turn at its context limit
     Then it succeeds
     And stdout contains "\"decision\":\"block\""
     And stdout contains "650 of 1000 tokens used, past the 60% soft limit"
-    And stdout contains "end your turn with a short handoff note as your answer: what you touched, and what was next."
+    And stdout contains "end your turn with a short handoff note as your answer: what you touched, and what was next. Where your instructions name a file for that note, write it there too."
 
   Scenario: past the hard limit the turn stops behind the context-limit marker
     When I run gtd with args "context-hook --window 900" and stdin:

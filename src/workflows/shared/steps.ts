@@ -15,6 +15,7 @@ export const REFACTOR = ".gtd/REFACTOR.md"
 export const REFACTOR_NOTE = ".gtd/REFACTOR-NOTE.md"
 export const QUALITY = ".gtd/QUALITY.md"
 export const SLICES = ".gtd/SLICES.md"
+export const HANDOFF = ".gtd/HANDOFF.md"
 
 export const planner = (): string => env.plannerModel ?? ""
 export const coder = (): string => env.coderModel ?? ""

@@ -162,6 +162,10 @@ Given(
   },
 )
 
+Given("step {string} deletes {string}", (world: TestkitWorld, step: string, path: string) => {
+  world.act(step, (_, repo) => repo.remove(path))
+})
+
 // A standing assertion like any queued action: it applies on every later visit
 // to the step until `from now on` clears the list.
 Given(

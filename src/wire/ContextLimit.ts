@@ -156,7 +156,7 @@ export const contextHook = (input: {
   if (tokens >= limit.soft * window) {
     return {
       kind: "soft",
-      reason: `Context limit: ${used} used, past the ${percent(limit.soft)} soft limit. Stop working now. Do not start anything new; end your turn with a short handoff note as your answer: what you touched, and what was next.`,
+      reason: `Context limit: ${used} used, past the ${percent(limit.soft)} soft limit. Stop working now. Do not start anything new; end your turn with a short handoff note as your answer: what you touched, and what was next. Where your instructions name a file for that note, write it there too.`,
     }
   }
   return undefined

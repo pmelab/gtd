@@ -34,6 +34,11 @@ export const defaults: Readonly<Record<string, string>> = {
   qualityReviews:
     "correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge",
   refactorQualityReviews: "correctness, ponytail-review, conventions",
+  // Per phase (naive pass, refactor, build): continuations of a turn that
+  // stopped at its context limit before a person is asked, and how many in a
+  // row may close nothing still open.
+  continuations: "3",
+  continuationStall: "2",
 }
 
 /** Environment settings. */
