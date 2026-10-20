@@ -1293,7 +1293,9 @@ describe("composedReview", () => {
 
   it("names the nit fix on the review after it", () => {
     const doc = composedReview(BASE, { notes: [], fixed: [], noise: [], nitFix: "abcdef0123" })
-    expect(doc).toContain("## Fixed from your notes\n\nYour nits were fixed in abcdef0;")
+    expect(doc).toContain(
+      "## Fixed from your notes\n\nYour nits and fix-as-suggested notes were worked on in abcdef0;",
+    )
   })
 
   it("ends every note, and only a note, in its three answer boxes", () => {
@@ -1306,7 +1308,7 @@ describe("composedReview", () => {
       "## a\n\n- ends in a list\n\nTick exactly one:\n\n- [ ] fix as suggested\n- [ ] won't fix\n- [ ] _your answer_\n\n## Fixed automatically",
     )
     expect(doc.match(/fix as suggested/g)).toHaveLength(1)
-    expect(unansweredNotes(doc)).toEqual([{ title: "a", line: 5 }])
+    expect(unansweredNotes(doc)).toEqual([{ title: "a", line: 5, reason: "tick exactly one box" }])
   })
 
   it("leaves out the notes already answered", () => {

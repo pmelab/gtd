@@ -169,7 +169,7 @@ export const composedReview = (base: string, report: ComposedReview): string => 
       : [
           chunk(
             "Fixed from your notes",
-            `Your nits were fixed in ${short(report.nitFix)}; the notes you answered are left out.`,
+            `Your nits and fix-as-suggested notes were worked on in ${short(report.nitFix)}; the notes you answered are left out — check the diff.`,
           ),
         ]),
     ...(weakened.length === 0
@@ -691,8 +691,12 @@ export const buildReviewAwaitReviewMessage = (base: string): string =>
 per finding that needs your judgement — it questions a criterion or the
 approach, or the fixer could not resolve it — then, for reference only, what
 was **fixed automatically** (with the fixing commit) and what was **dropped
-as noise**. Nothing there needs an answer; disagreeing with a fix or a drop
-means writing a note of your own.
+as noise**. Each finding chunk ends in three boxes — tick exactly one:
+\`fix as suggested\` (fixed in the nit batch below), \`won't fix\` (dropped,
+recorded in the commit), or write your own answer over \`_your answer_\` and
+tick it (judged like a note). Every landing here is refused until each
+finding holds exactly one tick. The fixed and noise lists need no answer;
+disagreeing with a fix or a drop means writing a note of your own.
 
 Review the diff yourself, with whatever tool you like — gtd checks
 nothing out and touches no ref; \`gtd base\` prints this same hash any
@@ -702,8 +706,8 @@ working tree:
     git diff ${base}
 When you've been through the whole diff, run \`gtd land\`:
 
-- **Sign off** — leave no comment — no note in
-  \`.gtd/REVIEW.md\`, no code edit — to close the process.
+- **Sign off** — answer every finding, leave no other comment — no note
+  in \`.gtd/REVIEW.md\`, no code edit — to close the process.
   Every turn commit stays on the
   branch; run \`gtd summary\` afterward for a closing-message
   prompt.
@@ -915,7 +919,8 @@ default; a skipped judgment never dismisses a note).
 
 Also judge each note's severity, one id per note: \`note-<n>.security\`,
 \`note-<n>.reversibility\`, \`note-<n>.blastRadius\` and
-\`note-<n>.newConcept\`.
+\`note-<n>.newConcept\`. An own answer under a finding's boxes is judged
+the same way, keyed \`answer-<n>\`.
 `
 const closedFold = (round: CollectRound, target: string): string =>
   round === "edits"
@@ -1022,11 +1027,12 @@ ${closedFold(refactor.round, target)}`
     : `- This turn writes \`${target}\` (the folded concerns) and
   replies inside \`.gtd/REVIEW.md\` (thread replies only; the file stays
   in the tree) — you classify, you do not build
-- Fold every concluded thread, ticked answer and hand-edit — and each
-  \`edit\` note the capture lists, no other note — into
-  \`${target}\` and delete the folded threads from
-  \`.gtd/REVIEW.md\`; append one \`- A:\` reply to each thread
-  whose last entry is a \`- H:\` question
+- Fold every concluded thread and hand-edit — and each \`edit\` note
+  the capture lists, no other note — into \`${target}\` and
+  delete the folded threads from \`.gtd/REVIEW.md\`; append one \`- A:\`
+  reply to each thread whose last entry is a \`- H:\` question
+- Never fold a note's ticked answer box the capture does not list: gtd
+  routes those itself
 `
 }- When the capture names an answering commit, carry each answered
   question into \`${target}\`'s \`## Answered Questions\` as

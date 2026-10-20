@@ -116,11 +116,13 @@ const collect = async (
   return refuse(p.refusals.unmatched)
 }
 
-/** Refuse while a note's answer boxes hold anything but exactly one tick. */
+/** Refuse while a note's answer boxes hold anything but exactly one tick, or a note's boxes were deleted. */
 const requireDecisions = (file: string): void => {
-  const open = unansweredNotes(read(file) ?? "")
+  const open = unansweredNotes(read(file) ?? "", changes(file)[0]?.before)
   if (open.length === 0) return
-  const list = open.map((n) => `  - ${file}:${n.line}: ${n.title}`).join("\n")
+  const list = open
+    .map((n) => `  - ${file}${n.line > 0 ? `:${n.line}` : ""}: ${n.title} — ${n.reason}`)
+    .join("\n")
   refuse(
     `gtd land: answer-completeness: ${open.length} note(s) in ${file} not answered — tick exactly one box per note: fix as suggested, won't fix, or your own answer written over _your answer_:\n${list}`,
   )

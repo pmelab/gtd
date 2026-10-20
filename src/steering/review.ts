@@ -483,11 +483,13 @@ const parseHunk = (
   return { file, errors }
 }
 
-const itemText = (content: string, item: ListItem): string => {
-  const paragraph = item.children.find((c) => c.type === "paragraph")
-  // A ticked item's paragraph span starts at its `[x]`.
-  return paragraph === undefined ? "" : sourceText(content, paragraph).replace(/^\[[ xX]\]\s*/, "")
-}
+const itemText = (content: string, item: ListItem): string =>
+  item.children
+    .map((c) => sourceText(content, c))
+    .join(" ")
+    // A ticked item's first paragraph span starts at its `[x]`.
+    .replace(/^\[[ xX]\]\s*/, "")
+    .trim()
 
 /**
  * The task list right after the `Tick exactly one:` paragraph, with that
@@ -1291,11 +1293,36 @@ const decisionOf = (chunk: Changeset): ReviewDecision | undefined => {
   return { anchor: chunk.title, body: chunk.description, choice: CHOICES[i]!, text }
 }
 
-/** Notes whose answer boxes do not hold exactly one tick (a ticked free-text slot filled in), with their 1-based heading line. */
-export const unansweredNotes = (content: string): readonly { title: string; line: number }[] =>
-  parseReviewDoc(content)
-    .changesets.filter((c) => c.answers !== undefined && decisionOf(c) === undefined)
-    .map((c) => ({ title: c.title, line: c.headingLine + 1 }))
+/**
+ * Notes whose answer boxes do not hold exactly one tick (a ticked free-text
+ * slot filled in), with their 1-based heading line and why; and, given the
+ * file `before` the edit, every note whose boxes were deleted.
+ */
+export const unansweredNotes = (
+  content: string,
+  before?: string,
+): readonly { title: string; line: number; reason: string }[] => {
+  const now = parseReviewDoc(content).changesets
+  const boxed = new Set(now.filter((c) => c.answers !== undefined).map((c) => c.title))
+  const removed = (before === undefined ? [] : parseReviewDoc(before).changesets)
+    .filter((c) => c.answers !== undefined && !boxed.has(c.title))
+    .map((c) => ({
+      title: c.title,
+      line: 0,
+      reason: "its answer boxes were deleted — restore them",
+    }))
+  const open = now
+    .filter((c) => c.answers !== undefined && decisionOf(c) === undefined)
+    .map((c) => ({
+      title: c.title,
+      line: c.headingLine + 1,
+      reason:
+        c.answers!.length === 3
+          ? "tick exactly one box"
+          : `it has ${c.answers!.length} boxes — restore the three gtd wrote`,
+    }))
+  return [...open, ...removed]
+}
 
 /** Every answer in `after` that `before` did not already hold for the same note, in document order. */
 export const reviewDecisions = (before: string, after: string): readonly ReviewDecision[] => {

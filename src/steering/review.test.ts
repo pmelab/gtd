@@ -1876,7 +1876,9 @@ describe("answer boxes", async () => {
   })
 
   it("an unticked note, or one with two ticks, is unanswered", () => {
-    expect(unansweredNotes(open)).toEqual([{ title: "Rounding", line: 5 }])
+    expect(unansweredNotes(open)).toEqual([
+      { title: "Rounding", line: 5, reason: "tick exactly one box" },
+    ])
     expect(unansweredNotes(doc(note("Rounding", ["x", "x", ""])))).toHaveLength(1)
   })
 
@@ -1922,6 +1924,14 @@ describe("answer boxes", async () => {
       { choice: "answer", text: "./src/calc.ts#1-1 round here" },
     ])
     expect(steeringFormatFor("review")!.clearTicks(pathy)).toBe(pathy)
+  })
+
+  it("a note whose boxes were deleted is unanswered", () => {
+    const gone = doc("## Rounding\n\nShould subtract round?")
+    expect(unansweredNotes(gone, open)).toEqual([
+      { title: "Rounding", line: 0, reason: "its answer boxes were deleted — restore them" },
+    ])
+    expect(unansweredNotes(doc(), open)).toHaveLength(1)
   })
 
   it("a box added or removed leaves the note unanswered", () => {

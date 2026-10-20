@@ -171,3 +171,9 @@ Feature: every note in the review is answered with one tick
       gtd(check): build.review.composing → build.review.await-review
       """
     And ".gtd/REVIEW.md" does not contain "AC-1 ignores floating point"
+
+  Scenario: deleting a note's boxes instead of answering is refused
+    When the process is driven
+    And the text "- [ ] fix as suggested" in ".gtd/REVIEW.md" is replaced with ""
+    And the text "Tick exactly one:" in ".gtd/REVIEW.md" is replaced with ""
+    Then landing is refused with "its answer boxes were deleted"
