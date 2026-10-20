@@ -16,50 +16,62 @@ export interface Standards {
 
 const UNDECIDED = "Undecided"
 
-// eslint-disable-next-line no-control-regex -- the control range IS the point
-export const oneLine = (text: string): string => text.replace(/[\s\x00-\x1f\x7f]+/g, " ").trim()
+// The same class as the review's `Gtd-Mark` anchors, so a title reads alike in both.
+export const oneLine = (text: string): string =>
+  // eslint-disable-next-line no-control-regex -- the control range IS the point
+  text.replace(/[\s\x00-\x1f\x7f-\x9f\u2028\u2029]+/g, " ").trim()
 
 const ITEM = /^[-*+]\s+(.*)$/
 const CONTRADICTS = /^\s+[-*+]\s+contradicts:\s*(.*)$/i
+
+interface Item {
+  text: string
+  /** Set under `## Undecided`. */
+  olds?: string[]
+}
+
+// A formatter wraps long lines: the tail belongs to the last `contradicts:` once there is one.
+const wrapped = (item: Item, line: string): void => {
+  const olds = item.olds
+  if (olds !== undefined && olds.length > 0) olds[olds.length - 1] += ` ${line.trim()}`
+  else item.text += ` ${line.trim()}`
+}
+
+const toStandards = (items: readonly Item[]): Standards => {
+  const kept = items.filter((i) => oneLine(i.text) !== "")
+  return {
+    decided: kept.filter((i) => i.olds === undefined).map((i) => oneLine(i.text)),
+    undecided: kept.flatMap((i) =>
+      i.olds === undefined
+        ? []
+        : [{ text: oneLine(i.text), olds: i.olds.map(oneLine).filter((o) => o !== "") }],
+    ),
+  }
+}
 
 /**
  * Every top-level bullet is one standard, those under `## Undecided` waiting
  * on the human; a hand-edited file may group the rest under any heading.
  */
 export const parseStandards = (text: string): Standards => {
-  const decided: string[] = []
-  const undecided: { text: string; olds: string[] }[] = []
+  const items: Item[] = []
   let pending = false
-  let last: { text: string; olds?: string[] } | undefined
-  const flush = (): void => {
-    if (last === undefined) return
-    const standard = oneLine(last.text)
-    if (standard !== "") {
-      if (last.olds === undefined) decided.push(standard)
-      else undecided.push({ text: standard, olds: last.olds.map(oneLine).filter((o) => o !== "") })
-    }
-    last = undefined
-  }
+  let last: Item | undefined
   for (const line of text.split("\n")) {
     const heading = /^(#{1,6})\s+(.*)$/.exec(line)
     const item = ITEM.exec(line)
     const old = CONTRADICTS.exec(line)
     if (heading !== null) {
-      flush()
       pending = heading[1]!.length > 1 && heading[2]!.trim() === UNDECIDED
+      last = undefined
     } else if (item !== null) {
-      flush()
       last = pending ? { text: item[1]!, olds: [] } : { text: item[1]! }
-    } else if (old !== null && last?.olds !== undefined) {
-      last.olds.push(old[1]!)
-    } else if (/^\s+\S/.test(line) && last !== undefined) {
-      last.text += ` ${line.trim()}`
-    } else if (line.trim() !== "") {
-      flush()
-    }
+      items.push(last)
+    } else if (old !== null && last?.olds !== undefined) last.olds.push(old[1]!)
+    else if (/^\s+\S/.test(line) && last !== undefined) wrapped(last, line)
+    else if (line.trim() !== "") last = undefined
   }
-  flush()
-  return { decided, undecided }
+  return toStandards(items)
 }
 
 export const renderStandards = ({ decided, undecided }: Standards): string => {

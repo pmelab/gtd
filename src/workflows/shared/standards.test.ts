@@ -38,6 +38,24 @@ describe("standards file", () => {
   })
 })
 
+describe("a formatter-wrapped file", () => {
+  it("keeps a wrapped contradicts line with its old standard", () => {
+    const text = [
+      "## Undecided",
+      "",
+      "- Calculators are plain functions. (re: subtract has no class)",
+      "  - contradicts: Won't fix: subtract has no class — Calculators read better as",
+      "    classes.",
+    ].join("\n")
+    expect(parseStandards(text).undecided).toEqual([
+      {
+        text: "Calculators are plain functions. (re: subtract has no class)",
+        olds: ["Won't fix: subtract has no class — Calculators read better as classes."],
+      },
+    ])
+  })
+})
+
 describe("conflict notes", () => {
   it("title back to the conflict it asks about", () => {
     const standards = { decided: [], undecided: [conflict] }

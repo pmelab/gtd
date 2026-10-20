@@ -53,16 +53,32 @@ const without = (list: readonly string[], drop: readonly string[]): string[] =>
 const adding = (list: readonly string[], text: string): string[] =>
   list.includes(text) ? [...list] : [...list, text]
 
-/** Keep the new one, keep the old one, or replace both with the human's own wording. */
+/**
+ * Keep the new one, keep the old one, or replace both with the human's own
+ * wording. Another conflict naming a replaced standard names its replacement.
+ */
 const resolve = (standards: Standards, d: ReviewDecision): Standards => {
   const c = conflictFor(standards, d.anchor)
   if (c === undefined) return standards
-  const undecided = standards.undecided.filter((u) => u !== c)
-  if (d.choice === "wontfix") return { decided: standards.decided, undecided }
+  const others = standards.undecided.filter((u) => u !== c)
+  if (d.choice === "wontfix") return { decided: standards.decided, undecided: others }
   const kept = d.choice === "fix" ? c.text : oneLine(d.text)
+  const undecided = others.map((u) => ({
+    text: u.text,
+    olds: u.olds.reduce<string[]>((olds, o) => adding(olds, c.olds.includes(o) ? kept : o), []),
+  }))
   return { decided: adding(without(standards.decided, c.olds), kept), undecided }
 }
 
+const contradicts = (i: number, id: string, other: string): JudgeQuestion => ({
+  id: `standard-${i}.contradicts-${id}`,
+  primitive: "noul",
+  instructions: `Does the "Standard:" line of evidence "standard-${i}" contradict ${other}?`,
+  criteria:
+    "yes: following one breaks the other. no: both can be followed — they are compatible or unrelated.",
+})
+
+// Each candidate against every kept standard and every candidate before it.
 const questionsFor = (i: number, anchor: string, decided: readonly string[]): JudgeQuestion[] => [
   {
     id: `standard-${i}`,
@@ -71,14 +87,11 @@ const questionsFor = (i: number, anchor: string, decided: readonly string[]): Ju
     criteria:
       "yes: it states a rule or preference that applies beyond this note. no: it is specific to this note, a one-off call, or unclear.",
   },
-  ...decided.map(
-    (_, k): JudgeQuestion => ({
-      id: `standard-${i}.contradicts-${k + 1}`,
-      primitive: "noul",
-      instructions: `Does the "Standard:" line of evidence "standard-${i}" contradict existing standard ${k + 1} (evidence "standards")?`,
-      criteria:
-        "yes: following one breaks the other. no: both can be followed — they are compatible or unrelated.",
-    }),
+  ...decided.map((_, k) =>
+    contradicts(i, `${k + 1}`, `kept standard ${k + 1} (evidence "kept-${k + 1}")`),
+  ),
+  ...Array.from({ length: i - 1 }, (_, j) =>
+    contradicts(i, `new-${j + 1}`, `the "Standard:" line of evidence "standard-${j + 1}"`),
   ),
 ]
 
@@ -92,40 +105,42 @@ const evidenceOf = (c: Candidate): string =>
 
 /**
  * One judge rest over every candidate. Only a confident `yes` on uncut
- * evidence makes a standard; any contradiction the judge does not rule out
- * goes to the human instead of overwriting what they decided before.
+ * evidence makes a standard; a contradiction the judge does not confidently
+ * rule out goes to the human instead of overwriting what they decided before.
+ * Each kept standard is its own evidence key, so a long file cuts one, not all.
  */
 const judged = async (
   candidates: readonly Candidate[],
   decided: readonly string[],
+  minP: number,
 ): Promise<{ added: string[]; raised: Conflict[] }> => {
   const { answers, truncated } = await judge("review.standards.judge", {
     questions: candidates.flatMap((c, i) => questionsFor(i + 1, c.decision.anchor, decided)),
-    evidence: {
-      ...Object.fromEntries(candidates.map((c, i) => [`standard-${i + 1}`, evidenceOf(c)])),
-      ...(decided.length === 0
-        ? {}
-        : { standards: decided.map((s, k) => `${k + 1}. ${s}`).join("\n") }),
-    },
+    evidence: Object.fromEntries([
+      ...candidates.map((c, i) => [`standard-${i + 1}`, evidenceOf(c)]),
+      ...decided.map((s, k) => [`kept-${k + 1}`, s]),
+    ]),
     message:
       "Judging whether your answers are standards to keep: run `gtd judge run`, or land without a verdict, which keeps none.",
     label: "Learning your standards",
   })
-  const minP = numeric(vars.standardMinP, Infinity)
-  const added: string[] = []
+  const ruledOut = (i: number, id: string): boolean =>
+    answered(answers[`standard-${i}.contradicts-${id}`], "no", minP)
+  const added: { i: number; text: string }[] = []
   const raised: Conflict[] = []
-  if (truncated.includes("standards")) return { added, raised }
   candidates.forEach((c, n) => {
     const i = n + 1
     if (truncated.includes(`standard-${i}`)) return
+    if (decided.some((_, k) => truncated.includes(`kept-${k + 1}`))) return
     if (!answered(answers[`standard-${i}`], "yes", minP)) return
-    const contradicts = decided.map((_, k) => answers[`standard-${i}.contradicts-${k + 1}`])
-    if (contradicts.includes(undefined)) return
-    const olds = decided.filter((_, k) => contradicts[k]!.answer !== "no")
-    if (olds.length === 0) added.push(c.text)
+    const olds = [
+      ...decided.filter((_, k) => !ruledOut(i, `${k + 1}`)),
+      ...added.filter((a) => !ruledOut(i, `new-${a.i}`)).map((a) => a.text),
+    ]
+    if (olds.length === 0) added.push({ i, text: c.text })
     else raised.push({ text: c.text, olds })
   })
-  return { added, raised }
+  return { added: added.map((a) => a.text), raised }
 }
 
 /**
@@ -141,8 +156,12 @@ export const learnStandards = async (decisions: readonly ReviewDecision[]): Prom
   const candidates = rest
     .flatMap(candidateOf)
     .filter((c, i, all) => !known.has(c.text) && all.findIndex((o) => o.text === c.text) === i)
+  // Blank keeps none, so there is nothing to ask.
+  const minP = numeric(vars.standardMinP, Infinity)
   const { added, raised } =
-    candidates.length === 0 ? { added: [], raised: [] } : await judged(candidates, settled.decided)
+    candidates.length === 0 || !Number.isFinite(minP)
+      ? { added: [], raised: [] }
+      : await judged(candidates, settled.decided, minP)
   const after: Standards = {
     decided: [...settled.decided, ...added],
     undecided: [...settled.undecided, ...raised],

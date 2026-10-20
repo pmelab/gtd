@@ -291,8 +291,7 @@ export const routeNotes = async (
     await r.close()
     return { next: "rereview", carry: answeredAt }
   }
-  // Not the round: `learn` may have written to the review file since.
-  return { next: "await", reviewed: head() }
+  return { next: "await", reviewed: answeredAt ?? r.round }
 }
 
 /** A code edit, not a thread-only change: lines that only add, answer or remove code threads don't count. */
