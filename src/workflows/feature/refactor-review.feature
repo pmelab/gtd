@@ -4,7 +4,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
   After a refactor-first judgment the refactor is built, quality-lapped and
   reviewed in its own slice. Review edits re-run the refactor, never the design;
   the feature slice that follows is quality-lapped from the refactor's
-  sign-off, with no feature review. The flags are pinned so the per-flag test runs never move it off
+  sign-off, then reviewed. The flags are pinned so the per-flag test runs never move it off
   its path.
 
   Background:
@@ -428,7 +428,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       Then the process rests at "refactor.build.review.await-review"
       When gtd lands
       And the process is driven
-      Then the process rests at "idle"
+      Then the process rests at "build.review.reviewing"
 
     Scenario: a question answered at the refactor review reaches the re-derived package as ### Answered Questions
       When the process is driven
@@ -727,7 +727,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       When gtd lands
       And the process is driven
-      Then the process rests at "idle"
+      Then the process rests at "build.review.reviewing"
       And "src/calc.ts" contains "subtract"
 
     Scenario: a praise-only one-shot footnote signs off and the feature slice follows
@@ -769,7 +769,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       When gtd lands
       And the process is driven
-      Then the process rests at "idle"
+      Then the process rests at "build.review.reviewing"
       And "src/calc.ts" contains "subtract"
 
     Scenario: a one-shot footnote judged edit that collecting leaves out refuses naming its anchor
@@ -1084,7 +1084,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       When gtd lands
       And the process is driven
-      Then the process rests at "idle"
+      Then the process rests at "build.review.reviewing"
       And "src/calc.ts" contains "subtract"
 
     Scenario: a praise-only refactor review still signs off and the feature slice follows
@@ -1119,7 +1119,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       When gtd lands
       And the process is driven
-      Then the process rests at "idle"
+      Then the process rests at "build.review.reviewing"
       And "src/calc.ts" contains "subtract"
 
     Scenario: a nit fix in the refactor slice that changes a non-stray is refused, though a glob stray widens the write access
@@ -1309,11 +1309,11 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       And the resting step's content contains the hash of the commit "gtd(check): refactor.build.review.closing → implement.building"
       Given step "build.quality.correctness.reviewing" changes nothing
       When the process is driven
-      Then the process rests at "idle"
+      Then the process rests at "build.review.reviewing"
       And the commit subjects end with:
         """
         gtd(check): implement.closing → build.quality.correctness.reviewing
-        gtd(agent): build.quality.correctness.reviewing → idle
+        gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
         """
 
   Rule: a refactor package never carries a test file, and demoted headings stop at ######

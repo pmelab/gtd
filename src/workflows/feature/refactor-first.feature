@@ -1,10 +1,10 @@
 # One SDLC path per file, so a changed path reds exactly one fixture — do not merge.
 @inmem
-Feature: a refactor-first judgment walks one fixed path to idle
+Feature: a refactor-first judgment walks one fixed path to the review gate
 
   With GTD_FLAG_RISK_TIER off, a naive pass touching
   an existing non-allowlisted file is ruled refactor-first, is refactored and
-  that refactor reviewed, and only then implemented, with no feature review. The flags are
+  that refactor reviewed, and only then implemented and brought to the feature review. The flags are
   pinned so the per-flag test runs never move it off its path.
 
   Background:
@@ -41,7 +41,7 @@ Feature: a refactor-first judgment walks one fixed path to idle
       """
     And step "design.gate.answer" changes nothing
 
-  Scenario: a refactor-first judgment runs refactor, its review, implement and review to idle
+  Scenario: a refactor-first judgment runs refactor, its review, implement and the quality lap to the feature review
     Given step "seam.check" changes nothing
     And step "seam.naive" writes "src/acceptance.test.ts" with:
       """
@@ -121,7 +121,7 @@ Feature: a refactor-first judgment walks one fixed path to idle
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """
     When the process is driven
-    Then the process rests at "idle"
+    Then the process rests at "build.review.reviewing"
     And "src/calc.ts" contains "op(a, b, 1)"
     And "src/calc.ts" contains "subtract"
     And the commit subjects end with:
@@ -145,7 +145,7 @@ Feature: a refactor-first judgment walks one fixed path to idle
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
-      gtd(check): implement.closing → idle
+      gtd(check): implement.closing → build.review.reviewing
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"

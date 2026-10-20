@@ -92,14 +92,14 @@ What each change does next (then run \`gtd land\`):
 
 export const qualityUnresolvedMessage = (): string =>
   `The quality lap's fix turns hit their cap and \`.gtd/QUALITY.md\` still
-holds findings. Nothing reviews the change after this, so the process
-will not end with them open.
+holds findings. Nothing after this fixes them, so the process will not
+go on with them open.
 
 Fix what matters by hand, then delete or empty \`.gtd/QUALITY.md\` —
 dropping a finding is your call to make.
 
 What each change does next (then run \`gtd land\`):
-- **Delete or empty \`.gtd/QUALITY.md\`** — the suite runs on your edits, then the process ends (**idle**).
+- **Delete or empty \`.gtd/QUALITY.md\`** — the suite runs on your edits, then the next slice is built, or after the last one you review the change (**build.review.reviewing**).
 - **Anything else** — rests here again.
 `
 
@@ -144,8 +144,10 @@ reword a criterion in place, append a new one with the next unused
 number, delete a dropped one — never renumber, never reuse an ID. When
 the file holds no list (a review loop-back rewrites it), recover the
 last settled one from history (\`git log -p -- .gtd/REQUIREMENTS.md\`)
-and carry its IDs over. Landing is refused while a criterion has no ID or
-two share one.
+and carry its IDs over: after a review a built criterion keeps its ID,
+reworded in place when the review changes its behaviour, and new
+behaviour gets a new ID. Landing is refused while a criterion has no ID
+or two share one.
 `
 
 const riskTierBlock = `

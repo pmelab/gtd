@@ -5,7 +5,7 @@ Feature: a naive pass the judge rules land is itself the implementation
   With GTD_FLAG_RISK_TIER off, a naive pass that
   edits an existing source file is judged land: the process skips the approval
   gate and any refactor, applies the kept pass as it is — no build turn — and
-  runs the health loop and quality back to idle, with no review. The flag is pinned here so the per-flag test runs never
+  runs the health loop and quality lap to the feature review. The flag is pinned here so the per-flag test runs never
   move it off this path.
 
   Background:
@@ -62,9 +62,9 @@ Feature: a naive pass the judge rules land is itself the implementation
       """
     And step "build.quality.correctness.reviewing" changes nothing
 
-  Scenario: a land judgment applies the naive pass and runs idle to idle with no rebuild
+  Scenario: a land judgment applies the naive pass and runs from idle to the review gate with no rebuild
     When the process is driven
-    Then the process rests at "idle"
+    Then the process rests at "build.review.reviewing"
     And "src/greeting.ts" contains "Hello, world"
     And "src/acceptance.test.ts" contains "[AC-1] holds"
     And the commit subjects end with:
@@ -81,7 +81,7 @@ Feature: a naive pass the judge rules land is itself the implementation
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
-      gtd(agent): build.quality.correctness.reviewing → idle
+      gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"

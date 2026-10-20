@@ -224,8 +224,9 @@ workflow.
 
 In the bundled default, `planAndBuild` runs the design phase, then
 `buildFeature`: the naive pass and its seam judge, then the implementation (the
-pass itself on `land`) and the quality lap, ending with no human review. Add a
-human sign-off before the build:
+pass itself on `land`), the quality lap and the human review (a review feedback
+lap re-runs design inside `buildFeature` and does not pass it again). Add a
+human sign-off before the first build:
 
 ```ts
 const planAndBuild = async (firstBase: string): Promise<void> => {

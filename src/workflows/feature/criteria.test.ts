@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Change } from "../../flows/index.js"
-import { criteriaOf, criterionIds, statedCriteria } from "./criteria.js"
+import { criteriaOf, criterionIds, statedCriteria, unstableIds } from "./criteria.js"
 
 const added = (path: string, after: string): Change => ({
   path,
@@ -118,5 +118,24 @@ describe("criterionIds", () => {
 
   it("gives `except` every other ID, one added since included", () => {
     expect(criterionIds(requirements, { except: ["AC-1", "AC-3"] })).toEqual(["AC-2", "AC-4"])
+  })
+})
+
+describe("unstableIds", () => {
+  const ids = { closed: ["AC-1", "AC-3"], used: ["AC-1", "AC-2", "AC-3"] }
+
+  it("accepts built IDs kept or dropped and new ones numbered above all handed out", () => {
+    expect(unstableIds(["AC-3", "AC-4", "AC-7"], ids)).toBeUndefined()
+    expect(unstableIds([], ids)).toBeUndefined()
+  })
+
+  it("names a new ID that reuses a number handed out before, even a narrowed-away one", () => {
+    expect(unstableIds(["AC-1", "AC-2", "AC-3"], ids)).toMatch(
+      /^numbers AC-2 at or below AC-3, .* from AC-4$/,
+    )
+  })
+
+  it("names every reused ID", () => {
+    expect(unstableIds(["AC-0", "AC-2"], ids)).toMatch(/^numbers AC-0, AC-2 at or below AC-3/)
   })
 })

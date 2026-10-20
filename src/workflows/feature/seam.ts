@@ -283,7 +283,7 @@ export interface ImplementOptions {
   /** Where the slice began: the coverage judge reads only the tests changed since. */
   readonly base?: string | undefined
   /** Not the last slice: `.gtd/REQUIREMENTS.md` and `.gtd/SLICES.md` stay for the next one. */
-  readonly more?: boolean | undefined
+  readonly more?: boolean | (() => boolean) | undefined
 }
 
 /** Resolves `false` when the tip no longer applies (the failure is in `.gtd/FEEDBACK.md`) or has nothing outside `.gtd/` to apply. */
@@ -351,14 +351,19 @@ export function implement(
   tier?: RiskTier,
   amend?: boolean,
 ): Promise<void>
-export function implement(
+export async function implement(
   first?: string | ImplementOptions,
   tier?: RiskTier,
   amend?: boolean,
 ): Promise<void> {
-  const options: ImplementOptions =
-    typeof first === "object" && first !== null ? first : { reference: first, tier, amend }
-  return scope("implement", async () => {
+  await implementing(
+    typeof first === "object" && first !== null ? first : { reference: first, tier, amend },
+  )
+}
+
+/** `implement`, resolving with the criterion IDs the requirements listed when it closed. */
+export const implementing = (options: ImplementOptions): Promise<readonly string[]> =>
+  scope("implement", async () => {
     const since = head()
     const acceptance = options.rebuild?.acceptance
     const built = options.naive === undefined || !(await applied(options.naive))
@@ -372,9 +377,14 @@ export function implement(
       built && acceptance !== undefined ? () => requireAcceptanceKept(acceptance) : undefined,
     )
     await requireCoverage(options.base, options.slice)
-    await closing(options.more === true)
+    const ids = criterionIds(read(REQUIREMENTS) ?? "")
+    await closing(moreToBuild(options.more))
+    return ids
   })
-}
+
+// Read at closing: a narrowing at `implement.oversized` may have emptied every later slice.
+const moreToBuild = (more: ImplementOptions["more"]): boolean =>
+  typeof more === "function" ? more() : more === true
 
 /** The last slice's closing, for a last slice a steer left with no criterion to build. */
 export const closeOut = (): Promise<void> => scope("implement", () => closing(false))

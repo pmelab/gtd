@@ -3,7 +3,7 @@ Feature: a trivial change takes the same few beats at either risk tier
 
   With GTD_FLAG_RISK_TIER on, a one-line copy fix goes
   from idle through the naive pass, the seam judge's land, the applied pass and
-  the quality lap back to idle. Low tier walks exactly the steps high does; only
+  the quality lap to the review gate. Low tier walks exactly the steps high does; only
   the summary differs.
 
   Background:
@@ -32,7 +32,7 @@ Feature: a trivial change takes the same few beats at either risk tier
       """
     And step "build.quality.correctness.reviewing" changes nothing
 
-  Scenario Outline: a one-line fix runs idle to idle with the same beats at either tier
+  Scenario Outline: a one-line fix runs from idle to the review gate with the same beats at either tier
     Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
       """
       # Requirements
@@ -64,7 +64,7 @@ Feature: a trivial change takes the same few beats at either risk tier
       """
     And step "implement.applying" runs its script
     When the process is driven
-    Then the process rests at "idle"
+    Then the process rests at "build.review.reviewing"
     And "src/greeting.ts" contains "Hello, world"
     And the commit subjects end with:
       """
@@ -80,7 +80,7 @@ Feature: a trivial change takes the same few beats at either risk tier
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
-      gtd(agent): build.quality.correctness.reviewing → idle
+      gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
       """
     And the output of gtd "summary" <summary> "needs a human reviewer"
 

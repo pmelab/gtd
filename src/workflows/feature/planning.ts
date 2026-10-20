@@ -25,13 +25,14 @@ const noteGate = async (file: string, answer: () => Promise<void>): Promise<bool
   return true
 }
 
-/** Triage the sketch since `base` into requirements, until no product question is open. */
-export const design = (base: string): Promise<void> =>
+/** Triage the sketch since `base` into requirements, until no product question is open; `guard` holds every round's criteria. */
+export const design = (base: string, guard?: () => void): Promise<void> =>
   scope("design", async () => {
     do {
       await triage(base)
       requireProgress(REQUIREMENTS)
       requireReplies(REQUIREMENTS)
       requireCriteria(REQUIREMENTS)
+      guard?.()
     } while (await noteGate(REQUIREMENTS, answerProductQuestions))
   })
