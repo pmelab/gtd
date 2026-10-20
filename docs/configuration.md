@@ -842,16 +842,19 @@ order:
    `implement.closing`, which removes `.gtd/REQUIREMENTS.md` (and
    `.gtd/REFACTOR-NOTE.md`, when there is one). A build turn is asked for a new
    release flag. The feature's quality lap (`build.quality.<lens>`) follows,
-   then the [feature review](#the-feature-review) (`build.review.*`). Findings
-   the quality fix cap leaves in `.gtd/QUALITY.md` rest at
+   then the [feature review](#the-feature-review) (`build.review.*`); its
+   findings are [triaged](#the-triaged-quality-lap). Between
+   [coarse slices](#coarse-slices) nothing triages them: the fix turn fixes
+   every one, and those the fix cap leaves in `.gtd/QUALITY.md` rest at
    `build.quality-unresolved`, a human step, until the file is deleted or
-   emptied; the health loop then checks any hand edits before the review. After
-   a `refactor` slice the build turn may change nothing but the carried-over
-   tests — the refactor already carried the whole feature — and an empty turn
-   completes the step when the naive pass's tests named no ID. A feature slice
-   that changed no code but test files has its quality lap cover the whole
-   change from the process start (with [coarse slices](#coarse-slices), from
-   where its slice began), refactor included.
+   emptied; the health loop then checks any hand edits before the next slice.
+   After a `refactor` slice the build turn may change nothing but the
+   carried-over tests — the refactor already carried the whole feature — and an
+   empty turn completes the step when the naive pass's tests named no ID. A
+   feature slice that changed no code but test files has its quality lap cover
+   the whole change from the process start (with
+   [coarse slices](#coarse-slices), from where its slice began), refactor
+   included.
 
 Every verdict wraps step 5 and its quality lap in the `feature` slice
 (`gtd slices` lists it); `refactor-first` adds the `refactor` slice ahead of it.
@@ -860,6 +863,37 @@ its entry commit, the feature's from the refactor's sign-off. The one exception
 is a feature slice that changed no code but tests (step 5): its quality lap
 covers the whole change from the process start (from where its slice began, with
 [coarse slices](#coarse-slices)).
+
+#### The triaged quality lap
+
+Ahead of every `feature` review — the feature's and the refactor's — the quality
+lenses are the only agentic review. Each lens appends its findings to
+`.gtd/QUALITY.md`, one `## <title>` chunk per finding (prose outside every chunk
+counts as one more finding). A judge, `build.quality.triage`, classifies each
+one (`Q1`, `Q2`, … in file order):
+
+- `mechanical` — fixed by `build.fix.quality.fixing`, up to three turns, each
+  deleting the chunks it resolved; the health loop then runs the suite green
+- `noise` — dropped, recorded on the judge's landing as
+  `Gtd-Mark: noise=<id> p=<p> <title>`
+- `design` — it questions a criterion or the approach: a note for the review
+
+A verdict below `qualityTriageMinP` (`0.7`), a missing one, or a finding the
+judge's budget cut is `design`. `build.quality.sorting` leaves only the
+mechanical findings in `.gtd/QUALITY.md` for the fix turns; mechanical findings
+still there after the third turn become notes too.
+
+`build.review.composing` then writes `.gtd/REVIEW.md` — no reviewer turn runs —
+and removes `.gtd/QUALITY.md`: a `## Weakened scenarios` chunk naming each
+`Then` line a `.feature` file at the review base has lost, then one prose `## `
+chunk per note (a mechanical one the fixer left is marked so), then
+`## Fixed automatically` (one line per finding, with the fixing commit's short
+hash) and `## Dropped as noise` (one line per finding, with its `p`). None
+carries a tick box or needs an answer; disagreeing with one means writing a note
+of your own. With nothing to list, the file holds one `## Nothing to note`
+chunk. Task boxes in a finding are written as plain bullets. The fresh review
+after a nit fix adds `## Fixed from your notes` with the fixing commit. The
+`review` and `fix` workflows keep the untriaged lap and their reviewer turn.
 
 #### The feature review
 
@@ -879,11 +913,19 @@ the `criteria-ids` check. `seam.naive` and `seam.judge` never run again once
 judged, so a seam a re-plan turns up is built unjudged and unrefactored; a wrong
 or missing refactor means `gtd abandon` and a restart.
 
+**Upgrading:** `feature`'s reviews are composed from the quality lap. A process
+resting at `build.review.reviewing`, `build.review.fix.risks.fixing`, a
+`build.fix.quality.fixing` turn or `build.quality-unresolved` of its last slice
+(or their `refactor.build.*` twins) no longer replays: finish or `gtd abandon`
+it before upgrading. A driver or fixture scripting `build.review.reviewing` for
+`feature` scripts `build.review.composing` (a script step) and, with lenses on,
+the `build.quality.triage` judge instead.
+
 **Upgrading:** `feature` ends at the review again. A process that ended at
 `idle` stays ended; one resting in its last slice's quality lap, or at
-`build.quality-unresolved` after it, moves on to `build.review.reviewing`
-instead of `idle`. A driver or fixture expecting `feature` to land in `idle`
-after the quality lap must sign the review off.
+`build.quality-unresolved` after it, moves on to the review instead of `idle`. A
+driver or fixture expecting `feature` to land in `idle` after the quality lap
+must sign the review off.
 
 **Upgrading:** finish or `gtd abandon` before upgrading any process whose seam
 judge ruled `land`, that overruled a reject at `seam.steer`, or — with
@@ -1919,6 +1961,11 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   below-floor answer makes the note `critical`, never `could`. Blank makes every
   tiered note `critical`. A leading `! ` (bang, space) on any human review note
   forces `critical` and skips every judge question.
+- **`qualityTriageMinP`** (`0.7`) — the floor a `mechanical` or `noise` verdict
+  on a quality finding must clear at `build.quality.triage` (and
+  `refactor.build.quality.triage`). Below it, the finding is `design` and
+  reaches the review as a note. Blank makes every finding `design`. Answers are
+  keyed `Q<n>`. See [the triaged quality lap](#the-triaged-quality-lap).
 - **`refactorFlagPattern`** (`\bGTD_FLAG_\w+`) — the regular expression whose
   matches `refactorFirst` counts as flag reads (see
   [`refactorFirst`](#refactorfirst)). Blank or an invalid expression fails
@@ -1969,13 +2016,15 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   paying for — each lens adds about 1–1.5 min and about $0.5 per run; blanking
   it disables the lap. `correctness` (loads `code-review-and-quality`),
   `conventions` and `spec-challenge` are built-in lenses whose brief rides in
-  the prompt; every finding any lens writes, blocking or not, is fixed by the
-  one fix turn. An entry may carry a model hint, `<lens>=<model>` (split at the
-  first `=`, both sides trimmed; a blank hint is none): `test-audit=smart` runs
-  that lens on `smart`. A lens without one runs on `coderModel` when it is
-  `conventions`, `ponytail-review` or `test-audit`, else on `plannerModel`. The
-  hint is no part of the lens's name: its scope stays `build.quality.<lens>`.
-  See [Setup](./setup.md#extending-the-quality-review-lap).
+  the prompt; in `feature` each finding is then
+  [triaged](#the-triaged-quality-lap), elsewhere every finding any lens writes,
+  blocking or not, is fixed by the one fix turn. An entry may carry a model
+  hint, `<lens>=<model>` (split at the first `=`, both sides trimmed; a blank
+  hint is none): `test-audit=smart` runs that lens on `smart`. A lens without
+  one runs on `coderModel` when it is `conventions`, `ponytail-review` or
+  `test-audit`, else on `plannerModel`. The hint is no part of the lens's name:
+  its scope stays `build.quality.<lens>`. See
+  [Setup](./setup.md#extending-the-quality-review-lap).
 - **`refactorQualityReviews`** (`correctness, ponytail-review, conventions`) —
   the quality lap the refactor review runs, one turn per comma-separated lens,
   as `qualityReviews` does for the feature slice. `qualityReviews` does not

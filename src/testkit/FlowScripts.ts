@@ -12,6 +12,7 @@ import {
   restoreScript,
   revertScript,
   showScript,
+  writeScript,
 } from "../flows/index.js"
 import type { InMemRepo } from "./InMemRepo.js"
 import type { ScriptedCommand } from "./Layers.js"
@@ -57,6 +58,19 @@ const recognizeMove = (repo: InMemRepo, script: string): FlowScriptResult | unde
   if (content === undefined) return { ok: false, error: `mv: ${from}: No such file`, output: "" }
   repo.deleteFile(from)
   repo.writeFile(to, content)
+  return ok()
+}
+
+const recognizeWrite = (repo: InMemRepo, script: string): FlowScriptResult | undefined => {
+  const lines = shellLines(script.split("\n"))
+  if (!lines[3]?.startsWith("printf '%s' ")) return undefined
+  const [path] = words(lines[2] ?? "")
+  const [, content, to] = words(lines[3])
+  const remove = words(lines.find((l) => l.startsWith("rm -rf -- ")) ?? "")
+  if (path === undefined || content === undefined || to !== path) return undefined
+  if (writeScript(path, content, remove) !== script) return undefined
+  repo.writeFile(path, content)
+  removeAll(repo, remove)
   return ok()
 }
 
@@ -356,6 +370,7 @@ export const applyFlowScript = (
     recognizeRemove(repo, script) ??
     recognizeMove(repo, script) ??
     recognizeShow(repo, script) ??
+    recognizeWrite(repo, script) ??
     recognizePatch(repo, script) ??
     recognizeRestore(repo, script) ??
     recognizeCheck(repo, commands, script)

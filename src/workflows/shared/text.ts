@@ -90,6 +90,117 @@ What each change does next (then run \`gtd land\`):
 - **Continue** — having undone the sketch by hand, check the test baseline is green and start triage (**start-gate.check**).
 `
 
+export const qualityTriageMessage = (): string =>
+  `Judging each quality finding. Run \`gtd judge answer\` and pipe a
+\`mechanical\`/\`noise\`/\`design\` verdict per finding ID — or land without a
+verdict, which hands every finding to the review as a note.
+`
+
+/** \`.gtd/QUALITY.md\` holding only \`findings\`, one \`## \` chunk each. */
+export const qualityFindingsFile = (
+  findings: readonly { readonly title: string; readonly body: string }[],
+): string =>
+  `# Quality\n\n${findings.map((f) => `## ${f.title}\n\n${f.body}`.trim()).join("\n\n")}\n`
+
+export interface ComposedReview {
+  readonly notes: readonly {
+    readonly title: string
+    readonly body: string
+    readonly unresolved?: true
+    /** A fix turn removed its chunk while renaming another. */
+    readonly unclear?: true
+  }[]
+  readonly fixed: readonly { readonly title: string; readonly commit: string }[]
+  readonly noise: readonly { readonly title: string; readonly p: number }[]
+  /** `Then` lines a `.feature` file at the review base no longer carries. */
+  readonly weakened?: readonly RemovedAssertions[]
+  /** The commit that fixed the human's nits, on the review that follows it. */
+  readonly nitFix?: string | undefined
+}
+
+const SUMMARY_TITLES = [
+  "Weakened scenarios",
+  "Fixed from your notes",
+  "Fixed automatically",
+  "Dropped as noise",
+  "Nothing to note",
+]
+
+// A lens body is pasted as prose: a task box would read as a broken hunk pointer, or a `Risk:` one.
+const unboxed = (body: string): string =>
+  body.replace(/^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+)\[[ xX]\]\s?/gm, "$1")
+
+const short = (hash: string): string => hash.slice(0, 7)
+
+/**
+ * \`.gtd/REVIEW.md\` as gtd writes it: one chunk per note, then the fixed and
+ * noise lists, with no tick boxes. Chunk titles are made unique — notes are
+ * matched to their chunk by title.
+ */
+export const composedReview = (base: string, report: ComposedReview): string => {
+  // Summary titles are taken first, so no note can claim one.
+  const used = new Set(SUMMARY_TITLES)
+  const unique = (title: string): string => {
+    let name = title
+    for (let n = 2; used.has(name); n++) name = `${title} (${n})`
+    used.add(name)
+    return name
+  }
+  const chunk = (title: string, body: string): string => `## ${title}\n\n${body.trim()}`
+  const weakened = (report.weakened ?? []).flatMap(({ path, lines }) =>
+    lines.map((a) => `- ${path} — ${a.scenario} — ${a.line}`),
+  )
+  const chunks = [
+    ...(report.nitFix === undefined
+      ? []
+      : [
+          chunk(
+            "Fixed from your notes",
+            `Your nits were fixed in ${short(report.nitFix)}; the list below is from before.`,
+          ),
+        ]),
+    ...(weakened.length === 0
+      ? []
+      : [
+          chunk(
+            "Weakened scenarios",
+            `These scenarios lost an assertion the review base had:\n\n${weakened.join("\n")}`,
+          ),
+        ]),
+    ...report.notes.map((n) =>
+      chunk(
+        unique(n.title),
+        n.unresolved === true
+          ? `_The fixer left this unresolved._\n\n${unboxed(n.body)}`
+          : n.unclear === true
+            ? `_A fix turn removed this while renaming another finding — check whether it was fixed._\n\n${unboxed(n.body)}`
+            : unboxed(n.body) || "_No detail given._",
+      ),
+    ),
+    ...(report.fixed.length === 0
+      ? []
+      : [
+          chunk(
+            "Fixed automatically",
+            report.fixed.map((f) => `- ${f.title} (${short(f.commit)})`).join("\n"),
+          ),
+        ]),
+    ...(report.noise.length === 0
+      ? []
+      : [chunk("Dropped as noise", report.noise.map((f) => `- ${f.title} (p=${f.p})`).join("\n"))]),
+  ]
+  const body =
+    chunks.length > 0
+      ? chunks
+      : [
+          chunk(
+            "Nothing to note",
+            "No quality lens raised anything for you — or none ran. Review the diff yourself.",
+          ),
+        ]
+  return `# Review: ${short(base)}\n\n<!-- base: ${base} -->\n\n${body.join("\n\n")}\n`
+}
+
 export const qualityUnresolvedMessage = (): string =>
   `The quality lap's fix turns hit their cap and \`.gtd/QUALITY.md\` still
 holds findings. Nothing after this fixes them, so the process will not
@@ -488,8 +599,10 @@ ${agentConduct}`
 export const buildFixQualityPrompt = (rules?: string): string =>
   `${stateFileRules}
 - Read \`.gtd/QUALITY.md\` — one \`## \` chunk per finding a quality
-  dimension wrote. Merge duplicate findings across dimensions
-  FIRST, then fix every finding in every chunk, blocking or not
+  dimension wrote. Fix every finding in every chunk, blocking or not;
+  where dimensions repeat one, fix the shared cause once
+- Delete each finding's \`## \` chunk once it is resolved; never
+  rename, merge or reword a chunk you leave
 - When findings conflict, missing test signal beats line count —
   a test is never deleted to satisfy a simplification finding
 - Delete \`.gtd/QUALITY.md\` once every finding is resolved
@@ -541,9 +654,9 @@ export const buildQualityReviewingPrompt = (
   behaviour removed — decide that by reasoning, never by running a
   mutation-testing tool. A test that pins a bug is a finding, not
   praise
-- APPEND every finding you have, blocking or not, as a \`## \`
-  chunk to \`.gtd/QUALITY.md\` — never overwrite what an earlier
-  dimension already wrote there
+- APPEND every finding you have, blocking or not, as its own
+  \`## <one-line title>\` chunk to \`.gtd/QUALITY.md\` — one finding per
+  chunk, never overwrite what an earlier dimension already wrote there
 - Write nothing only when this lens found nothing at all — then a
   clean turn IS this dimension's approval
 ${
@@ -563,12 +676,12 @@ export const reviewerSystem = (): string =>
 ${agentConduct}`
 
 export const buildReviewAwaitReviewMessage = (base: string): string =>
-  `\`.gtd/REVIEW.md\` holds the review record for the process — one
-\`- [ ]\` checkbox per reviewable item, grouped into chunks. Tick a box
-(\`- [x]\`) as you review each hunk; ticking only records that you've read
-it, it is not sign-off. Ticks are read-progress only: landing clears
-every box back to \`- [ ]\` on disk and nothing records which hunks
-you read — there is no persisted trail of it.
+  `\`.gtd/REVIEW.md\` holds what the quality lenses left for you: one chunk
+per finding that needs your judgement — it questions a criterion or the
+approach, or the fixer could not resolve it — then, for reference only, what
+was **fixed automatically** (with the fixing commit) and what was **dropped
+as noise**. Nothing there needs an answer; disagreeing with a fix or a drop
+means writing a note of your own.
 
 Review the diff yourself, with whatever tool you like — gtd checks
 nothing out and touches no ref; \`gtd base\` prints this same hash any
@@ -579,8 +692,8 @@ working tree:
 When you've been through the whole diff, run \`gtd land\`:
 
 - **Sign off** — leave no comment — no note in
-  \`.gtd/REVIEW.md\`, no code edit — to close the process,
-  whatever the boxes say. Every turn commit stays on the
+  \`.gtd/REVIEW.md\`, no code edit — to close the process.
+  Every turn commit stays on the
   branch; run \`gtd summary\` afterward for a closing-message
   prompt.
 - **Ask a question** — start a thread (\`- H: <question>\`) on a

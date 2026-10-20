@@ -335,7 +335,7 @@ const driveSeam = async (
     note: () => void files.set(NOTE, "Seam: a shared op"),
     deriving: () => void files.set(REFACTOR, "package"),
     closing: () => void files.delete(REFACTOR),
-    "review.reviewing": () => void files.set(REVIEW, reviewDoc),
+    "review.composing": () => void files.set(REVIEW, reviewDoc),
     "review.closing": () => {
       files.delete(REVIEW)
       current = "after-refactor"

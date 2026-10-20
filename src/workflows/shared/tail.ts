@@ -19,6 +19,7 @@ import {
   reviewMissing,
   reviewQuality,
 } from "./steps.js"
+import { NO_FINDINGS, triageFindings, type LensReport } from "./lenses.js"
 import * as t from "./text.js"
 
 /** The reviewer's own `.gtd/REVIEW.md`, kept beside the human's notes so `fix` can tell them apart. */
@@ -88,6 +89,12 @@ export interface TailOptions {
   readonly lensBase?: string | undefined
   /** Appended to every fix and describe prompt of the tail. */
   readonly rules?: string | undefined
+  /**
+   * Judge the lap's findings: fix the mechanical ones, drop noise, and hand
+   * `finish` the rest as notes for the human review; default `false`. `finish`
+   * must remove `.gtd/QUALITY.md`, which still holds what the fixer left.
+   */
+  readonly triage?: boolean | undefined
 }
 
 /**
@@ -95,7 +102,7 @@ export interface TailOptions {
  * `finish` — whatever the calling workflow runs last, a human review or nothing.
  */
 export function tail<T>(
-  finish: (escalations: EscalationCount) => Promise<T>,
+  finish: (escalations: EscalationCount, report: LensReport) => Promise<T>,
   options?: TailOptions,
 ): Promise<T>
 /** @deprecated Pass `tail(finish, { fixFirst, green, guard, lenses, guardRests, lensBase, rules })`. */
@@ -123,7 +130,7 @@ export function tail<T>(first: unknown, second?: unknown, ...rest: unknown[]): P
   return runTail(finish, options)
 }
 
-type Finish<T> = (escalations: EscalationCount) => Promise<T>
+type Finish<T> = (escalations: EscalationCount, report: LensReport) => Promise<T>
 
 // null reads as absent; an un-awaited Promise is a mistake, not options.
 export const isOptionalObject = (value: unknown): value is object | null | undefined =>
@@ -166,12 +173,20 @@ const runTail = <T>(finish: Finish<T>, options: TailOptions): Promise<T> =>
     if (options.fixFirst) await repair()
     else if (!options.green) await healthy(fix, { escalations, guard, guardRests, rules })
     // The lap runs once a tail: after its findings are fixed, `finish` follows.
-    if ((await qualityLap(guard, lenses, lensBase)) === "findings") {
+    const lap = await qualityLap(guard, lenses, lensBase)
+    if (options.triage) {
+      const report =
+        lap === "findings"
+          ? await triageFindings({ escalations, guard, guardRests, rules })
+          : NO_FINDINGS
+      return finish(escalations, report)
+    }
+    if (lap === "findings") {
       if (await fixQualityFindings(escalations, guard, guardRests, rules)) {
         await healthy(fix, { escalations, guard, guardRests, rules })
       } else await repair()
     }
-    return finish(escalations)
+    return finish(escalations, NO_FINDINGS)
   })
 
 /**

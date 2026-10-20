@@ -7,6 +7,7 @@ import {
   restoreScript,
   revertScript,
   showScript,
+  writeScript,
 } from "../flows/index.js"
 import { gitTiers, type GitTier, type ScriptedCommand } from "./index.js"
 
@@ -66,6 +67,22 @@ for (const makeTier of gitTiers) {
 
       it("fails on an absent source", () => {
         expect(run(moveScript("missing.txt", "b.txt")).ok).toBe(false)
+      })
+    })
+
+    describe("writeScript", () => {
+      it("writes the content verbatim, quotes and newlines kept, creating the directory", () => {
+        const content = "# It's here\n\n- a 'quoted' $HOME `x`\n"
+        expect(run(writeScript("deep/dir/a.md", content)).ok).toBe(true)
+        expect(read("deep/dir/a.md")).toBe(content)
+      })
+
+      it("overwrites the file, then removes the paths it names", () => {
+        t.seed.writeFile("a.md", "old")
+        t.seed.writeFile("gone.md", "g")
+        expect(run(writeScript("a.md", "new", ["gone.md", "missing.md"])).ok).toBe(true)
+        expect(read("a.md")).toBe("new")
+        expect(read("gone.md")).toBeUndefined()
       })
     })
 

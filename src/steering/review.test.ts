@@ -165,7 +165,7 @@ describe("review — structure (validate)", () => {
     )
   })
 
-  it("an ordinary chunk still isn't exempted merely by carrying prose that resembles an assumption", () => {
+  it("a prose-only chunk, bullets and all, is valid", () => {
     const content = doc([
       HEADER,
       "",
@@ -176,25 +176,7 @@ describe("review — structure (validate)", () => {
       "- some inferred note with no pointer",
       "",
     ])
-    expect(review.validate(content)).toContainEqual(
-      expect.objectContaining({ message: 'Chunk "Not Assumptions" has no file pointers' }),
-    )
-  })
-
-  it("a literal Assumptions chunk with no file pointers is a finding too — no title is exempt", () => {
-    const content = doc([
-      HEADER,
-      "",
-      BASE,
-      "",
-      "## Assumptions",
-      "",
-      "- some inferred note with no pointer",
-      "",
-    ])
-    expect(review.validate(content)).toContainEqual(
-      expect.objectContaining({ message: 'Chunk "Assumptions" has no file pointers' }),
-    )
+    expect(review.validate(content)).toEqual([])
   })
 })
 

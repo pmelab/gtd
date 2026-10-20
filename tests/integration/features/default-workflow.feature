@@ -185,12 +185,11 @@ Feature: The bundled unified workflow — one flow, end to end
     # findings, straight on to human review.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.spec-challenge.reviewing → build.review.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.spec-challenge.reviewing → build.review.composing"
 
-    # build.review.reviewing's prompt names its bundled skill — grounds this
-    # step's own map key against the real scoped name it resolves to.
+    # No reviewer turn: gtd composes the review itself.
     When I run gtd next
-    Then stdout contains "code-review-and-quality"
+    Then stdout contains "State: build.review.composing"
 
     Given a file ".gtd/REVIEW.md" with:
       """
@@ -204,7 +203,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.await-review"
+    And the last commit subject is "gtd(check): build.review.composing → build.review.await-review"
     When I run gtd next
     Then it succeeds
     And stdout contains "State: build.review.await-review"
@@ -263,8 +262,8 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(agent): build.quality.ponytail-review.reviewing → build.quality.test-audit.reviewing
       gtd(agent): build.quality.test-audit.reviewing → build.quality.conventions.reviewing
       gtd(agent): build.quality.conventions.reviewing → build.quality.spec-challenge.reviewing
-      gtd(agent): build.quality.spec-challenge.reviewing → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.await-review
+      gtd(agent): build.quality.spec-challenge.reviewing → build.review.composing
+      gtd(check): build.review.composing → build.review.await-review
       gtd(human): build.review.await-review → build.review.closing
       gtd(check): build.review.closing → idle
       """
@@ -308,7 +307,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -318,7 +317,7 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] ./src/greet.ts#1
       new greeting
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     # await-review: a hand-edit to real code is feedback
     Given a file "src/calc.ts" with:
       """
@@ -412,7 +411,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -422,7 +421,7 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] ./src/calc.ts#1
       new add function
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     # await-review: a hand-edit to real code is feedback
     Given a file "src/calc.ts" with:
       """
@@ -517,7 +516,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -527,7 +526,7 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] ./src/calc.ts#1
       new add function
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     # await-review: a note is still feedback-shaped from the flow's own
     # point of view (any REVIEW.md edit beyond a tick), even though it's just
     # an approving remark
@@ -606,7 +605,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -615,7 +614,7 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Chunk
       - [ ] ./src/thing.ts#1
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     Given "src/thing.ts" is modified to:
       """
       export const thing = 1
@@ -686,7 +685,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -695,7 +694,7 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Chunk
       - [ ] ./src/thing.ts#1
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -774,7 +773,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -783,7 +782,7 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Chunk
       - [ ] ./src/thing.ts#1
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     Given "src/thing.ts" is modified to:
       """
       export const thing = 1
@@ -1273,7 +1272,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: aaaaaaa
@@ -1282,7 +1281,7 @@ Feature: The bundled unified workflow — one flow, end to end
       ## A
       - [ ] ./fileA.ts#1
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     And "fileA.ts" is modified to:
       """
       export const A = 1
@@ -1331,7 +1330,7 @@ Feature: The bundled unified workflow — one flow, end to end
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """
     And the file ".gtd/REQUIREMENTS.md" is deleted
-    And gtd lands "gtd(check): implement.closing → build.review.reviewing"
+    And gtd lands "gtd(check): implement.closing → build.review.composing"
     When I run gtd next
     Then it succeeds
     # The reviewing prompt names it.reviewBase — the previous review round's
@@ -2097,7 +2096,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -2107,7 +2106,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - [ ] ./src/thing.ts#1
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     When I run gtd next
     Then it succeeds
     And stdout contains "**Sign off** — leave no comment"
@@ -2153,7 +2152,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -2163,7 +2162,7 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - [ ] ./src/thing.ts#1
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     Given a file "src/extra.ts" with:
       """
       export const extra = 1

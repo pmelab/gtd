@@ -490,14 +490,22 @@ noted in steps 3 and 4 below.
    `spec-challenge` run on the planner model (`smart`), the other three on the
    coder model (`base`); a `qualityReviews` entry `<lens>=<model>` picks a
    lens's own. Each traces the change from its own angle and records every
-   finding, blocking or not; one fix turn then fixes ALL of them once, with no
-   re-review after the fix. A clean turn means approval only when that lens
-   found nothing at all. This lap is where code quality is looked at, and every
-   round pays for it. It never replaces step 4 — your review stays the final
-   gate, and nothing here skips it. Findings the fix cap leaves in
-   `.gtd/QUALITY.md` rest at `build.quality-unresolved` until you delete or
-   empty the file; the suite then runs on any hand edits before the review. The
-   `fix` door (below) repairs a red baseline through this same lap.
+   finding, blocking or not, as its own `## ` chunk of `.gtd/QUALITY.md`. A
+   clean turn means approval only when that lens found nothing at all. The
+   lenses are the only agentic review: a judge (`build.quality.triage`) then
+   classifies each finding — `mechanical` ones are fixed by the fix turn
+   (`build.fix.quality.fixing`, up to three turns), `noise` is dropped with its
+   `p` recorded as `Gtd-Mark: noise=<id> p=<p> <title>`, and `design` ones
+   (questioning a criterion or the approach) become notes for your review. An
+   unsure verdict (below `qualityTriageMinP`, `0.7`) is `design`; mechanical
+   findings the fix turns leave become notes too. This lap is where code quality
+   is looked at, and every round pays for it. It never replaces step 4 — your
+   review stays the final gate, and nothing here skips it. Between
+   [coarse slices](#coarse-slices) no review follows, so there the fix turn
+   fixes every finding, and those the fix cap leaves rest at
+   `build.quality-unresolved` until you delete or empty `.gtd/QUALITY.md`; the
+   suite then runs on any hand edits before the next slice. The `fix` door
+   (below) repairs a red baseline through the untriaged lap.
 
    A red suite that keeps failing past a few fix attempts escalates instead of
    retrying forever: an agent turn reads the failing output and writes
@@ -512,18 +520,18 @@ noted in steps 3 and 4 below.
    `Gtd-Mark: flaky=<check>` (see
    [Re-check before a person](docs/configuration.md#re-check-before-a-person)).
 
-4. **You review.** After the last slice's quality lap you get a review document
-   over the whole change, listing what changed and what to look at (on
-   `refactor-first` the refactor slice gets one of its own first, before the
-   feature is built; see [the naive pass](#the-naive-pass)). Before you see it,
-   an automatic risk-fix pass (`build.review.fix.risks.fixing`) runs. Any risk
-   the reviewer names (a note opening with `Risk:`) is fixed first, the suite
-   kept green, and the review rewritten — once per review round, so a risk the
-   rewrite still names reaches you unfixed; risk: a fix lands with no check that
-   the risk was real. Tick the boxes to approve, or write what is wrong.
-   Approving ends the process (at the refactor review, it moves on to the
-   feature); feedback is judged note by note, each as `edit`, `question`, `nit`
-   or `praise`. An `edit` sends the process back to step 2 for re-derived
+4. **You review.** After the last slice's quality lap gtd writes the review
+   document itself (`build.review.composing`; no reviewer turn runs): one `## `
+   chunk per design note the lap left, then — for reference, no tick boxes, no
+   answer needed — what was **fixed automatically** (with the fixing commit) and
+   what was **dropped as noise**. On `refactor-first` the refactor slice gets
+   one of its own first, before the feature is built; see
+   [the naive pass](#the-naive-pass). Review the diff yourself (`gtd base`
+   prints its base). Land with no change to approve, or write what is wrong —
+   disagreeing with a fix or a drop means writing a note of your own. Approving
+   ends the process (at the refactor review, it moves on to the feature);
+   feedback is judged note by note, each as `edit`, `question`, `nit` or
+   `praise`. An `edit` sends the process back to step 2 for re-derived
    requirements — the built criteria keep their IDs (reworded in place when
    their behaviour changes) and new behaviour gets new ones — then the
    implementation is amended to meet them, with no new naive pass or seam judge,
@@ -584,14 +592,16 @@ gtd door review <commitish>
 ```
 
 starts a pure review of everything from `<commitish>` to HEAD. It goes straight
-to step 4, with no planning and no building. Sign off and it closes. Leave notes
-and the process ends with `.gtd/REVIEW.md` (and the reviewer's original,
-`.gtd/REVIEW.orig.md`) left for `gtd door fix`. Until `fix` consumes them,
-starting `feature` or `review` is refused; remove both files to abandon the
-hand-off. `gtd door fix` fixes those notes and every `Risk:` in one turn, then
-asks for your review of the fix. With no review waiting, it repairs a red
-baseline as its own reviewed commit instead. `gtd doors` lists the doors of the
-workflows your `gtd.config.ts` exports, plus any it adds.
+to the quality lap and a review, with no planning and no building; unlike
+`feature`, its lap fixes every finding and a reviewer turn
+(`build.review.reviewing`) writes `.gtd/REVIEW.md`, risks and all. Sign off and
+it closes. Leave notes and the process ends with `.gtd/REVIEW.md` (and the
+reviewer's original, `.gtd/REVIEW.orig.md`) left for `gtd door fix`. Until `fix`
+consumes them, starting `feature` or `review` is refused; remove both files to
+abandon the hand-off. `gtd door fix` fixes those notes and every `Risk:` in one
+turn, then asks for your review of the fix. With no review waiting, it repairs a
+red baseline as its own reviewed commit instead. `gtd doors` lists the doors of
+the workflows your `gtd.config.ts` exports, plus any it adds.
 `gtd --workflow <name>` starts any workflow by name.
 
 The workflow itself is a plain async TypeScript function, and the

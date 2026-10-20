@@ -9,7 +9,7 @@ import {
   slice,
   start,
 } from "../../flows/index.js"
-import { gate, healthy, type EscalationCount } from "../shared/health.js"
+import { gate, healthy } from "../shared/health.js"
 import { flagModeOn, shipped } from "../shared/options.js"
 import { FEEDBACK, fixCheck, QUALITY, REQUIREMENTS } from "../shared/steps.js"
 import { refusePendingHandOff, tail } from "../shared/tail.js"
@@ -135,8 +135,8 @@ const buildSlice = async (sliceBase: string, build: SliceBuild): Promise<void> =
   })
 }
 
-// The lap's findings the fix cap left must not reach the review, nor the next process's lap,
-// which appends to the file. Empty counts as resolved, as the lap reads it.
+// Between slices nothing reviews the lap's leftovers, and the next lap appends to the file.
+// Empty counts as resolved, as the lap reads it.
 const settleQuality = async (): Promise<void> => {
   let rested = false
   while ((read(QUALITY) ?? "").length > 0) {
@@ -151,15 +151,13 @@ const settleQuality = async (): Promise<void> => {
   if (rested) await healthy(() => fixCheck())
 }
 
-/** The quality lap, then the human review since `base`. */
-const reviewedTail = (base: string, lensBase: string, lap?: "feedback"): Promise<ReviewOutcome> =>
-  tail(
-    async (escalations: EscalationCount) => {
-      await settleQuality()
-      return review(base, escalations, { lap })
-    },
-    { green: true, lensBase },
-  )
+/** The triaged quality lap, then the human review since `base`. */
+const reviewedTail = (base: string, lensBase: string): Promise<ReviewOutcome> =>
+  tail((escalations, report) => review(base, escalations, { report }), {
+    green: true,
+    lensBase,
+    triage: true,
+  })
 
 // seam.naive / seam.judge never run on a feedback lap: its design → implement is built unjudged
 // and unrefactored, held to every criterion's coverage since the process start.
@@ -181,7 +179,7 @@ const featureFeedback = async (
     })
     const tier = riskTierOn() ? recordRisk() : undefined
     closed = await implementing({ tier, amend: true })
-    outcome = await reviewedTail(outcome.base, lensBase, "feedback")
+    outcome = await reviewedTail(outcome.base, lensBase)
   }
 }
 
@@ -201,7 +199,7 @@ export const afterTail = async (first: ReviewOutcome): Promise<void> => {
     await design(outcome.base)
     const tier = riskTierOn() ? recordRisk() : undefined
     await implement({ tier, amend: true })
-    outcome = await buildTail(outcome.base, { green: true, lap: "feedback" })
+    outcome = await buildTail(outcome.base, { green: true })
   }
 }
 

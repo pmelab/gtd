@@ -553,7 +553,8 @@ const parseChangesets = (
       errors: bodyErrors,
     } = parseChunkBody(content, lines, title, body)
     errors.push(...bodyErrors)
-    if (files.length === 0) {
+    // A prose-only chunk is a note gtd composed; a box with no pointer is a pointer gone wrong.
+    if (files.length === 0 && body.some((n) => taskItems(n).length > 0)) {
       errors.push({
         message: `Chunk "${title}" has no file pointers`,
         line: headingLine,

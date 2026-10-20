@@ -64,7 +64,7 @@ Feature: a naive pass the judge rules land is itself the implementation
 
   Scenario: a land judgment applies the naive pass and runs from idle to the review gate with no rebuild
     When the process is driven
-    Then the process rests at "build.review.reviewing"
+    Then the process rests at "build.review.composing"
     And "src/greeting.ts" contains "Hello, world"
     And "src/acceptance.test.ts" contains "[AC-1] holds"
     And the commit subjects end with:
@@ -81,7 +81,7 @@ Feature: a naive pass the judge rules land is itself the implementation
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
-      gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
+      gtd(agent): build.quality.correctness.reviewing → build.review.composing
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"

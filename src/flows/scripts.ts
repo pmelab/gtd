@@ -131,6 +131,21 @@ export const restoreScript = (
 export const removeScript = (paths: readonly string[]): string =>
   ["#!/usr/bin/env sh", ...removal(paths), ""].join("\n")
 
+/** Write `content` to `path` verbatim, creating its directory, then remove `remove`. */
+export const writeScript = (
+  path: string,
+  content: string,
+  remove: readonly string[] = [],
+): string =>
+  [
+    "#!/usr/bin/env sh",
+    "set -e",
+    `mkdir -p "$(dirname ${quote(path)})"`,
+    `printf '%s' ${quote(content)} > ${quote(path)}`,
+    ...removal(remove),
+    "",
+  ].join("\n")
+
 /** Move `from` to `to`, creating `to`'s directory. */
 export const moveScript = (from: string, to: string): string =>
   [

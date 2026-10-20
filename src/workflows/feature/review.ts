@@ -1,12 +1,15 @@
 import {
   answered,
+  changesSince,
   head,
   judge,
   numeric,
   requireRevert,
   restoreScript,
   run,
+  showScript,
   vars,
+  writeScript,
   type JudgeQuestion,
   type Judgment,
   type ScopeAccess,
@@ -14,13 +17,14 @@ import {
 import type { ReviewNote } from "../../steering/index.js"
 import * as kit from "../../workflow-kit/index.js"
 import { guarded, healthy, type EscalationCount } from "../shared/health.js"
+import { NO_FINDINGS, type LensReport } from "../shared/lenses.js"
 import {
   awaitReview,
   fixCheck,
   fixRisks,
+  QUALITY,
   REQUIREMENTS,
   REVIEW,
-  reviewing,
   reviewMissing,
 } from "../shared/steps.js"
 import { closeReview, isOptionalObject, tail, type TailOptions } from "../shared/tail.js"
@@ -161,10 +165,37 @@ const triage =
 export const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
 
 /**
- * A reviewer writes `.gtd/REVIEW.md` over everything since `base`, a human
- * reviews and signs off or comments, and each note is judged: edits go to
- * another planning lap, questions are answered in place, nits fixed in one
- * batch, praise dropped.
+ * gtd writes `.gtd/REVIEW.md` from the quality lap's `report` — no reviewer
+ * turn — and removes what the fixer left in `.gtd/QUALITY.md`. A re-review
+ * after fixed nits restores the doc as committed at `carry`, answers kept.
+ */
+const composing = (
+  base: string,
+  report: LensReport,
+  carry?: string,
+  nitFix?: string,
+): Promise<void> =>
+  run(
+    "review.composing",
+    carry === undefined
+      ? writeScript(
+          REVIEW,
+          t.composedReview(base, {
+            ...report,
+            weakened: kit.removedAssertions(changesSince(base)),
+            nitFix,
+          }),
+          [QUALITY],
+        )
+      : showScript(carry, REVIEW, REVIEW),
+    { label: "Composing the review", file: REVIEW, base },
+  )
+
+/**
+ * The quality lap's notes reach a human over everything since `base`, who
+ * signs off or comments, and each note is judged: edits go to another
+ * planning lap, questions are answered in place, nits fixed in one batch,
+ * praise dropped.
  */
 export const review = (
   base: string,
@@ -182,13 +213,17 @@ export const review = (
   // Armed by a defer-only round to pick the next gate's message; a fresh
   // review (`reviewing`) disarms it.
   let deferred: readonly t.NoteInput[] = []
+  // Set by a nit fix, so the fresh review that follows names its commit.
+  let nitFix: string | undefined
   return kit.review(base, {
     file: REVIEW,
     feedback: feedback.file,
     isCode,
     reviewing: (b, carry) => {
       deferred = []
-      return reviewing(b, carry, options.lap)
+      const fixedAt = nitFix
+      nitFix = undefined
+      return composing(b, options.report ?? NO_FINDINGS, carry, fixedAt)
     },
     fixRisks: guarded((notes) => fixRisks(notes, fixAccess, rules), guard),
     keepGreen: () => healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules }),
@@ -212,7 +247,10 @@ export const review = (
       return deferNotes(deferred, head())
     },
     answerQuestions: answerReviewQuestions,
-    fixNits: guarded((notes) => fixNits(notes, fixAccess, rules), guard),
+    fixNits: async (notes) => {
+      await guarded((n: typeof notes) => fixNits(n, fixAccess, rules), guard)(notes)
+      nitFix = head()
+    },
     close: closeReview,
     captures: {
       edits: t.reviewEditsCapture,
@@ -259,11 +297,13 @@ export interface BuildTailOptions extends TailOptions {
   readonly feedback?: FeedbackTarget | undefined
   /** Write access for the nit and risk fix turns; absent: the bundled `access` export decides. */
   readonly fixAccess?: ScopeAccess | undefined
-  /** Absent: "first". */
+  /** @deprecated No reviewer turn reads it since the review is composed. */
   readonly lap?: t.ReviewRange | undefined
+  /** What the triaged quality lap left for the review; absent: nothing. */
+  readonly report?: LensReport | undefined
 }
 
-/** The build tail: fix (when entered red), keep green unless `green`, the quality lap, then human review since `base`. */
+/** The build tail: fix (when entered red), keep green unless `green`, the triaged quality lap, then human review since `base`. */
 export function buildTail(base: string, options?: BuildTailOptions): Promise<kit.ReviewOutcome>
 /** @deprecated Pass `buildTail(base, { fixFirst, green, ...options })`. */
 export function buildTail(
@@ -287,7 +327,10 @@ export function buildTail(
     )
   }
   const [base, form] = options
-  return tail((escalations) => review(base, escalations, form), form)
+  return tail((escalations, report) => review(base, escalations, { ...form, report }), {
+    ...form,
+    triage: true,
+  })
 }
 
 const isOptionalBoolean = (value: unknown): value is boolean | null | undefined =>

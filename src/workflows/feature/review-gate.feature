@@ -57,7 +57,7 @@ Feature: a feature process ends at the human review
       """
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """
-    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+    And step "build.review.composing" writes ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -78,8 +78,8 @@ Feature: a feature process ends at the human review
     And the commit subjects end with:
       """
       gtd(judge): implement.coverage → implement.closing
-      gtd(check): implement.closing → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.await-review
+      gtd(check): implement.closing → build.review.composing
+      gtd(check): build.review.composing → build.review.await-review
       """
 
   Scenario: a sign-off ends the process at idle
@@ -102,7 +102,7 @@ Feature: a feature process ends at the human review
     And ".gtd/REVIEW.md" does not exist
     And the commit subjects end with:
       """
-      gtd(agent): build.review.reviewing → build.review.await-review
+      gtd(check): build.review.composing → build.review.await-review
       gtd(human): build.review.await-review → build.review.closing
       gtd(check): build.review.closing → idle
       """
@@ -214,8 +214,8 @@ Feature: a feature process ends at the human review
         gtd(agent): implement.building → implement.health.check
         gtd(check): implement.health.check → implement.coverage
         gtd(judge): implement.coverage → implement.closing
-        gtd(check): implement.closing → build.review.reviewing
-        gtd(agent): build.review.reviewing → build.review.await-review
+        gtd(check): implement.closing → build.review.composing
+        gtd(check): build.review.composing → build.review.await-review
         """
 
     Scenario: a design numbering new behaviour at or below an earlier ID is refused

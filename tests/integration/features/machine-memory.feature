@@ -274,7 +274,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => undefined
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -285,7 +285,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       - [ ] ./src/widget.ts#1
       new export
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     # await-review: a hand-edit outside `.gtd/` is feedback — closing
     # (simulated by hand) hands it straight on to collecting.
     And a file "src/greet.ts" with:
@@ -337,117 +337,12 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Then it succeeds
     And stdout matches "\"memory\":\"implement\.fix\.suite#[0-9a-f]{7}\""
 
-  Scenario: build.review's own session survives the closing hop into an actionable round — reviewing and collecting share the session
-    # humanReview is nested INSIDE buildTail (`build.review`), not a root
-    # sibling — a descendant scope doesn't break the parent's run, so dipping
-    # into the review tail's own scope never breaks build's own unbroken run
-    # (build.fix differs from build.review.reviewing below, proving the
-    # descent gets its own key). Within "build.review" itself, `closing` is
-    # a `check`-content state (no memory of its own, like the health check's
-    # "does not contain memory" assertion below) that sits between the
-    # human's `await-review` turn and `collecting` on an actionable round:
-    # this pins that the reviewer's own session survives that script-only
-    # hop unbroken. (A clean sign-off lands `closing` directly on `idle`, the
-    # root's own initial state — there is no more `build`-scope state past
-    # it for a builder's session to resume at; see default-workflow.feature's
-    # own sign-off scenarios.)
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { start } from "@pmelab/gtd/flows"
-      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
-
-      export {
-        feature as default,
-        feature,
-        defaults,
-        envDefaults,
-        summary,
-        base,
-        steering,
-        skills,
-        access,
-      } from "@pmelab/gtd/workflows"
-
-      // review and fix as feature's own tail: a note is triaged and re-planned.
-      export async function review() {
-        await gate("review-gate", "The baseline is red.")
-        return afterTail(await buildTail(start()))
-      }
-
-      export async function fix() {
-        if (await baseline("fix-precheck")) return
-        return afterTail(await buildTail(start(), { fixFirst: true }))
-      }
-      """
-    And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And gtd starts workflow "fix"
-    And a file ".gtd/FEEDBACK.md" with:
-      """
-      test failed: widget() returns undefined
-      """
-    And gtd lands "gtd(check): fix-precheck → build.fix"
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"build.fix\""
-    And I record the json field "memory" as "the builder's turn"
-
-    Given the file ".gtd/FEEDBACK.md" is deleted
-    And a file "src/widget.ts" with:
-      """
-      export const widget = () => 1
-      """
-    And gtd lands "gtd(agent): build.fix → build.health.check"
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"build.health.check\""
-    And stdout does not contain "\"memory\""
-
-    Given gtd lands "gtd(check): build.health.check → build.review.reviewing"
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"build.review.reviewing\""
-    And the json field "memory" differs from the one recorded as "the builder's turn"
-    And I record the json field "memory" as "the reviewer's turn"
-
-    # This scenario never queries `gtd next` at `await-review` or
-    # `closing` — it only lands their turns and moves straight on to
-    # `collecting`, which is where the assertions resume.
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add widget.ts
-
-      - [ ] ./src/widget.ts#1
-      new export
-      """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
-    # await-review: a hand-edit outside `.gtd/` is feedback — closing
-    # (simulated by hand) hands it straight on to collecting.
-    And a file "src/greet.ts" with:
-      """
-      export const greet = "hello"
-      """
-    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
-    And the file ".gtd/REVIEW.md" is deleted
-    And gtd lands "gtd(check): build.review.closing → build.review.collecting"
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"build.review.collecting\""
-    And the json field "memory" matches the one recorded as "the reviewer's turn"
-
-  Scenario: a fresh reviewer session per round — the sibling break at build.health.check gives each review round a new mind
-    # build.review.reviewing's own scope ("build.review") is a descendant of
-    # "build", so it never breaks the BUILDER's run (previous scenario) — but
-    # the reviewer's OWN run breaks every round it's re-entered through a
-    # sibling or an unrelated scope. An actionable feedback round breaks it
-    # even more decisively: getting back to build.review.reviewing passes all
-    # the way out through the root's own `re-unwind` and a full
-    # design/implement lap, none of which are descendants of `build.review`.
-    # Two rounds of review over the same feature are therefore always
-    # reviewed with fresh eyes.
+  Scenario: a fresh review session per round — the loop-back gives each review round's collecting turn a new mind
+    # build.review.collecting's own scope ("build.review") is a descendant of
+    # "build", but getting back to it after an actionable round passes all the
+    # way out through the root's own `re-unwind` and a full design/implement
+    # lap, none of which are descendants of `build.review` — so each round is
+    # read with fresh eyes.
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -490,11 +385,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => 1
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"build.review.reviewing\""
-    And I record the json field "memory" as "round 1's reviewer turn"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
 
     Given a file ".gtd/REVIEW.md" with:
       """
@@ -506,7 +397,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       - [ ] ./src/widget.ts#1
       new export
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     # await-review: a hand-edit outside `.gtd/` is feedback — closing
     # (simulated by hand) hands it straight on to collecting.
     And a file "src/greet.ts" with:
@@ -516,6 +407,9 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And gtd lands "gtd(human): build.review.await-review → build.review.closing"
     And the file ".gtd/REVIEW.md" is deleted
     And gtd lands "gtd(check): build.review.closing → build.review.collecting"
+    When I run gtd next with "--json"
+    Then it succeeds
+    And I record the json field "memory" as "round 1's collecting turn"
     # collecting judges the round actionable; re-unwind reverts the
     # hand-edit, and the whole plan is re-derived from scratch.
     And a file ".gtd/REQUIREMENTS.md" with:
@@ -555,23 +449,34 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """
     And the file ".gtd/REQUIREMENTS.md" is deleted
-    And gtd lands "gtd(check): implement.closing → build.review.reviewing"
+    And gtd lands "gtd(check): implement.closing → build.review.composing"
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add widget.ts
+
+      The widget export.
+      """
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And a file "src/greet.ts" with:
+      """
+      export const greet = "hello"
+      """
+    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
+    And the file ".gtd/REVIEW.md" is deleted
+    And gtd lands "gtd(check): build.review.closing → build.review.collecting"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"build.review.reviewing\""
-    And the json field "memory" differs from the one recorded as "round 1's reviewer turn"
+    And stdout contains "\"state\":\"build.review.collecting\""
+    And the json field "memory" differs from the one recorded as "round 1's collecting turn"
 
-  Scenario: an actionable loop-back round breaks build's OWN run too — the post-loop-back reviewer turn never resumes the pre-loop-back builder
-    # `build.fix` and `build.review.reviewing` are different scopes ("build"
-    # vs. "build.review") — a plain descendant dip from "build" into
-    # "build.review" never breaks build's own run (see the previous
-    # scenario), but the re-unwind/design/implement rows an ACTIONABLE round
-    # takes are none of them descendants of "build" either. So the SAME break
-    # that gives the reviewer a fresh mind each round (previous scenario)
-    # also breaks the builder's own run: by the time the loop-back's own
-    # implement pass lands, the second pass's build.review.reviewing is
-    # anchored at THIS pass's own entry into the shared tail, never the
-    # original build.fix turn from before the round-trip.
+  Scenario: an actionable loop-back round breaks build's OWN run too — the post-loop-back collecting turn never resumes the pre-loop-back builder
+    # The re-unwind/design/implement rows an ACTIONABLE round takes are not
+    # descendants of "build", so they break the builder's own run: the
+    # post-loop-back build.review.collecting is anchored at THIS pass's entry
+    # into the shared tail, never the build.fix turn from before the round-trip.
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -619,7 +524,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => undefined
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -630,7 +535,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       - [ ] ./src/widget.ts#1
       new export
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     # await-review: a hand-edit outside `.gtd/` is feedback — closing
     # (simulated by hand) hands it straight on to collecting.
     And a file "src/greet.ts" with:
@@ -679,29 +584,34 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """
     And the file ".gtd/REQUIREMENTS.md" is deleted
-    And gtd lands "gtd(check): implement.closing → build.review.reviewing"
+    And gtd lands "gtd(check): implement.closing → build.review.composing"
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Add widget.ts
+
+      The widget export.
+      """
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And a file "src/greet.ts" with:
+      """
+      export const greet = "hello"
+      """
+    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
+    And the file ".gtd/REVIEW.md" is deleted
+    And gtd lands "gtd(check): build.review.closing → build.review.collecting"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"build.review.reviewing\""
+    And stdout contains "\"state\":\"build.review.collecting\""
     And the json field "memory" differs from the one recorded as "the pre-loop-back builder's turn"
 
-  Scenario: gtd --workflow fix's own build.fix session survives into the shared review tail — reviewing and collecting share the session even on the fix-precheck entry
-    # The nesting's whole remaining point: on this entry, build.fix opens
-    # build's own scope directly (no design/seam/implement lap ever
-    # runs), and every state from there to build.review.* —
-    # build.fix -> build.health.check -> build.review.reviewing -> ... —
-    # stays inside that one subtree, so the review is drafted by the SAME
-    # session that made the fixes; the reviewer's own session then survives
-    # the closing hop into collecting on an actionable round, exactly as the
-    # earlier scenario shows for the normal (unwind) entry. The first assertion
-    # below proves the "build" half of that claim directly: a still-red check
-    # loops build.fix back into itself (health.check -> fix, under the retry
-    # cap) without leaving the "build" scope, so its second entry's memory
-    # must match its first — the same claim
-    # "memory is retained across an excursion into a child machine's own
-    # check" makes for the ordinary (unwind) entry, pinned here specifically
-    # for the fix-precheck entry, since that's the one route where
-    # build.fix opens the scope directly rather than resuming it.
+  Scenario: gtd --workflow fix's own build.fix session survives a red re-check on the fix-precheck entry
+    # On this entry build.fix opens build's own scope directly (no
+    # design/seam/implement lap ever runs). A still-red check loops build.fix
+    # back into itself without leaving "build", so its second entry's memory
+    # must match its first.
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -773,51 +683,6 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     Then it succeeds
     And stdout contains "\"state\":\"build.fix\""
     And the json field "memory" matches the one recorded as "the fix-precheck path's fix turn"
-
-    Given the file ".gtd/FEEDBACK.md" is deleted
-    And a file "src/repair.ts" with:
-      """
-      export const repaired = true
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): build.fix → build.health.check"
-
-    When I run gtd land
-    Then it succeeds
-    # Blank GTD_QUALITYREVIEWS leaves the lap no lens to run — the green
-    # health check hands straight on to the human review tail.
-    And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
-
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"build.review.reviewing\""
-    And I record the json field "memory" as "the fix-precheck path's reviewer turn"
-
-    Given a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Repair
-
-      - [ ] ./src/repair.ts#1
-      new export
-      """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
-    # await-review: a hand-edit outside `.gtd/` is feedback — closing
-    # (simulated by hand) hands it straight on to collecting.
-    And a file "src/greet.ts" with:
-      """
-      export const greet = "hello"
-      """
-    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
-    And the file ".gtd/REVIEW.md" is deleted
-    And gtd lands "gtd(check): build.review.closing → build.review.collecting"
-    When I run gtd next with "--json"
-    Then it succeeds
-    And stdout contains "\"state\":\"build.review.collecting\""
-    And the json field "memory" matches the one recorded as "the fix-precheck path's reviewer turn"
 
   Scenario: seam is a separate memory scope from design, and implement is its own scope with its own session
     # design, seam and implement are sibling machines with their own memory

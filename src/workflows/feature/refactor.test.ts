@@ -781,8 +781,6 @@ interface ReviewedScript {
   /** The collecting turn writes no package. */
   readonly silentCollect?: boolean
   readonly collected?: string
-  /** The note the first `review.reviewing` turn writes; later ones write `add`. */
-  readonly firstReviewNote?: string
 }
 
 /** Runs `reviewedRefactor` against a scripted context; a third await-review stops the run. */
@@ -797,7 +795,6 @@ const driveReviewed = async (
   const files = new Map<string, string>()
   let last = ""
   let awaits = 0
-  let reviews = 0
   let reds = script.reds ?? 0
   let checking = false
   let pending: boolean | Error = false
@@ -823,9 +820,7 @@ const driveReviewed = async (
     ...Object.fromEntries(lensEffects),
     deriving: () => void files.set(REFACTOR_PACKAGE, "package"),
     closing: () => void files.delete(REFACTOR_PACKAGE),
-    "review.reviewing": () => {
-      files.set(REVIEW, reviewDoc(reviews++ === 0 ? (script.firstReviewNote ?? "add") : "add"))
-    },
+    "review.composing": () => void files.set(REVIEW, reviewDoc("add")),
     "review.closing": () => void files.delete(REVIEW),
     "review.collecting": () => {
       if (!script.silentCollect)
@@ -846,6 +841,14 @@ const driveReviewed = async (
           if (request.kind === "restart") return Promise.resolve()
           record(request)
           effects[request.name]?.()
+          // Every lens finding is mechanical, so the fix turn runs.
+          if (request.kind === "judge" && request.name === "quality.triage")
+            return Promise.resolve({
+              answers: Object.fromEntries(
+                request.questions.map((q) => [q.id, { answer: "mechanical", p: 0.9 }]),
+              ),
+              truncated: [],
+            })
           return Promise.resolve(
             request.kind === "judge" ? { answers: script.answers ?? {}, truncated: [] } : undefined,
           )
@@ -926,7 +929,7 @@ describe("reviewedRefactor", () => {
       "refactor.build.quality.correctness.reviewing",
       "refactor.build.quality.ponytail-review.reviewing",
       "refactor.build.quality.conventions.reviewing",
-      "refactor.build.review.reviewing",
+      "refactor.build.review.composing",
       "refactor.build.review.await-review",
       "refactor.build.review.closing",
     ])
@@ -934,8 +937,8 @@ describe("reviewedRefactor", () => {
 
   it("reviews from HEAD at scope entry", async () => {
     const h = await driveReviewed(shape())
-    const reviewing = h.steps.find((s) => s.kind === "agent" && s.name === "review.reviewing")
-    expect(reviewing?.kind === "agent" ? reviewing.prompt : "").toContain("base: c0")
+    const composing = h.steps.find((s) => s.kind === "run" && s.name === "review.composing")
+    expect(composing?.kind === "run" ? composing.body : "").toContain("<!-- base: c0 -->")
   })
 
   it("names the entry commit in every lens prompt, on the first lap and after a feedback lap", async () => {
@@ -1193,10 +1196,6 @@ describe("reviewedRefactor's tail prompts", () => {
     ["refactor.build.fix", { findings: true, reds: 2 }],
     ["refactor.build.fix.quality.fixing", { findings: true }],
     [
-      "refactor.build.review.fix.risks.fixing",
-      { firstReviewNote: "Risk: drops the carry", notes: [undefined] },
-    ],
-    [
       "refactor.build.review.fix.nits.fixing",
       { notes: ["nit"], answers: { "note-1": { answer: "nit", p: 0.9 } } },
     ],
@@ -1210,18 +1209,4 @@ describe("reviewedRefactor's tail prompts", () => {
       expect(prompt).toContain("no new flag read")
     },
   )
-})
-
-describe("reviewedRefactor's review lap wording", () => {
-  it("says the whole refactor since it started on the first and the second round", async () => {
-    const h = await driveReviewed(shape(), { notes: ["add — rename it", undefined] })
-    const prompts = h.steps.flatMap((s) =>
-      s.kind === "agent" && s.name === "review.reviewing" ? [s.prompt] : [],
-    )
-    expect(prompts).toHaveLength(2)
-    for (const prompt of prompts) {
-      expect(prompt).toContain("it covers the whole refactor since it started, on every round")
-      expect(prompt).not.toContain("only what is new since the previous review")
-    }
-  })
 })

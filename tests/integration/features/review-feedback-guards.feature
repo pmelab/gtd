@@ -128,7 +128,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -139,7 +139,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       - [ ] ./src/calc.ts#1
       new add function
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -217,7 +217,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -228,7 +228,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       - [ ] ./src/calc.ts#1
       new add function
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     # await-review: a hand-edit outside `.gtd/` is feedback — closing hands
     # it straight to collecting.
     And a file "src/greet.ts" with:
@@ -291,7 +291,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -302,7 +302,7 @@ Feature: Review feedback — capture, classification, and the loop-back guards
       - [ ] ./src/calc.ts#1
       new add function
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     And a file "src/greet.ts" with:
       """
       export const greet = "hello"

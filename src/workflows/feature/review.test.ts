@@ -48,7 +48,7 @@ interface Drive {
   readonly vars?: Readonly<Record<string, string>>
   /** The REVIEW.md the human leaves; defaults to `notes` laid over the baseline. */
   readonly after?: string
-  /** The REVIEW.md each `review.reviewing` turn writes, in order; also raises the review-turn stop to one past the last. */
+  /** The REVIEW.md each `review.composing` turn writes, in order; also raises the review-turn stop to one past the last. */
   readonly reviewDocs?: readonly (string | undefined)[]
   /** Let the run pass the second gate, stopping at the first range read after it. */
   readonly passSecondGate?: boolean
@@ -95,7 +95,7 @@ const drive = async (d: Drive): Promise<Run> => {
   let awaits = 0
   let reviews = 0
   const effects: Record<string, () => void> = {
-    "review.reviewing": () => {
+    "review.composing": () => {
       const docs = d.reviewDocs
       if (++reviews > (docs?.length ?? 0) + (docs === undefined ? 1 : 0)) throw new Stop()
       const written = docs?.[reviews - 1]
@@ -116,6 +116,7 @@ const drive = async (d: Drive): Promise<Run> => {
       gateMessages.push(request.options.message ?? "")
     }
     if (request.kind === "agent") prompts.set(request.name, request.prompt)
+    if (request.kind === "run") prompts.set(request.name, request.body)
     if (request.kind === "judge") asked.push(...request.questions)
   }
   const context = fixtureContext(
@@ -184,10 +185,10 @@ describe("the risk-fix pass", () => {
   it("a marked risk is fixed, kept green, re-reviewed, then rests at the gate", async () => {
     const run = await drive({ notes: [], reviewDocs: [risky, clean] })
     expect(run.log.slice(0, 5)).toEqual([
-      "review.reviewing",
+      "review.composing",
       "review.fix.risks.fixing",
       "health.check",
-      "review.reviewing",
+      "review.composing",
       "review.await-review",
     ])
     expect(run.prompts.get("review.fix.risks.fixing")).toContain("risk-1")
@@ -199,10 +200,10 @@ describe("the risk-fix pass", () => {
     const run = await drive({ notes: [], reviewDocs: [risky, risky] })
     expect(run.log.filter((n) => n === "review.fix.risks.fixing")).toHaveLength(1)
     expect(run.log.slice(0, 5)).toEqual([
-      "review.reviewing",
+      "review.composing",
       "review.fix.risks.fixing",
       "health.check",
-      "review.reviewing",
+      "review.composing",
       "review.await-review",
     ])
   })
@@ -232,7 +233,7 @@ describe("the risk-fix pass", () => {
   it("no marker means no fix-risks step", async () => {
     const run = await drive({ notes: [], reviewDocs: [clean] })
     expect(run.log).not.toContain("review.fix.risks.fixing")
-    expect(run.log[0]).toBe("review.reviewing")
+    expect(run.log[0]).toBe("review.composing")
     expect(run.log[1]).toBe("review.await-review")
   })
 
@@ -243,16 +244,16 @@ describe("the risk-fix pass", () => {
       reviewDocs: [undefined, risky, clean],
     })
     expect(run.log).toEqual([
-      "review.reviewing",
+      "review.composing",
       "review.await-review",
       "review.triage",
       "review.fix.nits.fixing",
       "health.check",
       "review.closing",
-      "review.reviewing",
+      "review.composing",
       "review.fix.risks.fixing",
       "health.check",
-      "review.reviewing",
+      "review.composing",
       "review.await-review",
     ])
   })
@@ -265,7 +266,7 @@ describe("the guard", () => {
   it("runs right after the risk-fix turn", async () => {
     const run = await drive({ notes: [], reviewDocs: [risky, clean], guarded: true })
     expect(run.log.slice(0, 4)).toEqual([
-      "review.reviewing",
+      "review.composing",
       "review.fix.risks.fixing",
       "guard",
       "health.check",
@@ -443,7 +444,7 @@ describe("review verdict routing", () => {
   it("an unanswered note counts as edit", async () => {
     const run = await drive({ notes: ["add — typo", "sub", "mul"], answers: {} })
     expect(run.log).toEqual([
-      "review.reviewing",
+      "review.composing",
       "review.await-review",
       "review.triage",
       "review.closing",
@@ -478,7 +479,7 @@ describe("review verdict routing", () => {
   it("only praise closes and signs off with no agent turn", async () => {
     const run = await drive({ notes, answers: { "note-1": verdict("praise") } })
     expect(run.log).toEqual([
-      "review.reviewing",
+      "review.composing",
       "review.await-review",
       "review.triage",
       "review.closing",
@@ -492,7 +493,7 @@ describe("review verdict routing", () => {
       answers: { "note-1": verdict("question"), "note-2": verdict("question") },
     })
     expect(run.log).toEqual([
-      "review.reviewing",
+      "review.composing",
       "review.await-review",
       "review.triage",
       "review.answer-review-questions",
@@ -508,17 +509,17 @@ describe("review verdict routing", () => {
       answers: { "note-1": verdict("question"), "note-2": verdict("nit") },
     })
     expect(run.log).toEqual([
-      "review.reviewing",
+      "review.composing",
       "review.await-review",
       "review.triage",
       "review.answer-review-questions",
       "review.fix.nits.fixing",
       "health.check",
       "review.closing",
-      "review.reviewing",
+      "review.composing",
     ])
     expect(run.prompts.get("review.fix.nits.fixing")).not.toContain("why?")
-    expect(run.prompts.get("review.reviewing")).toContain("Carry-over: commit `c4`")
+    expect(run.prompts.get("review.composing")).toContain("git show 'c4:.gtd/REVIEW.md'")
     expect(run.result).toBe("stopped")
   })
 
@@ -527,7 +528,8 @@ describe("review verdict routing", () => {
       notes: ["add — typo", "sub", "mul"],
       answers: { "note-1": verdict("nit") },
     })
-    expect(run.prompts.get("review.reviewing")).not.toContain("Carry-over")
+    expect(run.prompts.get("review.composing")).not.toContain("git show")
+    expect(run.prompts.get("review.composing")).toContain("## Fixed from your notes")
   })
 
   it("edits run after questions and nits, and the capture names only the edits and the answering commit", async () => {
@@ -536,7 +538,7 @@ describe("review verdict routing", () => {
       answers: { "note-2": verdict("question"), "note-3": verdict("nit") },
     })
     expect(run.log).toEqual([
-      "review.reviewing",
+      "review.composing",
       "review.await-review",
       "review.triage",
       "review.answer-review-questions",
@@ -556,7 +558,7 @@ describe("review verdict routing", () => {
   it("a noted round with no extractable note collects as one edit, without judging", async () => {
     const run = await drive({ notes: [], after: BEFORE + "\nSome stray prose.\n" })
     expect(run.log).toEqual([
-      "review.reviewing",
+      "review.composing",
       "review.await-review",
       "review.closing",
       "review.collecting",
@@ -679,7 +681,7 @@ describe("severity routing", () => {
       answers: { "note-1": verdict("edit"), ...sev("note-1", could) },
     })
     expect(run.log).toEqual([
-      "review.reviewing",
+      "review.composing",
       "review.await-review",
       "review.triage",
       "review.defer",
@@ -771,7 +773,7 @@ describe("severity routing", () => {
       passSecondGate: true,
     })
     expect(run.log).toEqual([
-      "review.reviewing",
+      "review.composing",
       "review.await-review",
       "review.triage",
       "review.answer-review-questions",
@@ -807,7 +809,7 @@ describe("BuildTailOptions.lensBase", () => {
             if (request.kind === "restart") return Promise.resolve()
             if (request.kind === "agent" && request.name.startsWith("quality."))
               prompts.push(request.prompt)
-            if (request.name === "review.reviewing") throw new Stop()
+            if (request.name === "review.composing") throw new Stop()
             return Promise.resolve()
           },
           pushScope: () => undefined,
@@ -1048,10 +1050,12 @@ describe("buildTail without rules", () => {
             if (request.kind === "agent") prompts.set(request.name, request.prompt)
             if (request.name === "health.check") checks++
             if (request.name === "fix.quality.fixing") files.delete(".gtd/QUALITY.md")
-            if (request.name === "review.reviewing" || request.name === "health.stop")
+            if (request.name === "review.composing" || request.name === "health.stop")
               throw new Stop()
             return Promise.resolve(
-              request.kind === "judge" ? { answers: {}, truncated: [] } : undefined,
+              request.kind === "judge"
+                ? { answers: { Q1: { answer: "mechanical", p: 0.9 } }, truncated: [] }
+                : undefined,
             )
           },
           pushScope: () => undefined,

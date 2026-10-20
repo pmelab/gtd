@@ -127,6 +127,19 @@ Given("the file {string} is deleted", (world: TestkitWorld, path: string) => {
   world.repo().remove(path)
 })
 
+// A human's edit in place, so a scenario need not restate a file gtd wrote.
+Given(
+  "the text {string} in {string} is replaced with {string}",
+  (world: TestkitWorld, text: string, path: string, replacement: string) => {
+    const content = world.repo().read(path) ?? ""
+    assert.ok(content.includes(text), `${path}: ${content}`)
+    world.repo().write(
+      path,
+      content.replace(text, () => replacement),
+    )
+  },
+)
+
 Given("the working tree is committed as {string}", (world: TestkitWorld, message: string) => {
   world.repo().commit(message)
 })
@@ -340,6 +353,20 @@ Then(
 Then("{string} contains {string}", (world: TestkitWorld, path: string, text: string) => {
   assert.ok(world.repo().read(path)?.includes(text), `${path}: ${world.repo().read(path)}`)
 })
+
+Then("{string} contains:", (world: TestkitWorld, path: string, text: string) => {
+  assert.ok(world.repo().read(path)?.includes(text), `${path}: ${world.repo().read(path)}`)
+})
+
+Then(
+  "{string} contains the short hash of the commit {string}",
+  (world: TestkitWorld, path: string, subject: string) => {
+    const repo = world.repo()
+    const hash = repo.hashes()[repo.subjects().lastIndexOf(subject)]
+    assert.ok(hash !== undefined, `no commit "${subject}"`)
+    assert.ok(repo.read(path)?.includes(hash.slice(0, 7)), `${path}: ${repo.read(path)}`)
+  },
+)
 
 Then("{string} does not contain {string}", (world: TestkitWorld, path: string, text: string) => {
   const content = world.repo().read(path)
