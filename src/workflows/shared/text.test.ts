@@ -30,7 +30,9 @@ import {
   seamSteerMessage,
   summaryPrompt,
   withSkills,
+  composedReview,
 } from "./text.js"
+import { steeringFormatFor } from "../../steering/index.js"
 import { applyEmittedScript, InMemRepo } from "../../testkit/index.js"
 import { captureStep, renderText } from "./text.fixture.js"
 
@@ -196,7 +198,7 @@ describe("buildFixQualityPrompt", () => {
 describe("buildFixQualityPrompt scope", () => {
   it("fixes every finding, blocking or not", () => {
     const prompt = renderText(() => buildFixQualityPrompt())
-    expect(prompt).toContain("fix every finding in every chunk, blocking or not")
+    expect(prompt).toContain("Fix every finding in every chunk, blocking or not")
     expect(prompt).not.toContain("found something blocking")
   })
 })
@@ -1315,4 +1317,31 @@ it("asks the refactor review, and only it, to flag a test-file hunk that is more
   ])
   expect(refactor).toContain("give any test-file hunk its own chunk")
   expect(first).not.toContain("give any test-file hunk its own chunk")
+})
+
+describe("composedReview", () => {
+  const BASE = "0123456789abcdef0123456789abcdef01234567"
+
+  it("is a valid review with unique chunk titles, so every note matches its own chunk", () => {
+    const doc = composedReview(BASE, {
+      notes: [
+        { title: "same", body: "one" },
+        { title: "same", body: "two", unresolved: true },
+      ],
+      fixed: [{ title: "f", commit: "fedcba9876543210" }],
+      noise: [{ title: "n", p: 0.8 }],
+    })
+    expect(steeringFormatFor("review")!.validate(doc)).toEqual([])
+    expect(doc).toContain("# Review: 0123456\n\n<!-- base: " + BASE + " -->")
+    expect(doc).toContain("## same\n\none")
+    expect(doc).toContain("## same (2)\n\n_The fixer left this unresolved._\n\ntwo")
+    expect(doc).toContain("## Fixed automatically\n\n- f (fedcba9)")
+    expect(doc).toContain("## Dropped as noise\n\n- n (p=0.8)")
+  })
+
+  it("holds one chunk when the lap left nothing", () => {
+    const doc = composedReview(BASE, { notes: [], fixed: [], noise: [] })
+    expect(steeringFormatFor("review")!.validate(doc)).toEqual([])
+    expect(doc).toContain("## Nothing to note")
+  })
 })

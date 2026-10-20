@@ -78,7 +78,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       """
     And step "refactor.health.check" changes nothing
     And step "refactor.closing" runs its script
-    And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
+    And step "refactor.build.review.composing" writes ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -171,7 +171,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       """
     And step "refactor.health.check" changes nothing
     And step "refactor.closing" runs its script
-    And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
+    And step "refactor.build.review.composing" writes ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -191,8 +191,8 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
     And the commit subjects end with:
       """
       gtd(check): refactor.closing → refactor.build.quality.correctness.reviewing
-      gtd(agent): refactor.build.quality.correctness.reviewing → refactor.build.review.reviewing
-      gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
+      gtd(agent): refactor.build.quality.correctness.reviewing → refactor.build.review.composing
+      gtd(check): refactor.build.review.composing → refactor.build.review.await-review
       """
 
 
@@ -263,7 +263,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       And step "refactor.health.check" changes nothing
       And step "refactor.closing" runs its script
-      And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      And step "refactor.build.review.composing" writes ".gtd/REVIEW.md" with:
         """
         # Review: abc1234
 
@@ -345,90 +345,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         gtd(check): refactor.deriving → refactor.building
         gtd(agent): refactor.building → refactor.health.check
         gtd(check): refactor.health.check → refactor.closing
-        gtd(check): refactor.closing → refactor.build.review.reviewing
-        gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
+        gtd(check): refactor.closing → refactor.build.review.composing
+        gtd(check): refactor.build.review.composing → refactor.build.review.await-review
         """
-
-    Scenario: the refactor review says the whole refactor on its second round
-      Given step "refactor.build.review.reviewing" is prompted with "it covers the whole refactor since it started, on every round"
-      And step "implement.building" writes "src/calc.ts" with:
-        """
-        export const op = (a: number, b: number, sign: number) => a + sign * b
-        export const add = (a: number, b: number) => op(a, b, 1)
-        export const subtract = (a: number, b: number) => op(a, b, -1)
-        """
-      And step "implement.building" writes "src/acceptance.test.ts" with:
-        """
-        it("[AC-1] holds", () => {})
-        """
-      And step "implement.health.check" changes nothing
-      And step "implement.closing" runs its script
-      And judge step "implement.coverage" answers:
-        """
-        [{"id":"AC-1","answer":"yes","p":0.9}]
-        """
-      When the process is driven
-      Then the process rests at "refactor.build.review.await-review"
-      Given a file ".gtd/REVIEW.md" with:
-        """
-        # Review: abc1234
-
-        <!-- base: 0000000 -->
-
-        ## calc
-
-        - [ ] ./src/calc.ts#1-2
-          add built on the shared op[^why]
-
-        [^why]:
-            - H: name the helper `combine`
-        """
-      And step "refactor.build.review.collecting" writes ".gtd/REFACTOR.md" with:
-        """
-        Name the shared helper `combine`.
-        """
-      And step "refactor.build.review.collecting" writes ".gtd/REVIEW.md" with:
-        """
-        # Review: abc1234
-
-        <!-- base: 0000000 -->
-
-        ## calc
-
-        - [ ] ./src/calc.ts#1-2
-          add built on the shared op[^why]
-
-        [^why]:
-            - H: name the helper `combine`
-            - A: noted in the refactor package.
-        """
-      When gtd lands
-      And the process is driven
-      Then the process rests at "refactor.build.review.await-review"
-      Given a file ".gtd/REVIEW.md" with:
-        """
-        # Review: abc1234
-
-        <!-- base: 0000000 -->
-
-        ## calc
-
-        - [ ] ./src/calc.ts#1-2
-          add built on the shared op
-        """
-      And step "refactor.re-unwind" runs its script
-      And step "refactor.deriving" runs its script
-      And step "refactor.building" writes "src/calc.ts" with:
-        """
-        export const combine = (a: number, b: number, sign: number) => a + sign * b
-        export const add = (a: number, b: number) => combine(a, b, 1)
-        """
-      When gtd lands
-      And the process is driven
-      Then the process rests at "refactor.build.review.await-review"
-      When gtd lands
-      And the process is driven
-      Then the process rests at "build.review.reviewing"
 
     Scenario: a question answered at the refactor review reaches the re-derived package as ### Answered Questions
       When the process is driven
@@ -515,8 +434,8 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         gtd(check): refactor.deriving → refactor.building
         gtd(agent): refactor.building → refactor.health.check
         gtd(check): refactor.health.check → refactor.closing
-        gtd(check): refactor.closing → refactor.build.review.reviewing
-        gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
+        gtd(check): refactor.closing → refactor.build.review.composing
+        gtd(check): refactor.build.review.composing → refactor.build.review.await-review
         """
 
     Scenario: an edit note the collecting turn leaves out refuses the landing and never signs off
@@ -727,7 +646,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       When gtd lands
       And the process is driven
-      Then the process rests at "build.review.reviewing"
+      Then the process rests at "build.review.composing"
       And "src/calc.ts" contains "subtract"
 
     Scenario: a praise-only one-shot footnote signs off and the feature slice follows
@@ -769,7 +688,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       When gtd lands
       And the process is driven
-      Then the process rests at "build.review.reviewing"
+      Then the process rests at "build.review.composing"
       And "src/calc.ts" contains "subtract"
 
     Scenario: a one-shot footnote judged edit that collecting leaves out refuses naming its anchor
@@ -1084,7 +1003,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       When gtd lands
       And the process is driven
-      Then the process rests at "build.review.reviewing"
+      Then the process rests at "build.review.composing"
       And "src/calc.ts" contains "subtract"
 
     Scenario: a praise-only refactor review still signs off and the feature slice follows
@@ -1119,7 +1038,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       When gtd lands
       And the process is driven
-      Then the process rests at "build.review.reviewing"
+      Then the process rests at "build.review.composing"
       And "src/calc.ts" contains "subtract"
 
     Scenario: a nit fix in the refactor slice that changes a non-stray is refused, though a glob stray widens the write access
@@ -1184,8 +1103,8 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       Then the process rests at "refactor.build.review.await-review"
       And the commit subjects end with:
         """
-        gtd(check): refactor.closing → refactor.build.review.reviewing
-        gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
+        gtd(check): refactor.closing → refactor.build.review.composing
+        gtd(check): refactor.build.review.composing → refactor.build.review.await-review
         """
 
   Rule: with a quality lens on both slices
@@ -1256,7 +1175,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       And step "refactor.health.check" changes nothing
       And step "refactor.closing" runs its script
-      And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      And step "refactor.build.review.composing" writes ".gtd/REVIEW.md" with:
         """
         # Review: abc1234
 
@@ -1309,11 +1228,11 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       And the resting step's content contains the hash of the commit "gtd(check): refactor.build.review.closing → implement.building"
       Given step "build.quality.correctness.reviewing" changes nothing
       When the process is driven
-      Then the process rests at "build.review.reviewing"
+      Then the process rests at "build.review.composing"
       And the commit subjects end with:
         """
         gtd(check): implement.closing → build.quality.correctness.reviewing
-        gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
+        gtd(agent): build.quality.correctness.reviewing → build.review.composing
         """
 
   Rule: a refactor package never carries a test file, and demoted headings stop at ######
@@ -1463,7 +1382,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       And step "refactor.health.check" changes nothing
       And step "refactor.closing" runs its script
-      And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      And step "refactor.build.review.composing" writes ".gtd/REVIEW.md" with:
         """
         # Review: abc1234
 

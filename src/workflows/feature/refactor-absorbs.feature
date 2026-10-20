@@ -69,7 +69,7 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
       """
     And step "refactor.health.check" changes nothing
     And step "refactor.closing" runs its script
-    And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
+    And step "refactor.build.review.composing" writes ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -113,7 +113,7 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
 
     Given step "build.quality.correctness.reviewing" changes nothing
     When the process is driven
-    Then the process rests at "build.review.reviewing"
+    Then the process rests at "build.review.composing"
     And "src/calc.ts" contains "subtract"
     And the commit subjects end with:
       """
@@ -123,7 +123,7 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
-      gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
+      gtd(agent): build.quality.correctness.reviewing → build.review.composing
       """
     And the output lines of gtd "slices" start with:
       """

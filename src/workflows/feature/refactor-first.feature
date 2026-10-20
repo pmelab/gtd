@@ -72,7 +72,7 @@ Feature: a refactor-first judgment walks one fixed path to the review gate
       """
     And step "refactor.health.check" changes nothing
     And step "refactor.closing" runs its script
-    And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
+    And step "refactor.build.review.composing" writes ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -121,7 +121,7 @@ Feature: a refactor-first judgment walks one fixed path to the review gate
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """
     When the process is driven
-    Then the process rests at "build.review.reviewing"
+    Then the process rests at "build.review.composing"
     And "src/calc.ts" contains "op(a, b, 1)"
     And "src/calc.ts" contains "subtract"
     And the commit subjects end with:
@@ -138,14 +138,14 @@ Feature: a refactor-first judgment walks one fixed path to the review gate
       gtd(check): refactor.deriving → refactor.building
       gtd(agent): refactor.building → refactor.health.check
       gtd(check): refactor.health.check → refactor.closing
-      gtd(check): refactor.closing → refactor.build.review.reviewing
-      gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
+      gtd(check): refactor.closing → refactor.build.review.composing
+      gtd(check): refactor.build.review.composing → refactor.build.review.await-review
       gtd(human): refactor.build.review.await-review → refactor.build.review.closing
       gtd(check): refactor.build.review.closing → implement.building
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
-      gtd(check): implement.closing → build.review.reviewing
+      gtd(check): implement.closing → build.review.composing
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"

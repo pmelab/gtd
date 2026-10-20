@@ -11,12 +11,12 @@ Feature: Review severity tiers — critical and should notes re-plan, could note
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
 
   @inmem
   Scenario: one one-way door, one new concept and six style edits
     Given a file ".gtd/REVIEW.md" with 8 pointer notes on "src/calc.ts"
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     And ".gtd/REVIEW.md" is modified so note 1 reads "introduce an Operation abstraction" and note 2 reads "rename the file format version field"
     And the other notes in ".gtd/REVIEW.md" read "use a single quote"
     When I run gtd land
@@ -84,7 +84,7 @@ Feature: Review severity tiers — critical and should notes re-plan, could note
   @inmem
   Scenario: a `!` note is critical and never reaches the judge
     Given a file ".gtd/REVIEW.md" with 1 pointer note on "src/calc.ts"
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     And ".gtd/REVIEW.md" note 1 reads "! rename `add` to `sum`"
     When I run gtd land
     Then the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
@@ -100,7 +100,7 @@ Feature: Review severity tiers — critical and should notes re-plan, could note
   Scenario: a blank reviewSeverityMinP makes every tiered note critical
     Given gtd started workflow "review" with "--var reviewBase=base --var reviewSeverityMinP="
     And a file ".gtd/REVIEW.md" with 1 pointer note on "src/calc.ts"
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     And ".gtd/REVIEW.md" note 1 reads "tidy the helper"
     When I run gtd land
     And I run gtd judge answer with note-1 judged a confident could
@@ -109,7 +109,7 @@ Feature: Review severity tiers — critical and should notes re-plan, could note
   @inmem
   Scenario: a nit that renames a published API is still fixed as a nit
     Given a file ".gtd/REVIEW.md" with 1 pointer note on "src/calc.ts"
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     And ".gtd/REVIEW.md" note 1 reads "rename exported `add` to `sum`"
     When I run gtd land
     And I run gtd judge answer with stdin:
@@ -131,7 +131,7 @@ Feature: Review severity tiers — critical and should notes re-plan, could note
       """
     And gtd started workflow "review" with "--var reviewBase=base"
     And a file ".gtd/REVIEW.md" with 2 pointer notes on "src/calc.ts"
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     And ".gtd/REVIEW.md" note 1 reads "use a single quote" and note 2 reads "rename the file format version field"
     When I run gtd land
     And I run gtd judge answer with note-1 judged a confident could and note-2 a confident one-way edit
@@ -142,7 +142,7 @@ Feature: Review severity tiers — critical and should notes re-plan, could note
   @inmem
   Scenario: a defer-only round rests at the review gate again, then signs off
     Given a file ".gtd/REVIEW.md" with 1 pointer note on "src/calc.ts"
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
     And ".gtd/REVIEW.md" note 1 reads "use a single quote"
     When I run gtd land
     And I run gtd judge answer with note-1 judged a confident could

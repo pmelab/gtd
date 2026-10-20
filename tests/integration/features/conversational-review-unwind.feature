@@ -41,7 +41,7 @@ Feature: Review conversation re-unwind — edits from every round are reverted
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -53,7 +53,7 @@ Feature: Review conversation re-unwind — edits from every round are reverted
       - [ ] ./src/calc.ts#1
       new add function
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
 
   @inmem
   Scenario: a hand-edit from an earlier reply round is reverted by the re-unwind, back to its reviewed content

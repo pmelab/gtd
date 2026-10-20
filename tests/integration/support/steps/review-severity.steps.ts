@@ -171,7 +171,7 @@ Given(
       world.lastResult.stderr + world.lastResult.stdout,
     )
     await landing(world, "gtd(check): review-gate.check → build.health.check")
-    await landing(world, "gtd(check): build.health.check → build.review.reviewing")
+    await landing(world, "gtd(check): build.health.check → build.review.composing")
   },
 )
 
@@ -183,9 +183,9 @@ Given(
     writeBase(world)
     await world.runGtd("--workflow", "review", "--var", "reviewBase=base")
     await landing(world, "gtd(check): review-gate.check → build.health.check")
-    await landing(world, "gtd(check): build.health.check → build.review.reviewing")
+    await landing(world, "gtd(check): build.health.check → build.review.composing")
     writeFileTo(world, ".gtd/REVIEW.md", reviewDoc(["item 1"]))
-    await landing(world, "gtd(agent): build.review.reviewing → build.review.await-review")
+    await landing(world, "gtd(check): build.review.composing → build.review.await-review")
     writeFileTo(world, ".gtd/REVIEW.md", reviewDoc(["rename `add` to `sum`"]))
     await landing(world, "gtd(human): build.review.await-review → build.review.triage")
     await world.runGtdJudgeAnswerWithStdin(JSON.stringify([{ id, answer: verdict, p: 0.9 }]))

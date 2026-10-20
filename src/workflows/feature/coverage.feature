@@ -61,13 +61,13 @@ Feature: a feature is done only when every acceptance criterion has a passing te
       [{"id":"AC-1","answer":"yes","p":0.9},{"id":"AC-2","answer":"yes","p":0.9}]
       """
     When the process is driven
-    Then the process rests at "build.review.reviewing"
+    Then the process rests at "build.review.composing"
     And the commit subjects end with:
       """
       gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
-      gtd(check): implement.closing → build.review.reviewing
+      gtd(check): implement.closing → build.review.composing
       """
     And the commit "gtd(judge): implement.coverage → implement.closing" has a body containing "Gtd-Mark: covers=AC-1"
     And the commit "gtd(judge): implement.coverage → implement.closing" has a body containing "Gtd-Mark: covers=AC-2"
@@ -144,7 +144,7 @@ Feature: a feature is done only when every acceptance criterion has a passing te
       """
     And step "implement.uncovered" changes nothing
     When the process is driven
-    Then the process rests at "build.review.reviewing"
+    Then the process rests at "build.review.composing"
     And the commit "gtd(human): implement.uncovered → implement.closing" has a body containing "Gtd-Mark: covers=AC-1"
     And the commit "gtd(human): implement.uncovered → implement.closing" has a body containing "Gtd-Mark: uncovered=AC-2"
 

@@ -4,8 +4,8 @@ Feature: the review flags an existing scenario that lost an assertion
   Scenario wording is not frozen while a workflow builds: the human
   signs the scenarios off once, in the review. A `Then` line (or an `And`/`But`
   continuing one) that a `.feature` file existing at the review's base no
-  longer carries is listed in the reviewer's prompt, to be marked `Weakened:`.
-  A reworded `Given` or `When` is not.
+  longer carries is listed under `## Weakened scenarios` in the review gtd
+  composes. A reworded `Given` or `When` is not.
 
   Background:
     Given a test project
@@ -39,7 +39,7 @@ Feature: the review flags an existing scenario that lost an assertion
       """
     And gtd lands "gtd(check): fix-precheck → build.fix"
 
-  Scenario: a reworded Then is named for a Weakened: note
+  Scenario: a reworded Then is listed as a weakened scenario
     Given "spec/widget.feature" is modified to:
       """
       Feature: Widget
@@ -51,14 +51,14 @@ Feature: the review flags an existing scenario that lost an assertion
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
     And the file ".gtd/FEEDBACK.md" is deleted
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     When I run gtd next
     Then it succeeds
-    And stdout contains "spec/widget.feature — Scenario: shown — Then it is shown"
-    And stdout contains "`Weakened:`"
+    And stdout contains "## Weakened scenarios"
+    And stdout contains "- spec/widget.feature — Scenario: shown — Then it is shown"
     And stdout does not contain "And it is blue"
 
-  Scenario: a reworded Given asks for no Weakened: note
+  Scenario: a reworded Given is not listed
     Given "spec/widget.feature" is modified to:
       """
       Feature: Widget
@@ -70,8 +70,8 @@ Feature: the review flags an existing scenario that lost an assertion
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
     And the file ".gtd/FEEDBACK.md" is deleted
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(check): build.health.check → build.review.composing"
     When I run gtd next
     Then it succeeds
-    And stdout contains "## Scenarios"
-    And stdout does not contain "Weakened:"
+    And stdout contains "## Nothing to note"
+    And stdout does not contain "Weakened"

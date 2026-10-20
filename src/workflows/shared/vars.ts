@@ -23,6 +23,7 @@ export const defaults: Readonly<Record<string, string>> = {
   judgeIdenticalMinP: "0.7",
   reviewNoteActionable: "0.7",
   reviewSeverityMinP: "0.7",
+  qualityTriageMinP: "0.7",
   refactorFlagPattern: "\\bGTD_FLAG_\\w+",
   seamAllow: [...testFileGlobs, ".gtd/**"].join(", "),
   flagMode: "true",

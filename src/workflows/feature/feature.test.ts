@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { runsItsScript, testRepo, type Actor } from "../../testkit/index.js"
+import { runsItsScript, testRepo } from "../../testkit/index.js"
 import { CONFIG_SCAFFOLD } from "../../install/index.js"
 import { reviewDoc } from "../shared/config.fixture.js"
 
@@ -75,10 +75,7 @@ describe("afterTail feedback lap", () => {
     `}`,
   ].join("\n")
 
-  const prompts: string[] = []
-
   const feedbackLap = async () => {
-    prompts.length = 0
     const repo = testRepo({
       workflow: TAIL,
       env: {
@@ -93,10 +90,7 @@ describe("afterTail feedback lap", () => {
     await repo.drive({
       "review-gate.check": () => undefined,
       "build.health.check": () => undefined,
-      "build.review.reviewing": (beat, r) => {
-        prompts.push(beat.content)
-        r.write(".gtd/REVIEW.md", review())
-      },
+      "build.review.composing": (_, r) => r.write(".gtd/REVIEW.md", review()),
     })
     repo.write(".gtd/REVIEW.md", review("also export multiply"))
     await repo.land()
@@ -136,35 +130,6 @@ describe("afterTail feedback lap", () => {
     expect(rest.content).toContain("already exists")
     expect(rest.content).not.toContain("write the change fresh")
     expect(repo.subjects().some((subject) => subject.includes("seam."))).toBe(false)
-  })
-
-  it("the first review says everything since base, the one after feedback only what is new", async () => {
-    const repo = await feedbackLap()
-    expect(prompts[0]).toContain("it covers everything since the base")
-    expect(prompts[0]).not.toContain("only what is new since the previous review")
-    const writes: Record<string, () => [string, string]> = {
-      "design.triage": () => [
-        ".gtd/REQUIREMENTS.md",
-        "# Requirements\n\n- multiply, designed\n\n## Acceptance Criteria\n\n- AC-1: done\n",
-      ],
-      "implement.building": () => ["src/calc.ts", `${CALC}// again\n`],
-    }
-    const actors = new Proxy({} as Record<string, Actor>, {
-      get: (_, state: string): Actor | undefined =>
-        state === "build.review.await-review" || state === "idle"
-          ? undefined
-          : (beat, r) => {
-              if (state === "implement.coverage") return '[{"id":"AC-1","answer":"yes","p":0.9}]'
-              if (state === "build.review.reviewing") {
-                prompts.push(beat.content)
-                r.write(".gtd/REVIEW.md", review())
-              } else if (writes[state]) r.write(...writes[state]())
-              else if (state.endsWith("closing") || state === "re-unwind") r.runScript(beat.content)
-            },
-    })
-    await repo.drive(actors, { maxBeats: 80 })
-    expect(prompts[1]).toContain("it covers only what is new since the previous review")
-    expect(prompts[1]).not.toContain("everything since the base")
   })
 })
 

@@ -180,6 +180,11 @@ straight back to the same step, so re-running it cannot change anything.
 Reported as `settled: true` by `gtd land --json` so a loop exits rather than
 spins. _Avoid_: done, finished, idle
 
+**Lens finding**: One `## ` chunk a quality lens writes to `.gtd/QUALITY.md`. In
+`feature` a judge calls each `mechanical` (the fixer fixes it), `noise`
+(dropped) or `design` (a note for the human review); unsure is `design`.
+_Avoid_: issue, comment, review item
+
 **Gate**: A human step — the process rests there until a person acts. _Avoid_:
 checkpoint, approval, the bare "the gate"
 

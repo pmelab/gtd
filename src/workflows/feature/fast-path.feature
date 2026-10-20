@@ -64,7 +64,7 @@ Feature: a trivial change takes the same few beats at either risk tier
       """
     And step "implement.applying" runs its script
     When the process is driven
-    Then the process rests at "build.review.reviewing"
+    Then the process rests at "build.review.composing"
     And "src/greeting.ts" contains "Hello, world"
     And the commit subjects end with:
       """
@@ -80,7 +80,7 @@ Feature: a trivial change takes the same few beats at either risk tier
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
-      gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
+      gtd(agent): build.quality.correctness.reviewing → build.review.composing
       """
     And the output of gtd "summary" <summary> "needs a human reviewer"
 

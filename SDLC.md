@@ -74,6 +74,18 @@ records `Gtd-Mark: covers=<id>` per ID. After two covering turns
 overrule records `Gtd-Mark: uncovered=<id>`. See
 [Acceptance-criteria coverage](docs/configuration.md#acceptance-criteria-coverage).
 
+## The quality lenses are the only agentic review
+
+**In `feature`, no reviewer turn writes the review.** The quality lap's lenses
+write one `## ` finding each to `.gtd/QUALITY.md`; `build.quality.triage` judges
+each `mechanical` (fixed by the fix turn, up to three turns), `noise` (dropped,
+`Gtd-Mark: noise=<id> p=<p> <title>`) or `design` (a note for the human). **An
+unsure verdict is `design`**, and a mechanical finding the fix cap leaves is a
+note too. gtd writes `.gtd/REVIEW.md` itself: the notes, then — no tick boxes,
+no answer required — what was fixed automatically (with the fixing commit) and
+what was dropped as noise. See
+[The triaged quality lap](docs/configuration.md#the-triaged-quality-lap).
+
 ## Human gates
 
 Each gate is a point where a person must act before work continues. Counts are
@@ -96,11 +108,11 @@ per design round: a review-feedback round re-runs design.
 In every row the authorizer is the person who asked for the change, and the
 record carries the commit author only, no approver trailer, unless stated.
 
-| Gate                                                | Who approved                         | What was tested                                 | Where the record lives               |
-| --------------------------------------------------- | ------------------------------------ | ----------------------------------------------- | ------------------------------------ |
-| `design.gate.answer`                                | the person who answers the questions | the design questions and the `AC-<n>` criteria  | step commit and `.gtd/` file history |
-| review gate sign-off                                | the reviewer who signs off           | the diff, against the review checklist          | the sign-off commit                  |
-| refactor review sign-off (only on `refactor-first`) | the reviewer who signs off           | the refactor diff, against the review checklist | the sign-off commit                  |
+| Gate                                                | Who approved                         | What was tested                                | Where the record lives               |
+| --------------------------------------------------- | ------------------------------------ | ---------------------------------------------- | ------------------------------------ |
+| `design.gate.answer`                                | the person who answers the questions | the design questions and the `AC-<n>` criteria | step commit and `.gtd/` file history |
+| review gate sign-off                                | the reviewer who signs off           | the diff, with the quality lap's notes         | the sign-off commit                  |
+| refactor review sign-off (only on `refactor-first`) | the reviewer who signs off           | the refactor diff, with its lap's notes        | the sign-off commit                  |
 
 For non-repudiation use signed commits or branch protection outside gtd.
 
@@ -115,9 +127,9 @@ approval:
   continuations hit the `continuations` cap or stalled; landing grants a fresh
   round
 - `*.health.stop` and `*.health.exhausted` — escalation stops
-- `build.quality-unresolved` — quality findings the fix cap left; a person fixes
-  what matters, then deletes or empties `.gtd/QUALITY.md` before the next slice
-  or the review
+- `build.quality-unresolved` — quality findings the fix cap left between slices;
+  a person fixes what matters, then deletes or empties `.gtd/QUALITY.md` before
+  the next slice
 - `*.blocked`, `review.review-missing`, `unwind-failed` — a person must clear
   the cause by hand; a red suite after the `rollout` flip rests at
   `rollout.suite.blocked`
@@ -146,6 +158,9 @@ Each path has a `.feature` file:
 - [`src/workflows/feature/review-gate.feature`](src/workflows/feature/review-gate.feature):
   a feature process ending at the review gate, its sign-off, and a feedback lap
   keeping the criteria's IDs
+- [`src/workflows/feature/lens-review.feature`](src/workflows/feature/lens-review.feature):
+  the triaged quality lap — a mechanical finding fixed and listed, noise dropped
+  and listed, a design one noted — and the composed review
 - [`src/workflows/feature/refactor-review.feature`](src/workflows/feature/refactor-review.feature):
   the refactor review's feedback loop, refusals and lenses
 - [`src/workflows/feature/seam-rejection.feature`](src/workflows/feature/seam-rejection.feature):
@@ -185,6 +200,10 @@ Paths and text are checked, **never behaviour**.
   (`acceptance-internals`). See
   [The naive-pass path](docs/configuration.md#the-naive-pass-path). `seam.check`
   is the one place the naive pass's behaviour is run.
+- `build.quality.triage` reads finding text only. **A finding judged `noise` is
+  dropped unseen by a person** but for its line under "Dropped as noise"; one
+  judged `mechanical` is fixed with no check beyond the green suite and the
+  fixer deleting its chunk.
 - `implement.coverage` sends uncovered criteria back, not refused. **Its judge
   reads test text and runs nothing**: a `covers` mark means a judge found a
   matching test in a green suite, not that the test checks the criterion well.
