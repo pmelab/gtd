@@ -1903,9 +1903,9 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
 **Process settings:**
 
 - **`judgeIdenticalMinP`** (`0.7`) — the confidence an "identical failure"
-  verdict at `health.judge` needs before a red streak escalates early. Blank,
-  non-numeric or non-finite means it can never be cleared, so the early
-  escalation is off.
+  verdict at `health.judge` needs before a red streak escalates early, and a
+  "progress" verdict needs to earn the extra fix turn at the cap. Blank,
+  non-numeric or non-finite means it can never be cleared, so both are off.
 - **`reviewNoteActionable`** (`0.7`) — the floor a non-`edit` verdict
   (`question`, `nit`, `praise`) on a review note must clear at
   `build.review.triage` and `refactor.build.review.triage`. Below it, the note
@@ -2021,9 +2021,10 @@ test output plus a HEAD stamp.
 
 ### Escalation
 
-A red suite that stays red past three fix turns — or that `health.judge` calls
-"identical" to the previous round — escalates instead of retrying forever,
-counting escalation rounds since the last green check:
+A red suite that stays red past three fix turns (four while it makes progress,
+below) — or that `health.judge` calls "identical" to the previous round —
+escalates instead of retrying forever, counting escalation rounds since the last
+green check:
 
 - **Under 2 rounds** — an agent turn at `health.describe` reads
   `.gtd/FEEDBACK.md`, `.gtd/PRIOR_FEEDBACK.md` when present, and the code the
@@ -2037,11 +2038,26 @@ counting escalation rounds since the last green check:
   document there is what gives the next attempt anything new to try; landing it
   untouched tries the same analysis again.
 
+When `health.judge` calls the round that reaches the cap "progress" — still red,
+but closer to green — with at least `judgeIdenticalMinP` confidence, one more
+fix turn runs first; the round after it escalates without asking the judge. The
+extra turn comes once per run of fix turns, so each escalation stop starts a run
+with its own. It never applies when the budget cut either report or one of them
+was empty. A "new-failure" verdict never escalates early.
+
 A round is one `health.describe` turn since the last green check; editing the
 file at the human gate never spends one. Both gates release straight into the
 caller's fix step (`build.fix` or `implement.fix.suite.fixing`), so the turn
 that consumes the document is the very next one. `.gtd/ESCALATION.md` is
 free-form prose with no mode of its own.
+
+**Upgrading:** finish or `gtd abandon` any process whose history has a
+`health.judge` landing that answered "progress", at `judgeIdenticalMinP`
+confidence, on the round reaching the cap, even if it has moved on since: that
+landing now leads to an extra fix turn, so its history no longer replays. A
+`gtd.config.ts` calling `healthy` from `@pmelab/gtd/workflow-kit` passes
+`compare` in place of `sameFailure`, resolving `"identical"` where it resolved
+`true`, `"progress"` for a round closer to green, or `undefined`.
 
 ### Re-check before a person
 

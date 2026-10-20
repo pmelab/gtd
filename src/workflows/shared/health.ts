@@ -105,7 +105,10 @@ export const retryQuestion = (comparable: boolean): JudgeQuestion =>
           "new-failure: a materially different failure than before. progress: still red, but closer to green — the default if genuinely unsure.",
       }
 
-const sameFailure = async (previous: string, current: string): Promise<boolean> => {
+const compare = async (
+  previous: string,
+  current: string,
+): Promise<kit.RetryVerdict | undefined> => {
   const comparable = current.trim() !== "" && previous.trim() !== ""
   const { answers, truncated } = await judge("health.judge", {
     questions: [retryQuestion(comparable)],
@@ -113,12 +116,11 @@ const sameFailure = async (previous: string, current: string): Promise<boolean> 
     message: t.healthJudgeMessage(),
     label: "Judging the retry",
   })
-  // Evidence the budget cut can make two different reports look alike: never sameness.
-  return (
-    comparable &&
-    truncated.length === 0 &&
-    answered(answers.verdict, "identical", numeric(vars.judgeIdenticalMinP, Infinity))
-  )
+  // Evidence the budget cut can make two different reports look alike: neither sameness nor progress.
+  if (!comparable || truncated.length > 0) return undefined
+  const minP = numeric(vars.judgeIdenticalMinP, Infinity)
+  if (answered(answers.verdict, "identical", minP)) return "identical"
+  return answered(answers.verdict, "progress", minP) ? "progress" : undefined
 }
 
 export interface HealthOptions {
@@ -153,7 +155,8 @@ const runSuite = (options: HealthOptions): Promise<boolean> =>
 /**
  * Loop until the suite is green: check, and on red run `fix` — escalating
  * first once `FIX_CAP` fixes are spent, or a judge calls the failure
- * identical to the previous round's. An escalation re-runs the suite once
+ * identical to the previous round's. A judge calling it progress at the cap
+ * buys one extra fix per run of fixes. An escalation re-runs the suite once
  * first; a green re-run ends the loop.
  */
 export const healthy = (fix: () => Promise<void>, options: HealthOptions = {}): Promise<void> =>
@@ -162,7 +165,7 @@ export const healthy = (fix: () => Promise<void>, options: HealthOptions = {}): 
     report: FEEDBACK,
     fixCap: FIX_CAP,
     fixesSoFar: options.fixesSoFar ?? 0,
-    sameFailure,
+    compare,
     escalations: options.escalations ?? { rounds: 0 },
     recheck: () =>
       recheck("health.recheck", "health.check", { sweepOnGreen: healthSweep(options) }),

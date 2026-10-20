@@ -116,3 +116,33 @@ describe("healthy describeGuard", () => {
     ).rejects.toThrow("guarded: nope")
   })
 })
+
+describe("healthy at the fix cap", () => {
+  // Blank reports are not comparable; at an 8-byte budget the cut trims both.
+  it.each([
+    ["could not compare", "", (n: number) => "\n".repeat(n)],
+    ["saw only cut", `, judgeBudgetBytes: "8"`, (n: number) => `a long failing report ${n}\n`],
+  ])("grants no extra turn on progress the judge %s", async (_, extra, report) => {
+    let runs = 0
+    const repo = testRepo({
+      workflow: [
+        `import { healthy } from "@pmelab/gtd/workflows"`,
+        `import { agent } from "@pmelab/gtd/flows"`,
+        `export const defaults = { judgeIdenticalMinP: "0.7"${extra} }`,
+        `export const held = async () => { await agent("first", "go"); await healthy(() => agent("fix", "go")) }`,
+        `export default held`,
+      ].join("\n"),
+      env: { GTD_TEST_COMMAND: "true" },
+    })
+    await repo.start("held")
+    const rest = await repo.drive({
+      first: (_, r) => r.write("start", "1\n"),
+      "health.check": (_, r) => r.write(".gtd/FEEDBACK.md", report(++runs)),
+      "health.judge": () => '[{"id":"verdict","answer":"progress","p":0.9}]',
+      fix: (_, r) => r.write("f", `${runs}\n`),
+      "health.recheck": (_, r) => r.write(".gtd/FEEDBACK.md", "red again\n"),
+    })
+    expect(rest.state).toBe("health.describe")
+    expect(repo.subjects().filter((s) => s.startsWith("gtd(agent): fix")).length).toBe(3)
+  })
+})
