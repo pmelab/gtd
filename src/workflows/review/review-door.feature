@@ -59,6 +59,10 @@ Feature: the review door fixes its notes in the same process
       """
 
   Scenario: a won't-fix signs off, and no review is left for fix
+    Given judge step "build.review.standards.judge" answers:
+      """
+      [{"id":"standard-1","answer":"no","p":0.9}]
+      """
     When gtd opens door "review" with "HEAD~1"
     And the process is driven
     And the text "- [ ] won't fix" in ".gtd/REVIEW.md" is replaced with "- [x] won't fix"
@@ -96,7 +100,11 @@ Feature: the review door fixes its notes in the same process
     And ".gtd/REVIEW.orig.md" does not exist
 
   Scenario: an own answer asking for a change is fixed in place, then reviewed again
-    Given judge step "build.review.triage" answers:
+    Given judge step "build.review.standards.judge" answers:
+      """
+      [{"id":"standard-1","answer":"no","p":0.9}]
+      """
+    And judge step "build.review.triage" answers:
       """
       [{"id":"answer-1","answer":"edit","p":0.9}]
       """
@@ -123,7 +131,8 @@ Feature: the review door fixes its notes in the same process
     Then the process rests at "build.review.await-review"
     And the commit subjects end with:
       """
-      gtd(human): build.review.await-review → build.review.triage
+      gtd(human): build.review.await-review → build.review.standards.judge
+      gtd(judge): build.review.standards.judge → build.review.triage
       gtd(judge): build.review.triage → build.review.closing
       gtd(check): build.review.closing → build.review.collecting
       gtd(agent): build.review.collecting → re-unwind

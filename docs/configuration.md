@@ -910,8 +910,9 @@ untriaged lap and its reviewer turn.
 
 #### Learned standards
 
-Once a review round's answers are recorded, and before any is routed, each
-won't-fix and each own answer becomes a candidate standard — `Won't fix:
+`feature`'s review and the `review` door learn alike. Once a review round's
+answers are recorded, and before any is routed, each won't-fix and each own
+answer becomes a candidate standard — `Won't fix:
 <title> — <the note's first paragraph>`, or `<your answer> (re: <title>)` —
 unless `.gtd/STANDARDS.md` already holds it. `build.review.standards.judge`
 asks one yes/no per candidate (`standard-<n>`: is it reusable beyond this
@@ -964,14 +965,15 @@ the `criteria-ids` check. `seam.naive` and `seam.judge` never run again once
 judged, so a seam a re-plan turns up is built unjudged and unrefactored; a wrong
 or missing refactor means `gtd abandon` and a restart.
 
-**Upgrading:** a `won't fix` or own answer at a `feature` review now runs
-`build.review.standards.judge` (and `refactor.build.review.standards.judge`)
-before anything is routed. A process resting past a review round that held one —
-at its triage, nit fix, question answer or collecting turn — no longer replays:
-finish or `gtd abandon` it before upgrading. A driver or fixture that answers a
-note `won't fix` or in its own words scripts that judge too (land it without a
-verdict to keep nothing). Workflow-kit's `ReviewPolicy` gains optional
-`settles`, `learn` and `pending`, and `routeNotes` an optional fifth argument.
+**Upgrading:** a `won't fix` or own answer at a `feature` or `review` review now
+runs `build.review.standards.judge` (and
+`refactor.build.review.standards.judge`) before anything is routed. A process
+resting past a review round that held one — at its triage, nit fix, question
+answer or collecting turn — no longer replays: finish or `gtd abandon` it before
+upgrading. A driver or fixture that answers a note `won't fix` or in its own
+words scripts that judge too (land it without a verdict to keep nothing).
+Workflow-kit's `ReviewPolicy` gains optional `settles`, `learn` and `pending`,
+and `routeNotes` an optional fifth argument.
 
 **Upgrading:** `feature`'s review notes carry answer boxes and nothing is
 deferred. `build.review.defer` and `refactor.build.review.defer` are gone: a

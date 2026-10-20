@@ -24,7 +24,7 @@ vi.mock("../../flows/index.js", async (original) => ({
 }))
 
 import type { ReviewDecision } from "../../steering/index.js"
-import { learnStandards } from "./standards.js"
+import { learnStandards } from "./learn.js"
 
 const STANDARDS = ".gtd/STANDARDS.md"
 
