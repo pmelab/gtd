@@ -4,6 +4,7 @@ import {
   head,
   judge,
   numeric,
+  read,
   requireRevert,
   restoreScript,
   run,
@@ -30,6 +31,8 @@ import {
   REVIEW,
   reviewMissing,
 } from "./steps.js"
+import { learnStandards, settlesStandard, standardsAddedSince, standardsPending } from "./learn.js"
+import { parseStandards, STANDARDS } from "./standards.js"
 import { closeReview, isOptionalObject, tail, type TailOptions } from "./tail.js"
 import * as t from "./text.js"
 
@@ -191,6 +194,10 @@ const composing = (
             weakened: kit.removedAssertions(changesSince(base)),
             nitFix,
             answered,
+            standards: {
+              added: standardsAddedSince(base),
+              undecided: parseStandards(read(STANDARDS) ?? "").undecided,
+            },
           }),
           [QUALITY],
         )
@@ -239,6 +246,9 @@ export const humanReview = (
     collecting: feedback.collecting,
     triage: triage(severities),
     decided: (decisions) => decisions.forEach((d) => answered.add(d.anchor)),
+    settles: settlesStandard,
+    learn: learnStandards,
+    pending: standardsPending,
     answerQuestions: answerReviewQuestions,
     fixNits: async (notes) => {
       await guarded((n: typeof notes) => fixNits(n, fixAccess, rules), guard)(notes)

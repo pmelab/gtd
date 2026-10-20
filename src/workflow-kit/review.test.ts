@@ -199,8 +199,12 @@ const driveRound = async (
     /** Nothing but thread edits lands after the in-gate collecting turn. */
     settled?: boolean
     noDropped?: boolean
+    learn?: ReviewPolicy["learn"]
+    settles?: ReviewPolicy["settles"]
+    pending?: () => boolean
   } = {},
 ) => {
+  let reviews = 0
   const triaged: string[][] = []
   const captured: string[] = []
   const editRanges: (string | undefined)[] = []
@@ -211,9 +215,15 @@ const driveRound = async (
     file: "r.md",
     feedback: "f.md",
     isCode: (path: string) => path.endsWith(".ts"),
-    reviewing: async () => void (state.files["r.md"] = before),
+    reviewing: async () => {
+      reviews++
+      state.files["r.md"] = before
+    },
     fixRisks: async () => {},
     keepGreen: async () => {},
+    learn: opts.learn,
+    settles: opts.settles,
+    pending: opts.pending,
     awaitReview: async () => {
       awaits++
       if (awaits > 2 || (awaits > 1 && opts.inGate === undefined)) throw new Error("stop")
@@ -270,7 +280,7 @@ const driveRound = async (
     },
   } as unknown as ReviewPolicy
   const result = await review("base", p).catch((e: Error) => e)
-  return { result, triaged, dropped, captured, rounds, editRanges }
+  return { result, triaged, dropped, captured, rounds, editRanges, reviews }
 }
 
 describe("a one-shot footnote is a note, a thread footnote is not", () => {
@@ -558,6 +568,74 @@ describe("a note's answer boxes", () => {
     const r = await driveRound(open, boxes(" ", "x"), { handEdit: true })
     expect(r.rounds).toEqual(["edits"])
     expect(state.marks).toEqual(["wontfix=Rounding"])
+  })
+})
+
+describe("learning from the answers", () => {
+  const boxes = (wont: string, own = "_your answer_"): string =>
+    doc(
+      POINTER,
+      "",
+      "## Rounding",
+      "",
+      "Should subtract round?",
+      "",
+      "Tick exactly one:",
+      "",
+      "- [ ] fix as suggested",
+      `- [${wont}] won't fix`,
+      `- [${own === "_your answer_" ? " " : "x"}] ${own}`,
+    )
+
+  it("learn reads every answer once it is marked, before any is routed", async () => {
+    const seen: ReviewDecision[][] = []
+    let marked: string[] = []
+    const r = await driveRound(boxes(" "), boxes("x"), {
+      learn: async (ds) => {
+        seen.push([...ds])
+        marked = [...state.marks]
+      },
+    })
+    expect(seen).toEqual([[expect.objectContaining({ anchor: "Rounding", choice: "wontfix" })]])
+    expect(marked).toEqual(["wontfix=Rounding"])
+    expect(r.result).toEqual({ verdict: "signoff" })
+  })
+
+  it("an answer the policy settles is learned from, never marked, routed or collected", async () => {
+    const seen: ReviewDecision[][] = []
+    const r = await driveRound(boxes(" "), boxes("x"), {
+      settles: () => true,
+      learn: async (ds) => void seen.push([...ds]),
+    })
+    expect(seen).toHaveLength(1)
+    expect(state.marks).toEqual([])
+    expect(r.triaged).toEqual([])
+    expect(r.rounds).toEqual([])
+    expect(r.result).toEqual({ verdict: "signoff" })
+  })
+
+  it("a hand-edit round learns from its answers too", async () => {
+    const seen: ReviewDecision[][] = []
+    await driveRound(boxes(" "), boxes("x"), {
+      handEdit: true,
+      learn: async (ds) => void seen.push([...ds]),
+    })
+    expect(seen).toHaveLength(1)
+  })
+
+  it("learn is not asked when no note was answered", async () => {
+    let asked = false
+    await driveRound(boxes(" "), `${boxes(" ")}\n\nstray prose`, {
+      silent: true,
+      learn: async () => void (asked = true),
+    })
+    expect(asked).toBe(false)
+  })
+
+  it("a sign-off while something is pending writes the review again", async () => {
+    const r = await driveRound(boxes(" "), boxes("x"), { pending: () => true })
+    expect(r.reviews).toBe(2)
+    expect((r.result as Error).message).toBe("stop")
   })
 })
 

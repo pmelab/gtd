@@ -114,12 +114,16 @@ Feature: every note in the review is answered with one tick
     Then landing is refused with "answer-completeness"
 
   Scenario: won't fix drops the note, records it, and signs off
+    Given judge step "build.review.standards.judge" answers:
+      """
+      [{"id":"standard-1","answer":"no","p":0.9}]
+      """
     When the process is driven
     And the text "- [ ] won't fix" in ".gtd/REVIEW.md" is replaced with "- [x] won't fix"
     And gtd lands
     And the process is driven
     Then the process rests at "idle"
-    And the commit "gtd(human): build.review.await-review → build.review.closing" has a body containing "Gtd-Mark: wontfix=AC-1 ignores floating point"
+    And the commit "gtd(human): build.review.await-review → build.review.standards.judge" has a body containing "Gtd-Mark: wontfix=AC-1 ignores floating point"
     And ".gtd/TODO.md" does not exist
     And no commit body contains "build.review.triage"
 
@@ -145,7 +149,11 @@ Feature: every note in the review is answered with one tick
     Then the process rests at "idle"
 
   Scenario: an own answer is judged like a note
-    Given judge step "build.review.triage" answers:
+    Given judge step "build.review.standards.judge" answers:
+      """
+      [{"id":"standard-1","answer":"no","p":0.9}]
+      """
+    And judge step "build.review.triage" answers:
       """
       [{"id":"answer-1","answer":"nit","p":0.9}]
       """
@@ -163,7 +171,8 @@ Feature: every note in the review is answered with one tick
     Then the process rests at "build.review.await-review"
     And the commit subjects end with:
       """
-      gtd(human): build.review.await-review → build.review.triage
+      gtd(human): build.review.await-review → build.review.standards.judge
+      gtd(judge): build.review.standards.judge → build.review.triage
       gtd(judge): build.review.triage → build.review.fix.nits.fixing
       gtd(agent): build.review.fix.nits.fixing → build.health.check
       gtd(check): build.health.check → build.review.closing

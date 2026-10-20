@@ -908,6 +908,45 @@ is judged like any other note, keyed `answer-<n>`. Nothing is written to
 `.gtd/TODO.md`. The `review` workflow runs this same review; `fix` keeps the
 untriaged lap and its reviewer turn.
 
+#### Learned standards
+
+`feature`'s review and the `review` door learn alike. Once a review round's
+answers are recorded, and before any is routed, each won't-fix and each own
+answer becomes a candidate standard — `Won't fix:
+<title> — <the note's first paragraph>`, or `<your answer> (re: <title>)` —
+unless `.gtd/STANDARDS.md` already holds it. `build.review.standards.judge`
+asks one yes/no per candidate (`standard-<n>`: is it reusable beyond this
+note?), and whether it contradicts each kept standard
+(`standard-<n>.contradicts-<k>`) and each candidate before it
+(`standard-<n>.contradicts-new-<m>`). Each kept standard is its own evidence
+key. A candidate is kept only on a `yes` at `standardMinP` or above, its
+evidence and every kept standard's uncut; landing the judge without a verdict
+keeps none, and a blank `standardMinP` asks no judge at all. A kept candidate
+any contradiction question does not rule out — a `no` at `standardMinP` — is
+not applied: it is written under `## Undecided`, each contradicted standard as
+a nested `- contradicts:` line. `build.review.standards.recording` writes the
+file, and `build.review.standards.raising` appends one
+`## Standard conflict <id>` chunk per new conflict to `.gtd/REVIEW.md`, its
+boxes `keep the new one (drop the old)`, `keep the old one (discard the new)`
+and `_your answer_` — read by position, like a note's. The answer is settled
+there and never routed: the new standard replaces the old ones, is dropped, or
+your text replaces both. A sign-off while `## Undecided` holds anything composes
+the review again with those conflicts instead, so the process never ends with
+one open. A fresh review lists every standard kept since its base under
+`## Standards added`.
+
+Every agent turn the shipped workflows open with their skills preamble — the
+lenses, naive pass, build, every fix, collecting and answering turns — gets the
+kept standards (never the undecided ones) appended to its prompt; `seam.note`
+and the `rollout`/`cleanup` turns do not. Any top-level bullet is a standard,
+numbered or not, grouped under any heading but `## Undecided`; gtd rewrites the
+file as one list when it learns, dropping prose and duplicates. Standards
+compare without emphasis marks or case, so a formatter's rewrite never makes a
+standard new. A kept standard the judge's evidence budget cuts leaves that round
+unlearned — raise `judgeBudgetBytes` once the file grows long. Answering a
+conflict drops the standards it replaces from every other open conflict, which
+then asks only whether to keep, discard or reword its new standard.
+
 #### The feature review
 
 After the last slice's quality lap, the process rests at the human review
@@ -925,6 +964,16 @@ review again. A custom workflow ending in `afterTail` runs the same lap, without
 the `criteria-ids` check. `seam.naive` and `seam.judge` never run again once
 judged, so a seam a re-plan turns up is built unjudged and unrefactored; a wrong
 or missing refactor means `gtd abandon` and a restart.
+
+**Upgrading:** a `won't fix` or own answer at a `feature` or `review` review now
+runs `build.review.standards.judge` (and
+`refactor.build.review.standards.judge`) before anything is routed. A process
+resting past a review round that held one — at its triage, nit fix, question
+answer or collecting turn — no longer replays: finish or `gtd abandon` it before
+upgrading. A driver or fixture that answers a note `won't fix` or in its own
+words scripts that judge too (land it without a verdict to keep nothing).
+Workflow-kit's `ReviewPolicy` gains optional `settles`, `learn` and `pending`,
+and `routeNotes` an optional fifth argument.
 
 **Upgrading:** `feature`'s review notes carry answer boxes and nothing is
 deferred. `build.review.defer` and `refactor.build.review.defer` are gone: a
@@ -1996,6 +2045,12 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   below-floor answer makes the note `critical`, never `could`. Blank makes every
   tiered note `critical`. A leading `! ` (bang, space) on any human review note
   forces `critical` and skips every judge question.
+- **`standardMinP`** (`0.8`) — the floor a `yes` on "is this answer a reusable
+  standard?" must clear at `build.review.standards.judge` (and
+  `refactor.build.review.standards.judge`) before the answer is kept in
+  `.gtd/STANDARDS.md`, and a `no` on "does it contradict this one?" must clear
+  before it is kept without asking you. Blank keeps none and asks no judge. See
+  [learned standards](#learned-standards).
 - **`qualityTriageMinP`** (`0.7`) — the floor a `mechanical` or `noise` verdict
   on a quality finding must clear at `build.quality.triage` (and
   `refactor.build.quality.triage`). Below it, the finding is `design` and

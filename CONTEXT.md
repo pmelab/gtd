@@ -296,6 +296,12 @@ the strays show it.
 review gate lands only when every note holds exactly one. _Avoid_: verdict (the
 judge's word), defer (gone)
 
+**Standard**: One bullet in `.gtd/STANDARDS.md` — a rule the human set by
+answering a review note (`won't fix` or their own words), kept once a judge
+calls it reusable and handed to every later agent turn. An **undecided**
+standard contradicts a kept one and waits on the human's answer in the review.
+_Avoid_: rule, preference, convention (that is a lens), learned taste
+
 **Refactor note**: `.gtd/REFACTOR-NOTE.md`, written by `seam.note` from the
 whole [naive pass](#naive-pass) on `refactor-first`: which seams the refactor
 opens and the shape each takes. Read by the refactor and the

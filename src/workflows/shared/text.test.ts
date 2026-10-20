@@ -31,7 +31,7 @@ import {
   withSkills,
   composedReview,
 } from "./text.js"
-import { steeringFormatFor, unansweredNotes } from "../../steering/index.js"
+import { reviewDecisions, steeringFormatFor, unansweredNotes } from "../../steering/index.js"
 import { captureStep, renderText } from "./text.fixture.js"
 
 describe("withSkills", () => {
@@ -66,6 +66,28 @@ describe("agentWithSkills", () => {
     const request = await capture(() => agentWithSkills("name", "do-the-work"))
     if (request.kind !== "agent") throw new Error("unreachable")
     expect(request.options).not.toHaveProperty("skills")
+  })
+
+  it("ends every prompt with the kept standards, never the undecided ones", async () => {
+    const standards = [
+      "# Standards",
+      "",
+      "- Prefer early returns.",
+      "",
+      "## Undecided",
+      "",
+      "- Use classes.",
+      "  - contradicts: Prefer early returns.",
+    ].join("\n")
+    const request = await captureStep(() => agentWithSkills("name", "do-the-work"), {
+      scope: "a",
+      skills: { a: [] },
+      read: (path) => (path === ".gtd/STANDARDS.md" ? standards : undefined),
+    })
+    if (request.kind !== "agent") throw new Error("unreachable")
+    expect(request.prompt.startsWith("do-the-work\n\n## Standards")).toBe(true)
+    expect(request.prompt.endsWith("- Prefer early returns.")).toBe(true)
+    expect(request.prompt).not.toContain("Use classes.")
   })
 
   it("leaves the prompt bare when the scope resolves to an empty list", async () => {
@@ -1243,6 +1265,41 @@ describe("buildReviewCollectingPrompt answer boxes", () => {
 
 describe("composedReview", () => {
   const BASE = "0123456789abcdef0123456789abcdef01234567"
+
+  describe("standards", () => {
+    const conflict = { text: "Calculators are functions.", olds: ["Calculators are classes."] }
+    const withConflict = composedReview(BASE, {
+      notes: [],
+      fixed: [],
+      noise: [],
+      standards: { added: [], undecided: [conflict] },
+    })
+
+    it("asks about each undecided standard in a note that blocks sign-off", () => {
+      expect(withConflict).toMatch(/^## Standard conflict [0-9a-f]{8}$/m)
+      expect(withConflict).toContain("- [ ] keep the new one (drop the old)")
+      expect(unansweredNotes(withConflict)).toHaveLength(1)
+    })
+
+    it("reads its boxes by position, like a note's", () => {
+      const ticked = withConflict.replace("- [ ] keep the old one", "- [x] keep the old one")
+      expect(unansweredNotes(ticked)).toEqual([])
+      expect(reviewDecisions(withConflict, ticked)).toEqual([
+        expect.objectContaining({ choice: "wontfix" }),
+      ])
+    })
+
+    it("lists the standards added", () => {
+      const doc = composedReview(BASE, {
+        notes: [],
+        fixed: [],
+        noise: [],
+        standards: { added: ["Prefer early returns."], undecided: [] },
+      })
+      expect(doc).toContain("## Standards added")
+      expect(doc).toContain("- Prefer early returns.")
+    })
+  })
 
   it("is a valid review with unique chunk titles, so every note matches its own chunk", () => {
     const doc = composedReview(BASE, {
