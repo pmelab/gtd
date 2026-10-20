@@ -164,7 +164,7 @@ describe("processMetrics", () => {
 })
 
 describe("flaky re-checks", () => {
-  it("counts each flaky re-check under the red check's full step name", () => {
+  it("counts each flaky re-check under its own full step name", () => {
     const m = processMetrics([
       {
         message:
@@ -185,11 +185,11 @@ describe("flaky re-checks", () => {
     ])
     expect(m.flaky).toEqual({
       total: 3,
-      byStep: { "start-gate.check": 1, "build.health.check": 1, "implement.health.check": 1 },
+      byStep: { "start-gate.recheck": 1, "build.health.recheck": 1, "implement.health.recheck": 1 },
     })
     expect(totalMetrics([m, m]).flaky).toEqual({
       total: 6,
-      byStep: { "start-gate.check": 2, "build.health.check": 2, "implement.health.check": 2 },
+      byStep: { "start-gate.recheck": 2, "build.health.recheck": 2, "implement.health.recheck": 2 },
     })
   })
 })

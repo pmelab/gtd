@@ -52,6 +52,12 @@ export interface Health {
 const STAMP = /\n<!-- gtd check [0-9a-f]+ -->\n?$/
 const stripStamp = (text: string): string => text.replace(STAMP, "\n")
 
+/** `true` when the re-check passed, else the red re-check's report — the one the escalation describes. */
+const recheckReport = async (health: Health): Promise<true | string | undefined> => {
+  if (health.recheck === undefined) return undefined
+  return (await health.recheck()) || stripStamp(read(health.report) ?? "")
+}
+
 /**
  * Loop until the suite is green: check, and on red run `fix` — escalating
  * first once `fixCap` fixes are spent, or `sameFailure` calls the failure
@@ -69,10 +75,12 @@ export const healthy = async (fix: () => Promise<void>, health: Health): Promise
     const stuck = previous !== undefined && (await health.sameFailure(previous, current))
     previous = current
     if (stuck || fixes >= health.fixCap) {
-      if (health.recheck !== undefined && (await health.recheck())) {
+      const rechecked = await recheckReport(health)
+      if (rechecked === true) {
         health.escalations.rounds = 0
         return
       }
+      previous = rechecked ?? previous
       await escalation(health.escalations, health.escalation)
       fixes = 0
     }

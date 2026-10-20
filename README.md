@@ -750,8 +750,8 @@ it never replays and a config changed since is no refusal:
   `.gtd/QUALITY.md`, keyed by the lap's lens path (`build.quality.correctness`,
   `refactor.build.quality.correctness`, …)
 - **flaky** — red checks that passed on their re-check (`Gtd-Mark: flaky=…`),
-  keyed by the red check's full step name (`start-gate.check`,
-  `build.health.check`, …)
+  keyed by the re-check's full step name (`start-gate.recheck`,
+  `build.health.recheck`, …)
 
 `--json` prints `{ processes, total }`; `--json=total.refactorFirstRate` prints
 one value. Model, phase and lens keys may hold dots a path cannot reach: select

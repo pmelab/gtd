@@ -151,7 +151,7 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
     And gtd lands "gtd(check): start-gate.recheck → idle"
     When I run gtd with args "history metrics main"
     Then it succeeds
-    And stdout contains "1 flaky (start-gate.check 1)"
+    And stdout contains "1 flaky (start-gate.recheck 1)"
     When I run gtd with args "history metrics --json=total.flaky.total"
     Then stdout is:
       """

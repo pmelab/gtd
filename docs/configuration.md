@@ -2029,7 +2029,8 @@ health loop re-runs the suite as `health.recheck`; a red baseline gate
 `<gate>.recheck` before resting at `<gate>.blocked`. No judge is asked. Green on
 the re-run continues as if the check had passed, and that landing carries
 `Gtd-Mark: flaky=<check>` (`health.check`, or `<gate>.check`), which
-`gtd history metrics` counts under the red check's full step name. Red again
+`gtd history metrics` counts under the re-check's full step name. A green
+re-check also resets the escalation rounds, as any green check does. Red again
 escalates or rests as above.
 
 **Upgrading:** finish or `gtd abandon` any process that has escalated
