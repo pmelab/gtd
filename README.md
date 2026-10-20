@@ -506,8 +506,9 @@ noted in steps 3 and 4 below.
    as-is, handing that document to the next fix turn as its instruction. Two
    such rounds with no fix is the terminal stop: the last analysis stays on disk
    instead of a third being written, and editing it is what gets the next
-   attempt anywhere new. Before any escalation or red-baseline stop the suite
-   runs once more; a pass there continues without you and is recorded as
+   attempt anywhere new. A loop the retry judge still calls progress at the cap
+   gets one extra fix turn first. Before any escalation or red-baseline stop the
+   suite runs once more; a pass there continues without you and is recorded as
    `Gtd-Mark: flaky=<check>` (see
    [Re-check before a person](docs/configuration.md#re-check-before-a-person)).
 

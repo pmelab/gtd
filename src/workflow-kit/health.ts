@@ -32,6 +32,8 @@ export const untilSettled = async (
   }
 }
 
+export type RetryVerdict = "identical" | "progress"
+
 export interface Health {
   /** One counted run of the suite; resolves `true` when green. */
   readonly check: () => Promise<boolean>
@@ -39,8 +41,8 @@ export interface Health {
   readonly report: string
   readonly fixCap: number
   readonly fixesSoFar?: number
-  /** Whether two consecutive red reports are the same failure; `true` escalates at once. */
-  readonly sameFailure: (previous: string, current: string) => Promise<boolean>
+  /** How a red report compares to the previous round's: `identical` escalates at once, `progress` at the cap earns one extra fix. */
+  readonly compare: (previous: string, current: string) => Promise<RetryVerdict | undefined>
   /** Shared with other callers in the same run of red checks. */
   readonly escalations: EscalationCount
   readonly escalation: EscalationSteps
@@ -58,13 +60,42 @@ const recheckReport = async (health: Health): Promise<true | string | undefined>
   return (await health.recheck()) || stripStamp(read(health.report) ?? "")
 }
 
+/** Escalate unless the re-check passes: `true` then, else the report the next round compares against. */
+const escalated = async (health: Health, current: string): Promise<true | string> => {
+  const rechecked = await recheckReport(health)
+  if (rechecked === true) {
+    health.escalations.rounds = 0
+    return true
+  }
+  await escalation(health.escalations, health.escalation)
+  return rechecked ?? current
+}
+
+const nextMove = async (
+  health: Health,
+  fixes: number,
+  cap: number,
+  previous: string | undefined,
+  current: string,
+): Promise<"extend" | "escalate" | undefined> => {
+  const capped = fixes >= cap
+  // Past a raised cap the loop escalates whatever the judge would answer.
+  if (capped && cap > health.fixCap) return "escalate"
+  const verdict = previous === undefined ? undefined : await health.compare(previous, current)
+  if (capped && verdict === "progress") return "extend"
+  return verdict === "identical" || capped ? "escalate" : undefined
+}
+
 /**
  * Loop until the suite is green: check, and on red run `fix` — escalating
- * first once `fixCap` fixes are spent, or `sameFailure` calls the failure
- * identical to the previous round's, unless `recheck` passes.
+ * first once `fixCap` fixes are spent, or `compare` calls the failure
+ * identical to the previous round's, unless `recheck` passes. A round that
+ * reaches the cap while `compare` calls it progress raises the cap by one fix,
+ * once per run of fixes between escalations.
  */
 export const healthy = async (fix: () => Promise<void>, health: Health): Promise<void> => {
   let fixes = health.fixesSoFar ?? 0
+  let cap = health.fixCap
   let previous: string | undefined
   for (;;) {
     if (await health.check()) {
@@ -72,17 +103,15 @@ export const healthy = async (fix: () => Promise<void>, health: Health): Promise
       return
     }
     const current = stripStamp(read(health.report) ?? "")
-    const stuck = previous !== undefined && (await health.sameFailure(previous, current))
+    const move = await nextMove(health, fixes, cap, previous, current)
     previous = current
-    if (stuck || fixes >= health.fixCap) {
-      const rechecked = await recheckReport(health)
-      if (rechecked === true) {
-        health.escalations.rounds = 0
-        return
-      }
-      previous = rechecked ?? previous
-      await escalation(health.escalations, health.escalation)
+    if (move === "extend") cap++
+    else if (move === "escalate") {
+      const after = await escalated(health, current)
+      if (after === true) return
+      previous = after
       fixes = 0
+      cap = health.fixCap
     }
     fixes++
     await fix()
