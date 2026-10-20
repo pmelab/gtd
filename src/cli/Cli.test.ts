@@ -1029,7 +1029,7 @@ describe("parseArgv — gtd history", () => {
     })
   })
 
-  it("bare history and an unknown subcommand are usage errors naming list, show, fetch", () => {
+  it("bare history and an unknown subcommand are usage errors naming list, show, metrics, fetch", () => {
     for (const args of [["history"], ["history", "nope"]]) {
       const message = usage(parse(...args))
       expect(message).toContain("list")

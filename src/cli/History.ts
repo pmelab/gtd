@@ -3,12 +3,7 @@ import { historyTrail } from "../edge/index.js"
 import { combinedScript, fetchHistoryRefs } from "../emit/index.js"
 import { GitService, Narrator, PROCESS_HISTORY_PREFIX } from "../platform/index.js"
 import { parseCommitMessage } from "../replay/index.js"
-import {
-  writeSelection,
-  type ArtifactOut,
-  type CommandRequirements,
-  type JsonMode,
-} from "./Output.js"
+import { writeJson, type ArtifactOut, type CommandRequirements, type JsonMode } from "./Output.js"
 
 export interface HistoryEntry {
   readonly ref: string
@@ -79,19 +74,6 @@ export const resolveHistoryRef = (
 }
 
 const seven = (hash: string): string => hash.slice(0, 7)
-
-/** Writes `document` per `json` (bare → whole, `=path` → one value); returns false for `off`. */
-export const writeJson = (
-  json: JsonMode,
-  out: ArtifactOut,
-  document: unknown,
-): Effect.Effect<boolean, Error> =>
-  Effect.gen(function* () {
-    if (json.kind === "off") return false
-    if (json.kind === "document") out.write(`${JSON.stringify(document)}\n`)
-    else yield* writeSelection(out, document, json.path)
-    return true
-  })
 
 export const runHistoryListCommand = (
   json: JsonMode,

@@ -2,8 +2,8 @@ import { Effect, Option } from "effect"
 import { GitService } from "../platform/index.js"
 import { parseCommitMessage } from "../replay/index.js"
 import { UNATTRIBUTED_MODEL } from "../wire/index.js"
-import { historyEntries, resolveHistoryRef, writeJson, type HistoryEntry } from "./History.js"
-import type { ArtifactOut, CommandRequirements, JsonMode } from "./Output.js"
+import { historyEntries, resolveHistoryRef, type HistoryEntry } from "./History.js"
+import { writeJson, type ArtifactOut, type CommandRequirements, type JsonMode } from "./Output.js"
 
 // Read from commit subjects and trailers alone, never by replay: a metric over
 // old histories must not refuse because today's config has moved on. The step
@@ -68,6 +68,9 @@ const round = (n: number, places = 6): number => {
   return Math.round(n * f) / f
 }
 
+// Keys are model, step and lens names from history: a prototype-free record keeps `constructor` a plain key.
+const record = (): Record<string, number> => Object.create(null) as Record<string, number>
+
 const add = (into: Record<string, number>, key: string, n: number): void => {
   into[key] = (into[key] ?? 0) + n
 }
@@ -86,11 +89,11 @@ interface Tally {
 
 const emptyTally = (): Tally => ({
   slices: { decided: 0, landed: 0, rebuilt: 0, refactored: 0 },
-  continuations: {},
-  byModel: {},
+  continuations: record(),
+  byModel: record(),
   byPhase: { naive: 0, refactor: 0, implement: 0, other: 0 },
   doubleWork: { naive: 0, rebuild: 0 },
-  byLens: {},
+  byLens: record(),
 })
 
 const sum = (record: Readonly<Record<string, number>>): number =>
@@ -137,6 +140,8 @@ const tallyCost = (
 
 /** A slice is decided where its turns leave the seam: for `implement.applying` the naive pass landed — unless it fails to apply and is built afresh — anywhere else it is rebuilt. */
 const tallyDecision = (t: Tally, open: Slice, at: string, to: string): void => {
+  // The slice's closing ends its rebuild: later implement turns (an amend after review) are new work.
+  if (at === "implement.closing") open.rebuilding = false
   if (open.applying !== undefined && at === "implement.applying") {
     const naive = open.applying
     open.applying = undefined
@@ -220,12 +225,12 @@ export const readProcessMetrics = (
         Effect.orElseSucceed(() => undefined),
       )
     // Only a commit that touched the file changes it: carry the last content forward.
-    let content = base === undefined ? undefined : yield* quality(base)
+    let count = chunks(base === undefined ? undefined : yield* quality(base))
     const read: MetricCommit[] = []
     for (const { hash, message, touched } of commits) {
-      const before = chunks(content)
-      if (touched.includes(QUALITY)) content = yield* quality(hash)
-      read.push({ message, findings: Math.max(0, chunks(content) - before) })
+      const before = count
+      if (touched.includes(QUALITY)) count = chunks(yield* quality(hash))
+      read.push({ message, findings: Math.max(0, count - before) })
     }
     const workflow =
       commits[0] === undefined ? undefined : parseCommitMessage(commits[0].message).workflow
@@ -234,7 +239,7 @@ export const readProcessMetrics = (
 
 // Keys come from fetched history: never let them put control bytes on a terminal.
 // eslint-disable-next-line no-control-regex -- the control range IS the point
-const printable = (s: string): string => s.replace(/[\x00-\x1f\x7f-\x9f]/g, "?")
+const printable = (s: string): string => s.replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, "?")
 
 const listed = (record: Readonly<Record<string, number>>): string =>
   Object.entries(record)
@@ -265,16 +270,19 @@ export const runHistoryMetricsCommand = (
         ? entries
         : yield* Effect.forEach(refs, (ref) => resolveHistoryRef(ref, entries))
     const unique = chosen.filter((e, i) => chosen.findIndex((o) => o.ref === e.ref) === i)
-    const processes = yield* Effect.forEach(unique, (e) =>
-      readProcessMetrics(e).pipe(
-        Effect.map((metrics) => ({
-          ref: e.ref,
-          entry: e.entry,
-          branch: e.branch,
-          tip: e.tip,
-          ...metrics,
-        })),
-      ),
+    const processes = yield* Effect.forEach(
+      unique,
+      (e) =>
+        readProcessMetrics(e).pipe(
+          Effect.map((metrics) => ({
+            ref: e.ref,
+            entry: e.entry,
+            branch: e.branch,
+            tip: e.tip,
+            ...metrics,
+          })),
+        ),
+      { concurrency: 4 },
     )
     const document = { processes, total: totalMetrics(processes) }
     if (yield* writeJson(json, out, document)) return

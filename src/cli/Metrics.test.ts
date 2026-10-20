@@ -107,6 +107,29 @@ describe("processMetrics", () => {
     })
   })
 
+  it("ends a rebuild's double work at the slice's closing", () => {
+    const m = processMetrics([
+      turn("gtd(judge): seam.judge → implement.building"),
+      turn("gtd(agent): implement.building → implement.closing", { cost: "1" }),
+      turn("gtd(check): implement.closing → build.quality.correctness.reviewing"),
+      turn("gtd(agent): implement.building → idle", { cost: "2" }),
+    ])
+    expect(m.cost.doubleWork.rebuild).toBe(1)
+    expect(m.cost.byPhase.implement).toBe(3)
+  })
+
+  it("keeps a model named like an Object member a plain key", () => {
+    const m = processMetrics([
+      turn("gtd(agent): seam.naive → seam.check", { cost: "0.4 constructor" }),
+      turn("gtd(agent): seam.naive → seam.check", { cost: "0.1 __proto__" }),
+    ])
+    expect(m.cost.total).toBe(0.5)
+    expect(Object.entries(m.cost.byModel)).toEqual([
+      ["constructor", 0.4],
+      ["__proto__", 0.1],
+    ])
+  })
+
   it("has no refactor-first rate without a seam decision", () => {
     expect(processMetrics([turn("gtd(human): idle → building")]).refactorFirstRate).toBeNull()
   })

@@ -68,3 +68,16 @@ export type CommandRequirements =
   | ToolCommands
 
 export type SuccessExit = typeof EXIT_OK | typeof EXIT_STRAYS_FOUND
+
+/** Writes `document` per `json` (bare → whole, `=path` → one value); returns false for `off`. */
+export const writeJson = (
+  json: JsonMode,
+  out: ArtifactOut,
+  document: unknown,
+): Effect.Effect<boolean, Error> =>
+  Effect.gen(function* () {
+    if (json.kind === "off") return false
+    if (json.kind === "document") out.write(`${JSON.stringify(document)}\n`)
+    else yield* writeSelection(out, document, json.path)
+    return true
+  })
