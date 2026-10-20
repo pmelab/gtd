@@ -1,5 +1,6 @@
 import {
   changes,
+  changesSince,
   glob,
   read,
   refuse,
@@ -124,8 +125,9 @@ const awaitMessage = (base: string): string =>
 three boxes — tick exactly one: \`delete it\` (the test is deleted, then the
 suite runs), \`keep it skipped\` (dropped, recorded in the commit), or write your
 own answer over \`_your answer_\` and tick it (judged like a note). Every
-landing here is refused until each proposal holds exactly one tick. gtd never
-deletes a test you did not tick.
+landing here is refused until each proposal holds exactly one tick. An agent
+turn that deleted a test file was refused; check the diff for tests removed
+inside a file.
 
 Review the revived tests yourself:
 
@@ -147,32 +149,36 @@ const proposals = (text: string): LensReport["notes"] =>
 /** Sections of `text` that name `path` as a whole token — a trailing full stop still counts. */
 const naming = (text: string, path: string): number => {
   const token = new RegExp(`(?<![\\w./-])${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w/-])`)
-  return sectionBodies(text).filter((s) => token.test(s.body)).length
+  // `./path` names the same file.
+  return sectionBodies(text).filter((s) => token.test(s.body.replace(/(^|[^\w.])\.\//g, "$1")))
+    .length
 }
 
 /** Refuses a test file a turn deleted, and a skip left in the file being rewritten that `.gtd/RETIRE.md` does not name. */
-const guardFor =
-  (known: ReadonlySet<string>, current: { path?: string }, expression: RegExp) => (): void => {
-    const deleted = changes()
-      .filter((c) => c.status === "deleted" && known.has(c.path))
-      .map((c) => c.path)
-    if (deleted.length > 0)
-      refuse(
-        `gtd land: tests: ${deleted.join(", ")} deleted — a test goes only once a person ticks "delete it" at the review`,
-      )
-    // Only the file being rewritten: a skip a person kept at an earlier file's escalation stays theirs.
-    if (current.path === undefined) return
-    const skips = scan([current.path], expression)
-    // One proposal per skip left: a section naming the file covers one skip in it, never all.
-    const left = skips.slice(naming(read(RETIRE) ?? "", current.path))
-    if (left.length > 0)
-      refuse(
-        `gtd land: tests: ${left.map((s) => `${s.path}:${s.line}`).join(", ")} still skipped — revive it, or propose its deletion in ${RETIRE}`,
-      )
-  }
+const guardFor = (known: ReadonlySet<string>, expression: RegExp, path?: string) => (): void => {
+  const deleted = changes()
+    .filter((c) => c.status === "deleted" && known.has(c.path))
+    .map((c) => c.path)
+  if (deleted.length > 0)
+    refuse(
+      `gtd land: tests: ${deleted.join(", ")} deleted — a test goes only once a person ticks "delete it" at the review`,
+    )
+  // Only the file being rewritten: a skip a person kept at an earlier file's escalation stays theirs.
+  if (path === undefined) return
+  const skips = scan([path], expression)
+  // One proposal per skip left: a section naming the file covers one skip in it, never all.
+  const left = skips.slice(naming(read(RETIRE) ?? "", path))
+  if (left.length > 0)
+    refuse(
+      `gtd land: tests: ${left.map((s) => `${s.path}:${s.line}`).join(", ")} still skipped — revive it, or propose its deletion in ${RETIRE}`,
+    )
+}
 
 /** The sweep's packages, refused when it changed more than its plan or the plan misses a file. */
-const planned = (skips: readonly Skip[]): readonly { path: string; found: string }[] => {
+const planned = (
+  skips: readonly Skip[],
+  known: ReadonlySet<string>,
+): readonly { path: string; found: string }[] => {
   const strays = changes().filter((c) => c.path !== TESTS)
   if (strays.length > 0)
     refuse(
@@ -183,7 +189,7 @@ const planned = (skips: readonly Skip[]): readonly { path: string; found: string
     found: below(s.body),
   }))
   const missing = [
-    ...packages.filter((p) => read(p.path) === undefined).map((p) => `"${p.path}" is no file`),
+    ...packages.filter((p) => !known.has(p.path)).map((p) => `"${p.path}" is no test file`),
     ...[...new Set(skips.map((s) => s.path))]
       .filter((path) => !packages.some((p) => p.path === path))
       .map((path) => `${path} has no section`),
@@ -206,9 +212,8 @@ export const testsFlow = async (): Promise<void> => {
   await gate("tests-gate", gateMessage())
   const base = start()
   const known = new Set(testPaths())
-  const current: { path?: string } = {}
   // Sweep and rewrites only: the review's "delete it" fix is the one turn allowed to delete a test.
-  const guard = guardFor(known, current, expression)
+  const guard = guardFor(known, expression)
   const report = await scope("tests", async (): Promise<LensReport | undefined> => {
     const skips = scan([...known], expression)
     await t.agentWithSkills("sweeping", sweepingPrompt(skips), {
@@ -219,9 +224,9 @@ export const testsFlow = async (): Promise<void> => {
       allowEmpty: true,
     })
     guard()
-    const packages = planned(skips)
+    const packages = planned(skips, known)
     for (const { path, found } of packages) {
-      current.path = path
+      const guarded = guardFor(known, expression, path)
       await t.agentWithSkills("rewriting", rewritingPrompt(path, found), {
         label: `Rewriting ${path}`,
         file: RETIRE,
@@ -230,17 +235,19 @@ export const testsFlow = async (): Promise<void> => {
         // A file the audit only flagged may already be fine.
         allowEmpty: true,
       })
-      guard()
-      // Nothing changed: the suite is as green as the last loop left it.
-      if (changes().length === 0) continue
+      guarded()
+      // No code changed: the suite is as green as the last loop left it.
+      if (!changes().some((c) => isCode(c.path))) continue
       // Unguarded human rests: a person at the escalation may delete or keep what they like.
-      await healthy(() => fixCheck(), { guard, guardRests: false })
+      await healthy(() => fixCheck(), { guard: guarded, guardRests: false })
     }
     const retired = proposals(read(RETIRE) ?? "")
     if (read(TESTS) !== undefined || read(RETIRE) !== undefined) {
       await run("closing", removeScript([TESTS, RETIRE]), { label: "Closing the sweep" })
     }
-    return packages.length === 0 ? undefined : { notes: retired, fixed: [], noise: [] }
+    // Nothing revived and nothing proposed: a review would hold no diff to sign off.
+    const changed = changesSince(base).paths.some(isCode)
+    return retired.length === 0 && !changed ? undefined : { notes: retired, fixed: [], noise: [] }
   })
   if (report === undefined) return
   let outcome = await tail(

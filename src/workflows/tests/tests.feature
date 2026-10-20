@@ -76,8 +76,7 @@ Feature: the tests workflow revives skipped tests or proposes their deletion
       gtd(agent): tests.sweeping → tests.rewriting
       gtd(agent): tests.rewriting → tests.health.check
       gtd(check): tests.health.check → tests.rewriting
-      gtd(agent): tests.rewriting → tests.health.check
-      gtd(check): tests.health.check → tests.closing
+      gtd(agent): tests.rewriting → tests.closing
       gtd(check): tests.closing → build.review.composing
       gtd(check): build.review.composing → build.review.await-review
       """
@@ -99,7 +98,7 @@ Feature: the tests workflow revives skipped tests or proposes their deletion
       - [ ] keep it skipped
       - [ ] _your answer_
       """
-    And the resting step's content contains "gtd never"
+    And the resting step's content contains "tests removed"
 
   Scenario: signing off with an unticked proposal is refused
     When gtd starts workflow "tests"
@@ -168,6 +167,54 @@ Feature: the tests workflow revives skipped tests or proposes their deletion
     When gtd starts workflow "tests"
     And the process is driven
     Then the process rests at "build.review.await-review"
+
+  Scenario: a sweep planning a file that is no test file is refused
+    Given step "tests.sweeping" writes ".gtd/TESTS.md" with:
+      """
+      # Tests
+
+      ## src/calc.ts
+
+      Nothing is skipped.
+
+      ## src/calc.test.ts
+
+      "adds" is skipped.
+
+      ## src/legacy.test.ts
+
+      "calls the v1 api" is skipped.
+      """
+    When gtd starts workflow "tests"
+    Then driving the process is refused with "is no test file"
+
+  Scenario: a proposal naming its file as ./path counts
+    Given step "tests.rewriting", when prompted with "\"calls the v1 api\" is skipped", writes ".gtd/RETIRE.md" with:
+      """
+      # Retire
+
+      ## calls the v1 api
+
+      ./src/legacy.test.ts tests the v1 api, which is gone.
+      """
+    When gtd starts workflow "tests"
+    And the process is driven
+    Then the process rests at "build.review.await-review"
+
+  Scenario: rewrites that change no code and propose nothing end the process
+    Given a file "src/legacy.test.ts" with:
+      """
+      it("calls the v2 api", () => {})
+      """
+    And a file "src/calc.test.ts" with:
+      """
+      it("adds", () => expect(add(1, 2)).toBe(3))
+      """
+    And the working tree is committed as "test: nothing skipped"
+    And step "tests.rewriting" from now on changes nothing
+    When gtd starts workflow "tests"
+    And the process is driven
+    Then the process rests at "idle"
 
   Scenario: one proposal covers one skip, not every skip in its file
     Given a file "src/legacy.test.ts" with:

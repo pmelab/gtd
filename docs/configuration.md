@@ -2313,8 +2313,9 @@ gtd door tests
    audits the whole suite with the `test-audit` skill and writes `.gtd/TESTS.md`
    — `# Tests`, then one `## <path>` section per test file that needs work.
    Every file with a skipped test needs a section, and every section must name a
-   file in the tree; it may change no other file. Writing nothing ends the
-   process.
+   test file (one `testFiles` matches); it may change no other file. Writing
+   nothing ends the process, as do rewrites that change no code and propose
+   nothing.
 3. `tests.rewriting`, once per section: the file's tests are rewritten until
    none is skipped, then `tests.health.check` (the shared health loop) keeps the
    suite green. A test the agent calls obsolete stays skipped and gets a
@@ -2339,9 +2340,9 @@ gtd door tests
    `keep it skipped` is dropped and recorded as `Gtd-Mark: wontfix=<title>`; an
    own answer is judged like any review note.
 
-Only a person deletes a test: the sweep, the rewrites and their fix turns are
-refused when they delete a test file. A person at the health loop's escalation
-rests is not checked.
+The sweep, the rewrites and their fix turns are refused when they delete a test
+file; a test removed inside a file shows only in the diff you review. A person
+at the health loop's escalation rests is not checked.
 
 Two factory options say what a skipped test is; each is also a process setting
 (`--var`, `GTD_<NAME>`):
@@ -2367,7 +2368,7 @@ Refusals, each exiting non-zero with the text on stderr:
 | ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
 | `gtd: <file> is left over — finish or remove it first.`                                                          | `.gtd/REQUIREMENTS.md`, `.gtd/TESTS.md` or `.gtd/RETIRE.md` at start           |
 | `gtd: skipPattern must not be blank`, `… is not a valid regular expression`, `… must not match the empty string` | an unusable `skipPattern`                                                      |
-| `gtd land: tests: in .gtd/TESTS.md, <faults>`                                                                    | a section names no file, or a file with a skipped test has none                |
+| `gtd land: tests: in .gtd/TESTS.md, <faults>`                                                                    | a section names no test file, or a file with a skipped test has none           |
 | `gtd land: tests: the sweep changed <paths> — it writes only .gtd/TESTS.md`                                      | the sweep changed another file                                                 |
 | `gtd land: tests: <path>:<line> still skipped — revive it, or propose …`                                         | a rewritten file keeps more skips than `.gtd/RETIRE.md` has sections naming it |
 | `gtd land: tests: <paths> deleted — a test goes only once a person ticks …`                                      | a sweep, rewrite or fix turn deleted a test file                               |
