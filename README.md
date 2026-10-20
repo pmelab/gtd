@@ -746,8 +746,10 @@ it never replays and a config changed since is no refusal:
   `.gtd/QUALITY.md`, keyed by the lap's lens path (`build.quality.correctness`,
   `refactor.build.quality.correctness`, …)
 
-`--json` prints `{ processes, total }`; `--json=total.refactorFirstRate` (any
-dotted path) prints one value. A rate is `null` without a decided slice. Each
+`--json` prints `{ processes, total }`; `--json=total.refactorFirstRate` prints
+one value. Model, phase and lens keys may hold dots a path cannot reach: select
+their record whole (`--json=total.cost.byModel`). A branch name selects every
+process kept from that branch. A rate is `null` without a decided slice. Each
 process names its `workflow` (`null` for the default one); the total spans every
 ref measured, so name the refs to leave another workflow's processes out.
 

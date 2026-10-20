@@ -53,7 +53,7 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
     Then it succeeds
     And stdout contains "main: 1 slices, 1 rebuilt (refactor-first 100%), 0 refactored"
     And stdout contains "1 continuations (seam.naive 1)"
-    And stdout contains "cost 1.2 (naive 0.6, refactor 0, implement 0.5, other 0.1), double work 1.1"
+    And stdout contains "cost 1.2 (naive 0.6, refactor 0, implement 0.5, other 0.1; by model coder 1.1, reviewer 0.1), double work 1.1"
     And stdout contains "2 findings (build.quality.correctness 2)"
     And stdout contains "total (1 processes)"
 
@@ -82,6 +82,40 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
     And stdout is:
       """
       1
+      """
+
+  @inmem
+  Scenario: a branch name measures every process kept from that branch
+    Given a file "NOTE.md" with:
+      """
+      Build another thing.
+      """
+    And gtd lands "gtd(human): idle → seam.naive"
+    And a file "src/d.ts" with:
+      """
+      export const d = 4
+      """
+    And gtd lands "gtd(agent): seam.naive → seam.continue.naive"
+    And a file "src/e.ts" with:
+      """
+      export const e = 5
+      """
+    And gtd lands "gtd(agent): seam.continue.naive → implement.building"
+    And a file "src/f.ts" with:
+      """
+      export const f = 6
+      """
+    And gtd lands "gtd(agent): implement.building → build.quality.correctness.reviewing"
+    And a file "src/g.ts" with:
+      """
+      export const g = 7
+      """
+    And gtd lands "gtd(agent): build.quality.correctness.reviewing → idle"
+    When I run gtd with args "history metrics main --json=total.processes"
+    Then it succeeds
+    And stdout is:
+      """
+      2
       """
 
   @inmem

@@ -229,10 +229,11 @@ Commands:
                    landed or was rebuilt (the refactor-first rate), continuations
                    per phase, Gtd-Cost by model and phase with the double work of
                    a rebuild, and quality-lap findings per lens — per process and
-                   in total. Each <ref> is read as by history show; none means
-                   every ref. Reads commit subjects and trailers, never replays,
-                   so a changed config is no refusal. --json prints { processes,
-                   total } as one document; writes nothing
+                   in total. Each <ref> is read as by history show, but a branch
+                   name means every process kept from it; none means every ref.
+                   Reads commit subjects and trailers, never replays, so a
+                   changed config is no refusal. --json prints { processes, total
+                   } as one document; writes nothing
   history fetch [remote]
                    Print a script that fetches every refs/gtd/history/* from
                    <remote> (default origin) and reports how many arrived — run

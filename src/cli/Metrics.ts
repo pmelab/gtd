@@ -52,6 +52,8 @@ type Phase = keyof Metrics["cost"]["byPhase"]
 // Keyed by the lap's path without `.reviewing`, so the refactor lap's lenses stay apart from the feature's.
 const LENS = /^((?:.*\.)?quality\.[^.]+)\.reviewing$/
 
+const CONTINUE = /(^|\.)continue\./
+
 const inSeam = (step: string): boolean => step.startsWith("seam.")
 
 // A naive retry after a continuation runs under `seam.fresh.naive`: any seam step named `naive` is the pass.
@@ -180,8 +182,8 @@ export const processMetrics = (commits: readonly MetricCommit[]): Metrics => {
     if (subject === undefined) continue
     const at = subject.from ?? subject.to
     tallyCost(t, open, message.cost, phaseOf(at))
-    if (subject.actor === "agent" && at.split(".").includes("continue"))
-      add(t.continuations, at.replace(/(^|\.)continue\./, "$1"), 1)
+    if (subject.actor === "agent" && CONTINUE.test(at))
+      add(t.continuations, at.replace(CONTINUE, "$1"), 1)
     const lens = LENS.exec(at)?.[1]
     if (lens !== undefined && commit.findings > 0) add(t.byLens, lens, commit.findings)
     tallyDecision(t, open, at, subject.to)
@@ -253,7 +255,7 @@ const line = (label: string, m: Metrics): string => {
   return [
     `${label}: ${slices.decided} slices, ${slices.rebuilt} rebuilt (refactor-first ${percent}), ${slices.refactored} refactored`,
     `${continued} continuations${continued > 0 ? ` (${listed(m.continuations)})` : ""}`,
-    `cost ${cost.total} (${listed(cost.byPhase)}), double work ${cost.doubleWork.total}`,
+    `cost ${cost.total} (${listed(cost.byPhase)}; by model ${listed(cost.byModel) || "-"}), double work ${cost.doubleWork.total}`,
     `${m.findings.total} findings${m.findings.total > 0 ? ` (${listed(m.findings.byLens)})` : ""}`,
   ].join("; ")
 }
@@ -268,7 +270,14 @@ export const runHistoryMetricsCommand = (
     const chosen =
       refs.length === 0
         ? entries
-        : yield* Effect.forEach(refs, (ref) => resolveHistoryRef(ref, entries))
+        : (yield* Effect.forEach(refs, (ref) =>
+            // A branch name means every process kept from it, not just its newest.
+            resolveHistoryRef(ref, entries).pipe(
+              Effect.map((hit) =>
+                hit.branch === ref ? entries.filter((e) => e.branch === ref) : [hit],
+              ),
+            ),
+          )).flat()
     const unique = chosen.filter((e, i) => chosen.findIndex((o) => o.ref === e.ref) === i)
     const processes = yield* Effect.forEach(
       unique,
