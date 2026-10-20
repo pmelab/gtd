@@ -24,15 +24,18 @@ export const sliceCap = (): number => {
 /** Each `## ` heading of `text` with the list items under it; an item not led by an ID keeps an empty one. */
 export const slicesOf = (text: string): readonly Slice[] => {
   const slices: { title: string; ids: string[] }[] = []
+  // Only items right under a `##` heading: another heading ends the slice.
+  let open = false
   for (const { line, fenced } of markFenced(text)) {
     if (fenced) continue
     const heading = HEADING.exec(line)
     if (heading !== null) {
-      if (heading[1] === "##") slices.push({ title: heading[2]!, ids: [] })
+      open = heading[1] === "##"
+      if (open) slices.push({ title: heading[2]!, ids: [] })
       continue
     }
     const item = ITEM.exec(line)
-    if (item !== null && slices.length > 0) slices.at(-1)!.ids.push(ID.exec(item[1]!)?.[1] ?? "")
+    if (item !== null && open) slices.at(-1)!.ids.push(ID.exec(item[1]!)?.[1] ?? "")
   }
   return slices
 }

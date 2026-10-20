@@ -311,8 +311,7 @@ const sliceLine = (ids: readonly string[] | undefined): string =>
     ? ""
     : `- This slice builds ${ids.join(", ")} only: every rule here about the criteria
   means these. The others are for other slices, before or after it — leave
-  them unbuilt and untested. A release flag an earlier slice added for this
-  change is this slice's too: reuse it, never add a second
+  them unbuilt and untested
 `
 
 export const designSystem = (): string =>
@@ -1314,6 +1313,25 @@ const afterRefactorLine = (rebuild: Rebuild): string =>
   rule below; if nothing is, ${carries(rebuild) ? "carry over the acceptance tests below and change nothing else" : "change nothing and finish your turn"}
 `
 
+const flagLine = (
+  flagMode: boolean,
+  tier: "low" | "high" | undefined,
+  amend: boolean | undefined,
+  sliced: boolean,
+): string =>
+  !flagMode
+    ? "- Add no release flag — this project ships without release flags"
+    : tier === "low"
+      ? "- Add no release flag — this change is low risk tier"
+      : amend === true
+        ? "- Keep the release flag the earlier lap added, if it added one; otherwise put\n  the behaviour behind a new release flag"
+        : sliced
+          ? `- Put the new behaviour behind the release flag an earlier slice of this
+  change added; only when none did, behind a new one, following the
+  repository's flag conventions`
+          : `- Put the new behaviour behind a new release flag, following the
+  repository's flag conventions`
+
 export const implementBuildingPrompt = (
   reference: string | undefined,
   tier?: "low" | "high",
@@ -1344,16 +1362,7 @@ ${afterRefactor === true ? afterRefactorLine(rebuild) : ""}${
   Read it for ideas; never apply, cherry-pick or check it out — write
   the change fresh${carries(rebuild) ? ", its acceptance tests excepted (below)" : ""}
 `
-  }${rebuildLines(rebuild)}${
-    !flagMode
-      ? "- Add no release flag — this project ships without release flags"
-      : tier === "low"
-        ? "- Add no release flag — this change is low risk tier"
-        : amend === true
-          ? "- Keep the release flag the earlier lap added, if it added one; otherwise put\n  the behaviour behind a new release flag"
-          : `- Put the new behaviour behind a new release flag, following the
-  repository's flag conventions`
-  }
+  }${rebuildLines(rebuild)}${flagLine(flagMode, tier, amend, slice !== undefined)}
 - Write the tests first, then the code that makes them pass. Name each
   criterion's ID in the test that covers it (\`[AC-3] …\`): once the suite is
   green a judge checks every ID has a passing test, and sends uncovered ones back

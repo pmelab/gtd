@@ -843,68 +843,21 @@ order:
    the build turn may change nothing but the carried-over tests — the refactor
    already carried the whole feature — and an empty turn completes the step when
    the naive pass's tests named no ID. A feature slice that changed no code but
-   test files has its quality lap cover the whole change from the process start,
-   refactor included.
+   test files has its quality lap cover the whole change from the process start
+   (with [coarse slices](#coarse-slices), from where its slice began), refactor
+   included.
 
 Every verdict wraps step 5 and its quality lap in the `feature` slice
 (`gtd slices` lists it); `refactor-first` adds the `refactor` slice ahead of it.
 Each slice's quality lap reviews from that slice's own base: the refactor's from
 its entry commit, the feature's from the refactor's sign-off. The one exception
 is a feature slice that changed no code but tests (step 5): its quality lap
-covers the whole change from the process start. A custom workflow ending in
-`afterTail` keeps a feature review; feedback there re-runs design and
-`implement.*` (a build turn, never `implement.applying`), never the seam.
-`seam.naive` and `seam.judge` never run again once judged, so a seam a re-plan
-turns up is built unjudged and unrefactored; a wrong or missing refactor means
-`gtd abandon` and a restart.
-
-### Coarse slices
-
-A change with more `AC-<n>` criteria than
-[`sliceMaxCriteria`](#the-bundled-workflows-settings) (8 by default) is built in
-slices. Once design settled the criteria (the design gate, or the skip path),
-`design.slicing`, an agent turn, writes `.gtd/SLICES.md`: one `## <title>`
-heading per slice over one `- AC-<n>` item per criterion, related criteria
-together, as few slices as the cap allows, in the order they build on each
-other:
-
-```md
-# Slices
-
-## Parsing
-
-- AC-1
-- AC-3
-
-## Output
-
-- AC-2
-```
-
-`gtd land` refuses the turn (`slices`) while the file has no slice, a slice with
-no criterion, an item not led by an ID, a slice over the cap, an ID twice, an ID
-`.gtd/REQUIREMENTS.md` does not list, or a criterion in no slice.
-
-Each slice then runs the [naive-pass path](#the-naive-pass-path) in order, from
-where the previous one landed, held to its own IDs only: `seam.naive` and the
-build turn are told which IDs are theirs, `acceptance-tests` and
-`rebuild-acceptance` ask only for those, and `implement.coverage` judges only
-those, over the tests changed since the slice began. A slice's
-`implement.closing` keeps `.gtd/REQUIREMENTS.md` and `.gtd/SLICES.md` for the
-next one; the last removes both. The last slice also builds any criterion a
-steer at `seam.steer` added after slicing; a slice a steer left with no
-criterion is skipped. Until the last slice closes, a quality-lap fix turn that
-changes the criteria is refused (`criteria-frozen`). Every turn of a slice,
-covering turns included, is told its IDs, and to reuse a release flag an earlier
-slice added. Slices are named `feature-<n>`, with `refactor-<n>` ahead of one
-the seam judge sent to a refactor. A change within the cap runs no slicing turn
-and keeps the single `feature` (and `refactor`) slice.
-
-**Upgrading:** finish or `gtd abandon` any process past design whose
-`.gtd/REQUIREMENTS.md` lists more than 8 criteria: replay now expects
-`design.slicing` there and refuses its history as divergence. To keep building
-such changes in one slice, raise the cap:
-`feature({ sliceMaxCriteria: "100" })`.
+covers the whole change from the process start (from where its slice began, with
+[coarse slices](#coarse-slices)). A custom workflow ending in `afterTail` keeps
+a feature review; feedback there re-runs design and `implement.*` (a build turn,
+never `implement.applying`), never the seam. `seam.naive` and `seam.judge` never
+run again once judged, so a seam a re-plan turns up is built unjudged and
+unrefactored; a wrong or missing refactor means `gtd abandon` and a restart.
 
 **Upgrading:** finish or `gtd abandon` before upgrading any process whose seam
 judge ruled `land`, that overruled a reject at `seam.steer`, or — with
@@ -1016,6 +969,54 @@ The [`seamAllow`](#the-bundled-workflows-settings) setting is the judge's
 allowlist. `GTD_FLAG_RISK_TIER` is recorded as `flag_risk_tier` when a process
 starts, so a process keeps the setting it started with whatever the environment
 does later.
+
+### Coarse slices
+
+A change with more `AC-<n>` criteria than
+[`sliceMaxCriteria`](#the-bundled-workflows-settings) (8 by default) is built in
+slices. Once design settled the criteria (the design gate, or the skip path),
+`design.slicing`, an agent turn, writes `.gtd/SLICES.md`: one `## <title>`
+heading per slice over one `- AC-<n>` item per criterion, related criteria
+together, as few slices as the cap allows, in the order they build on each
+other:
+
+```md
+# Slices
+
+## Parsing
+
+- AC-1
+- AC-3
+
+## Output
+
+- AC-2
+```
+
+`gtd land` refuses the turn (`slices`) while the file has no slice, a slice with
+no criterion, an item not led by an ID, a slice over the cap, an ID twice, an ID
+`.gtd/REQUIREMENTS.md` does not list, or a criterion in no slice.
+
+Each slice then runs the [naive-pass path](#the-naive-pass-path) in order, from
+where the previous one landed, held to its own IDs only: `seam.naive` and the
+build turn are told which IDs are theirs, `acceptance-tests` and
+`rebuild-acceptance` ask only for those, and `implement.coverage` judges only
+those, over the tests changed since the slice began. A slice's
+`implement.closing` keeps `.gtd/REQUIREMENTS.md` and `.gtd/SLICES.md` for the
+next one; the last removes both. The last slice also builds any criterion a
+steer at `seam.steer` added after slicing; a slice a steer left with no
+criterion is skipped. Until the last slice closes, a quality-lap fix turn that
+changes the criteria is refused (`criteria-frozen`). Every turn of a slice,
+covering turns included, is told its IDs, and to reuse a release flag an earlier
+slice added. Slices are named `feature-<n>`, with `refactor-<n>` ahead of one
+the seam judge sent to a refactor. A change within the cap runs no slicing turn
+and keeps the single `feature` (and `refactor`) slice.
+
+**Upgrading:** finish or `gtd abandon` any process past design whose
+`.gtd/REQUIREMENTS.md` lists more than 8 criteria: replay now expects
+`design.slicing` there and refuses its history as divergence. To keep building
+such changes in one slice, raise the cap:
+`feature({ sliceMaxCriteria: "100" })`.
 
 ### Landing rules
 

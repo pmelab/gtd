@@ -17,6 +17,12 @@ describe("slicesOf", () => {
     ])
   })
 
+  it("ends a slice at any other heading", () => {
+    expect(
+      slicesOf("## One\n\n- AC-1\n\n### Why\n\n- shares the lexer\n\n# Later\n\n- AC-5\n"),
+    ).toEqual([{ title: "One", ids: ["AC-1"] }])
+  })
+
   it("reads no slice from a file without level-2 headings", () => {
     expect(slicesOf("# Slices\n\n- AC-1\n")).toEqual([])
   })

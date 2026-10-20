@@ -105,7 +105,7 @@ const buildSlice = async (sliceBase: string, build: SliceBuild): Promise<void> =
         : seam.base
     // The criteria stay in the tree for the next slice; no quality fix may move them.
     const guard = build.more ? () => requireCriteriaFrozen(REQUIREMENTS) : undefined
-    await tail(settleQuality, { green: true, lensBase: base, guard })
+    await tail(settleQuality, { green: true, lensBase: base, guard, guardRests: false })
   })
 }
 
