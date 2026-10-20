@@ -32,12 +32,14 @@ interface Candidate {
 
 const SUMMARY_MAX = 200
 
-// gtd's own italic banners (`_The fixer left this unresolved._`) say nothing about the finding.
+// The banners composedReview opens a note with say nothing about the finding; the
+// parsed body has its paragraphs joined, so they are matched by their own text.
+const BANNER =
+  /^_(?:The fixer left this unresolved\.|A fix turn removed this while renaming another finding — check whether it was fixed\.|No detail given\.)_\s*/
+
 const summary = (body: string): string => {
-  const first = oneLine(
-    body.split(/\n\s*\n/).find((p) => p.trim() !== "" && !/^_[^\n]*_$/.test(p.trim())) ?? "",
-  )
-  return first.length > SUMMARY_MAX ? `${first.slice(0, SUMMARY_MAX - 1)}…` : first
+  const text = oneLine(body).replace(BANNER, "")
+  return text.length > SUMMARY_MAX ? `${text.slice(0, SUMMARY_MAX - 1)}…` : text
 }
 
 /** The standard a won't-fix or an own answer would make; a fix states none. */
@@ -51,11 +53,14 @@ const candidateOf = (d: ReviewDecision): Candidate[] => {
   return []
 }
 
-const without = (list: readonly string[], drop: readonly string[]): string[] =>
-  list.filter((s) => !drop.includes(s))
+// By key, as everywhere else: a hand-edit to case or emphasis still names the same standard.
+const without = (list: readonly string[], drop: readonly string[]): string[] => {
+  const keys = new Set(drop.map(standardKey))
+  return list.filter((s) => !keys.has(standardKey(s)))
+}
 
 const adding = (list: readonly string[], text: string): string[] =>
-  list.includes(text) ? [...list] : [...list, text]
+  list.some((s) => standardKey(s) === standardKey(text)) ? [...list] : [...list, text]
 
 /**
  * Keep the new one, keep the old one, or replace both with the human's own

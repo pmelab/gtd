@@ -122,12 +122,28 @@ describe("learnStandards, from a won't-fix", () => {
     await learnStandards([
       {
         anchor: "Slow loop",
-        body: "_The fixer left this unresolved._\n\nThe loop is quadratic.",
+        // As the review parser hands it over: paragraphs joined by a space.
+        body: "_The fixer left this unresolved._ The loop is quadratic.",
         choice: "wontfix",
         text: "",
       },
     ])
     expect(kept()).toBe(file("- Won't fix: Slow loop — The loop is quadratic."))
+  })
+
+  it("replaces an old standard hand-edited in case only", async () => {
+    state.files[STANDARDS] = file(
+      "- use classes.",
+      "",
+      "## Undecided",
+      "",
+      "- A.",
+      "  - contradicts: Use classes.",
+    )
+    await learnStandards([
+      { anchor: "Standard conflict 01248e26", body: "", choice: "fix", text: "" },
+    ])
+    expect(kept()).toBe(file("- A."))
   })
 
   it("does not learn again what a formatter rewrote", async () => {

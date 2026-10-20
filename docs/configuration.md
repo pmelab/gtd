@@ -929,8 +929,7 @@ file, and `build.review.standards.raising` appends one
 boxes `keep the new one (drop the old)`, `keep the old one (discard the new)`
 and `_your answer_` — read by position, like a note's. The answer is settled
 there and never routed: the new standard replaces the old ones, is dropped, or
-your text replaces both; another open conflict naming a replaced standard then
-names its replacement. A sign-off while `## Undecided` holds anything composes
+your text replaces both. A sign-off while `## Undecided` holds anything composes
 the review again with those conflicts instead, so the process never ends with
 one open. A fresh review lists every standard kept since its base under
 `## Standards added`.
