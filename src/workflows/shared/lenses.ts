@@ -29,7 +29,7 @@ type FindingKind = "mechanical" | "noise" | "design"
 /** What the triaged quality lap did with its findings, for the review to list. */
 export interface LensReport {
   /** Design findings, then the mechanical ones the fix cap left. */
-  readonly notes: readonly (Finding & { readonly unresolved?: true })[]
+  readonly notes: readonly (Finding & { readonly unresolved?: true; readonly unclear?: true })[]
   readonly fixed: readonly (Finding & { readonly commit: string })[]
   readonly noise: readonly (Finding & { readonly p: number })[]
 }
@@ -63,25 +63,29 @@ export const findingsOf = (text: string): readonly Finding[] => {
   ].map((f, i) => ({ id: `Q${i + 1}`, ...f }))
 }
 
-/**
- * `findings` minus one entry per title still in `left`: a fix turn deletes the sections it
- * resolved. A section `left` holds under a title `findings` lacks means the fixer renamed or
- * added one, so nothing counts as fixed and `left` stays open as written.
- */
-const stillOpen = (findings: readonly Finding[], left: readonly Finding[]): readonly Finding[] => {
+/** Removes one entry titled `title` from `titles`; whether there was one. */
+const take = (titles: string[], title: string): boolean => {
+  const at = titles.indexOf(title)
+  if (at >= 0) titles.splice(at, 1)
+  return at >= 0
+}
+
+interface FixTurn {
+  readonly open: readonly Finding[]
+  /** Resolved this turn: its chunk is gone and every chunk left kept its title. */
+  readonly fixed: readonly Finding[]
+  /** Gone while some chunk changed its title, so whether it was fixed is unknown. */
+  readonly unclear: readonly Finding[]
+}
+
+/** What one fix turn did to `findings`, from the chunks `left` in the file: it deletes the ones it resolved. */
+const afterFix = (findings: readonly Finding[], left: readonly Finding[]): FixTurn => {
   const titles = findings.map((f) => f.title)
-  const known = left.every((f) => {
-    const at = titles.indexOf(f.title)
-    if (at >= 0) titles.splice(at, 1)
-    return at >= 0
-  })
-  if (!known) return left
+  const known = left.every((f) => take(titles, f.title))
   const remaining = left.map((f) => f.title)
-  return findings.filter((f) => {
-    const at = remaining.indexOf(f.title)
-    if (at >= 0) remaining.splice(at, 1)
-    return at >= 0
-  })
+  const kept = findings.filter((f) => take(remaining, f.title))
+  const gone = findings.filter((f) => !kept.includes(f))
+  return known ? { open: kept, fixed: gone, unclear: [] } : { open: left, fixed: [], unclear: gone }
 }
 
 const triageQuestion = (f: Finding): JudgeQuestion => ({
@@ -134,29 +138,34 @@ export const triageFindings = async (options: TriageOptions): Promise<LensReport
   const findings = findingsOf(read(QUALITY) ?? "")
   if (findings.length === 0) return NO_FINDINGS
   const { mechanical, noise, design } = await classify(findings)
-  if (mechanical.length < findings.length) {
+  // Rewritten whenever it is not one chunk per mechanical finding: the fixer deletes chunks.
+  const sorted = t.qualityFindingsFile(mechanical)
+  if (read(QUALITY) !== sorted) {
     await run(
       "quality.sorting",
-      mechanical.length === 0
-        ? removeScript([QUALITY])
-        : writeScript(QUALITY, t.qualityFindingsFile(mechanical)),
+      mechanical.length === 0 ? removeScript([QUALITY]) : writeScript(QUALITY, sorted),
       { label: "Setting findings aside for the review" },
     )
   }
   const fixed: (Finding & { commit: string })[] = []
+  const unclear: Finding[] = []
   let open: readonly Finding[] = mechanical
   for (let turns = 0; turns < FIX_CAP && open.length > 0; turns++) {
     await guarded(() => fixQuality(rules), guard)()
-    const left = stillOpen(open, findingsOf(read(QUALITY) ?? ""))
+    const turn = afterFix(open, findingsOf(read(QUALITY) ?? ""))
     const commit = head()
-    if (left.every((f) => open.includes(f)))
-      fixed.push(...open.filter((f) => !left.includes(f)).map((f) => ({ ...f, commit })))
-    open = left
+    fixed.push(...turn.fixed.map((f) => ({ ...f, commit })))
+    unclear.push(...turn.unclear)
+    open = turn.open
   }
   if (mechanical.length > 0)
     await healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules })
   return {
-    notes: [...design, ...open.map((f) => ({ ...f, unresolved: true as const }))],
+    notes: [
+      ...design,
+      ...open.map((f) => ({ ...f, unresolved: true as const })),
+      ...unclear.map((f) => ({ ...f, unclear: true as const })),
+    ],
     fixed,
     noise,
   }

@@ -193,6 +193,8 @@ Feature: the quality lenses are the only agentic review
     When the process is driven
     Then the process rests at "build.review.await-review"
     And ".gtd/REVIEW.md" contains "## null check in parse()"
+    And ".gtd/REVIEW.md" contains "## subtract has no negative test"
+    And ".gtd/REVIEW.md" contains "check whether it was fixed"
     And ".gtd/REVIEW.md" does not contain "Fixed automatically"
 
   Scenario: signing off a composed review ends the process

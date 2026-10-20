@@ -1368,12 +1368,14 @@ describe("composedReview", () => {
 
   it("turns a lens's task boxes into plain bullets, so no pointer or risk is read", () => {
     const doc = composedReview(BASE, {
-      notes: [{ title: "a", body: "- [ ] ./src/a.ts#1-1 Risk: x\n- [x] done" }],
+      notes: [
+        { title: "a", body: "- [ ] ./src/a.ts#1-1 Risk: x\n- [x] done\n1. [ ] one\n> - [ ] q" },
+      ],
       fixed: [],
       noise: [],
     })
     expect(steeringFormatFor("review")!.validate(doc)).toEqual([])
-    expect(doc).toContain("- ./src/a.ts#1-1 Risk: x\n- done")
+    expect(doc).toContain("- ./src/a.ts#1-1 Risk: x\n- done\n1. one\n> - q")
   })
 
   it("names the nit fix on the review after it", () => {

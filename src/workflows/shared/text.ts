@@ -107,6 +107,8 @@ export interface ComposedReview {
     readonly title: string
     readonly body: string
     readonly unresolved?: true
+    /** A fix turn removed its chunk while renaming another. */
+    readonly unclear?: true
   }[]
   readonly fixed: readonly { readonly title: string; readonly commit: string }[]
   readonly noise: readonly { readonly title: string; readonly p: number }[]
@@ -125,7 +127,8 @@ const SUMMARY_TITLES = [
 ]
 
 // A lens body is pasted as prose: a task box would read as a broken hunk pointer, or a `Risk:` one.
-const unboxed = (body: string): string => body.replace(/^(\s*[-*+]\s+)\[[ xX]\]\s?/gm, "$1")
+const unboxed = (body: string): string =>
+  body.replace(/^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+)\[[ xX]\]\s?/gm, "$1")
 
 const short = (hash: string): string => hash.slice(0, 7)
 
@@ -169,7 +172,9 @@ export const composedReview = (base: string, report: ComposedReview): string => 
         unique(n.title),
         n.unresolved === true
           ? `_The fixer left this unresolved._\n\n${unboxed(n.body)}`
-          : unboxed(n.body) || "_No detail given._",
+          : n.unclear === true
+            ? `_A fix turn removed this while renaming another finding — check whether it was fixed._\n\n${unboxed(n.body)}`
+            : unboxed(n.body) || "_No detail given._",
       ),
     ),
     ...(report.fixed.length === 0
