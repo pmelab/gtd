@@ -52,8 +52,8 @@ export const fixNits = (
 }
 
 /** Turn the review round `capture` describes into `.gtd/REQUIREMENTS.md`, or change nothing. */
-export const collecting = (capture: string): Promise<void> =>
-  t.agentWithSkills("review.collecting", t.buildReviewCollectingPrompt(capture), {
+export const collecting = (capture: string, round?: CollectRound): Promise<void> =>
+  t.agentWithSkills("review.collecting", t.buildReviewCollectingPrompt(capture, undefined, round), {
     label: "Collecting your feedback",
     file: REQUIREMENTS,
     mode: "qa",

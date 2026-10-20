@@ -943,6 +943,7 @@ export const buildReviewCollectingPrompt = (
     /** `"reply"` is the in-gate reply turn; any other round is closed and folds what that round left. */
     readonly round: CollectRound
   },
+  round?: CollectRound,
 ): string => {
   const target = refactor ? ".gtd/REFACTOR.md" : ".gtd/REQUIREMENTS.md"
   const fence = refactor
@@ -1031,9 +1032,16 @@ ${closedFold(refactor.round, target)}`
   the capture lists, no other note — into \`${target}\` and
   delete the folded threads from \`.gtd/REVIEW.md\`; append one \`- A:\`
   reply to each thread whose last entry is a \`- H:\` question
-- Never fold a note's ticked answer box the capture does not list: gtd
+${
+  round === "edits"
+    ? `- A hand-edit round routes no answer box itself: fold each note
+  ticked \`fix as suggested\` or answered in its own words, too; drop one
+  ticked \`won't fix\`
+`
+    : `- Never fold a note's ticked answer box the capture does not list: gtd
   routes those itself
 `
+}`
 }- When the capture names an answering commit, carry each answered
   question into \`${target}\`'s \`## Answered Questions\` as
   \`### <the note>\` plus its answer — the lap replaces \`.gtd/REVIEW.md\`

@@ -1232,6 +1232,15 @@ it("asks the refactor review, and only it, to flag a test-file hunk that is more
   expect(first).not.toContain("give any test-file hunk its own chunk")
 })
 
+describe("buildReviewCollectingPrompt answer boxes", () => {
+  it("a hand-edit round folds fix and own answers, other rounds leave them to gtd", () => {
+    const edits = renderText(() => buildReviewCollectingPrompt("cap", undefined, "edits"))
+    expect(edits).toContain("A hand-edit round routes no answer box itself")
+    const triaged = renderText(() => buildReviewCollectingPrompt("cap", undefined, "triaged"))
+    expect(triaged).toContain("Never fold a note's ticked answer box")
+  })
+})
+
 describe("composedReview", () => {
   const BASE = "0123456789abcdef0123456789abcdef01234567"
 

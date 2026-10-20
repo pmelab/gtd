@@ -932,7 +932,9 @@ process resting at either no longer replays — finish or `gtd abandon` it first
 A `could` edit note is re-planned like any other. A driver or fixture that signs
 off a review holding notes ticks one box per note first. Workflow-kit's
 `Verdict` has no `defer`, and `ReviewPolicy` loses `defer` and gains an optional
-`decided`.
+`decided`. A `## Deferred review notes` section already in `.gtd/TODO.md` is no
+longer kept out of a new process's triage: delete or move it before starting
+one.
 
 **Upgrading:** `feature`'s reviews are composed from the quality lap. A process
 resting at `build.review.reviewing`, `build.review.fix.risks.fixing`, a

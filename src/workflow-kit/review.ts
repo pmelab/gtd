@@ -117,8 +117,8 @@ const collect = async (
 }
 
 /** Refuse while a note's answer boxes hold anything but exactly one tick, or a note's boxes were deleted. */
-const requireDecisions = (file: string): void => {
-  const open = unansweredNotes(read(file) ?? "", changes(file)[0]?.before)
+const requireDecisions = (file: string, reviewed: string): void => {
+  const open = unansweredNotes(read(file) ?? "", changesSince(reviewed).get(file)?.before)
   if (open.length === 0) return
   const list = open
     .map((n) => `  - ${file}${n.line > 0 ? `:${n.line}` : ""}: ${n.title} — ${n.reason}`)
@@ -160,6 +160,7 @@ const notesOf = (text: string): string => {
 const converse = async (
   p: ReviewPolicy,
   base: string,
+  reviewed: string,
   collectedBefore?: string,
 ): Promise<string | undefined> => {
   let collectedAt = collectedBefore
@@ -172,14 +173,17 @@ const converse = async (
     }
     requireThreadsClosed(p.file)
     if (!hasThreadFor("agent", p.file)) {
-      requireDecisions(p.file)
+      requireDecisions(p.file, reviewed)
       return collectedAt
     }
     await p.collecting(p.captures.edits(head()), "reply")
     collectedAt = head()
     requireReplies(p.file)
     // A reply that folds the last thread away still leaves the notes to answer at the gate.
-    if (!hasThreadFor("human", p.file) && unansweredNotes(read(p.file) ?? "").length === 0)
+    if (
+      !hasThreadFor("human", p.file) &&
+      unansweredNotes(read(p.file) ?? "", changesSince(reviewed).get(p.file)?.before).length === 0
+    )
       return collectedAt
   }
 }
@@ -414,7 +418,7 @@ export const review = async (base: string, p: ReviewPolicy): Promise<ReviewOutco
     let reviewed = head()
     let collectedAt: string | undefined
     for (;;) {
-      collectedAt = await converse(p, base, collectedAt)
+      collectedAt = await converse(p, base, reviewed, collectedAt)
       if (collectedAt === "missing") break
       const result = await finish(p, reviewed, collectedAt)
       if (!("next" in result)) return result

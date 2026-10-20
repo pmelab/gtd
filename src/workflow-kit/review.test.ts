@@ -560,3 +560,27 @@ describe("a note's answer boxes", () => {
     expect(state.marks).toEqual(["wontfix=Rounding"])
   })
 })
+
+describe("deleted answer boxes", () => {
+  it("are refused even when a reply turn landed them", async () => {
+    const withBoxes = doc(
+      `${POINTER}[^t]`,
+      "",
+      thread("H: why?"),
+      "",
+      "## Rounding",
+      "",
+      "Round?",
+      "",
+      "Tick exactly one:",
+      "",
+      "- [ ] fix as suggested",
+      "- [ ] won't fix",
+      "- [ ] _your answer_",
+    )
+    const gone = doc(POINTER, "", "## Rounding", "", "Round?")
+    state.since = [{ path: "r.md", status: "modified", before: withBoxes, after: gone }]
+    const r = await driveRound(withBoxes, gone, { inGate: gone })
+    expect((r.result as Error).message).toContain("its answer boxes were deleted")
+  })
+})
