@@ -26,7 +26,6 @@ export const defaults: Readonly<Record<string, string>> = {
   refactorFlagPattern: "\\bGTD_FLAG_\\w+",
   seamAllow: [...testFileGlobs, ".gtd/**"].join(", "),
   flagMode: "true",
-  // Above this many acceptance criteria, `design.slicing` groups them into slices.
   sliceMaxCriteria: "8",
   // GTD_FLAG_RISK_TIER, recorded at process start; only "1" is on.
   flag_risk_tier: "0",

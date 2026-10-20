@@ -69,11 +69,30 @@ export const criteriaOf = (text: string): readonly Criterion[] | undefined =>
     return id === null ? { id: "", text: item } : { id: id[1]!, text: id[2]! }
   })
 
-/** The ID'd criteria of `text`, only those of `slice` when given. */
-export const criterionIds = (text: string, slice?: readonly string[]): string[] =>
+/**
+ * Which criteria one slice builds, resolved against the file whenever read:
+ * `only` drops an ID a steer deleted, `except` (the last slice) takes one a
+ * steer added.
+ */
+export interface CriteriaSlice {
+  readonly only?: readonly string[]
+  readonly except?: readonly string[]
+}
+
+/** The ID'd criteria of `text`, only `slice`'s when given. */
+export const criterionIds = (text: string, slice?: CriteriaSlice): string[] =>
   (criteriaOf(text) ?? [])
     .map((c) => c.id)
-    .filter((id) => id !== "" && (slice === undefined || slice.includes(id)))
+    .filter(
+      (id) =>
+        id !== "" &&
+        (slice?.only === undefined || slice.only.includes(id)) &&
+        !(slice?.except ?? []).includes(id),
+    )
+
+/** `slice`'s IDs in `.gtd/REQUIREMENTS.md` as it is now; `undefined` for an unsliced change. */
+export const sliceIds = (slice: CriteriaSlice | undefined): string[] | undefined =>
+  slice === undefined ? undefined : criterionIds(read(REQUIREMENTS) ?? "", slice)
 
 /** Items numbered `AC-1`…, unless every one already carries its own distinct ID. */
 const numbered = (items: readonly string[]): Criterion[] => {

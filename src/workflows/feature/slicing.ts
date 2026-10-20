@@ -3,7 +3,7 @@ import { HEADING, ITEM, markFenced } from "../shared/fences.js"
 import { planner, REQUIREMENTS, SLICES } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
-import { criterionIds } from "./criteria.js"
+import { criterionIds, type CriteriaSlice } from "./criteria.js"
 
 /** One slice of the change: the criterion IDs it builds, in the order `.gtd/SLICES.md` lists them. */
 export interface Slice {
@@ -74,22 +74,12 @@ export const requireSlices = (ids: readonly string[], cap: number): readonly Sli
   return slices
 }
 
-const ids = (): string[] => criterionIds(read(REQUIREMENTS) ?? "")
-
-/** `slice` without the IDs a steer at `seam.steer` deleted since slicing. */
-export const current = (slice: readonly string[]): string[] =>
-  criterionIds(read(REQUIREMENTS) ?? "", slice)
-
-/** The criterion IDs no slice of `earlier` builds: the last slice's, so one added at `seam.steer` is built too. */
-export const unsliced = (earlier: readonly Slice[]): string[] =>
-  ids().filter((id) => !earlier.some((s) => s.ids.includes(id)))
-
 /**
  * The slices to build, in order. Criteria within `sliceMaxCriteria` are one
  * slice and no turn; above it `design.slicing` groups them.
  */
 export const slicing = async (): Promise<readonly Slice[]> => {
-  const all = ids()
+  const all = criterionIds(read(REQUIREMENTS) ?? "")
   const cap = sliceCap()
   if (all.length <= cap) return [{ title: "", ids: all }]
   return scope("design", async () => {
@@ -102,3 +92,11 @@ export const slicing = async (): Promise<readonly Slice[]> => {
     return requireSlices(all, cap)
   })
 }
+
+/** Slice `i`'s criteria; `undefined` when `slices` is the one slice of an unsliced change. */
+export const sliceCriteria = (slices: readonly Slice[], i: number): CriteriaSlice | undefined =>
+  slices.length === 1
+    ? undefined
+    : i < slices.length - 1
+      ? { only: slices[i]!.ids }
+      : { except: slices.slice(0, -1).flatMap((s) => s.ids) }

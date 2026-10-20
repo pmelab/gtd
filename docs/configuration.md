@@ -892,10 +892,13 @@ build turn are told which IDs are theirs, `acceptance-tests` and
 those, over the tests changed since the slice began. A slice's
 `implement.closing` keeps `.gtd/REQUIREMENTS.md` and `.gtd/SLICES.md` for the
 next one; the last removes both. The last slice also builds any criterion a
-steer at `seam.steer` added after slicing. Slices are named `feature-<n>`, with
-`refactor-<n>` ahead of one the seam judge sent to a refactor. A change within
-the cap runs no slicing turn and keeps the single `feature` (and `refactor`)
-slice.
+steer at `seam.steer` added after slicing; a slice a steer left with no
+criterion is skipped. Until the last slice closes, a quality-lap fix turn that
+changes the criteria is refused (`criteria-frozen`). Every turn of a slice,
+covering turns included, is told its IDs, and to reuse a release flag an earlier
+slice added. Slices are named `feature-<n>`, with `refactor-<n>` ahead of one
+the seam judge sent to a refactor. A change within the cap runs no slicing turn
+and keeps the single `feature` (and `refactor`) slice.
 
 **Upgrading:** finish or `gtd abandon` any process past design whose
 `.gtd/REQUIREMENTS.md` lists more than 8 criteria: replay now expects

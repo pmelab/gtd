@@ -311,7 +311,8 @@ const sliceLine = (ids: readonly string[] | undefined): string =>
     ? ""
     : `- This slice builds ${ids.join(", ")} only: every rule here about the criteria
   means these. The others are for other slices, before or after it — leave
-  them unbuilt and untested
+  them unbuilt and untested. A release flag an earlier slice added for this
+  change is this slice's too: reuse it, never add a second
 `
 
 export const designSystem = (): string =>
@@ -1462,10 +1463,10 @@ export const coverageMessage = (): string =>
 counts every criterion as uncovered.
 `
 
-export const coveringPrompt = (uncovered: readonly string[]): string =>
+export const coveringPrompt = (uncovered: readonly string[], slice?: readonly string[]): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
-${criteriaBinding(true)}
+${sliceLine(slice)}${criteriaBinding(true)}
 - A judge found no passing test in this change that covers ${uncovered.join(", ")}.
   Write a behaviour-level test for each, naming its ID in the test or scenario
   name (\`[${uncovered[0]}] …\`), and fix the code if the test shows it falls short

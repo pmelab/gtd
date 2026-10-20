@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Change } from "../../flows/index.js"
-import { criteriaOf, statedCriteria } from "./criteria.js"
+import { criteriaOf, criterionIds, statedCriteria } from "./criteria.js"
 
 const added = (path: string, after: string): Change => ({
   path,
@@ -102,5 +102,21 @@ describe("statedCriteria", () => {
     expect(
       statedCriteria([added("TODO.md", list), added(".gtd/TODO.md", list)], "abc"),
     ).toBeUndefined()
+  })
+})
+
+describe("criterionIds", () => {
+  const requirements = "## Acceptance Criteria\n\n- AC-1: a\n- AC-2: b\n- AC-4: added\n- unnamed\n"
+
+  it("lists every ID'd criterion of an unsliced change", () => {
+    expect(criterionIds(requirements)).toEqual(["AC-1", "AC-2", "AC-4"])
+  })
+
+  it("keeps `only` to the IDs the file still lists", () => {
+    expect(criterionIds(requirements, { only: ["AC-1", "AC-3"] })).toEqual(["AC-1"])
+  })
+
+  it("gives `except` every other ID, one added since included", () => {
+    expect(criterionIds(requirements, { except: ["AC-1", "AC-3"] })).toEqual(["AC-2", "AC-4"])
   })
 })

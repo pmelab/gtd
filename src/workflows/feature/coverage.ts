@@ -11,7 +11,13 @@ import {
 import { healthy } from "../shared/health.js"
 import { coder, FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
-import { criteriaOf, criterionIds, requireCriteriaFrozen } from "./criteria.js"
+import {
+  criteriaOf,
+  criterionIds,
+  requireCriteriaFrozen,
+  sliceIds,
+  type CriteriaSlice,
+} from "./criteria.js"
 import { isTestFile } from "./refactor.js"
 import { isCode } from "./review.js"
 
@@ -55,7 +61,7 @@ const testsSince = (base: string): string =>
  */
 const uncoveredSince = async (
   base: string,
-  slice: readonly string[] | undefined,
+  slice: CriteriaSlice | undefined,
 ): Promise<{ readonly covered: string[]; readonly uncovered: string[] }> => {
   const requirements = read(REQUIREMENTS) ?? ""
   const own = criterionIds(requirements, slice)
@@ -83,14 +89,14 @@ const record = (covered: readonly string[], uncovered: readonly string[] = []): 
  * sending uncovered IDs back to a covering turn; marks the IDs covered on the
  * landing that ends it. A human may overrule once the retries are spent.
  */
-export const requireCoverage = async (base = start(), slice?: readonly string[]): Promise<void> => {
+export const requireCoverage = async (base = start(), slice?: CriteriaSlice): Promise<void> => {
   let retries = 0
   for (;;) {
     const { covered, uncovered } = await uncoveredSince(base, slice)
     if (uncovered.length === 0) return record(covered)
     if (retries < COVERING_RETRIES) {
       retries++
-      await t.agentWithSkills("covering", t.coveringPrompt(uncovered), {
+      await t.agentWithSkills("covering", t.coveringPrompt(uncovered, sliceIds(slice)), {
         label: "Covering the acceptance criteria",
         model: coder(),
         system: t.builderSystem(),

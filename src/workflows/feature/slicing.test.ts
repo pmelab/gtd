@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { slicesOf } from "./slicing.js"
+import { sliceCriteria, slicesOf } from "./slicing.js"
 
 describe("slicesOf", () => {
   it("reads each level-2 heading's ID'd items, in order", () => {
@@ -19,5 +19,25 @@ describe("slicesOf", () => {
 
   it("reads no slice from a file without level-2 headings", () => {
     expect(slicesOf("# Slices\n\n- AC-1\n")).toEqual([])
+  })
+})
+
+describe("sliceCriteria", () => {
+  const slices = [
+    { title: "A", ids: ["AC-1", "AC-3"] },
+    { title: "B", ids: ["AC-2"] },
+    { title: "C", ids: ["AC-4"] },
+  ]
+
+  it("keeps an earlier slice to its own IDs", () => {
+    expect(sliceCriteria(slices, 1)).toEqual({ only: ["AC-2"] })
+  })
+
+  it("gives the last slice every ID no earlier slice builds", () => {
+    expect(sliceCriteria(slices, 2)).toEqual({ except: ["AC-1", "AC-3", "AC-2"] })
+  })
+
+  it("leaves a single slice unsliced", () => {
+    expect(sliceCriteria([slices[0]!], 0)).toBeUndefined()
   })
 })

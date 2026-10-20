@@ -11,14 +11,21 @@ import {
 } from "../../flows/index.js"
 import { gate, healthy } from "../shared/health.js"
 import { flagModeOn, shipped } from "../shared/options.js"
-import { FEEDBACK, fixCheck, QUALITY } from "../shared/steps.js"
+import { FEEDBACK, fixCheck, QUALITY, REQUIREMENTS } from "../shared/steps.js"
 import { refusePendingHandOff, tail } from "../shared/tail.js"
 import * as t from "../shared/text.js"
-import { skipDesign, statedCriteria, type StatedCriteria } from "./criteria.js"
+import {
+  requireCriteriaFrozen,
+  skipDesign,
+  sliceIds,
+  statedCriteria,
+  type CriteriaSlice,
+  type StatedCriteria,
+} from "./criteria.js"
 import { design } from "./planning.js"
 import { buildTail, isCode, reUnwind, type ReviewOutcome } from "./review.js"
-import { implement, seamBuild } from "./seam.js"
-import { current, sliceCap, slicing, unsliced } from "./slicing.js"
+import { closeOut, implement, seamBuild } from "./seam.js"
+import { sliceCap, sliceCriteria, slicing } from "./slicing.js"
 import { recordRisk, riskTierOn, type RiskTier } from "./tier.js"
 
 // The ordinary start. Any change to the tree starts a process: `idle` →
@@ -47,12 +54,18 @@ export const buildFeature = async (firstBase: string): Promise<void> => {
   const slices = await slicing()
   // A single slice keeps the unnumbered names and builds against every criterion.
   const one = slices.length === 1
-  for (const [i, { ids }] of slices.entries()) {
-    const n = one ? "" : `-${i + 1}`
+  for (const i of slices.keys()) {
     const more = i < slices.length - 1
+    const criteria = sliceCriteria(slices, i)
+    // A steer may have deleted every criterion of a later slice: nothing to build.
+    if (sliceIds(criteria)?.length === 0) {
+      if (!more) await closeOut()
+      continue
+    }
+    const n = one ? "" : `-${i + 1}`
     await buildSlice(i === 0 ? firstBase : head(), {
       tier,
-      ids: one ? undefined : more ? current(ids) : unsliced(slices.slice(0, -1)),
+      criteria,
       refactor: `refactor${n}`,
       feature: `feature${n}`,
       more,
@@ -62,7 +75,7 @@ export const buildFeature = async (firstBase: string): Promise<void> => {
 
 interface SliceBuild {
   readonly tier: RiskTier | undefined
-  readonly ids: readonly string[] | undefined
+  readonly criteria: CriteriaSlice | undefined
   readonly refactor: string
   readonly feature: string
   readonly more: boolean
@@ -70,7 +83,7 @@ interface SliceBuild {
 
 /** A naive pass (judged only with `flagMode` on), then implement and the quality lap. */
 const buildSlice = async (sliceBase: string, build: SliceBuild): Promise<void> => {
-  const seam = await seamBuild(sliceBase, { ids: build.ids, refactor: build.refactor })
+  const seam = await seamBuild(sliceBase, { criteria: build.criteria, refactor: build.refactor })
   await slice(build.feature, async () => {
     await implement({
       reference: seam.reference,
@@ -78,8 +91,8 @@ const buildSlice = async (sliceBase: string, build: SliceBuild): Promise<void> =
       afterRefactor: seam.refactored,
       naive: seam.land === true ? seam.reference : undefined,
       rebuild: seam.rebuild,
-      slice: build.ids,
-      base: build.ids === undefined ? undefined : sliceBase,
+      slice: build.criteria,
+      base: build.criteria === undefined ? undefined : sliceBase,
       more: build.more,
     })
     // A feature slice with no code beyond the carried-over tests: the refactor carried the
@@ -90,7 +103,9 @@ const buildSlice = async (sliceBase: string, build: SliceBuild): Promise<void> =
       !changesSince(seam.base).some((c) => isCode(c.path) && !carried.includes(c.path))
         ? sliceBase
         : seam.base
-    await tail(settleQuality, { green: true, lensBase: base })
+    // The criteria stay in the tree for the next slice; no quality fix may move them.
+    const guard = build.more ? () => requireCriteriaFrozen(REQUIREMENTS) : undefined
+    await tail(settleQuality, { green: true, lensBase: base, guard })
   })
 }
 
