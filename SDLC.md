@@ -102,7 +102,8 @@ per design round: a review-feedback round re-runs design.
   whose own acceptance criteria `design.clear` judges clear and checkable passes
   no design gate** on its first lap: one gate fewer, and the criteria's author
   is whoever wrote the sketch.
-- `cleanup`, `fix`, `review`: review sign-off only.
+- `cleanup`, `fix`, `review`: review sign-off only. `review` fixes what its
+  notes ask for in the same process and asks again — never a design phase.
 - `rollout`: **no human gate** — the green suite and the `rollout-only` refusal
   are its only control.
 

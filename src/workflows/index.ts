@@ -32,7 +32,7 @@ export {
   type BuildTailOptions,
   type FeedbackTarget,
   type ReviewOutcome,
-} from "./feature/review.js"
+} from "./shared/review.js"
 export * from "./feature/feature.js"
 export { base, review, reviewFlow } from "./review/review.js"
 export { fix, fixFlow, fixReviewNotes } from "./fix/fix.js"

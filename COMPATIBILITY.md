@@ -87,9 +87,10 @@ histories written by an older or newer gtd.
   reaches and in what order: changing either strands every process resting on
   it. Adding `approve` to an existing step strands every process that already
   passed it.
-- **The review hand-off** — what `review` leaves for `fix`: `.gtd/REVIEW.md`
-  with the human's notes beside the reviewer's own `.gtd/REVIEW.orig.md`, read
-  as review notes (see [Steering formats](src/steering/FORMATS.md)).
+- **The review hand-off** — what `fix`'s review leaves for the next `fix`:
+  `.gtd/REVIEW.md` with the human's notes beside the reviewer's own
+  `.gtd/REVIEW.orig.md`, read as review notes (see
+  [Steering formats](src/steering/FORMATS.md)).
 - **Settings** — the setting names the bundled workflows read (`testCommand`,
   `reviewBase`, …), the `GTD_*` variables (not `GTD_FLAG_*`, nor the `flag_*`
   settings that pin them), and the judge providers (`fixed`, `jev`, `llm`) with

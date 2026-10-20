@@ -19,7 +19,7 @@ import {
   type CriteriaSlice,
 } from "./criteria.js"
 import { isTestFile } from "./refactor.js"
-import { isCode } from "./review.js"
+import { isCode } from "../shared/review.js"
 
 /** Below this the judge's `yes` is not trusted: a wrongly covered ID ends the feature without its test. */
 const COVERED_MIN_P = 0.7

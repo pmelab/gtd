@@ -1,5 +1,5 @@
 import { changesSince, env, human, scope, type ScopeAccess } from "../../flows/index.js"
-import { removedAssertions } from "../../workflow-kit/index.js"
+import { removedAssertions, type CollectRound } from "../../workflow-kit/index.js"
 import * as t from "./text.js"
 
 // The bundled workflow's single steps. A step's name is relative to the
@@ -143,6 +143,45 @@ export const awaitReview = (
     mode: "review",
     base,
     acceptClean: true,
+  })
+
+/** Answer every `question` note inline in `.gtd/REVIEW.md`. */
+export const answerReviewQuestions = (notes: readonly t.NoteInput[]): Promise<void> =>
+  t.agentWithSkills("review.answer-review-questions", t.buildReviewAnswerQuestionsPrompt(notes), {
+    label: "Answering your questions",
+    file: REVIEW,
+    mode: "review",
+    model: planner(),
+    system: t.reviewerSystem(),
+  })
+
+/** Fix every `nit` note in one turn. */
+export const fixNits = (
+  notes: readonly t.NoteInput[],
+  access?: ScopeAccess,
+  rules?: string,
+): Promise<void> => {
+  const fixing = (name: string): Promise<void> =>
+    t.agentWithSkills(name, t.buildReviewFixNitsPrompt(notes, rules), {
+      label: "Fixing your nits",
+      file: REVIEW,
+      model: planner(),
+      system: t.reviewerSystem(),
+    })
+  return access === undefined
+    ? fixing("review.fix.nits.fixing")
+    : scope({ name: "review.fix.nits", access }, () => fixing("fixing"))
+}
+
+/** Turn the review round `capture` describes into `.gtd/REQUIREMENTS.md`, or change nothing. */
+export const collecting = (capture: string, round?: CollectRound): Promise<void> =>
+  t.agentWithSkills("review.collecting", t.buildReviewCollectingPrompt(capture, undefined, round), {
+    label: "Collecting your feedback",
+    file: REQUIREMENTS,
+    mode: "qa",
+    model: planner(),
+    system: t.reviewerSystem(),
+    allowEmpty: true,
   })
 
 /** The round at commit `round` left no `.gtd/REVIEW.md`. */

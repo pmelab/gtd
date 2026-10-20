@@ -11,7 +11,7 @@ export {
   type BuildTailOptions,
   type FeedbackTarget,
   type ReviewOutcome,
-} from "./review.js"
+} from "../shared/review.js"
 export type { ReviewRange } from "../shared/text.js"
 export * from "./feature.js"
 export * from "../shared/reserved.js"

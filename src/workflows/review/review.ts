@@ -1,18 +1,46 @@
-import { start, type WorkflowBase } from "../../flows/index.js"
+import { read, refuse, removeScript, run, start, type WorkflowBase } from "../../flows/index.js"
+import { buildTail, reUnwind } from "../shared/review.js"
 import { gate } from "../shared/health.js"
 import { shipped } from "../shared/options.js"
-import { handOffTail, refusePendingHandOff } from "../shared/tail.js"
+import { coder, REQUIREMENTS } from "../shared/steps.js"
+import { refusePendingHandOff } from "../shared/tail.js"
 import * as t from "../shared/text.js"
 
+/** Build the concerns a review round collected into `.gtd/REQUIREMENTS.md`, then remove it. */
+const fixFeedback = async (): Promise<void> => {
+  await t.agentWithSkills("feedback.fixing", t.reviewFeedbackFixPrompt(), {
+    label: "Fixing your review feedback",
+    file: REQUIREMENTS,
+    model: coder(),
+    system: t.finisherSystem(),
+    // An earlier nit fix may already have built the concern.
+    allowEmpty: true,
+  })
+  await run("feedback.closing", removeScript([REQUIREMENTS]), { label: "Closing the feedback" })
+}
+
 /**
- * Pure review of everything since `reviewBase`: a green gate, the quality
- * lap, then the human review. A note ends the process with `.gtd/REVIEW.md`
- * left for `fix`; it never re-plans.
+ * The feature's review of everything since `reviewBase` — a green gate, the
+ * triaged quality lap, then the human review — with no design phase: a
+ * review that asks for changes is fixed in place and reviewed again, until
+ * sign-off.
  */
 export const reviewFlow = async (): Promise<void> => {
   refusePendingHandOff()
+  // A review's feedback is whatever sits in this file, so a leftover one would be built, then deleted.
+  if (read(REQUIREMENTS) !== undefined) {
+    refuse(`gtd: ${REQUIREMENTS} is left over — finish or remove it before a review.`)
+  }
   await gate("review-gate", t.reviewGateBlockedMessage())
-  await handOffTail(false, start())
+  const base = start()
+  // The gate just proved the tree green.
+  let outcome = await buildTail(base, { green: true })
+  while (outcome.verdict === "feedback") {
+    await reUnwind(outcome)
+    await fixFeedback()
+    // The human reviews the whole change again; the lenses only what the fix changed.
+    outcome = await buildTail(base, { lensBase: outcome.base })
+  }
 }
 
 export const review = shipped(

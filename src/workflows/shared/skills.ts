@@ -22,6 +22,8 @@ export const skills = (
     design: ["spec-driven-development", "planning-and-task-breakdown"],
     // `fix`'s turn over the notes a review handed on.
     notes: ["incremental-implementation", "code-simplification"],
+    // `review`'s turn building what a review round collected.
+    feedback: ["test-driven-development", "incremental-implementation"],
     // The refactor's own turns load `ponytail`; `refactor.build.*` carry the `build.*` lists.
     ...build,
     ...Object.fromEntries(Object.entries(build).map(([name, list]) => [`refactor.${name}`, list])),

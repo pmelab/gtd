@@ -69,7 +69,31 @@ Feature: gtd abandon — end the process underway without completing it
     And the last commit subject is "chore: init gtd workflow"
 
   Scenario: abandons a gtd review process — HEAD never moved for the review, so the reviewed branch tip is restored directly
-    Given I mark the current commit as "base"
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        fix,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review as fix's own tail: a reviewer turn, and a note handed to fix.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        await handOffTail(false, start())
+      }
+      """
+    And I mark the current commit as "base"
     # A blank qualityReviews skips the lap review-gate now hands to — this
     # scenario is about abandoning, not about the lap.
     And an environment variable "GTD_QUALITYREVIEWS" set to ""

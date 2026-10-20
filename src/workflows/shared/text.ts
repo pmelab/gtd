@@ -875,6 +875,17 @@ The reviewer's risks are:
 
 ${risks.length === 0 ? "(none)\n" : notesCapture(risks)}`
 
+export const reviewFeedbackFixPrompt = (): string =>
+  `${stateFileRules}
+- Read \`.gtd/REQUIREMENTS.md\` — the concerns the human's review asked for,
+  one \`## \` heading each, in build order
+- Build every concern in this one turn; an answered question is context,
+  not a concern
+- Where a change is behavioural, add a test that fails without it
+- Leave \`.gtd/REQUIREMENTS.md\` untouched — the next step removes it
+- Leave everything uncommitted and finish your turn
+`
+
 export const buildReviewReviewMissingMessage = (commit: string): string =>
   `The review round committed no \`.gtd/REVIEW.md\` (at ${commit}), so there is
 nothing to sign off on.

@@ -20,7 +20,7 @@ import { healthy, type Guard } from "../shared/health.js"
 import { coder, FEEDBACK, HANDOFF, REFACTOR } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults, testFileGlobs } from "../shared/vars.js"
-import { buildTail, reUnwind, type FeedbackTarget } from "./review.js"
+import { buildTail, reUnwind, type FeedbackTarget } from "../shared/review.js"
 import { refactorCollecting } from "./steps.js"
 
 export const REFACTOR_PACKAGE = REFACTOR

@@ -16,20 +16,22 @@ import {
 } from "../../flows/index.js"
 import type { ReviewNote } from "../../steering/index.js"
 import * as kit from "../../workflow-kit/index.js"
-import { guarded, healthy, type EscalationCount } from "../shared/health.js"
-import { NO_FINDINGS, type LensReport } from "../shared/lenses.js"
+import { guarded, healthy, type EscalationCount } from "./health.js"
+import { NO_FINDINGS, type LensReport } from "./lenses.js"
 import {
+  answerReviewQuestions,
   awaitReview,
+  collecting,
   fixCheck,
+  fixNits,
   fixRisks,
   QUALITY,
   REQUIREMENTS,
   REVIEW,
   reviewMissing,
-} from "../shared/steps.js"
-import { closeReview, isOptionalObject, tail, type TailOptions } from "../shared/tail.js"
-import * as t from "../shared/text.js"
-import { answerReviewQuestions, collecting, fixNits } from "./steps.js"
+} from "./steps.js"
+import { closeReview, isOptionalObject, tail, type TailOptions } from "./tail.js"
+import * as t from "./text.js"
 
 export type { ReviewOutcome } from "../../workflow-kit/index.js"
 
@@ -200,10 +202,11 @@ const composing = (
  * The quality lap's notes reach a human over everything since `base`, who
  * answers each one — fix as suggested, won't fix, or their own answer — and
  * may comment. A fix joins the nit batch, a won't-fix is dropped, and an own
- * answer or comment is judged: edits go to another planning lap, questions
- * are answered in place, nits fixed in one batch, praise dropped.
+ * answer or comment is judged: edits end the review as `feedback` for the
+ * caller to build, questions are answered in place, nits fixed in one batch,
+ * praise dropped.
  */
-export const review = (
+export const humanReview = (
   base: string,
   escalations: EscalationCount = { rounds: 0 },
   options: Omit<BuildTailOptions, "fixFirst" | "green"> = {},
@@ -316,7 +319,7 @@ export function buildTail(
     )
   }
   const [base, form] = options
-  return tail((escalations, report) => review(base, escalations, { ...form, report }), {
+  return tail((escalations, report) => humanReview(base, escalations, { ...form, report }), {
     ...form,
     triage: true,
   })

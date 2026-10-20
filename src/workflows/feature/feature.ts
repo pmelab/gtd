@@ -26,7 +26,7 @@ import {
   type StatedCriteria,
 } from "./criteria.js"
 import { design } from "./planning.js"
-import { buildTail, isCode, reUnwind, review, type ReviewOutcome } from "./review.js"
+import { buildTail, humanReview, isCode, reUnwind, type ReviewOutcome } from "../shared/review.js"
 import { implement, implementing, seamBuild } from "./seam.js"
 import { sliceCap, sliceCriteria, slicing } from "./slicing.js"
 import { recordRisk, riskTierOn, type RiskTier } from "./tier.js"
@@ -153,7 +153,7 @@ const settleQuality = async (): Promise<void> => {
 
 /** The triaged quality lap, then the human review since `base`. */
 const reviewedTail = (base: string, lensBase: string): Promise<ReviewOutcome> =>
-  tail((escalations, report) => review(base, escalations, { report }), {
+  tail((escalations, report) => humanReview(base, escalations, { report }), {
     green: true,
     lensBase,
     triage: true,

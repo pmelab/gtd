@@ -1,8 +1,11 @@
-import { human, scope, type ScopeAccess } from "../../flows/index.js"
+import { human } from "../../flows/index.js"
 import type { CollectRound } from "../../workflow-kit/index.js"
 import * as t from "../shared/text.js"
 import { riskTierOn } from "./tier.js"
-import { planner, REFACTOR, REQUIREMENTS, REVIEW } from "../shared/steps.js"
+import { planner, REFACTOR, REQUIREMENTS } from "../shared/steps.js"
+
+// Kept on the published feature entry.
+export { answerReviewQuestions, collecting, fixNits } from "../shared/steps.js"
 
 /** Turn the sketch since `base` into `.gtd/REQUIREMENTS.md`. */
 export const triage = (base: string): Promise<void> =>
@@ -21,45 +24,6 @@ export const answerProductQuestions = (): Promise<void> =>
     file: REQUIREMENTS,
     mode: "qa",
     acceptClean: true,
-  })
-
-/** Answer every `question` note inline in `.gtd/REVIEW.md`. */
-export const answerReviewQuestions = (notes: readonly t.NoteInput[]): Promise<void> =>
-  t.agentWithSkills("review.answer-review-questions", t.buildReviewAnswerQuestionsPrompt(notes), {
-    label: "Answering your questions",
-    file: REVIEW,
-    mode: "review",
-    model: planner(),
-    system: t.reviewerSystem(),
-  })
-
-/** Fix every `nit` note in one turn. */
-export const fixNits = (
-  notes: readonly t.NoteInput[],
-  access?: ScopeAccess,
-  rules?: string,
-): Promise<void> => {
-  const fixing = (name: string): Promise<void> =>
-    t.agentWithSkills(name, t.buildReviewFixNitsPrompt(notes, rules), {
-      label: "Fixing your nits",
-      file: REVIEW,
-      model: planner(),
-      system: t.reviewerSystem(),
-    })
-  return access === undefined
-    ? fixing("review.fix.nits.fixing")
-    : scope({ name: "review.fix.nits", access }, () => fixing("fixing"))
-}
-
-/** Turn the review round `capture` describes into `.gtd/REQUIREMENTS.md`, or change nothing. */
-export const collecting = (capture: string, round?: CollectRound): Promise<void> =>
-  t.agentWithSkills("review.collecting", t.buildReviewCollectingPrompt(capture, undefined, round), {
-    label: "Collecting your feedback",
-    file: REQUIREMENTS,
-    mode: "qa",
-    model: planner(),
-    system: t.reviewerSystem(),
-    allowEmpty: true,
   })
 
 /** Turn the refactor review round `capture` describes into `.gtd/REFACTOR.md`, or change nothing. */

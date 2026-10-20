@@ -25,7 +25,31 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     And the workflow gtd install scaffolds
 
   Scenario: happy path — a local branch started for review via the space-separated "--workflow" form, gated then resting at build.review.reviewing
-    Given I mark the current commit as "base"
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { start } from "@pmelab/gtd/flows"
+      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+
+      export {
+        feature as default,
+        feature,
+        fix,
+        defaults,
+        envDefaults,
+        summary,
+        base,
+        steering,
+        skills,
+        access,
+      } from "@pmelab/gtd/workflows"
+
+      // review as fix's own tail: a reviewer turn, and a note handed to fix.
+      export async function review() {
+        await gate("review-gate", "The baseline is red.")
+        await handOffTail(false, start())
+      }
+      """
+    And I mark the current commit as "base"
     # A blank qualityReviews skips the lap review-gate now hands to — this
     # scenario is about the entry mechanics, not about the lap.
     And an environment variable "GTD_QUALITYREVIEWS" set to ""

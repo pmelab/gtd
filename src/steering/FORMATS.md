@@ -24,11 +24,11 @@ read them.
   its first line starts `H:`.
 - **Review notes**: what a human added to a `review` document since the reviewer
   wrote it — changed chunk prose, pointer notes, and new one-shot footnotes,
-  never threads. **This is the hand-off from the `review` workflow to the `fix`
-  workflow**: `review` leaves the annotated file beside the reviewer's own copy
+  never threads. **This is the hand-off from a `fix` review to the next `fix`**:
+  the review leaves the annotated file beside the reviewer's own copy
   (`.gtd/REVIEW.orig.md`), and `fix` reads its work from the notes between the
-  two and from the risks, so a file `review` wrote must read the same in any
-  `fix` that consumes it.
+  two and from the risks, so a hand-off file must read the same in any `fix`
+  that consumes it.
 
 ## What may change
 

@@ -905,8 +905,8 @@ An answer routes without the note judge: `fix as suggested` joins the nit batch
 (`build.review.fix.nits.fixing`) with the note's text; `won't fix` drops the
 note and records `Gtd-Mark: wontfix=<title>` on the gate's commit; an own answer
 is judged like any other note, keyed `answer-<n>`. Nothing is written to
-`.gtd/TODO.md`. The `review` and `fix` workflows keep the untriaged lap and
-their reviewer turn.
+`.gtd/TODO.md`. The `review` workflow runs this same review; `fix` keeps the
+untriaged lap and its reviewer turn.
 
 #### The feature review
 
@@ -935,6 +935,14 @@ off a review holding notes ticks one box per note first. Workflow-kit's
 `decided`. A `## Deferred review notes` section already in `.gtd/TODO.md` is no
 longer kept out of a new process's triage: delete or move it before starting
 one.
+
+**Upgrading:** `review` runs `feature`'s review and fixes its notes in place. A
+`review` process past its `review-gate.check` no longer replays: finish or
+`gtd abandon` it before upgrading. A driver or fixture scripting the `review`
+door's `build.review.reviewing` scripts `build.review.composing` and, with
+lenses on, the `build.quality.triage` judge instead; a note there no longer
+reaches `build.review.handing-off`, and a `.gtd/REVIEW.md` an older `review`
+handed off is still read by `fix`.
 
 **Upgrading:** `feature`'s reviews are composed from the quality lap. A process
 resting at `build.review.reviewing`, `build.review.fix.risks.fixing`, a
@@ -1219,20 +1227,26 @@ The shipped module offers three workflows:
 - **`feature`** — the ordinary start, and its `default`: plan, build, the
   quality lap, then a human review whose notes are triaged and, for an edit,
   re-planned.
-- **`review`** — a pure review of everything since
-  `--var reviewBase=<commitish>`: a green gate, the quality lap, then the human
-  review. A sign-off closes `.gtd/REVIEW.md`. A note ends the process with
-  `.gtd/REVIEW.md` kept and the reviewer's own version copied beside it as
-  `.gtd/REVIEW.orig.md` (`build.review.handing-off`); nothing is triaged or
-  re-planned. Until `fix` runs, starting `feature` or `review` is refused;
-  remove both review files to abandon the hand-off. `fix` refuses a lone
-  `.gtd/REVIEW.orig.md`.
+- **`review`** — `feature`'s review of everything since
+  `--var reviewBase=<commitish>`, with no design phase and no coverage judge: a
+  green gate (`review-gate`), the triaged quality lap, then the human review of
+  [The feature review](#the-feature-review). Fixes and nits are fixed in place
+  (`build.review.fix.nits.fixing`); a note judged `edit`, or a hand-edit, is
+  collected into `.gtd/REQUIREMENTS.md` (`build.review.collecting`), your edits
+  are reverted (`re-unwind`), one turn builds it (`feedback.fixing`), the file
+  is removed (`feedback.closing`), and the tail runs again. A sign-off ends the
+  process with no review file left. Starting it is refused while a pending
+  hand-off from `fix` or a leftover `.gtd/REQUIREMENTS.md` is in the tree.
 - **`fix`** — with a handed-off `.gtd/REVIEW.md` in the tree, one turn fixes
   every note (read from the two review files) and every `Risk:`
   (`notes.fixing`), both files are removed (`notes.closing`), and the result
   goes through the build tail to its own hand-off review. With none, it repairs
-  a red baseline (`fix-precheck`) through the same tail. A note at its review is
-  handed to the next `fix`, never re-planned.
+  a red baseline (`fix-precheck`) through the same tail. A note at its review
+  ends the process with `.gtd/REVIEW.md` kept and the reviewer's own version
+  copied beside it as `.gtd/REVIEW.orig.md` (`build.review.handing-off`), for
+  the next `fix`, never re-planned. Until then, starting `feature` or `review`
+  is refused; remove both review files to abandon the hand-off. `fix` refuses a
+  lone `.gtd/REVIEW.orig.md`.
 
 **Upgrading:** the old state-named entry flag is gone, replaced by `--workflow`.
 Finish or abandon any process started with it before upgrading — its opening

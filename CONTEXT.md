@@ -327,8 +327,9 @@ bundled workflow's data, not a key gtd interprets. Avoid: "Vars", "env var"
 ### Bundled workflow
 
 These terms belong to the workflows gtd ships, not to the engine: `feature` (the
-ordinary start), `review` (pure review since a base), `fix` (repair a red
-baseline), `rollout` and `cleanup`. Replace them and the terms go with them.
+ordinary start), `review` (`feature`'s review since a base, its notes fixed in
+place), `fix` (repair a red baseline), `rollout` and `cleanup`. Replace them and
+the terms go with them.
 
 **Rollout**: The bundled workflow that turns one release flag default-on — an
 agent edits only its registry entry, no review. _Avoid_: beat (that is the
