@@ -375,6 +375,7 @@ export const refactorBuildingPrompt = ({
   reference,
   feedback = false,
   note = false,
+  from,
 }: {
   pkg: string
   strays: readonly string[]
@@ -382,6 +383,8 @@ export const refactorBuildingPrompt = ({
   reference?: string | undefined
   feedback?: boolean | undefined
   note?: boolean | undefined
+  /** A continuation of a refactor turn that stopped at its context limit; `open` are its untouched paths. */
+  from?: Handoff | undefined
 }): string =>
   `${stateFileRules}
 - The package to implement is \`${pkg}\`; never delete it
@@ -410,8 +413,9 @@ ${
   refactor that touches none of it is wrong, however clean — never
   swap in an unrelated tidy-up
 `
-}- Leave everything uncommitted and finish your turn — do not commit
-`
+}${handoffRule()}
+- Leave everything uncommitted and finish your turn — do not commit
+${from === undefined ? "" : continuationLines(from)}`
 
 export const refactorFixPrompt = (strays: readonly string[], pattern: string): string =>
   `${stateFileRules}
@@ -1198,8 +1202,8 @@ export type NaiveRetry = SeamRejection | NaiveRed | NaiveFault
 const isRed = (retry: NaiveRetry): retry is NaiveRed => "red" in retry
 const isFault = (retry: NaiveRetry): retry is NaiveFault => "fault" in retry
 
-const pickUp = (hash: string): string =>
-  `Pick it up — \`git diff --binary ${hash}^ ${hash} | git apply\``
+const pickUp = (hash: string, exclude?: string): string =>
+  `Pick it up — \`git diff --binary --no-color --no-ext-diff --no-textconv ${hash}^ ${hash}${exclude === undefined ? "" : ` -- ${quote(":(top)")} ${quote(`:(top,exclude)${exclude}`)}`} | git apply\``
 
 const criteriaBinding = (refused: boolean): string =>
   `- Its \`## Acceptance Criteria\` (\`AC-<n>\`) bind this turn: re-read them from
@@ -1227,7 +1231,72 @@ ${listed(retry.strays)}
 Start over and choose a different approach; do not rebuild the same diff.
 `
 
-export const naivePassPrompt = (retry?: NaiveRetry, slice?: readonly string[]): string =>
+/** A turn that stopped at its context limit: the snapshot it left, its handoff note, what it left open. */
+export interface Handoff {
+  /** The commit holding the stopped turn's work: its kept tip, or the turn's own commit. */
+  readonly snapshot: string
+  readonly note: string
+  readonly open: readonly string[]
+}
+
+const quoted = (text: string): string =>
+  text
+    .trimEnd()
+    .split("\n")
+    .map((line) => (line === "" ? "" : `  > ${line}`))
+    .join("\n")
+
+/** Every turn a continuation may pick up tells its agent where the note goes. */
+const handoffRule = (): string =>
+  `- Should you be told to stop at a context limit, write the handoff note to
+  \`.gtd/HANDOFF.md\` — what you touched, what was next — and finish your turn:
+  a fresh turn picks up from what you leave, broken or not. That file is the one
+  exception to any path rule here; write it at no other time`
+
+/** `pickUp`: how the snapshot gets into the tree — absent when it already is. */
+const continuationLines = (from: Handoff, pickUp?: string): string =>
+  `
+Your previous turn stopped at its context limit; this fresh turn picks up from
+its snapshot (\`${from.snapshot}\`). ${pickUp === undefined ? "Its work is already in the tree." : `${pickUp}.`} Its handoff note:
+
+${quoted(from.note === "" ? "(empty)" : from.note)}
+
+Still open: ${from.open.length === 0 ? "nothing the workflow can count — finish what the note says is next" : from.open.join(", ")}.
+${pickUp === undefined ? "Delete `.gtd/HANDOFF.md` once you are done; rewrite it should you be stopped again.\n" : ""}`
+
+export const oversizedMessage = (
+  phase: string,
+  from: Handoff,
+  why: { readonly cap: number } | { readonly stall: number },
+  narrowable = true,
+): string =>
+  `The ${phase} keeps outgrowing its context: ${
+    "cap" in why
+      ? why.cap === 0
+        ? "continuations are off (`continuations` is 0) and the turn stopped at its context limit"
+        : `${why.cap} continuation${why.cap === 1 ? "" : "s"} ran and the last still stopped at its context limit`
+      : `the last ${why.stall} continuation${why.stall === 1 ? "" : "s"} closed nothing still open`
+  }. The last snapshot is \`${from.snapshot}\`; still open: ${from.open.length === 0 ? "nothing countable" : from.open.join(", ")}.
+
+Its handoff note:
+
+${quoted(from.note === "" ? "(empty)" : from.note)}
+
+Land to go on: a fresh round of continuations picks up from that snapshot${
+    narrowable
+      ? ` — narrow
+\`.gtd/REQUIREMENTS.md\` first if the change is too big, or raise the context limit`
+      : ` — raise
+the context limit first if the refactor is too big`
+  }. \`gtd abandon\` gives the change up.
+`
+
+/** `from`: a continuation of a pass that stopped at its context limit, in place of `retry`'s pick-up. */
+export const naivePassPrompt = (
+  retry?: NaiveRetry,
+  slice?: readonly string[],
+  from?: Handoff,
+): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
 ${sliceLine(slice)}${criteriaBinding(false)}
@@ -1245,9 +1314,34 @@ ${sliceLine(slice)}${criteriaBinding(false)}
 - Run \`${env.testCommand}\` and finish only once it is green with every
   criterion's test passing: the next step runs it on your diff and sends a red
   pass back
-- Leave \`.gtd/\` untouched
+- Leave \`.gtd/\` untouched, a handoff note excepted
+${handoffRule()}
 - Leave everything uncommitted and finish your turn — do not commit
-${retry === undefined ? "" : naiveRetry(retry)}`
+${
+  from !== undefined
+    ? `${continuationLines(from, pickUp(from.snapshot, ".gtd/HANDOFF.md"))}${
+        retry === undefined
+          ? ""
+          : isFault(retry)
+            ? `
+The pass this continues was a retry: its tests fell short, and still must not:
+${retry.fault}
+`
+            : isRed(retry)
+              ? `
+The pass this continues was a retry after a red suite (\`.gtd/FEEDBACK.md\`
+holds the output): finish only once the suite is green.
+`
+              : `
+The pass this continues was a retry after a \`reject\`: keep away from the
+approach that changed these files outside the expected set:
+${listed(retry.strays)}
+`
+      }`
+    : retry === undefined
+      ? ""
+      : naiveRetry(retry)
+}`
 
 /** The naive pass's kept tip, its acceptance test files and the criterion IDs they name. */
 export interface Acceptance {
@@ -1340,6 +1434,7 @@ export const implementBuildingPrompt = (
   flagMode = true,
   rebuild: Rebuild = {},
   slice?: readonly string[],
+  from?: Handoff,
 ): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
@@ -1366,9 +1461,10 @@ ${afterRefactor === true ? afterRefactorLine(rebuild) : ""}${
 - Write the tests first, then the code that makes them pass. Name each
   criterion's ID in the test that covers it (\`[AC-3] …\`): once the suite is
   green a judge checks every ID has a passing test, and sends uncovered ones back
+${handoffRule()}
 - Leave \`.gtd/REQUIREMENTS.md\` in place and everything uncommitted, then
   finish your turn
-`
+${from === undefined ? "" : continuationLines(from)}`
 
 export const implementFixPrompt = (): string =>
   `${stateFileRules}

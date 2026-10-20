@@ -313,6 +313,12 @@ note, past 70% (or when the context is about to be compacted) the turn stops and
 nothing lands. A step's `context` option, or the bundled workflows'
 `contextLimit` option, moves the two limits — see
 [Context limits](https://github.com/pmelab/gtd/blob/main/docs/driver.md#context-limits).
+In `feature`, a naive pass, refactor or build turn that wrapped up that way is a
+snapshot: a fresh turn picks up from it with the handoff note and the criteria
+still open, up to 3 times per phase, across its retries (`continuations`), and a
+phase whose continuations keep stopping, or close nothing twice in a row
+(`continuationStall`), rests for a person — see
+[Continuations](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#continuations).
 
 ### Or drive it from inside Claude Code
 

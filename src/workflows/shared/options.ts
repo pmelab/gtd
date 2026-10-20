@@ -24,6 +24,8 @@ export const ShippedOptions = Schema.Struct({
   sliceMaxCriteria: setting,
   qualityReviews: setting,
   refactorQualityReviews: setting,
+  continuations: setting,
+  continuationStall: setting,
   testCommand: setting,
   plannerModel: setting,
   coderModel: setting,

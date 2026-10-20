@@ -189,3 +189,14 @@ export const skipDesign = (stated: StatedCriteria | undefined): Promise<boolean>
         })
         return true
       })
+
+/** After a gate that invites narrowing the requirements: an edit must leave valid criteria. */
+export const requireCriteriaIfEdited = (): void => {
+  const change = changes().get(REQUIREMENTS)
+  if (change === undefined) return
+  if (change.status === "deleted")
+    refuse(
+      `gtd land: criteria-missing: ${REQUIREMENTS} must stay — narrow its criteria, never delete it`,
+    )
+  requireCriteria(REQUIREMENTS)
+}
