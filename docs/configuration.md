@@ -1235,8 +1235,8 @@ The shipped module offers three workflows:
   collected into `.gtd/REQUIREMENTS.md` (`build.review.collecting`), your edits
   are reverted (`re-unwind`), one turn builds it (`feedback.fixing`), the file
   is removed (`feedback.closing`), and the tail runs again. A sign-off ends the
-  process with no review file left. Until a pending hand-off from `fix` is
-  consumed, starting it is refused.
+  process with no review file left. Starting it is refused while a pending
+  hand-off from `fix` or a leftover `.gtd/REQUIREMENTS.md` is in the tree.
 - **`fix`** — with a handed-off `.gtd/REVIEW.md` in the tree, one turn fixes
   every note (read from the two review files) and every `Risk:`
   (`notes.fixing`), both files are removed (`notes.closing`), and the result

@@ -1,4 +1,4 @@
-import { removeScript, run, start, type WorkflowBase } from "../../flows/index.js"
+import { read, refuse, removeScript, run, start, type WorkflowBase } from "../../flows/index.js"
 import { buildTail, reUnwind } from "../shared/review.js"
 import { gate } from "../shared/health.js"
 import { shipped } from "../shared/options.js"
@@ -27,6 +27,10 @@ const fixFeedback = async (): Promise<void> => {
  */
 export const reviewFlow = async (): Promise<void> => {
   refusePendingHandOff()
+  // A review's feedback is whatever sits in this file, so a leftover one would be built, then deleted.
+  if (read(REQUIREMENTS) !== undefined) {
+    refuse(`gtd: ${REQUIREMENTS} is left over — finish or remove it before a review.`)
+  }
   await gate("review-gate", t.reviewGateBlockedMessage())
   const base = start()
   // The gate just proved the tree green.

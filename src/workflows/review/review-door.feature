@@ -139,3 +139,11 @@ Feature: the review door fixes its notes in the same process
     And ".gtd/REQUIREMENTS.md" does not exist
     And "src/calc.test.ts" contains "adds negatives"
     And ".gtd/REVIEW.md" does not contain "test negatives too"
+
+  Scenario: a leftover requirements file is refused before any step
+    Given a file ".gtd/REQUIREMENTS.md" with:
+      """
+      # Requirements
+      """
+    And the working tree is committed as "chore: leftover requirements"
+    Then opening door "review" is refused with ".gtd/REQUIREMENTS.md is left over"
