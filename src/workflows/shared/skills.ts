@@ -24,6 +24,9 @@ export const skills = (
     notes: ["incremental-implementation", "code-simplification"],
     // `review`'s turn building what a review round collected.
     feedback: ["test-driven-development", "incremental-implementation"],
+    // The `tests` workflow's sweep and rewrites.
+    tests: ["test-audit", "test-driven-development"],
+    "tests.health": ["debugging-and-error-recovery"],
     // The refactor's own turns load `ponytail`; `refactor.build.*` carry the `build.*` lists.
     ...build,
     ...Object.fromEntries(Object.entries(build).map(([name, list]) => [`refactor.${name}`, list])),

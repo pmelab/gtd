@@ -5,6 +5,7 @@ import {
   judge,
   numeric,
   read,
+  removeScript,
   requireRevert,
   restoreScript,
   run,
@@ -22,6 +23,7 @@ import { NO_FINDINGS, type LensReport } from "./lenses.js"
 import {
   answerReviewQuestions,
   awaitReview,
+  coder,
   collecting,
   fixCheck,
   fixNits,
@@ -218,7 +220,7 @@ export const humanReview = (
   escalations: EscalationCount = { rounds: 0 },
   options: Omit<BuildTailOptions, "fixFirst" | "green"> = {},
 ): Promise<kit.ReviewOutcome> => {
-  const { guard, guardRests, fixAccess, rules } = options
+  const { guard, guardRests, fixAccess, rules, awaitMessage } = options
   const feedback: FeedbackTarget = options.feedback ?? {
     file: REQUIREMENTS,
     collecting,
@@ -241,7 +243,7 @@ export const humanReview = (
     },
     fixRisks: guarded((notes) => fixRisks(notes, fixAccess, rules), guard),
     keepGreen: () => healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules }),
-    awaitReview: (b) => awaitReview(b),
+    awaitReview: (b) => awaitReview(b, awaitMessage?.(b)),
     reviewMissing,
     collecting: feedback.collecting,
     triage: triage(severities),
@@ -303,6 +305,8 @@ export interface BuildTailOptions extends TailOptions {
   readonly lap?: t.ReviewRange | undefined
   /** What the triaged quality lap left for the review; absent: nothing. */
   readonly report?: LensReport | undefined
+  /** The review gate's message for the review base; absent: the quality lap's. */
+  readonly awaitMessage?: ((base: string) => string) | undefined
 }
 
 /** The build tail: fix (when entered red), keep green unless `green`, the triaged quality lap, then human review since `base`. */
@@ -366,6 +370,19 @@ const callForm = (
   if (typeof second === "string") return legacyForm(first, second, third, fourth)
   if (typeof first === "string") return currentForm(first, second, third, fourth)
   return undefined
+}
+
+/** Build the concerns a review round collected into `.gtd/REQUIREMENTS.md`, then remove it. */
+export const fixFeedback = async (): Promise<void> => {
+  await t.agentWithSkills("feedback.fixing", t.reviewFeedbackFixPrompt(), {
+    label: "Fixing your review feedback",
+    file: REQUIREMENTS,
+    model: coder(),
+    system: t.finisherSystem(),
+    // An earlier nit fix may already have built the concern.
+    allowEmpty: true,
+  })
+  await run("feedback.closing", removeScript([REQUIREMENTS]), { label: "Closing the feedback" })
 }
 
 /**

@@ -414,11 +414,12 @@ falls back to the `gtd` on your `PATH`.
   doors are `fix` (repair a red baseline as its own reviewed commit),
   `review [base]` (a pure review of everything since the merge-base with `base`,
   the default branch unless named), and, only where the config exports them from
-  `@pmelab/gtd/workflows/rollout` and `@pmelab/gtd/workflows/cleanup`,
-  `rollout <flag>` (turn a release flag default-on) and `cleanup <flag>` (remove
-  it). `/gtd <verb> …` enters a door only when one by that name exists and the
-  word count fits its args; otherwise the text, bare `/gtd rollout` included,
-  starts a process as requirements.
+  `@pmelab/gtd/workflows/rollout`, `@pmelab/gtd/workflows/cleanup` and
+  `@pmelab/gtd/workflows/tests`, `rollout <flag>` (turn a release flag
+  default-on), `cleanup <flag>` (remove it) and `tests` (revive skipped tests).
+  `/gtd <verb> …` enters a door only when one by that name exists and the word
+  count fits its args; otherwise the text, bare `/gtd rollout` included, starts
+  a process as requirements.
 - `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
   `/gtd ui` starts the browser view of the rest it waits at.
 - `/gtd throw`, `/gtd ship [-n]` and their tools (`handoff`, `ship`) answer at

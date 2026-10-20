@@ -5,7 +5,7 @@ import { feature } from "./feature/feature.js"
 
 export { threads, type ThreadInfo } from "../flows/index.js"
 export * from "./shared/reserved.js"
-export { FlagOptions, ShippedOptions } from "./shared/options.js"
+export { FlagOptions, ShippedOptions, TestsOptions } from "./shared/options.js"
 export { agentWithSkills, type ReviewRange } from "./shared/text.js"
 export * from "./shared/steps.js"
 export * from "./shared/health.js"
@@ -38,6 +38,7 @@ export { base, review, reviewFlow } from "./review/review.js"
 export { fix, fixFlow, fixReviewNotes } from "./fix/fix.js"
 export { rollout, rolloutFlow } from "./rollout/rollout.js"
 export { cleanup, cleanupFlow } from "./cleanup/cleanup.js"
+export { tests, testsFlow } from "./tests/tests.js"
 
 export default feature
 

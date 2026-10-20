@@ -29,7 +29,11 @@ type FindingKind = "mechanical" | "noise" | "design"
 /** What the triaged quality lap did with its findings, for the review to list. */
 export interface LensReport {
   /** Design findings, then the mechanical ones the fix cap left. */
-  readonly notes: readonly (Finding & { readonly unresolved?: true; readonly unclear?: true })[]
+  readonly notes: readonly (Finding & {
+    readonly unresolved?: true
+    readonly unclear?: true
+    readonly answers?: readonly [string, string]
+  })[]
   readonly fixed: readonly (Finding & { readonly commit: string })[]
   readonly noise: readonly (Finding & { readonly p: number })[]
 }

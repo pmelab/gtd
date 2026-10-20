@@ -9,7 +9,7 @@ import {
   scope,
   vars,
 } from "../../flows/index.js"
-import { defaultFlagRegistry, defaults, envDefaults } from "./vars.js"
+import { defaultFlagRegistry, defaults, envDefaults, testsDefaults } from "./vars.js"
 
 const setting = Schema.optionalWith(Schema.String, { exact: true })
 
@@ -106,4 +106,24 @@ export const flagShipped = (
         base: undefined,
       }
     },
+  )
+
+export const TestsOptions = Schema.Struct({
+  ...ShippedOptions.fields,
+  testFiles: setting,
+  skipPattern: setting,
+})
+
+export type TestsOptions = Schema.Schema.Encoded<typeof TestsOptions>
+
+export const testsShipped = (flow: Flow): WorkflowFactory<TestsOptions> =>
+  defineWorkflow(
+    Schema.standardSchemaV1(TestsOptions, { onExcessProperty: "error", errors: "all" }),
+    ({ contextLimit, ...options }) => ({
+      flow: limited(flow, contextLimit),
+      defaults: over({ ...defaults, ...testsDefaults }, options),
+      envDefaults: over(envDefaults, options),
+      doors: { tests: {} },
+      base: undefined,
+    }),
   )
