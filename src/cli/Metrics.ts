@@ -49,18 +49,19 @@ export interface Metrics {
 
 type Phase = keyof Metrics["cost"]["byPhase"]
 
-const REFACTOR_SCOPE = /^refactor(-[0-9]+)?$/
-const LENS = /(?:^|\.)quality\.([^.]+)\.reviewing$/
+// Keyed by the lap's path without `.reviewing`, so the refactor lap's lenses stay apart from the feature's.
+const LENS = /^((?:.*\.)?quality\.[^.]+)\.reviewing$/
 
+const inSeam = (step: string): boolean => step.startsWith("seam.")
+
+// A naive retry after a continuation runs under `seam.fresh.naive`: any seam step named `naive` is the pass.
 const phaseOf = (step: string): Phase => {
-  const [scope] = step.split(".")
-  if (step === "seam.naive" || step === "seam.continue.naive") return "naive"
-  if (step === "seam.note" || REFACTOR_SCOPE.test(scope!)) return "refactor"
+  const scope = step.split(".")[0]
+  if (inSeam(step) && step.endsWith(".naive")) return "naive"
+  if (step === "seam.note" || scope === "refactor") return "refactor"
   if (scope === "implement") return "implement"
   return "other"
 }
-
-const inSeam = (step: string): boolean => step.startsWith("seam.")
 
 const round = (n: number, places = 6): number => {
   const f = 10 ** places
@@ -116,6 +117,8 @@ const finish = (t: Tally): Metrics => ({
 interface Slice {
   naive: number
   rebuilding: boolean
+  /** Landed, not yet applied, with its naive cost: an apply that fails turns it into a rebuild. */
+  applying: number | undefined
 }
 
 const tallyCost = (
@@ -132,24 +135,40 @@ const tallyCost = (
   }
 }
 
-/** A slice is decided where its turns leave the seam: for `implement.applying` the naive pass landed, anywhere else it is rebuilt. */
+/** A slice is decided where its turns leave the seam: for `implement.applying` the naive pass landed — unless it fails to apply and is built afresh — anywhere else it is rebuilt. */
 const tallyDecision = (t: Tally, open: Slice, at: string, to: string): void => {
+  if (open.applying !== undefined && at === "implement.applying") {
+    const naive = open.applying
+    open.applying = undefined
+    if (to !== "implement.building") return
+    t.slices.landed--
+    rebuild(t, open, naive)
+    return
+  }
   if (!inSeam(at) || inSeam(to)) return
   t.slices.decided++
-  open.rebuilding = to !== "implement.applying"
-  if (!open.rebuilding) t.slices.landed++
-  else {
-    t.slices.rebuilt++
-    t.doubleWork.naive += open.naive
-    if (at === "seam.note") t.slices.refactored++
-  }
+  const naive = open.naive
   open.naive = 0
+  if (to === "implement.applying") {
+    open.applying = naive
+    open.rebuilding = false
+    t.slices.landed++
+    return
+  }
+  rebuild(t, open, naive)
+  if (at === "seam.note") t.slices.refactored++
+}
+
+const rebuild = (t: Tally, open: Slice, naive: number): void => {
+  open.rebuilding = true
+  t.slices.rebuilt++
+  t.doubleWork.naive += naive
 }
 
 /** Oldest first; a commit gtd did not write is skipped. */
 export const processMetrics = (commits: readonly MetricCommit[]): Metrics => {
   const t = emptyTally()
-  const open: Slice = { naive: 0, rebuilding: false }
+  const open: Slice = { naive: 0, rebuilding: false, applying: undefined }
   for (const commit of commits) {
     const message = parseCommitMessage(commit.message)
     const subject = message.parsed
@@ -183,28 +202,34 @@ export const totalMetrics = (all: readonly Metrics[]): Metrics & { readonly proc
 const chunks = (content: string | undefined): number =>
   content === undefined ? 0 : (content.match(/^## /gm) ?? []).length
 
+export interface ProcessMetrics extends Metrics {
+  /** The opening commit's `Gtd-Workflow`; null for the default workflow. */
+  readonly workflow: string | null
+}
+
 export const readProcessMetrics = (
   entry: Pick<HistoryEntry, "entry" | "tip">,
-): Effect.Effect<Metrics, Error, GitService> =>
+): Effect.Effect<ProcessMetrics, Error, GitService> =>
   Effect.gen(function* () {
     const git = yield* GitService
-    const base = yield* git.readRefOption(`${entry.entry}^`)
-    const commits = yield* git.commitHistory(Option.getOrUndefined(base), entry.tip)
+    const base = Option.getOrUndefined(yield* git.readRefOption(`${entry.entry}^`))
+    const commits = yield* git.commitHistory(base, entry.tip)
     const quality = (hash: string) =>
       git.readFileAtRef(hash, QUALITY).pipe(
         Effect.map((content): string | undefined => content),
         Effect.orElseSucceed(() => undefined),
       )
-    const read = yield* Effect.forEach(commits, ({ hash, message }, i) =>
-      Effect.gen(function* () {
-        const subject = parseCommitMessage(message).parsed
-        const at = subject === undefined ? undefined : (subject.from ?? subject.to)
-        if (at === undefined || !LENS.test(at)) return { message, findings: 0 }
-        const before = i === 0 ? undefined : yield* quality(commits[i - 1]!.hash)
-        return { message, findings: Math.max(0, chunks(yield* quality(hash)) - chunks(before)) }
-      }),
-    )
-    return processMetrics(read)
+    // Only a commit that touched the file changes it: carry the last content forward.
+    let content = base === undefined ? undefined : yield* quality(base)
+    const read: MetricCommit[] = []
+    for (const { hash, message, touched } of commits) {
+      const before = chunks(content)
+      if (touched.includes(QUALITY)) content = yield* quality(hash)
+      read.push({ message, findings: Math.max(0, chunks(content) - before) })
+    }
+    const workflow =
+      commits[0] === undefined ? undefined : parseCommitMessage(commits[0].message).workflow
+    return { workflow: workflow ?? null, ...processMetrics(read) }
   })
 
 // Keys come from fetched history: never let them put control bytes on a terminal.
@@ -258,7 +283,10 @@ export const runHistoryMetricsCommand = (
       return
     }
     const lines = processes.map((p) =>
-      line(`${p.entry.slice(0, 7)} ${printable(p.branch ?? "-")}`, p),
+      line(
+        `${p.entry.slice(0, 7)} ${printable(p.branch ?? "-")}${p.workflow === null ? "" : ` (${printable(p.workflow)})`}`,
+        p,
+      ),
     )
     lines.push(line(`total (${processes.length} processes)`, document.total))
     out.write(`${lines.join("\n")}\n`)

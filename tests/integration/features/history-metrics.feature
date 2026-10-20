@@ -54,7 +54,7 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
     And stdout contains "main: 1 slices, 1 rebuilt (refactor-first 100%), 0 refactored"
     And stdout contains "1 continuations (seam.naive 1)"
     And stdout contains "cost 1.2 (naive 0.6, refactor 0, implement 0.5, other 0.1), double work 1.1"
-    And stdout contains "2 findings (correctness 2)"
+    And stdout contains "2 findings (build.quality.correctness 2)"
     And stdout contains "total (1 processes)"
 
   @inmem

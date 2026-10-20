@@ -732,8 +732,9 @@ gtd history fetch | sh           # pull every kept ref from origin
 it never replays and a config changed since is no refusal:
 
 - **refactor-first rate** — of the slices whose naive pass was decided, the
-  share rebuilt rather than landed as it is (`refactored` counts the rebuilds a
-  refactor came first for)
+  share rebuilt rather than landed as it is; a landed pass that no longer
+  applies and is built afresh counts as rebuilt (`refactored` counts the
+  rebuilds a refactor came first for)
 - **continuations** — agent turns that picked up a turn stopped at its context
   limit, per phase (`seam.naive`, `implement.building`, `refactor.building`, …)
 - **cost** — the `Gtd-Cost` a driver recorded with `gtd land --cost --model`, by
@@ -741,11 +742,14 @@ it never replays and a config changed since is no refusal:
   **double work** of a rebuild: its naive pass plus the implement turns that
   rebuilt it. By-model costs make two coder models comparable over the same kind
   of work
-- **findings** — the `## ` findings each quality-lap lens added to
-  `.gtd/QUALITY.md`
+- **findings** — the net count of `## ` findings each quality-lap lens added to
+  `.gtd/QUALITY.md`, keyed by the lap's lens path (`build.quality.correctness`,
+  `refactor.build.quality.correctness`, …)
 
 `--json` prints `{ processes, total }`; `--json=total.refactorFirstRate` (any
-dotted path) prints one value. A rate is `null` without a decided slice.
+dotted path) prints one value. A rate is `null` without a decided slice. Each
+process names its `workflow` (`null` for the default one); the total spans every
+ref measured, so name the refs to leave another workflow's processes out.
 
 `gtd history fetch` only prints a fetch script; pipe it into `sh` to run it.
 Beyond that one ship push, refs are not pushed or fetched by default. The ref

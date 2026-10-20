@@ -53,23 +53,58 @@ describe("processMetrics", () => {
     expect(m.slices).toEqual({ decided: 1, landed: 0, rebuilt: 1, refactored: 0 })
   })
 
-  it("keeps each slice's decision apart and keys a sliced refactor by its own phase", () => {
+  it("keeps each slice's decision apart", () => {
     const m = processMetrics([
       turn("gtd(agent): seam.naive → seam.check", { cost: "1" }),
       turn("gtd(check): seam.check → implement.applying"),
       turn("gtd(agent): implement.building → implement.health.check", { cost: "1" }),
       turn("gtd(check): implement.closing → seam.naive"),
       turn("gtd(agent): seam.naive → seam.note", { cost: "2" }),
-      turn("gtd(agent): seam.note → refactor-2.deriving"),
-      turn("gtd(agent): refactor-2.continue.building → refactor-2.closing", { cost: "1" }),
-      turn("gtd(check): refactor-2.closing → implement.building"),
+      turn("gtd(agent): seam.note → refactor.deriving"),
+      turn("gtd(agent): refactor.continue.building → refactor.closing", { cost: "1" }),
+      turn("gtd(check): refactor.closing → implement.building"),
       turn("gtd(agent): implement.building → idle", { cost: "3" }),
     ])
     expect(m.slices).toEqual({ decided: 2, landed: 1, rebuilt: 1, refactored: 1 })
     expect(m.refactorFirstRate).toBe(0.5)
-    expect(m.continuations).toEqual({ "refactor-2.building": 1 })
+    expect(m.continuations).toEqual({ "refactor.building": 1 })
     expect(m.cost.byModel).toEqual({ unspecified: 8 })
     expect(m.cost.doubleWork).toEqual({ naive: 2, rebuild: 3, total: 5 })
+  })
+
+  it("counts a naive retry in a fresh conversation as naive cost", () => {
+    const m = processMetrics([
+      turn("gtd(agent): seam.continue.naive → seam.judge", { cost: "1" }),
+      turn("gtd(judge): seam.judge → seam.fresh.naive"),
+      turn("gtd(agent): seam.fresh.naive → seam.judge", { cost: "2" }),
+      turn("gtd(judge): seam.judge → implement.building"),
+    ])
+    expect(m.cost.byPhase.naive).toBe(3)
+    expect(m.cost.doubleWork.naive).toBe(3)
+  })
+
+  it("turns a landed slice whose naive pass fails to apply into a rebuild", () => {
+    const m = processMetrics([
+      turn("gtd(agent): seam.naive → seam.check", { cost: "1" }),
+      turn("gtd(check): seam.check → implement.applying"),
+      turn("gtd(check): implement.applying → implement.building"),
+      turn("gtd(agent): implement.building → implement.health.check", { cost: "2" }),
+    ])
+    expect(m.slices).toEqual({ decided: 1, landed: 0, rebuilt: 1, refactored: 0 })
+    expect(m.cost.doubleWork).toEqual({ naive: 1, rebuild: 2, total: 3 })
+  })
+
+  it("keeps the refactor lap's lens findings apart from the feature lap's", () => {
+    const m = processMetrics([
+      turn("gtd(agent): refactor.build.quality.correctness.reviewing → refactor.closing", {
+        findings: 3,
+      }),
+      turn("gtd(agent): build.quality.correctness.reviewing → idle", { findings: 2 }),
+    ])
+    expect(m.findings.byLens).toEqual({
+      "refactor.build.quality.correctness": 3,
+      "build.quality.correctness": 2,
+    })
   })
 
   it("has no refactor-first rate without a seam decision", () => {
@@ -97,7 +132,10 @@ describe("processMetrics", () => {
       }),
       turn("fix: a hand-made commit", { cost: "5" }),
     ])
-    expect(m.findings).toEqual({ total: 3, byLens: { correctness: 2, conventions: 1 } })
+    expect(m.findings).toEqual({
+      total: 3,
+      byLens: { "build.quality.correctness": 2, "build.quality.conventions": 1 },
+    })
     expect(m.cost.total).toBe(0)
   })
 })
@@ -157,6 +195,7 @@ describe("readProcessMetrics", () => {
     const metrics = await Effect.runPromise(
       readProcessMetrics({ entry, tip }).pipe(Effect.provide(testLayers(repo, {}))),
     )
-    expect(metrics.findings).toEqual({ total: 2, byLens: { correctness: 2 } })
+    expect(metrics.findings).toEqual({ total: 2, byLens: { "build.quality.correctness": 2 } })
+    expect(metrics.workflow).toBeNull()
   })
 })
