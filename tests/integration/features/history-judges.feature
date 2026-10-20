@@ -172,7 +172,7 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
   Scenario: a design skip is overturned when a later design gate edits the criteria
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { human, judge, scope } from "@pmelab/gtd/flows"
+      import { agent, human, judge, scope } from "@pmelab/gtd/flows"
 
       const clear = { id: "clear", primitive: "noul", instructions: "i", criteria: "c" }
 
@@ -180,6 +180,7 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
         await human("idle", { message: "write TODO.md to start a process" })
         await scope("design", async () => {
           await judge("clear", { questions: [clear], evidence: {}, message: "clear?" })
+          await agent("normalise", "record the stated criteria")
           await human("gate", { message: "narrow the criteria" })
         })
       }
@@ -192,10 +193,19 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
       - it works
       """
     And gtd lands "gtd(human): idle → design.clear"
-    And gtd lands "gtd(judge): design.clear → design.gate" judging:
+    And gtd lands "gtd(judge): design.clear → design.normalise" judging:
       """
       [{"id":"clear","answer":"yes","p":0.9}]
       """
+    And a file ".gtd/REQUIREMENTS.md" with:
+      """
+      # Requirements
+
+      ## Acceptance Criteria
+
+      - AC-1: it works
+      """
+    And gtd lands "gtd(agent): design.normalise → design.gate"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       # Requirements

@@ -782,8 +782,9 @@ no model. A verdict is **overturned** when later history contradicts it:
 - **triage** (`quality.triage`) — a `mechanical` or `noise` verdict the review
   listed under _Fixed automatically_ or _Dropped as noise_, when the human
   edited that finding's line there or wrote under it
-- **clear** (`design.clear`) — a `yes` at `p` 0.8 or more (design skipped), when
-  a later human design step in the same process changed the acceptance criteria
+- **clear** (`design.clear`) — a `yes` that skipped design (landed on
+  `design.normalise`), when a later human design step in the same process
+  changed the acceptance criteria
 
 Any other verdict has no outcome. The report counts verdicts, scored verdicts
 and overturns per judge and per `p` bucket (`0.8-0.9: 1/2` — one of two

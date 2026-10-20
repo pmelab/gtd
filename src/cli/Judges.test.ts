@@ -51,6 +51,8 @@ describe("processJudgments — retry", () => {
 
   it("holds identical when that check stays red", () => {
     const [j] = processJudgments([
+      red("gtd(check): health.check → fix", "x"),
+      red("gtd(check): health.check → health.judge", "x"),
       c("gtd(judge): health.judge → health.recheck", identical()),
       red("gtd(check): health.recheck → health.describe", "x"),
       c("gtd(agent): fix → health.check"),
@@ -85,6 +87,15 @@ describe("processJudgments — retry", () => {
       "0.5",
     )
     expect(w.changes).toEqual([])
+  })
+
+  it("has no outcome when history shows fewer than two reports", () => {
+    const [j] = processJudgments([
+      c("gtd(judge): build.health.judge → build.fix", identical()),
+      c("gtd(agent): build.fix → build.health.check"),
+      c("gtd(check): build.health.check → idle"),
+    ])
+    expect(j?.outcome).toBeNull()
   })
 
   it("has no outcome when the re-check passes before any fix, or for another answer", () => {
@@ -193,6 +204,26 @@ describe("processJudgments — triage", () => {
     ])
   })
 
+  it("never reads a longer title's edited line as a rewrite of a deleted shorter one", () => {
+    const listed = "# R\n\n## Dropped as noise\n\n- a test (p=0.8)\n- a test for x (p=0.8)\n"
+    const js = processJudgments([
+      c("gtd(judge): build.quality.triage → build.quality.sorting", {
+        findings: findingsOf("## a test\n\n## a test for x\n"),
+        verdicts: [
+          { id: "Q1", answer: "noise", p: 0.8 },
+          { id: "Q2", answer: "noise", p: 0.8 },
+        ],
+      }),
+      c("gtd(human): build.review.await → build.review.triage", {
+        review: {
+          before: listed,
+          after: "# R\n\n## Dropped as noise\n\n- a test for x (p=0.8) — needed\n",
+        },
+      }),
+    ])
+    expect(js.map((j) => j.outcome)).toEqual(["held", "overturned"])
+  })
+
   it("scores only a finding the review listed as fixed or dropped", () => {
     const js = processJudgments([
       c("gtd(judge): build.quality.triage → build.quality.sorting", {
@@ -245,6 +276,11 @@ describe("processJudgments — clear", () => {
       verdicts: [{ id: "clear", answer: "yes", p: 0.75 }],
     })
     expect(processJudgments([low])[0]?.outcome).toBeNull()
+    // A cut sketch: a confident yes the flow did not act on.
+    const cut = c("gtd(judge): design.clear → design.triage", {
+      verdicts: [{ id: "clear", answer: "yes", p: 0.9 }],
+    })
+    expect(processJudgments([cut])[0]?.outcome).toBeNull()
   })
 })
 

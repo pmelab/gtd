@@ -108,6 +108,7 @@ interface Read {
   readonly commit: JudgeCommit
   readonly actor: string | undefined
   readonly at: string
+  readonly to: string
   readonly judge: readonly JudgeVerdict[]
 }
 
@@ -205,7 +206,15 @@ const reviewedLine = (
   const kept = after.indexOf(before[at]!)
   const edited =
     kept === -1
-      ? after.some((l) => !before.includes(l) && l.startsWith(`- ${title}`))
+      ? after.some(
+          (l) =>
+            !before.includes(l) &&
+            l.startsWith(`- ${title}`) &&
+            // A longer title's own line is no rewrite of this one.
+            !before.some(
+              (o, k) => k !== at && o.startsWith(`- ${title}`) && l.startsWith(o.split(" (")[0]!),
+            ),
+        )
       : block(after, kept) !== block(before, at)
   return edited ? "overturned" : "held"
 }
@@ -232,6 +241,8 @@ const CLEAR_MIN_P = 0.8
 
 const clearOutcome = (reads: readonly Read[], i: number, v: JudgeVerdict): Outcome | null => {
   if (!answered(verdictOf(v.answer, v.p), "yes", CLEAR_MIN_P)) return null
+  // A cut sketch runs design whatever the verdict: only a landing on `normalise` skipped it.
+  if (!reads[i]!.to.endsWith("design.normalise")) return null
   const edited = reads
     .slice(i + 1)
     .some(
@@ -263,6 +274,7 @@ export const processJudgments = (commits: readonly JudgeCommit[]): readonly Judg
       commit,
       actor: subject?.actor,
       at: subject === undefined ? "" : (subject.from ?? subject.to),
+      to: subject?.to ?? "",
       judge: message.judge,
     }
   })
@@ -308,12 +320,16 @@ const JUDGES: Readonly<Record<JudgeName, Verdict>> = {
     const current = reports.at(-1)
     // The flow hands the judge no reports when either is empty, and drops its verdict.
     const comparable = previous?.trim() !== "" && current?.trim() !== ""
+    // Reports history no longer shows leave nothing to score against.
+    const known = previous !== undefined && current !== undefined
     return {
       state: comparable
         ? { ...field("previous", previous), ...field("current", current) }
         : NOT_COMPARABLE,
       outcome:
-        comparable && answerOf(v.answer) === "identical" ? retryOutcome(reads, i, scope) : null,
+        known && comparable && answerOf(v.answer) === "identical"
+          ? retryOutcome(reads, i, scope)
+          : null,
     }
   },
   triage: ({ reads, i }, v) => {
@@ -393,7 +409,6 @@ export interface ProcessJudgments {
   readonly judgments: readonly Judgment[]
 }
 
-/** Each past verdict decided under its process's recorded threshold, then under `value`. */
 /** Every verdict of `threshold`'s judge as `[decided then, decided under value]`. */
 const redecided = (
   processes: readonly ProcessJudgments[],
