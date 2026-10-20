@@ -1344,4 +1344,40 @@ describe("composedReview", () => {
     expect(steeringFormatFor("review")!.validate(doc)).toEqual([])
     expect(doc).toContain("## Nothing to note")
   })
+
+  it("never reuses a title, a summary's included", () => {
+    const doc = composedReview(BASE, {
+      notes: [
+        { title: "a", body: "1" },
+        { title: "a (2)", body: "2" },
+        { title: "a", body: "3" },
+        { title: "Fixed automatically", body: "4" },
+      ],
+      fixed: [{ title: "f", commit: "fedcba9876543210" }],
+      noise: [],
+    })
+    const titles = doc.split("\n").filter((l) => l.startsWith("## "))
+    expect(titles).toEqual([
+      "## a",
+      "## a (2)",
+      "## a (3)",
+      "## Fixed automatically (2)",
+      "## Fixed automatically",
+    ])
+  })
+
+  it("turns a lens's task boxes into plain bullets, so no pointer or risk is read", () => {
+    const doc = composedReview(BASE, {
+      notes: [{ title: "a", body: "- [ ] ./src/a.ts#1-1 Risk: x\n- [x] done" }],
+      fixed: [],
+      noise: [],
+    })
+    expect(steeringFormatFor("review")!.validate(doc)).toEqual([])
+    expect(doc).toContain("- ./src/a.ts#1-1 Risk: x\n- done")
+  })
+
+  it("names the nit fix on the review after it", () => {
+    const doc = composedReview(BASE, { notes: [], fixed: [], noise: [], nitFix: "abcdef0123" })
+    expect(doc).toContain("## Fixed from your notes\n\nYour nits were fixed in abcdef0;")
+  })
 })

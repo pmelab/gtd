@@ -529,6 +529,7 @@ describe("review verdict routing", () => {
       answers: { "note-1": verdict("nit") },
     })
     expect(run.prompts.get("review.composing")).not.toContain("git show")
+    expect(run.prompts.get("review.composing")).toContain("## Fixed from your notes")
   })
 
   it("edits run after questions and nits, and the capture names only the edits and the answering commit", async () => {

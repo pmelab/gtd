@@ -169,7 +169,12 @@ export const isCode = (path: string): boolean => path !== ".gtd" && !path.starts
  * turn — and removes what the fixer left in `.gtd/QUALITY.md`. A re-review
  * after fixed nits restores the doc as committed at `carry`, answers kept.
  */
-const composing = (base: string, report: LensReport, carry?: string): Promise<void> =>
+const composing = (
+  base: string,
+  report: LensReport,
+  carry?: string,
+  nitFix?: string,
+): Promise<void> =>
   run(
     "review.composing",
     carry === undefined
@@ -178,6 +183,7 @@ const composing = (base: string, report: LensReport, carry?: string): Promise<vo
           t.composedReview(base, {
             ...report,
             weakened: kit.removedAssertions(changesSince(base)),
+            nitFix,
           }),
           [QUALITY],
         )
@@ -207,13 +213,17 @@ export const review = (
   // Armed by a defer-only round to pick the next gate's message; a fresh
   // review (`reviewing`) disarms it.
   let deferred: readonly t.NoteInput[] = []
+  // Set by a nit fix, so the fresh review that follows names its commit.
+  let nitFix: string | undefined
   return kit.review(base, {
     file: REVIEW,
     feedback: feedback.file,
     isCode,
     reviewing: (b, carry) => {
       deferred = []
-      return composing(b, options.report ?? NO_FINDINGS, carry)
+      const fixedAt = nitFix
+      nitFix = undefined
+      return composing(b, options.report ?? NO_FINDINGS, carry, fixedAt)
     },
     fixRisks: guarded((notes) => fixRisks(notes, fixAccess, rules), guard),
     keepGreen: () => healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules }),
@@ -237,7 +247,10 @@ export const review = (
       return deferNotes(deferred, head())
     },
     answerQuestions: answerReviewQuestions,
-    fixNits: guarded((notes) => fixNits(notes, fixAccess, rules), guard),
+    fixNits: async (notes) => {
+      await guarded((n: typeof notes) => fixNits(n, fixAccess, rules), guard)(notes)
+      nitFix = head()
+    },
     close: closeReview,
     captures: {
       edits: t.reviewEditsCapture,

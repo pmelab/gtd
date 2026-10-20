@@ -199,7 +199,7 @@ export const afterTail = async (first: ReviewOutcome): Promise<void> => {
     await design(outcome.base)
     const tier = riskTierOn() ? recordRisk() : undefined
     await implement({ tier, amend: true })
-    outcome = await buildTail(outcome.base, { green: true, lap: "feedback" })
+    outcome = await buildTail(outcome.base, { green: true })
   }
 }
 

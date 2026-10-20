@@ -40,9 +40,11 @@ const UNTITLED = "Quality findings"
 
 const below = (section: string): string => section.split("\n").slice(1).join("\n").trim()
 
-// Prose outside every `## ` section is a finding too: a lens that ignored the format must not lose it.
-const strayProse = (text: string, first: string | undefined): string =>
-  (first === undefined ? text : text.slice(0, text.indexOf(first)))
+// Prose outside every `## ` section — before the first, or after a later `# ` heading — is a
+// finding too: a lens that ignored the format must not lose it.
+const strayProse = (text: string, sections: readonly string[]): string =>
+  sections
+    .reduce((rest, body) => rest.replace(body, "\n"), text)
     .split("\n")
     .filter((line) => !/^#\s/.test(line))
     .join("\n")
@@ -51,19 +53,33 @@ const strayProse = (text: string, first: string | undefined): string =>
 /** The findings in `text`, one per `## ` section, in file order, numbered `Q<n>`. */
 export const findingsOf = (text: string): readonly Finding[] => {
   const sections = sectionBodies(text)
-  const stray = strayProse(text, sections[0]?.body)
+  const stray = strayProse(
+    text,
+    sections.map((s) => s.body),
+  )
   return [
     ...(stray === "" ? [] : [{ title: UNTITLED, body: stray }]),
     ...sections.map((s) => ({ title: s.title, body: below(s.body) })),
   ].map((f, i) => ({ id: `Q${i + 1}`, ...f }))
 }
 
-/** `findings` minus one entry per title still in `left`: a fix turn deletes the sections it resolved. */
-const stillOpen = <F extends Finding>(findings: readonly F[], left: readonly Finding[]): F[] => {
-  const titles = left.map((f) => f.title)
-  return findings.filter((f) => {
+/**
+ * `findings` minus one entry per title still in `left`: a fix turn deletes the sections it
+ * resolved. A section `left` holds under a title `findings` lacks means the fixer renamed or
+ * added one, so nothing counts as fixed and `left` stays open as written.
+ */
+const stillOpen = (findings: readonly Finding[], left: readonly Finding[]): readonly Finding[] => {
+  const titles = findings.map((f) => f.title)
+  const known = left.every((f) => {
     const at = titles.indexOf(f.title)
     if (at >= 0) titles.splice(at, 1)
+    return at >= 0
+  })
+  if (!known) return left
+  const remaining = left.map((f) => f.title)
+  return findings.filter((f) => {
+    const at = remaining.indexOf(f.title)
+    if (at >= 0) remaining.splice(at, 1)
     return at >= 0
   })
 }
@@ -92,7 +108,11 @@ const classify = async (findings: readonly Finding[]) => {
         "design")
   const of = (k: FindingKind) => findings.filter((f) => kind(f) === k)
   const noise = of("noise").map((f) => ({ ...f, p: answers[f.id]!.p }))
-  for (const f of noise) mark("noise", `${f.id} p=${f.p} ${f.title.replace(/\s+/g, " ")}`.trim())
+  // A title is lens-written: a control character would make mark() throw on every replay.
+  const oneLine = (title: string) =>
+    // eslint-disable-next-line no-control-regex -- the control range IS the point
+    title.replace(/[\s\x00-\x1f\x7f-\x9f\u2028\u2029]+/g, " ").trim()
+  for (const f of noise) mark("noise", `${f.id} p=${f.p} ${oneLine(f.title)}`.trim())
   return { mechanical: of("mechanical"), noise, design: of("design") }
 }
 
@@ -106,8 +126,8 @@ export interface TriageOptions {
 /**
  * Judge each finding in `.gtd/QUALITY.md`, set the noise and design ones
  * aside, and fix the mechanical ones for up to `FIX_CAP` turns. Leaves
- * `.gtd/QUALITY.md` holding only what the fixer left, for the review to
- * remove.
+ * `.gtd/QUALITY.md` holding only what the fixer left: the caller must remove
+ * it, or the next lap appends to stale findings.
  */
 export const triageFindings = async (options: TriageOptions): Promise<LensReport> => {
   const { escalations, guard, guardRests, rules } = options
@@ -129,7 +149,8 @@ export const triageFindings = async (options: TriageOptions): Promise<LensReport
     await guarded(() => fixQuality(rules), guard)()
     const left = stillOpen(open, findingsOf(read(QUALITY) ?? ""))
     const commit = head()
-    fixed.push(...open.filter((f) => !left.includes(f)).map((f) => ({ ...f, commit })))
+    if (left.every((f) => open.includes(f)))
+      fixed.push(...open.filter((f) => !left.includes(f)).map((f) => ({ ...f, commit })))
     open = left
   }
   if (mechanical.length > 0)

@@ -891,8 +891,9 @@ chunk per note (a mechanical one the fixer left is marked so), then
 hash) and `## Dropped as noise` (one line per finding, with its `p`). None
 carries a tick box or needs an answer; disagreeing with one means writing a note
 of your own. With nothing to list, the file holds one `## Nothing to note`
-chunk. The `review` and `fix` workflows keep the untriaged lap and their
-reviewer turn.
+chunk. Task boxes in a finding are written as plain bullets. The fresh review
+after a nit fix adds `## Fixed from your notes` with the fixing commit. The
+`review` and `fix` workflows keep the untriaged lap and their reviewer turn.
 
 #### The feature review
 

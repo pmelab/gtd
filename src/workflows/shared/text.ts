@@ -112,7 +112,20 @@ export interface ComposedReview {
   readonly noise: readonly { readonly title: string; readonly p: number }[]
   /** `Then` lines a `.feature` file at the review base no longer carries. */
   readonly weakened?: readonly RemovedAssertions[]
+  /** The commit that fixed the human's nits, on the review that follows it. */
+  readonly nitFix?: string | undefined
 }
+
+const SUMMARY_TITLES = [
+  "Weakened scenarios",
+  "Fixed from your notes",
+  "Fixed automatically",
+  "Dropped as noise",
+  "Nothing to note",
+]
+
+// A lens body is pasted as prose: a task box would read as a broken hunk pointer, or a `Risk:` one.
+const unboxed = (body: string): string => body.replace(/^(\s*[-*+]\s+)\[[ xX]\]\s?/gm, "$1")
 
 const short = (hash: string): string => hash.slice(0, 7)
 
@@ -122,16 +135,27 @@ const short = (hash: string): string => hash.slice(0, 7)
  * matched to their chunk by title.
  */
 export const composedReview = (base: string, report: ComposedReview): string => {
-  const seen = new Map<string, number>()
-  const chunk = (title: string, body: string): string => {
-    const n = (seen.get(title) ?? 0) + 1
-    seen.set(title, n)
-    return `## ${n === 1 ? title : `${title} (${n})`}\n\n${body.trim()}`
+  // Summary titles are taken first, so no note can claim one.
+  const used = new Set(SUMMARY_TITLES)
+  const unique = (title: string): string => {
+    let name = title
+    for (let n = 2; used.has(name); n++) name = `${title} (${n})`
+    used.add(name)
+    return name
   }
+  const chunk = (title: string, body: string): string => `## ${title}\n\n${body.trim()}`
   const weakened = (report.weakened ?? []).flatMap(({ path, lines }) =>
     lines.map((a) => `- ${path} — ${a.scenario} — ${a.line}`),
   )
   const chunks = [
+    ...(report.nitFix === undefined
+      ? []
+      : [
+          chunk(
+            "Fixed from your notes",
+            `Your nits were fixed in ${short(report.nitFix)}; the list below is from before.`,
+          ),
+        ]),
     ...(weakened.length === 0
       ? []
       : [
@@ -142,10 +166,10 @@ export const composedReview = (base: string, report: ComposedReview): string => 
         ]),
     ...report.notes.map((n) =>
       chunk(
-        n.title,
+        unique(n.title),
         n.unresolved === true
-          ? `_The fixer left this unresolved._\n\n${n.body}`
-          : n.body || "_No detail given._",
+          ? `_The fixer left this unresolved._\n\n${unboxed(n.body)}`
+          : unboxed(n.body) || "_No detail given._",
       ),
     ),
     ...(report.fixed.length === 0
@@ -161,7 +185,14 @@ export const composedReview = (base: string, report: ComposedReview): string => 
       : [chunk("Dropped as noise", report.noise.map((f) => `- ${f.title} (p=${f.p})`).join("\n"))]),
   ]
   const body =
-    chunks.length > 0 ? chunks : [chunk("Nothing to note", "The quality lenses raised nothing.")]
+    chunks.length > 0
+      ? chunks
+      : [
+          chunk(
+            "Nothing to note",
+            "No quality lens raised anything for you — or none ran. Review the diff yourself.",
+          ),
+        ]
   return `# Review: ${short(base)}\n\n<!-- base: ${base} -->\n\n${body.join("\n\n")}\n`
 }
 
@@ -656,8 +687,8 @@ working tree:
 When you've been through the whole diff, run \`gtd land\`:
 
 - **Sign off** — leave no comment — no note in
-  \`.gtd/REVIEW.md\`, no code edit — to close the process,
-  whatever the boxes say. Every turn commit stays on the
+  \`.gtd/REVIEW.md\`, no code edit — to close the process.
+  Every turn commit stays on the
   branch; run \`gtd summary\` afterward for a closing-message
   prompt.
 - **Ask a question** — start a thread (\`- H: <question>\`) on a

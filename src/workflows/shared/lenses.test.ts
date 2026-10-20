@@ -26,6 +26,13 @@ describe("findingsOf", () => {
     ])
   })
 
+  it("keeps prose a later lens wrote under a # heading after the chunks", () => {
+    expect(parse("## a\n\nfix a\n\n# Conventions\n\n- naming off\n")).toEqual([
+      { id: "Q1", title: "Quality findings", body: "- naming off" },
+      { id: "Q2", title: "a", body: "fix a" },
+    ])
+  })
+
   it("reads a file with only a title as no finding", () => {
     expect(parse("# Quality\n")).toEqual([])
   })

@@ -91,7 +91,8 @@ export interface TailOptions {
   readonly rules?: string | undefined
   /**
    * Judge the lap's findings: fix the mechanical ones, drop noise, and hand
-   * `finish` the rest as notes for the human review; default `false`.
+   * `finish` the rest as notes for the human review; default `false`. `finish`
+   * must remove `.gtd/QUALITY.md`, which still holds what the fixer left.
    */
   readonly triage?: boolean | undefined
 }

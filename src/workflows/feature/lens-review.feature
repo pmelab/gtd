@@ -176,6 +176,25 @@ Feature: the quality lenses are the only agentic review
       gtd(check): build.review.composing → build.review.await-review
       """
 
+  Scenario: a fixer that renames a chunk it leaves counts nothing fixed
+    Given judge step "build.quality.triage" answers:
+      """
+      [{"id":"Q1","answer":"mechanical","p":0.9},{"id":"Q2","answer":"mechanical","p":0.9},{"id":"Q3","answer":"mechanical","p":0.9}]
+      """
+    And step "build.fix.quality.fixing" writes ".gtd/QUALITY.md" with:
+      """
+      # Quality
+
+      ## null check in parse()
+
+      Still open.
+      """
+    And step "build.health.check" changes nothing
+    When the process is driven
+    Then the process rests at "build.review.await-review"
+    And ".gtd/REVIEW.md" contains "## null check in parse()"
+    And ".gtd/REVIEW.md" does not contain "Fixed automatically"
+
   Scenario: signing off a composed review ends the process
     Given judge step "build.quality.triage" answers:
       """
