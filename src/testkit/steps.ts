@@ -26,6 +26,8 @@ export class TestkitWorld extends QuickPickleWorld {
   /** Per step, what its scripted actor does, in the order the scenario declared it. */
   actions = new Map<string, Actor[]>()
   verdicts = new Map<string, string>()
+  /** Per judge step, a verdict for each text its questions may contain; the first match answers. */
+  conditionalVerdicts = new Map<string, [text: string, verdict: string][]>()
   private created: TestRepo | undefined = undefined
 
   // The repository is created on first use and keeps the config and
@@ -78,6 +80,19 @@ export class TestkitWorld extends QuickPickleWorld {
         )
       }
       actors[step] = () => verdict
+    }
+    for (const [step, choices] of this.conditionalVerdicts) {
+      if (this.actions.has(step) || this.verdicts.has(step)) {
+        throw new Error(`step "${step}" has a conditional verdict and another script`)
+      }
+      // Matched against the pending questions, which `gtd judge` prints and the beat does not.
+      actors[step] = async (_, repo) => {
+        const { stdout } = await repo.gtd("judge")
+        const hit = choices.find(([text]) => stdout.includes(text))
+        if (hit === undefined)
+          throw new Error(`judge step "${step}" matched no verdict:\n${stdout}`)
+        return hit[1]
+      }
     }
     await this.repo().drive(actors)
   }
@@ -137,6 +152,16 @@ Given(
   },
 )
 
+// Lets one step write differently per visit, told apart by what it is prompted with.
+Given(
+  "step {string}, when prompted with {string}, writes {string} with:",
+  (world: TestkitWorld, step: string, text: string, path: string, content: string) => {
+    world.act(step, (beat, repo) => {
+      if (beat.content.includes(text)) repo.write(path, withNewline(content))
+    })
+  },
+)
+
 // A standing assertion like any queued action: it applies on every later visit
 // to the step until `from now on` clears the list.
 Given(
@@ -168,6 +193,16 @@ Given("step {string} runs its script", (world: TestkitWorld, step: string) => {
 Given("judge step {string} answers:", (world: TestkitWorld, step: string, verdict: string) => {
   world.verdicts.set(step, String(verdict))
 })
+
+Given(
+  "judge step {string}, when its questions contain {string}, answers:",
+  (world: TestkitWorld, step: string, text: string, verdict: string) => {
+    world.conditionalVerdicts.set(step, [
+      ...(world.conditionalVerdicts.get(step) ?? []),
+      [text, String(verdict)],
+    ])
+  },
+)
 
 When("gtd starts workflow {string}", async (world: TestkitWorld, workflow: string) => {
   await world.repo().start(workflow)

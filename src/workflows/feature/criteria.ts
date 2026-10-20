@@ -8,7 +8,7 @@ import {
   scope,
   type Change,
 } from "../../flows/index.js"
-import { markFenced } from "../shared/fences.js"
+import { HEADING, ITEM, markFenced } from "../shared/fences.js"
 import { REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 
@@ -29,8 +29,6 @@ export interface StatedCriteria {
 /** Below this the judge's `yes` is not trusted: a wrong skip builds against criteria nobody can check. */
 const CLEAR_MIN_P = 0.8
 
-const HEADING = /^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$/
-const ITEM = /^ ?(?:[-*+]|\d+[.)])\s+(?:\[[ xX]\]\s+)?(.*)$/
 const ID = /^(AC-\d+):\s*(.*)$/
 
 /** The list items under the first heading `title` matches (at `level` when given), up to the next heading; wrapped lines joined, fenced lines ignored. */
@@ -70,6 +68,31 @@ export const criteriaOf = (text: string): readonly Criterion[] | undefined =>
     const id = ID.exec(item)
     return id === null ? { id: "", text: item } : { id: id[1]!, text: id[2]! }
   })
+
+/**
+ * Which criteria one slice builds, resolved against the file whenever read:
+ * `only` drops an ID a steer deleted, `except` (the last slice) takes one a
+ * steer added.
+ */
+export interface CriteriaSlice {
+  readonly only?: readonly string[]
+  readonly except?: readonly string[]
+}
+
+/** The ID'd criteria of `text`, only `slice`'s when given. */
+export const criterionIds = (text: string, slice?: CriteriaSlice): string[] =>
+  (criteriaOf(text) ?? [])
+    .map((c) => c.id)
+    .filter(
+      (id) =>
+        id !== "" &&
+        (slice?.only === undefined || slice.only.includes(id)) &&
+        !(slice?.except ?? []).includes(id),
+    )
+
+/** `slice`'s IDs in `.gtd/REQUIREMENTS.md` as it is now; `undefined` for an unsliced change. */
+export const sliceIds = (slice: CriteriaSlice | undefined): string[] | undefined =>
+  slice === undefined ? undefined : criterionIds(read(REQUIREMENTS) ?? "", slice)
 
 /** Items numbered `AC-1`…, unless every one already carries its own distinct ID. */
 const numbered = (items: readonly string[]): Criterion[] => {

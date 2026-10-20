@@ -290,6 +290,30 @@ printf '%s\\n' ${lines.map(quote).join(" ")} > ${quote(".gtd/REQUIREMENTS.md")}
 `
 }
 
+export const slicingPrompt = (cap: number): string =>
+  `${stateFileRules}
+- Read \`.gtd/REQUIREMENTS.md\`: its \`## Acceptance Criteria\` are settled
+  and more than ${cap}, too many to build in one slice
+- Group them into slices in \`.gtd/SLICES.md\`, one \`## <title>\` heading per
+  slice over a \`- AC-<n>\` list item per criterion it builds. Put criteria of
+  the same flow or subsystem together; every criterion in exactly one slice,
+  at most ${cap} per slice
+- Keep it coarse: as few slices as the cap allows, never one per criterion
+- Order the slices so each builds on the ones before: they run in that order,
+  each from where the previous one landed
+- Change nothing but \`.gtd/SLICES.md\` — leave the criteria as they are
+- Leave everything uncommitted and finish your turn — do not commit
+`
+
+/** The line telling a slice's turn which criteria are its own; empty for a single slice. */
+const sliceLine = (ids: readonly string[] | undefined): string =>
+  ids === undefined
+    ? ""
+    : `- This slice builds ${ids.join(", ")} only: every rule here about the criteria
+  means these. The others are for other slices, before or after it — leave
+  them unbuilt and untested
+`
+
 export const designSystem = (): string =>
   `${designPersona}
 
@@ -1203,10 +1227,10 @@ ${listed(retry.strays)}
 Start over and choose a different approach; do not rebuild the same diff.
 `
 
-export const naivePassPrompt = (retry?: NaiveRetry): string =>
+export const naivePassPrompt = (retry?: NaiveRetry, slice?: readonly string[]): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
-${criteriaBinding(false)}
+${sliceLine(slice)}${criteriaBinding(false)}
 - Implement them the quickest way that works — the naive version. Do not
   restructure, abstract or refactor around the change; it may land exactly as
   you leave it, and a reviewer makes it fit
@@ -1289,6 +1313,25 @@ const afterRefactorLine = (rebuild: Rebuild): string =>
   rule below; if nothing is, ${carries(rebuild) ? "carry over the acceptance tests below and change nothing else" : "change nothing and finish your turn"}
 `
 
+const flagLine = (
+  flagMode: boolean,
+  tier: "low" | "high" | undefined,
+  amend: boolean | undefined,
+  sliced: boolean,
+): string =>
+  !flagMode
+    ? "- Add no release flag — this project ships without release flags"
+    : tier === "low"
+      ? "- Add no release flag — this change is low risk tier"
+      : amend === true
+        ? "- Keep the release flag the earlier lap added, if it added one; otherwise put\n  the behaviour behind a new release flag"
+        : sliced
+          ? `- Put the new behaviour behind the release flag an earlier slice of this
+  change added; only when none did, behind a new one, following the
+  repository's flag conventions`
+          : `- Put the new behaviour behind a new release flag, following the
+  repository's flag conventions`
+
 export const implementBuildingPrompt = (
   reference: string | undefined,
   tier?: "low" | "high",
@@ -1296,10 +1339,11 @@ export const implementBuildingPrompt = (
   afterRefactor?: boolean,
   flagMode = true,
   rebuild: Rebuild = {},
+  slice?: readonly string[],
 ): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
-${criteriaBinding(true)}
+${sliceLine(slice)}${criteriaBinding(true)}
 ${afterRefactor === true ? afterRefactorLine(rebuild) : ""}${
     amend === true
       ? `- The change already exists in the tree from an earlier lap; amend it to meet
@@ -1318,16 +1362,7 @@ ${afterRefactor === true ? afterRefactorLine(rebuild) : ""}${
   Read it for ideas; never apply, cherry-pick or check it out — write
   the change fresh${carries(rebuild) ? ", its acceptance tests excepted (below)" : ""}
 `
-  }${rebuildLines(rebuild)}${
-    !flagMode
-      ? "- Add no release flag — this project ships without release flags"
-      : tier === "low"
-        ? "- Add no release flag — this change is low risk tier"
-        : amend === true
-          ? "- Keep the release flag the earlier lap added, if it added one; otherwise put\n  the behaviour behind a new release flag"
-          : `- Put the new behaviour behind a new release flag, following the
-  repository's flag conventions`
-  }
+  }${rebuildLines(rebuild)}${flagLine(flagMode, tier, amend, slice !== undefined)}
 - Write the tests first, then the code that makes them pass. Name each
   criterion's ID in the test that covers it (\`[AC-3] …\`): once the suite is
   green a judge checks every ID has a passing test, and sends uncovered ones back
@@ -1437,10 +1472,10 @@ export const coverageMessage = (): string =>
 counts every criterion as uncovered.
 `
 
-export const coveringPrompt = (uncovered: readonly string[]): string =>
+export const coveringPrompt = (uncovered: readonly string[], slice?: readonly string[]): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
-${criteriaBinding(true)}
+${sliceLine(slice)}${criteriaBinding(true)}
 - A judge found no passing test in this change that covers ${uncovered.join(", ")}.
   Write a behaviour-level test for each, naming its ID in the test or scenario
   name (\`[${uncovered[0]}] …\`), and fix the code if the test shows it falls short
