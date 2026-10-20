@@ -164,7 +164,7 @@ describe("processMetrics", () => {
 })
 
 describe("flaky re-checks", () => {
-  it("counts each flaky mark by the check it names", () => {
+  it("counts each flaky re-check under the red check's full step name", () => {
     const m = processMetrics([
       {
         message:
@@ -183,10 +183,13 @@ describe("flaky re-checks", () => {
       { message: "gtd(agent): seam.naive → seam.check\n\nGtd-Mark: covers=AC-1", findings: 0 },
       { message: "fix: hand-made\n\nGtd-Mark: flaky=x.check", findings: 0 },
     ])
-    expect(m.flaky).toEqual({ total: 3, byStep: { "start-gate.check": 1, "health.check": 2 } })
+    expect(m.flaky).toEqual({
+      total: 3,
+      byStep: { "start-gate.check": 1, "build.health.check": 1, "implement.health.check": 1 },
+    })
     expect(totalMetrics([m, m]).flaky).toEqual({
       total: 6,
-      byStep: { "start-gate.check": 2, "health.check": 4 },
+      byStep: { "start-gate.check": 2, "build.health.check": 2, "implement.health.check": 2 },
     })
   })
 })

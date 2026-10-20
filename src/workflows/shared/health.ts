@@ -28,7 +28,7 @@ export const baseline = (name: string, label = "Checking the baseline"): Promise
 export const recheck = async (
   name: string,
   red: string,
-  options: Omit<CheckOptions, "report" | "label"> = {},
+  options: Pick<CheckOptions, "sweepOnGreen"> = {},
 ): Promise<boolean> => {
   const green = await check(name, env.testCommand ?? "", {
     ...options,

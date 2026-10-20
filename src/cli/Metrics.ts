@@ -45,7 +45,7 @@ export interface Metrics {
     }
   }
   readonly findings: { readonly total: number; readonly byLens: Readonly<Record<string, number>> }
-  /** Red checks that passed on their re-run, keyed by the `Gtd-Mark: flaky=<step>` value. */
+  /** Keyed by the red check's full step name, read off the re-check's subject: the mark's value is scope-relative. */
   readonly flaky: { readonly total: number; readonly byStep: Readonly<Record<string, number>> }
 }
 
@@ -191,7 +191,8 @@ export const processMetrics = (commits: readonly MetricCommit[]): Metrics => {
       add(t.continuations, at.replace(CONTINUE, "$1"), 1)
     const lens = LENS.exec(at)?.[1]
     if (lens !== undefined && commit.findings > 0) add(t.byLens, lens, commit.findings)
-    for (const m of message.marks) if (m.name === "flaky") add(t.flaky, m.value, 1)
+    if (message.marks.some((m) => m.name === "flaky"))
+      add(t.flaky, at.replace(/recheck$/, "check"), 1)
     tallyDecision(t, open, at, subject.to)
   }
   return finish(t)

@@ -647,10 +647,10 @@ It runs inside the scope `refactor`, whose write access is the strays, the test
 files (the list below) and `.gtd/**`, in these steps: `refactor.deriving`
 (writes `.gtd/REFACTOR.md`, a file a person can read and edit),
 `refactor.building`, the shared health loop (`refactor.health.check`,
-`refactor.health.judge`, `refactor.health.describe`, `refactor.health.stop`,
-`refactor.health.exhausted`) with `refactor.fix.suite.fixing`, and
-`refactor.closing`, which removes only the package file. A red suite goes to the
-fix loop, never to a refusal.
+`refactor.health.judge`, `refactor.health.recheck`, `refactor.health.describe`,
+`refactor.health.stop`, `refactor.health.exhausted`) with
+`refactor.fix.suite.fixing`, and `refactor.closing`, which removes only the
+package file. A red suite goes to the fix loop, never to a refusal.
 
 The package file's `## Scope (read-only)` list is for reading: the guards use
 the strays as fixed when the package was derived, so editing the list widens or
@@ -2029,7 +2029,8 @@ health loop re-runs the suite as `health.recheck`; a red baseline gate
 `<gate>.recheck` before resting at `<gate>.blocked`. No judge is asked. Green on
 the re-run continues as if the check had passed, and that landing carries
 `Gtd-Mark: flaky=<check>` (`health.check`, or `<gate>.check`), which
-`gtd history metrics` counts. Red again escalates or rests as above.
+`gtd history metrics` counts under the red check's full step name. Red again
+escalates or rests as above.
 
 **Upgrading:** finish or `gtd abandon` any process that has escalated
 (`*.health.describe` onwards) or rested at a `*.blocked` gate before upgrading:

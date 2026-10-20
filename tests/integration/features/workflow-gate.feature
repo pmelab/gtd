@@ -127,6 +127,13 @@ Feature: The green-baseline entry gate — every entry runs the suite before sta
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): start-gate.check → start-gate.recheck"
+    Given a file ".gtd/FEEDBACK.md" with:
+      """
+      1 test failing: baseline still broken
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): start-gate.recheck → start-gate.blocked"
 
   @inmem
   Scenario: a green baseline proceeds from the gate into design.triage
