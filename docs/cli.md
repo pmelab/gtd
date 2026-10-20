@@ -224,6 +224,16 @@ Commands:
                    (exit 1) when a config file differs from its content at the
                    ref's tip. A version mismatch only warns on stderr. --json
                    prints the trail as one document; writes nothing
+  history metrics [ref...]
+                   Report how the kept processes went: slices whose naive pass
+                   landed or was rebuilt (the refactor-first rate), continuations
+                   per phase, Gtd-Cost by model and phase with the double work of
+                   a rebuild, and quality-lap findings per lens — per process and
+                   in total. Each <ref> is read as by history show, but a branch
+                   name means every process kept from it; none means every ref.
+                   Reads commit subjects and trailers, never replays, so a
+                   changed config is no refusal. --json prints { processes, total
+                   } as one document; writes nothing
   history fetch [remote]
                    Print a script that fetches every refs/gtd/history/* from
                    <remote> (default origin) and reports how many arrived — run
@@ -233,7 +243,7 @@ Commands:
 
 Options:
   --json=<path>    (gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd slices/gtd history
-                   list/gtd history show/gtd strays only) output structured JSON. Bare --json prints the whole document;
+                   list/gtd history show/gtd history metrics/gtd strays only) output structured JSON. Bare --json prints the whole document;
                    --json=<path> (a dotted key path into that document, e.g.
                    kind, content, session.id) prints just that value: a
                    scalar raw and unquoted, a boolean as true/false, a list
