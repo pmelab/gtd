@@ -148,6 +148,27 @@ Feature: the tests workflow revives skipped tests or proposes their deletion
     When gtd starts workflow "tests"
     Then driving the process is refused with "src/legacy.test.ts deleted"
 
+  Scenario: a sweep changing anything but its plan is refused
+    Given step "tests.sweeping" writes "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => b + a
+      """
+    When gtd starts workflow "tests"
+    Then driving the process is refused with "the sweep changed src/calc.ts"
+
+  Scenario: a proposal naming its file at the end of a sentence counts
+    Given step "tests.rewriting", when prompted with "\"calls the v1 api\" is skipped", writes ".gtd/RETIRE.md" with:
+      """
+      # Retire
+
+      ## calls the v1 api
+
+      The v1 api is gone, so drop it from src/legacy.test.ts.
+      """
+    When gtd starts workflow "tests"
+    And the process is driven
+    Then the process rests at "build.review.await-review"
+
   Scenario: one proposal covers one skip, not every skip in its file
     Given a file "src/legacy.test.ts" with:
       """

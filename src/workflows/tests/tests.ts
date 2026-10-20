@@ -106,7 +106,8 @@ ${found || "_Nothing more than the skipped tests._"}
 - A test that is obsolete — what it tests is gone, or another test already
   covers it — stays skipped: never delete it. Propose its deletion in
   \`${RETIRE}\` instead: a \`## <title>\` section naming \`${path}\`, the test,
-  and why it should go. A person decides
+  and why it should go. A person decides. Propose a line gtd misread as
+  skipped (fixture text, a comment) the same way, saying so
 - Delete no test file
 - Leave everything uncommitted and finish your turn`
 
@@ -143,9 +144,15 @@ const proposals = (text: string): LensReport["notes"] =>
     answers: RETIRE_ANSWERS,
   }))
 
-/** Refuses a test file a turn deleted, and a skip left in `revised` that `.gtd/RETIRE.md` does not name. */
+/** Sections of `text` that name `path` as a whole token — a trailing full stop still counts. */
+const naming = (text: string, path: string): number => {
+  const token = new RegExp(`(?<![\\w./-])${path.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![\\w/-])`)
+  return sectionBodies(text).filter((s) => token.test(s.body)).length
+}
+
+/** Refuses a test file a turn deleted, and a skip left in the file being rewritten that `.gtd/RETIRE.md` does not name. */
 const guardFor =
-  (known: ReadonlySet<string>, revised: ReadonlySet<string>, expression: RegExp) => (): void => {
+  (known: ReadonlySet<string>, current: { path?: string }, expression: RegExp) => (): void => {
     const deleted = changes()
       .filter((c) => c.status === "deleted" && known.has(c.path))
       .map((c) => c.path)
@@ -153,22 +160,37 @@ const guardFor =
       refuse(
         `gtd land: tests: ${deleted.join(", ")} deleted — a test goes only once a person ticks "delete it" at the review`,
       )
+    // Only the file being rewritten: a skip a person kept at an earlier file's escalation stays theirs.
+    if (current.path === undefined) return
+    const skips = scan([current.path], expression)
     // One proposal per skip left: a section naming the file covers one skip in it, never all.
-    const named = new Map<string, number>()
-    for (const s of sectionBodies(read(RETIRE) ?? "")) {
-      const paths = new Set(s.body.match(/[\w./-]+/g)?.map(pathOf) ?? [])
-      for (const path of paths) named.set(path, (named.get(path) ?? 0) + 1)
-    }
-    const left = scan([...revised], expression).filter((s) => {
-      const n = named.get(s.path) ?? 0
-      named.set(s.path, n - 1)
-      return n <= 0
-    })
+    const left = skips.slice(naming(read(RETIRE) ?? "", current.path))
     if (left.length > 0)
       refuse(
         `gtd land: tests: ${left.map((s) => `${s.path}:${s.line}`).join(", ")} still skipped — revive it, or propose its deletion in ${RETIRE}`,
       )
   }
+
+/** The sweep's packages, refused when it changed more than its plan or the plan misses a file. */
+const planned = (skips: readonly Skip[]): readonly { path: string; found: string }[] => {
+  const strays = changes().filter((c) => c.path !== TESTS)
+  if (strays.length > 0)
+    refuse(
+      `gtd land: tests: the sweep changed ${strays.map((c) => c.path).join(", ")} — it writes only ${TESTS}`,
+    )
+  const packages = sectionBodies(read(TESTS) ?? "").map((s) => ({
+    path: pathOf(s.title),
+    found: below(s.body),
+  }))
+  const missing = [
+    ...packages.filter((p) => read(p.path) === undefined).map((p) => `"${p.path}" is no file`),
+    ...[...new Set(skips.map((s) => s.path))]
+      .filter((path) => !packages.some((p) => p.path === path))
+      .map((path) => `${path} has no section`),
+  ]
+  if (missing.length > 0) refuse(`gtd land: tests: in ${TESTS}, ${missing.join("; ")}`)
+  return packages
+}
 
 /**
  * Revive or retire skipped tests: a sweep plans one package per test file, each
@@ -184,9 +206,9 @@ export const testsFlow = async (): Promise<void> => {
   await gate("tests-gate", gateMessage())
   const base = start()
   const known = new Set(testPaths())
-  const revised = new Set<string>()
+  const current: { path?: string } = {}
   // Sweep and rewrites only: the review's "delete it" fix is the one turn allowed to delete a test.
-  const guard = guardFor(known, revised, expression)
+  const guard = guardFor(known, current, expression)
   const report = await scope("tests", async (): Promise<LensReport | undefined> => {
     const skips = scan([...known], expression)
     await t.agentWithSkills("sweeping", sweepingPrompt(skips), {
@@ -197,19 +219,9 @@ export const testsFlow = async (): Promise<void> => {
       allowEmpty: true,
     })
     guard()
-    const packages = sectionBodies(read(TESTS) ?? "").map((s) => ({
-      path: pathOf(s.title),
-      found: below(s.body),
-    }))
-    const missing = [
-      ...packages.filter((p) => read(p.path) === undefined).map((p) => `"${p.path}" is no file`),
-      ...[...new Set(skips.map((s) => s.path))]
-        .filter((path) => !packages.some((p) => p.path === path))
-        .map((path) => `${path} has no section`),
-    ]
-    if (missing.length > 0) refuse(`gtd land: tests: in ${TESTS}, ${missing.join("; ")}`)
+    const packages = planned(skips)
     for (const { path, found } of packages) {
-      revised.add(path)
+      current.path = path
       await t.agentWithSkills("rewriting", rewritingPrompt(path, found), {
         label: `Rewriting ${path}`,
         file: RETIRE,
@@ -219,6 +231,8 @@ export const testsFlow = async (): Promise<void> => {
         allowEmpty: true,
       })
       guard()
+      // Nothing changed: the suite is as green as the last loop left it.
+      if (changes().length === 0) continue
       // Unguarded human rests: a person at the escalation may delete or keep what they like.
       await healthy(() => fixCheck(), { guard, guardRests: false })
     }
