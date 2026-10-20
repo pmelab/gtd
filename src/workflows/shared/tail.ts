@@ -190,7 +190,7 @@ const runTail = <T>(finish: Finish<T>, options: TailOptions): Promise<T> =>
   })
 
 /**
- * The review and fix workflows' human review since `base`: a sign-off closes
+ * The fix workflow's human review since `base`: a sign-off closes
  * `.gtd/REVIEW.md`; a note leaves it, with the reviewer's own version as
  * `REVIEW_ORIG`, for the next `fix` to read — never a re-plan.
  */
@@ -220,6 +220,6 @@ export const handOffReview = (
       "gtd land: review-doc: .gtd/REVIEW.md was deleted — restore it, or leave a note to hand to fix.",
   })
 
-/** The tail the review and fix workflows run: ends at the hand-off review since `base`. */
+/** The tail the fix workflow runs: ends at the hand-off review since `base`. */
 export const handOffTail = (fixFirst: boolean, base: string, guard?: Guard): Promise<void> =>
   tail((escalations) => handOffReview(base, escalations, guard), { fixFirst, guard })

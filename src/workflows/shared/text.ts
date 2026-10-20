@@ -879,7 +879,8 @@ export const reviewFeedbackFixPrompt = (): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\` — the concerns the human's review asked for,
   one \`## \` heading each, in build order
-- Build every concern in this one turn
+- Build every concern in this one turn; an answered question is context,
+  not a concern
 - Where a change is behavioural, add a test that fails without it
 - Leave \`.gtd/REQUIREMENTS.md\` untouched — the next step removes it
 - Leave everything uncommitted and finish your turn

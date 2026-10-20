@@ -4,7 +4,7 @@ import * as t from "../shared/text.js"
 import { riskTierOn } from "./tier.js"
 import { planner, REFACTOR, REQUIREMENTS } from "../shared/steps.js"
 
-// Moved to shared/, where the review workflow reaches them too; kept on the feature entry.
+// Kept on the published feature entry.
 export { answerReviewQuestions, collecting, fixNits } from "../shared/steps.js"
 
 /** Turn the sketch since `base` into `.gtd/REQUIREMENTS.md`. */

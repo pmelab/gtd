@@ -39,8 +39,7 @@ Feature: the review door fixes its notes in the same process
     And the commit subjects end with:
       """
       gtd(human): review-gate.check
-      gtd(check): review-gate.check → build.health.check
-      gtd(check): build.health.check → build.quality.correctness.reviewing
+      gtd(check): review-gate.check → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.quality.triage
       gtd(judge): build.quality.triage → build.quality.sorting
       gtd(check): build.quality.sorting → build.review.composing

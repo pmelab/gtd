@@ -91,7 +91,7 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
     And stdout contains "Workflow: review"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): review-gate.check → build.health.check"
+    And the last commit subject is "gtd(check): review-gate.check → build.quality.correctness.reviewing"
 
   Scenario: a triage commit recorded before severity tiers replays to the same route
     Given a history whose "build.review.triage" commit carries only "Gtd-Judge" trailers for "note-1" as "edit"

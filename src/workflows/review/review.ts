@@ -27,11 +27,13 @@ export const reviewFlow = async (): Promise<void> => {
   refusePendingHandOff()
   await gate("review-gate", t.reviewGateBlockedMessage())
   const base = start()
-  let outcome = await buildTail(base)
+  // The gate just proved the tree green.
+  let outcome = await buildTail(base, { green: true })
   while (outcome.verdict === "feedback") {
     await reUnwind(outcome)
     await fixFeedback()
-    outcome = await buildTail(base)
+    // The human reviews the whole change again; the lenses only what the fix changed.
+    outcome = await buildTail(base, { lensBase: outcome.base })
   }
 }
 
