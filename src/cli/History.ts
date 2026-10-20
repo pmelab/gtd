@@ -73,6 +73,21 @@ export const resolveHistoryRef = (
   return Effect.fail(new Error(`gtd history: no history ref matches "${arg}"`))
 }
 
+/** Every kept process, or those `refs` name — a branch name meaning every process kept from it, not just its newest. */
+export const selectHistoryEntries = (
+  refs: readonly string[],
+): Effect.Effect<readonly HistoryEntry[], Error, GitService> =>
+  Effect.gen(function* () {
+    const entries = yield* historyEntries
+    if (refs.length === 0) return entries
+    const chosen = (yield* Effect.forEach(refs, (ref) =>
+      resolveHistoryRef(ref, entries).pipe(
+        Effect.map((hit) => (hit.branch === ref ? entries.filter((e) => e.branch === ref) : [hit])),
+      ),
+    )).flat()
+    return chosen.filter((e, i) => chosen.findIndex((o) => o.ref === e.ref) === i)
+  })
+
 const seven = (hash: string): string => hash.slice(0, 7)
 
 export const runHistoryListCommand = (

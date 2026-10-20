@@ -35,6 +35,7 @@ import {
   type JsonMode,
 } from "./Program.js"
 import type { ToolCommands } from "./ToolCommands.js"
+import { THRESHOLDS } from "./Judges.js"
 import { EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR, parseContextWindow } from "../wire/index.js"
 
 export type { Command, CommandRequirements } from "./Program.js"
@@ -107,6 +108,7 @@ const JSON_KINDS: ReadonlySet<Command["kind"] | undefined> = new Set<Command["ki
   "historyList",
   "historyShow",
   "historyMetrics",
+  "historyJudges",
   "strays",
 ])
 
@@ -118,12 +120,12 @@ const FLAGS: readonly FlagRow[] = [
     scope: (kind) => JSON_KINDS.has(kind),
     decode: ([raw]) => Either.right(raw ?? ""),
     scopeError:
-      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors`/`gtd slices`/`gtd history list`/`gtd history show`/`gtd history metrics`/`gtd strays` — " +
+      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors`/`gtd slices`/`gtd history list`/`gtd history show`/`gtd history metrics`/`gtd history judges`/`gtd strays` — " +
       "every other command prints plain text; see `gtd install` for the driver protocol briefing",
     valueHint: "<path>",
     help: [
       "(gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd slices/gtd history",
-      "list/gtd history show/gtd history metrics/gtd strays only) output structured JSON. Bare --json prints the whole document;",
+      "list/gtd history show/gtd history metrics/gtd history judges/gtd strays only) output structured JSON. Bare --json prints the whole document;",
       "--json=<path> (a dotted key path into that document, e.g.",
       "kind, content, session.id) prints just that value: a",
       "scalar raw and unquoted, a boolean as true/false, a list",
@@ -325,7 +327,7 @@ const FLAGS: readonly FlagRow[] = [
     name: "--var",
     arity: 1,
     repeatable: true,
-    scope: (kind) => kind === "start",
+    scope: (kind) => kind === "start" || kind === "historyJudges",
     decode: (raws) => {
       const vars: Record<string, string> = {}
       const seen = new Set<string>()
@@ -362,14 +364,27 @@ const FLAGS: readonly FlagRow[] = [
       }
       return Either.right(vars)
     },
-    scopeError: "gtd: --var requires --workflow",
+    scopeError: "gtd: --var requires --workflow (or `gtd history judges`)",
     valueHint: "<name>=<value>",
     help: [
       "(with --workflow; repeatable) pin a process setting for the",
       "new process; the name must already be declared by the",
       "workflow's defaults (environment settings are not",
-      "pinnable)",
+      "pinnable). (gtd history judges) re-decide past verdicts",
+      "under this threshold: judgeIdenticalMinP or",
+      "qualityTriageMinP",
     ],
+  },
+  {
+    name: "--jsonl",
+    arity: 0,
+    repeatable: false,
+    scope: (kind) => kind === "historyJudges",
+    decode: () => Either.right(true),
+    scopeError: "gtd: --jsonl is only valid for `gtd history judges`",
+    valueHint: "",
+    help: ["(gtd history judges only) print one JSON line per verdict", "instead of the report"],
+    conflicts: ["--json", "--var"],
   },
   {
     name: "--open-questions",
@@ -848,6 +863,23 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     ],
   },
   {
+    token: "history judges",
+    kind: "historyJudges",
+    arity: { name: "ref", many: true },
+    details: [
+      "Calibrate the judges of the kept processes from their",
+      "recorded Gtd-Judge verdicts: per judge (retry, triage, clear)",
+      "and p bucket, how many verdicts later events overturned.",
+      "--var <name>=<value> re-decides every past verdict under",
+      "another threshold and prints what would have changed;",
+      "--jsonl prints one { process, judge, commit, step, question,",
+      "state, answer, p, outcome } line per verdict instead. <ref>",
+      "is read as by history metrics. Never replays and asks no",
+      "model. --json prints { processes, total, whatIf }; writes",
+      "nothing",
+    ],
+  },
+  {
     token: "history fetch",
     kind: "historyFetch",
     arity: { name: "remote", optional: true },
@@ -1163,7 +1195,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
 
   if (isHistory && row === undefined) {
     return usagePlan(
-      "gtd history: expected a subcommand — list, show <ref>, metrics [ref...] or fetch [remote]",
+      "gtd history: expected a subcommand — list, show <ref>, metrics [ref...], judges [ref...] or fetch [remote]",
       jsonSeen,
     )
   }
@@ -1268,6 +1300,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--soft"?: number
     readonly "--hard"?: number
     readonly "--window"?: number
+    readonly "--jsonl"?: boolean
   }
 
   // `present.has("--json")` alone can't distinguish bare `--json` (no value
@@ -1410,6 +1443,37 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     return {
       kind: "command",
       command: { kind: "historyMetrics", refs: restPositionals },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "historyJudges") {
+    const vars = bag["--var"] ?? {}
+    const unknown = Object.keys(vars).find((name) => !Object.hasOwn(THRESHOLDS, name))
+    if (unknown !== undefined) {
+      return usagePlan(
+        `gtd history judges: --var ${unknown} is no judge threshold — use ${Object.keys(THRESHOLDS).join(" or ")}`,
+        jsonSeen,
+      )
+    }
+    const nan = Object.entries(vars).find(
+      ([, value]) => value.trim() === "" || !Number.isFinite(Number(value)),
+    )
+    if (nan !== undefined) {
+      return usagePlan(
+        `gtd history judges: --var ${nan[0]} must be a number — got "${nan[1]}"`,
+        jsonSeen,
+      )
+    }
+    return {
+      kind: "command",
+      command: {
+        kind: "historyJudges",
+        refs: restPositionals,
+        vars,
+        jsonl: bag["--jsonl"] ?? false,
+      },
       json,
       verbose,
     }

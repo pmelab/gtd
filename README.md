@@ -744,6 +744,7 @@ full trail with `gtd history fetch | sh`, then `gtd history show <ref>`.
 gtd history list                 # one line per kept process
 gtd history show <ref>           # replay its steps, judge verdicts and approvals
 gtd history metrics [ref...]     # how the kept processes went, per process and in total
+gtd history judges [ref...]      # how often each judge's verdicts were overturned
 gtd history fetch | sh           # pull every kept ref from origin
 ```
 
@@ -775,6 +776,45 @@ their record whole (`--json=total.cost.byModel`). A branch name selects every
 process kept from that branch. A rate is `null` without a decided slice. Each
 process names its `workflow` (`null` for the default one); the total spans every
 ref measured, so name the refs to leave another workflow's processes out.
+
+`gtd history judges` calibrates three of the bundled `feature` workflow's judges
+from the `Gtd-Judge` verdicts the kept refs recorded. It never replays and asks
+no model. A verdict is **overturned** when later history contradicts it:
+
+- **retry** (`health.judge`) — an `identical` verdict, when the next fix turn's
+  check went green anyway (no outcome when a person edited code in between)
+- **triage** (`quality.triage`) — a `mechanical` or `noise` verdict the review
+  listed under _Fixed automatically_ or _Dropped as noise_, when the human
+  edited that finding's line there or wrote under it
+- **clear** (`design.clear`) — a `yes` that skipped design (landed on
+  `design.normalise`), when a later human design step in the same process
+  changed the acceptance criteria
+
+Any other verdict has no outcome. The report counts verdicts, scored verdicts
+and overturns per judge and per `p` bucket (`0.8-0.9: 1/2` — one of two
+overturned). `--var <threshold>=<value>` re-decides every past verdict under
+another threshold and prints the decisions that would change, against the
+threshold each process recorded (a process that recorded none is left out):
+
+```sh
+gtd history judges --var qualityTriageMinP=0.9
+# what-if qualityTriageMinP=0.9: 7 noise drops become notes (2 overturned)
+```
+
+The thresholds are `judgeIdenticalMinP` (retry) and `qualityTriageMinP`
+(triage). The judge's evidence-budget cut is not recorded, so a cut verdict is
+scored and re-decides as if it was whole. A retry verdict on an empty report is
+not scored, as the flow drops it. `--json` prints
+`{ processes, total, whatIf }`, each process and the total with its `judges`.
+`--jsonl` prints one line per verdict instead — `process`, `judge`, `commit`,
+`step`, `question`, `state` (the evidence the tree still shows: the finding, the
+two check reports, the sketch without its numbered criteria), `answer`, `p` and
+`outcome` (`overturned`, `held` or `null`) — ready to fine-tune a local model
+on:
+
+```sh
+gtd history judges --jsonl > judges.jsonl
+```
 
 `gtd history fetch` only prints a fetch script; pipe it into `sh` to run it.
 Beyond that one ship push, refs are not pushed or fetched by default. The ref
@@ -832,8 +872,8 @@ install for any of these but `./testkit`: gtd resolves a `gtd.config.ts`'s
 The `gtd` bin's commands — `next`, `land`, `abandon`, `restore`, `validate`,
 `check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `slices`,
 `version`, `help`, `history list`, `history show`, `history metrics`,
-`history fetch`, `strays`, and the tools `ui`, `lsp`, `loop`, `context-hook`,
-`judge` (`judge answer`, `judge run`) — are listed in the
+`history judges`, `history fetch`, `strays`, and the tools `ui`, `lsp`, `loop`,
+`context-hook`, `judge` (`judge answer`, `judge run`) — are listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
 `gtd slices` lists the spans a flow's `slice()` calls mark. It refuses (exit 1)
 when HEAD neither closes nor sits inside a process, or when today's config
