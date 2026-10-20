@@ -937,13 +937,14 @@ longer kept out of a new process's triage: delete or move it before starting
 one.
 
 **Upgrading:** `review` runs `feature`'s review and fixes its notes in place. A
-`review` process resting at `build.review.reviewing`,
-`build.review.fix.risks.fixing` or `build.fix.quality.fixing` no longer replays:
-finish or `gtd abandon` it before upgrading. A driver or fixture scripting the
-`review` door's `build.review.reviewing` scripts `build.review.composing` and,
-with lenses on, the `build.quality.triage` judge instead; a note there no longer
-reaches `build.review.handing-off`, and a `.gtd/REVIEW.md` an older `review`
-handed off is still read by `fix`.
+`review` process resting at `build.health.check` right after its gate,
+`build.review.reviewing`, `build.review.fix.risks.fixing` or
+`build.fix.quality.fixing` no longer replays: finish or `gtd abandon` it before
+upgrading. A driver or fixture scripting the `review` door's
+`build.review.reviewing` scripts `build.review.composing` and, with lenses on,
+the `build.quality.triage` judge instead; a note there no longer reaches
+`build.review.handing-off`, and a `.gtd/REVIEW.md` an older `review` handed off
+is still read by `fix`.
 
 **Upgrading:** `feature`'s reviews are composed from the quality lap. A process
 resting at `build.review.reviewing`, `build.review.fix.risks.fixing`, a
@@ -1230,14 +1231,14 @@ The shipped module offers three workflows:
   re-planned.
 - **`review`** — `feature`'s review of everything since
   `--var reviewBase=<commitish>`, with no design phase and no coverage judge: a
-  green gate (`review-gate`), keep-green, the triaged quality lap, then the
-  human review of [The feature review](#the-feature-review). Fixes and nits are
-  fixed in place (`build.review.fix.nits.fixing`); a note judged `edit`, or a
-  hand-edit, is collected into `.gtd/REQUIREMENTS.md`
-  (`build.review.collecting`), your edits are reverted (`re-unwind`), one turn
-  builds it (`feedback.fixing`), the file is removed (`feedback.closing`), and
-  the tail runs again. A sign-off ends the process with no review file left.
-  Until a pending hand-off from `fix` is consumed, starting it is refused.
+  green gate (`review-gate`), the triaged quality lap, then the human review of
+  [The feature review](#the-feature-review). Fixes and nits are fixed in place
+  (`build.review.fix.nits.fixing`); a note judged `edit`, or a hand-edit, is
+  collected into `.gtd/REQUIREMENTS.md` (`build.review.collecting`), your edits
+  are reverted (`re-unwind`), one turn builds it (`feedback.fixing`), the file
+  is removed (`feedback.closing`), and the tail runs again. A sign-off ends the
+  process with no review file left. Until a pending hand-off from `fix` is
+  consumed, starting it is refused.
 - **`fix`** — with a handed-off `.gtd/REVIEW.md` in the tree, one turn fixes
   every note (read from the two review files) and every `Risk:`
   (`notes.fixing`), both files are removed (`notes.closing`), and the result
