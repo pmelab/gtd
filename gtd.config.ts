@@ -9,9 +9,13 @@ import {
   cleanup as shippedCleanup,
 } from "@pmelab/gtd/workflows"
 
-export const feature = shippedFeature()
-export const review = shippedReview()
-export const fix = shippedFix()
+// The default lenses minus owasp-security.
+const qualityReviews = "correctness, ponytail-review, test-audit, conventions, spec-challenge"
+
+// No release flags for now: no seam judge, no refactor path.
+export const feature = shippedFeature({ flagMode: false, qualityReviews })
+export const review = shippedReview({ qualityReviews })
+export const fix = shippedFix({ qualityReviews })
 export const rollout = shippedRollout()
 export const cleanup = shippedCleanup()
 export default feature
