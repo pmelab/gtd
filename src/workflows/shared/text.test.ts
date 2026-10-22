@@ -1578,6 +1578,19 @@ describe("rankedReview", () => {
     )
   })
 
+  it("keeps a chunk's leading indented code block indented", () => {
+    const code = "# Review: abc1234\n\n## Code\n\n    const x = 1\n\n- [ ] ./a.ts#1-1\n"
+    expect(rankedReview(code, [{ title: "Code", label: "could" }])).toContain(
+      "_could_\n\n    const x = 1",
+    )
+  })
+
+  it("drops a stale tier with no blank line under the heading, never a longer paragraph", () => {
+    expect(unranked("## A\n_could_\n\nbody\n")).toBe("## A\n\nbody\n")
+    const prose = "## A\n\n_should: x_\nruns on\n"
+    expect(unranked(prose)).toBe(prose)
+  })
+
   it("drops a stale tier, so a re-review is ranked afresh", () => {
     expect(unranked(review)).not.toContain("_could_")
     expect(unranked(unranked(review))).toBe(unranked(review))

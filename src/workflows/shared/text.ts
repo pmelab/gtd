@@ -303,44 +303,65 @@ export const withWalkthrough = (review: string, report: ComposedReview): string 
           `## ${unique("Dropped as noise")}\n\n${report.noise.map((f) => noiseLine(f, carriedOnly(f))).join("\n")}`,
         ]),
   ]
-  // Nothing to add leaves the review byte for byte, so no carrying step runs.
+  // Nothing to add leaves the review byte for byte.
   if (notes.size === listed && summary.length === 0) return review
   const body = lines.join("\n").trimEnd()
   return summary.length === 0 ? `${body}\n` : `${body}\n\n${summary.join("\n\n")}\n`
 }
 
-/** A ranked chunk's title and the tier it shows, `critical: security`. */
 export interface RankedChunk {
   readonly title: string
   readonly label: string
 }
 
-const chunkBlocks = (review: string): { head: string[]; blocks: string[][] } => {
+const chunkBlocks = (
+  review: string,
+): { head: string[]; blocks: { title: string; lines: string[] }[] } => {
   const lines = review.split("\n")
   const chunks = reviewChunks(review)
   return {
     head: lines.slice(0, chunks[0]?.line ?? lines.length),
-    blocks: chunks.map((c, i) => lines.slice(c.line, chunks[i + 1]?.line ?? lines.length)),
+    blocks: chunks.map((c, i) => ({
+      title: c.title,
+      lines: lines.slice(c.line, chunks[i + 1]?.line ?? lines.length),
+    })),
   }
 }
 
-// A block's heading, its blank line, then its severity line when it has one.
-const hasSeverity = (block: readonly string[]): boolean =>
-  block[1]?.trim() === "" && SEVERITY_LINE_RE.test(block[2]?.trim() ?? "")
+const isBlank = (line: string | undefined): boolean => line !== undefined && line.trim() === ""
+
+// The steering parser's rule: a severity line is the chunk's first paragraph, alone.
+const severityAt = (lines: readonly string[]): number | undefined => {
+  let i = 1
+  while (isBlank(lines[i])) i++
+  const line = lines[i]
+  if (line === undefined || !SEVERITY_LINE_RE.test(line.trim())) return undefined
+  return lines[i + 1] === undefined || isBlank(lines[i + 1]) ? i : undefined
+}
 
 /** \`review\` with every chunk's severity line removed, so a re-review is ranked afresh. */
 export const unranked = (review: string): string => {
   const { head, blocks } = chunkBlocks(review)
-  if (!blocks.some(hasSeverity)) return review
-  return [...head, ...blocks.flatMap((b) => (hasSeverity(b) ? [b[0]!, ...b.slice(3)] : b))].join(
-    "\n",
-  )
+  if (blocks.every((b) => severityAt(b.lines) === undefined)) return review
+  return [
+    ...head,
+    ...blocks.flatMap(({ lines }) => {
+      const at = severityAt(lines)
+      return at === undefined ? lines : [...lines.slice(0, at), ...lines.slice(at + 1)]
+    }),
+  ].join("\n")
 }
 
-/** The text of every chunk in \`review\`, by title. */
-export const chunkTexts = (review: string): ReadonlyMap<string, string> => {
-  const { blocks } = chunkBlocks(review)
-  return new Map(reviewChunks(review).map((c, i) => [c.title, blocks[i]!.join("\n").trim()]))
+export const chunkTexts = (review: string): ReadonlyMap<string, string> =>
+  new Map(chunkBlocks(review).blocks.map((b) => [b.title, b.lines.join("\n").trim()]))
+
+// Blank lines only: a chunk opening with an indented code block keeps its indent.
+const trimBlankLines = (lines: readonly string[]): string[] => {
+  let start = 0
+  let end = lines.length
+  while (start < end && isBlank(lines[start])) start++
+  while (end > start && isBlank(lines[end - 1])) end--
+  return lines.slice(start, end).map((l) => l.trimEnd())
 }
 
 /**
@@ -349,15 +370,15 @@ export const chunkTexts = (review: string): ReadonlyMap<string, string> => {
  */
 export const rankedReview = (review: string, ranked: readonly RankedChunk[]): string => {
   const { head, blocks } = chunkBlocks(review)
-  const titles = reviewChunks(review).map((c) => c.title)
   const place = new Map(ranked.map((r, k) => [r.title, k]))
   const labels = new Map(ranked.map((r) => [r.title, r.label]))
-  const order = (i: number): number => place.get(titles[i]!) ?? ranked.length
+  const order = (i: number): number => place.get(blocks[i]!.title) ?? ranked.length
   const chunk = (i: number): string => {
-    const label = labels.get(titles[i]!)
-    const body = blocks[i]!.slice(1).join("\n").trim()
+    const { title, lines } = blocks[i]!
+    const label = labels.get(title)
+    const body = trimBlankLines(lines.slice(1)).join("\n")
     return [
-      blocks[i]![0]!,
+      lines[0]!,
       ...(label === undefined ? [] : [severityLine(label)]),
       ...(body === "" ? [] : [body]),
     ].join("\n\n")

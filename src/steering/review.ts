@@ -1204,9 +1204,14 @@ type Found = { line: number; note: Omit<ReviewNote, "id" | "forced"> }
 
 // A chunk added with its own answer boxes (a driver's imported note) is
 // answered by its tick, never judged as prose as well.
+// A human disputing a chunk's tier edits its severity line, so the line is part of the note.
+const chunkProse = (chunk: Changeset | undefined): string =>
+  [chunk?.severity === undefined ? "" : severityLine(chunk.severity), chunk?.description ?? ""]
+    .filter((p) => p !== "")
+    .join("\n\n")
+
 const chunkNote = (chunk: Changeset, prior: Changeset | undefined): Found[] =>
-  chunk.description === (prior?.description ?? "") ||
-  (prior === undefined && chunk.answers !== undefined)
+  chunkProse(chunk) === chunkProse(prior) || (prior === undefined && chunk.answers !== undefined)
     ? []
     : [
         {
@@ -1214,8 +1219,8 @@ const chunkNote = (chunk: Changeset, prior: Changeset | undefined): Found[] =>
           note: {
             kind: "chunk",
             anchor: chunk.title,
-            before: prior?.description ?? "",
-            text: chunk.description,
+            before: chunkProse(prior),
+            text: chunkProse(chunk),
           },
         },
       ]

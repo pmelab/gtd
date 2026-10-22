@@ -220,14 +220,14 @@ const batched = <T extends { readonly evidence: string }>(
   let batch: T[] = []
   let widest = 0
   for (const item of items) {
-    const wider = Math.max(widest, bytes(item.evidence))
-    if (batch.length > 0 && Math.floor(budget / (batch.length + 1)) < wider) {
+    const size = bytes(item.evidence)
+    if (batch.length > 0 && Math.floor(budget / (batch.length + 1)) < Math.max(widest, size)) {
       batches.push(batch)
       batch = []
       widest = 0
     }
     batch.push(item)
-    widest = Math.max(widest, bytes(item.evidence))
+    widest = Math.max(widest, size)
   }
   return batch.length === 0 ? batches : [...batches, batch]
 }
@@ -377,10 +377,11 @@ const walkthrough = async (
     notes,
     changesSince(base).some((c) => isCode(c.path)),
   )
+  // Ranked even when it marks risks: the review written after their fix reaches the human with its own.
   const full = await ranked(review, t.withWalkthrough(review, report))
   if (full !== written) {
     await run("review.carrying", writeScript(REVIEW, full), {
-      label: "Adding the quality lap's findings",
+      label: "Ordering the review and adding the quality lap's findings",
       file: REVIEW,
       base,
     })

@@ -1733,6 +1733,18 @@ describe("reviewNotes", async () => {
     expect(reviewNotes(base, base)).toEqual([])
   })
 
+  it("an edited tier line is a note", () => {
+    const was = doc("_could_\n\nProse.")
+    const after = doc("_critical: this leaks the token_\n\nProse.")
+    expect(reviewNotes(was, after)).toMatchObject([
+      {
+        kind: "chunk",
+        before: "_could_\n\nProse.",
+        text: "_critical: this leaks the token_\n\nProse.",
+      },
+    ])
+  })
+
   it("a pointer note added", () => {
     const after = doc("Prose.").replace("#1-3", "#1-3 rename this")
     expect(reviewNotes(base, after)).toEqual([
