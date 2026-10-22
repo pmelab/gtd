@@ -6,7 +6,6 @@ import { coder, REQUIREMENTS } from "../shared/steps.js"
 import { refusePendingHandOff } from "../shared/tail.js"
 import * as t from "../shared/text.js"
 
-/** Build the concerns a review round collected into `.gtd/REQUIREMENTS.md`, then remove it. */
 const fixFeedback = async (): Promise<void> => {
   await t.agentWithSkills("feedback.fixing", t.reviewFeedbackFixPrompt(), {
     label: "Fixing your review feedback",

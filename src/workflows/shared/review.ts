@@ -241,7 +241,7 @@ export const humanReview = (
     },
     fixRisks: guarded((notes) => fixRisks(notes, fixAccess, rules), guard),
     keepGreen: () => healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules }),
-    awaitReview: (b) => awaitReview(b),
+    awaitReview,
     reviewMissing,
     collecting: feedback.collecting,
     triage: triage(severities),
