@@ -71,6 +71,10 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
     And step "build.quality.closing" runs its script
     And step "build.health.check" changes nothing
     And step "build.review.carrying" runs its script
+    And judge step "build.review.ranking" answers:
+      """
+      []
+      """
 
   Scenario: a finding questioning a criterion reaches the final review, never the fixer
     Given step "build.quality.correctness.reviewing" writes ".gtd/QUALITY.md" with:
@@ -112,6 +116,8 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
       """
       ## AC-1 ignores floating point
 
+      _critical: judge unsure_
+
       _From slice 1, lens correctness._
 
       Should subtract round? The criterion does not say.
@@ -119,6 +125,8 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
     And ".gtd/REVIEW.md" contains:
       """
       ## AC-1 ignores floating point (2)
+
+      _critical: judge unsure_
 
       _From slice 2, lens correctness._
       """
@@ -137,7 +145,8 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
       gtd(agent): build.quality.correctness.reviewing → build.quality.triage
       gtd(judge): build.quality.triage → build.quality.sorting
       gtd(check): build.quality.sorting → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
       gtd(check): build.review.carrying → build.review.await-review
       """
 
@@ -181,6 +190,8 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
       """
       ## subtract has no negative test
 
+      _critical: judge unsure_
+
       _From slice 1, lens correctness._
 
       _The fixer left this unresolved._
@@ -208,7 +219,8 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
       gtd(agent): build.fix.quality.fixing → build.health.check
       gtd(check): build.health.check → build.quality.closing
       gtd(check): build.quality.closing → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
       gtd(check): build.review.carrying → build.review.await-review
       """
 

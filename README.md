@@ -538,32 +538,37 @@ noted in steps 3 and 4 below.
    commit) and what was **dropped as noise**. A review with a chunk pointing at
    no code, or a note left out, is refused (`review-pointers`). A pointer note
    the reviewer opens with `Risk:` is fixed before you see the review
-   (`build.review.fix.risks.fixing`), then the review is written again. On
-   `refactor-first` the refactor slice gets a review of its own first, composed
-   by gtd from its lap's notes, before the feature is built; see
-   [the naive pass](#the-naive-pass). **Every note needs exactly one tick before
-   `gtd land` accepts the review** (`answer-completeness`; an open `- H:` thread
-   waiting on the agent is the one exception). Fix as suggested joins the nit
-   batch below, unjudged; won't fix drops the note and records it as
-   `Gtd-Mark: wontfix=<title>` on the gate's commit; your own answer is judged
-   like a note. A note you answered is left out of the fresh review after a nit
-   fix. Land with every note answered and nothing else changed to approve, or
-   write what is wrong — disagreeing with a fix or a drop means writing a note
-   of your own. Approving ends the process (at the refactor review, it moves on
-   to the feature); feedback is judged note by note, each as `edit`, `question`,
-   `nit` or `praise`. An `edit` sends the process back to step 2 for re-derived
-   requirements — the built criteria keep their IDs (reworded in place when
-   their behaviour changes) and new behaviour gets new ones — then the
-   implementation is amended to meet them, with no new naive pass or seam judge,
-   every criterion's coverage is judged again, the quality lap runs, and you
-   review again. At the refactor review an `edit` re-derives the refactor
-   instead. A `question` is answered inline under your note and the process
-   stops at the review again — no new plan. A `nit` is fixed in one batch, the
-   suite must go green (a red one gets fix turns first), then a fresh review of
-   the change stops at the review again. `praise` is dropped; a round of only
-   praise signs off. When a round mixes them, questions are answered and nits
-   fixed first, then the edits are planned — risk: the planning lap may redo nit
-   fixes it touches.
+   (`build.review.fix.risks.fixing`), then the review is written again. **What
+   matters most comes first:** a judge (`build.review.ranking`) rates every
+   chunk on the four severity questions below, and the review lists `critical`
+   chunks first (security, then one-way doors), then `should`, then `could`,
+   each led by its tier and reason (`_critical: security, one-way door_`) — the
+   phone shows it on the chunk's card. A chunk the judge is unsure of, or whose
+   evidence the budget cut, is `critical`. On `refactor-first` the refactor
+   slice gets a review of its own first, composed by gtd from its lap's notes,
+   before the feature is built; see [the naive pass](#the-naive-pass). **Every
+   note needs exactly one tick before `gtd land` accepts the review**
+   (`answer-completeness`; an open `- H:` thread waiting on the agent is the one
+   exception). Fix as suggested joins the nit batch below, unjudged; won't fix
+   drops the note and records it as `Gtd-Mark: wontfix=<title>` on the gate's
+   commit; your own answer is judged like a note. A note you answered is left
+   out of the fresh review after a nit fix. Land with every note answered and
+   nothing else changed to approve, or write what is wrong — disagreeing with a
+   fix or a drop means writing a note of your own. Approving ends the process
+   (at the refactor review, it moves on to the feature); feedback is judged note
+   by note, each as `edit`, `question`, `nit` or `praise`. An `edit` sends the
+   process back to step 2 for re-derived requirements — the built criteria keep
+   their IDs (reworded in place when their behaviour changes) and new behaviour
+   gets new ones — then the implementation is amended to meet them, with no new
+   naive pass or seam judge, every criterion's coverage is judged again, the
+   quality lap runs, and you review again. At the refactor review an `edit`
+   re-derives the refactor instead. A `question` is answered inline under your
+   note and the process stops at the review again — no new plan. A `nit` is
+   fixed in one batch, the suite must go green (a red one gets fix turns first),
+   then a fresh review of the change stops at the review again. `praise` is
+   dropped; a round of only praise signs off. When a round mixes them, questions
+   are answered and nits fixed first, then the edits are planned — risk: the
+   planning lap may redo nit fixes it touches.
 
    Each `edit` note also gets a severity tier from four judge questions
    (security, reversibility, blast radius, new concept). Every tier is

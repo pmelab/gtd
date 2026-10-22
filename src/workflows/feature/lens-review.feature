@@ -75,6 +75,10 @@ Feature: the quality lap's findings are triaged before the review
     And step "build.quality.sorting" runs its script
     And step "build.quality.closing" runs its script
     And step "build.review.carrying" runs its script
+    And judge step "build.review.ranking" answers:
+      """
+      []
+      """
 
   Scenario: a mechanical finding is fixed and listed, noise dropped and listed, a design one noted
     Given judge step "build.quality.triage" answers:
@@ -109,6 +113,8 @@ Feature: the quality lap's findings are triaged before the review
     And ".gtd/REVIEW.md" contains:
       """
       ## AC-1 ignores floating point
+
+      _critical: judge unsure_
 
       Should subtract round? The criterion does not say.
 
@@ -147,7 +153,8 @@ Feature: the quality lap's findings are triaged before the review
       gtd(check): build.quality.sorting → build.fix.quality.fixing
       gtd(agent): build.fix.quality.fixing → build.health.check
       gtd(check): build.health.check → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
       gtd(check): build.review.carrying → build.review.await-review
       """
 
@@ -189,7 +196,8 @@ Feature: the quality lap's findings are triaged before the review
       """
       gtd(judge): build.quality.triage → build.quality.sorting
       gtd(check): build.quality.sorting → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
       gtd(check): build.review.carrying → build.review.await-review
       """
 
@@ -228,6 +236,8 @@ Feature: the quality lap's findings are triaged before the review
       """
       ## add could be a method
 
+      _critical: judge unsure_
+
       _The fixer left this unresolved._
 
       A class would read better.
@@ -242,7 +252,8 @@ Feature: the quality lap's findings are triaged before the review
       gtd(agent): build.fix.quality.fixing → build.health.check
       gtd(check): build.health.check → build.quality.closing
       gtd(check): build.quality.closing → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
       gtd(check): build.review.carrying → build.review.await-review
       """
 
@@ -344,7 +355,8 @@ Feature: the quality lap's findings are triaged before the review
     And ".gtd/REVIEW.md" does not exist
     And the commit subjects end with:
       """
-      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
       gtd(check): build.review.carrying → build.review.await-review
       gtd(human): build.review.await-review → build.review.closing
       gtd(check): build.review.closing → idle

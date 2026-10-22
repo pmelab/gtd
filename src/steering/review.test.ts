@@ -1276,6 +1276,33 @@ describe("review.view", () => {
     expect(view.nodes[1]!.detail).toBe("")
   })
 
+  it("shows a chunk's leading severity line as its status, not its prose", () => {
+    const view = review.view(
+      [
+        "# Review: abc1234",
+        "",
+        "## Ranked",
+        "",
+        "_critical: security, one-way door_",
+        "",
+        "The new export.",
+        "",
+        "- [ ] ./a.ts#1-1",
+        "",
+        "## Unranked",
+        "",
+        "_emphasis, not a tier_",
+        "",
+        "- [ ] ./a.ts#2-2",
+        "",
+      ].join("\n"),
+    )
+    expect(view.nodes.map((c) => [c.status, c.detail])).toEqual([
+      ["critical: security, one-way door", "The new export."],
+      [undefined, "_emphasis, not a tier_"],
+    ])
+  })
+
   it("is built from one parse of the document, not one per element", () => {
     const uniqueContent = [
       "# Review: def4567",
@@ -1706,6 +1733,29 @@ describe("reviewNotes", async () => {
     expect(reviewNotes(base, base)).toEqual([])
   })
 
+  it("an edited tier line is a note", () => {
+    const was = doc("_could_\n\nProse.")
+    const after = doc("_critical: this leaks the token_\n\nProse.")
+    expect(reviewNotes(was, after)).toMatchObject([
+      {
+        kind: "chunk",
+        before: "Prose.\n\n_could_",
+        text: "Prose.\n\n_critical: this leaks the token_",
+      },
+    ])
+  })
+
+  it("prose added under a tier is the human's alone, and a leading ! still forces", () => {
+    const was = doc("_could_\n\nProse.")
+    expect(reviewNotes(was, doc("_could_\n\n! Not here.\n\nProse."))).toMatchObject([
+      { kind: "chunk", text: "! Not here. Prose.", forced: true },
+    ])
+  })
+
+  it("a deleted tier line asks nothing", () => {
+    expect(reviewNotes(doc("_could_\n\nProse."), base)).toEqual([])
+  })
+
   it("a pointer note added", () => {
     const after = doc("Prose.").replace("#1-3", "#1-3 rename this")
     expect(reviewNotes(base, after)).toEqual([
@@ -1863,8 +1913,16 @@ describe("reviewChunks", async () => {
       "- [ ] _your answer_",
     ].join("\n")
     expect(reviewChunks(content)).toEqual([
-      { title: "Walkthrough", line: 4, pointers: 2 },
-      { title: "Fixed automatically", line: 9, pointers: 0 },
+      {
+        title: "Walkthrough",
+        line: 4,
+        pointers: 2,
+        files: [
+          { path: "./src/a.ts", line: 1, rangeEnd: 3 },
+          { path: "./src/b.ts", line: 4, rangeEnd: 6 },
+        ],
+      },
+      { title: "Fixed automatically", line: 9, pointers: 0, files: [] },
     ])
   })
 })

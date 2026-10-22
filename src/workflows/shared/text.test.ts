@@ -33,6 +33,8 @@ import {
   titledNotes,
   walkthroughBlock,
   withWalkthrough,
+  rankedReview,
+  unranked,
 } from "./text.js"
 import { reviewDecisions, steeringFormatFor, unansweredNotes } from "../../steering/index.js"
 import { captureStep, renderText } from "./text.fixture.js"
@@ -1515,5 +1517,93 @@ describe("walkthrough", () => {
     expect(walkthroughBlock([{ title: "x", body: "y" }])).toContain(
       "never open a note in a finding's chunk with `Risk:`",
     )
+  })
+})
+
+describe("rankedReview", () => {
+  const review = [
+    "# Review: abc1234",
+    "",
+    "<!-- base: abc1234 -->",
+    "",
+    "## Rename",
+    "",
+    "- [ ] ./a.ts#1-1",
+    "",
+    "## Token",
+    "",
+    "_could_",
+    "",
+    "Reads the token.",
+    "",
+    "- [ ] ./a.ts#2-2",
+    "",
+    "## Fixed automatically",
+    "",
+    "- x (abc1234)",
+    "",
+  ].join("\n")
+
+  it("puts the ranked chunks first, each led by its tier, and leaves the rest in place", () => {
+    expect(
+      rankedReview(unranked(review), [
+        { title: "Token", label: "critical: security" },
+        { title: "Rename", label: "could" },
+      ]),
+    ).toBe(
+      [
+        "# Review: abc1234",
+        "",
+        "<!-- base: abc1234 -->",
+        "",
+        "## Token",
+        "",
+        "_critical: security_",
+        "",
+        "Reads the token.",
+        "",
+        "- [ ] ./a.ts#2-2",
+        "",
+        "## Rename",
+        "",
+        "_could_",
+        "",
+        "- [ ] ./a.ts#1-1",
+        "",
+        "## Fixed automatically",
+        "",
+        "- x (abc1234)",
+        "",
+      ].join("\n"),
+    )
+  })
+
+  it("keeps a setext heading whole", () => {
+    expect(
+      rankedReview("# Review: a\n\nToken\n-----\n\n- [ ] ./a.ts#1\n", [
+        { title: "Token", label: "could" },
+      ]),
+    ).toBe("# Review: a\n\nToken\n-----\n\n_could_\n\n- [ ] ./a.ts#1\n")
+  })
+
+  it("keeps a chunk's leading indented code block indented", () => {
+    const code = "# Review: abc1234\n\n## Code\n\n    const x = 1\n\n- [ ] ./a.ts#1-1\n"
+    expect(rankedReview(code, [{ title: "Code", label: "could" }])).toContain(
+      "_could_\n\n    const x = 1",
+    )
+  })
+
+  it("drops a stale tier with no blank line under the heading, never a longer paragraph", () => {
+    expect(unranked("## A\n_could_\n\nbody\n")).toBe("## A\nbody\n")
+    expect(unranked("## A\n\n_could_\n- [ ] ./a.ts#1\n")).toBe("## A\n\n- [ ] ./a.ts#1\n")
+    const code = "## A\n\n    _could_\n"
+    expect(unranked(code)).toBe(code)
+    const prose = "## A\n\n_should: x_\nruns on\n"
+    expect(unranked(prose)).toBe(prose)
+  })
+
+  it("drops a stale tier, so a re-review is ranked afresh", () => {
+    expect(unranked(review)).not.toContain("_could_")
+    expect(unranked(unranked(review))).toBe(unranked(review))
   })
 })

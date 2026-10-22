@@ -69,6 +69,11 @@ Feature: a feature process ends at the human review
         new subtract function
       """
     And step "build.review.closing" runs its script
+    And step "build.review.carrying" runs its script
+    And judge step "build.review.ranking" answers:
+      """
+      []
+      """
 
   Scenario: a feature process ends at the review gate
     When the process is driven
@@ -79,7 +84,9 @@ Feature: a feature process ends at the human review
       """
       gtd(judge): implement.coverage → implement.closing
       gtd(check): implement.closing → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.await-review
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
       """
 
   Scenario: a sign-off ends the process at idle
@@ -93,6 +100,8 @@ Feature: a feature process ends at the human review
 
       ## calc
 
+      _critical: judge unsure_
+
       - [x] ./src/calc.ts#2-2
         new subtract function
       """
@@ -102,7 +111,9 @@ Feature: a feature process ends at the human review
     And ".gtd/REVIEW.md" does not exist
     And the commit subjects end with:
       """
-      gtd(agent): build.review.reviewing → build.review.await-review
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
       gtd(human): build.review.await-review → build.review.closing
       gtd(check): build.review.closing → idle
       """
@@ -146,6 +157,8 @@ Feature: a feature process ends at the human review
 
         ## calc
 
+        _critical: judge unsure_
+
         - [ ] ./src/calc.ts#2-2
           new subtract function[^why]
 
@@ -163,6 +176,8 @@ Feature: a feature process ends at the human review
         <!-- base: 0000000 -->
 
         ## calc
+
+        _critical: judge unsure_
 
         - [ ] ./src/calc.ts#2-2
           new subtract function
@@ -215,7 +230,9 @@ Feature: a feature process ends at the human review
         gtd(check): implement.health.check → implement.coverage
         gtd(judge): implement.coverage → implement.closing
         gtd(check): implement.closing → build.review.reviewing
-        gtd(agent): build.review.reviewing → build.review.await-review
+        gtd(agent): build.review.reviewing → build.review.ranking
+        gtd(judge): build.review.ranking → build.review.carrying
+        gtd(check): build.review.carrying → build.review.await-review
         """
 
     Scenario: a design numbering new behaviour at or below an earlier ID is refused

@@ -67,6 +67,10 @@ Feature: a reviewer walks the human through the feature's code
     And step "build.quality.sorting" runs its script
     And step "build.quality.closing" runs its script
     And step "build.review.carrying" runs its script
+    And judge step "build.review.ranking" answers:
+      """
+      []
+      """
 
   Scenario: the finding gets its text and answer boxes under the reviewer's pointers
     Given step "build.review.reviewing" is prompted with "- `## AC-1 ignores floating point`:"
@@ -93,11 +97,15 @@ Feature: a reviewer walks the human through the feature's code
       """
       ## Subtract
 
+      _critical: judge unsure_
+
       The new export.
 
       - [ ] ./src/calc.ts#2-2 — subtract(a, b)
 
       ## AC-1 ignores floating point
+
+      _critical: judge unsure_
 
       Should subtract round? The criterion does not say.
 
@@ -114,7 +122,8 @@ Feature: a reviewer walks the human through the feature's code
     And no commit body contains "build.review.composing"
     And the commit subjects end with:
       """
-      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
       gtd(check): build.review.carrying → build.review.await-review
       """
 
@@ -169,11 +178,13 @@ Feature: a reviewer walks the human through the feature's code
     Then the process rests at "build.review.await-review"
     And the commit subjects end with:
       """
-      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
       gtd(check): build.review.carrying → build.review.fix.risks.fixing
       gtd(agent): build.review.fix.risks.fixing → build.health.check
       gtd(check): build.health.check → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
       gtd(check): build.review.carrying → build.review.await-review
       """
 

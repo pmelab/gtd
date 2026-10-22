@@ -19,6 +19,7 @@ import {
   ANSWER_WONT_FIX,
   FREE_TEXT_PLACEHOLDER,
   reviewChunks,
+  severityLine,
 } from "../../steering/index.js"
 import { escapeRegExp } from "./registry.js"
 import {
@@ -301,10 +302,76 @@ export const withWalkthrough = (review: string, report: ComposedReview): string 
           `## ${unique("Dropped as noise")}\n\n${report.noise.map((f) => noiseLine(f, carriedOnly(f))).join("\n")}`,
         ]),
   ]
-  // Nothing to add leaves the review byte for byte, so no carrying step runs.
+  // Nothing to add leaves the review byte for byte.
   if (notes.size === listed && summary.length === 0) return review
   const body = lines.join("\n").trimEnd()
   return summary.length === 0 ? `${body}\n` : `${body}\n\n${summary.join("\n\n")}\n`
+}
+
+export interface RankedChunk {
+  readonly title: string
+  readonly label: string
+}
+
+const chunkBlocks = (
+  review: string,
+): { head: string[]; blocks: { title: string; lines: string[] }[] } => {
+  const lines = review.split("\n")
+  const chunks = reviewChunks(review)
+  return {
+    head: lines.slice(0, chunks[0]?.line ?? lines.length),
+    blocks: chunks.map((c, i) => ({
+      title: c.title,
+      lines: lines.slice(c.line, chunks[i + 1]?.line ?? lines.length),
+    })),
+  }
+}
+
+const isBlank = (line: string | undefined): boolean => line !== undefined && line.trim() === ""
+
+/** \`review\` with every chunk's severity line removed, so a re-review is ranked afresh. */
+export const unranked = (review: string): string => {
+  const drop = new Set(reviewChunks(review).flatMap((c) => c.severityLine ?? []))
+  if (drop.size === 0) return review
+  const lines = review.split("\n")
+  return lines.filter((_, i) => !drop.has(i) && !(drop.has(i - 1) && isBlank(lines[i]))).join("\n")
+}
+
+export const chunkTexts = (review: string): ReadonlyMap<string, string> =>
+  new Map(chunkBlocks(review).blocks.map((b) => [b.title, b.lines.join("\n").trim()]))
+
+// Blank lines only: a chunk opening with an indented code block keeps its indent.
+const trimBlankLines = (lines: readonly string[]): string[] => {
+  let start = 0
+  let end = lines.length
+  while (start < end && isBlank(lines[start])) start++
+  while (end > start && isBlank(lines[end - 1])) end--
+  return lines.slice(start, end)
+}
+
+/**
+ * \`review\` with the \`ranked\` chunks first, in their order, each led by its
+ * severity line; every other chunk follows in place.
+ */
+export const rankedReview = (review: string, ranked: readonly RankedChunk[]): string => {
+  const { head, blocks } = chunkBlocks(review)
+  const place = new Map(ranked.map((r, k) => [r.title, k]))
+  const labels = new Map(ranked.map((r) => [r.title, r.label]))
+  const order = (i: number): number => place.get(blocks[i]!.title) ?? ranked.length
+  const chunk = (i: number): string => {
+    const { title, lines } = blocks[i]!
+    const label = labels.get(title)
+    // A setext heading is its title line and its underline.
+    const heading = /^ {0,3}-+\s*$/.test(lines[1] ?? "") ? 2 : 1
+    const body = trimBlankLines(lines.slice(heading)).join("\n")
+    return [
+      lines.slice(0, heading).join("\n"),
+      ...(label === undefined ? [] : [severityLine(label)]),
+      ...(body === "" ? [] : [body]),
+    ].join("\n\n")
+  }
+  const sorted = blocks.map((_, i) => i).sort((x, y) => order(x) - order(y) || x - y)
+  return `${[head.join("\n").trim(), ...sorted.map(chunk)].filter((p) => p !== "").join("\n\n")}\n`
 }
 
 /**
@@ -1073,6 +1140,15 @@ const wrapItem = (item: string): string[] => {
   }
   return [...out, line]
 }
+
+export const reviewRankingMessage = (): string =>
+  `Ranking each chunk of the review before the human reads it. Run
+\`gtd judge answer\` and pipe, per chunk \`C<n>\`: \`C<n>.security\`
+(yes/no), \`C<n>.reversibility\` (one-way/two-way),
+\`C<n>.blastRadius\` (local/module/contract) and \`C<n>.newConcept\`
+(yes/no) — or land without a verdict, which lists every chunk as
+critical.
+`
 
 export const buildReviewTriageMessage = (): string =>
   `Judging each note the human added to \`.gtd/REVIEW.md\` (a line note, a

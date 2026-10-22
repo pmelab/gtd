@@ -109,6 +109,10 @@ Feature: every note in the review is answered with one tick
       - [ ] ./src/calc.ts#2-2 — now rounds the difference
       """
     And step "build.review.carrying" runs its script
+    And judge step "build.review.ranking" answers:
+      """
+      []
+      """
     And judge step "build.quality.triage" answers:
       """
       [{"id":"Q1","answer":"noise","p":0.9},{"id":"Q2","answer":"noise","p":0.9},{"id":"Q3","answer":"design","p":0.9}]
@@ -121,6 +125,8 @@ Feature: every note in the review is answered with one tick
     And ".gtd/REVIEW.md" contains:
       """
       ## AC-1 ignores floating point
+
+      _critical: judge unsure_
 
       Should subtract round? The criterion does not say.
 
@@ -215,7 +221,8 @@ Feature: every note in the review is answered with one tick
       gtd(agent): build.review.fix.nits.fixing → build.health.check
       gtd(check): build.health.check → build.review.closing
       gtd(check): build.review.closing → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
       gtd(check): build.review.carrying → build.review.await-review
       """
     And ".gtd/REVIEW.md" does not contain "AC-1 ignores floating point"

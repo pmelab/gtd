@@ -77,6 +77,8 @@ interface Changeset {
   readonly headingLine: number
   /** The chunk's answer boxes, when gtd gave it some. */
   readonly answers?: readonly AnswerOption[]
+  /** The tier and reason gtd ranked the chunk with, from its leading severity line. */
+  readonly severity?: { readonly label: string; readonly line: number }
 }
 
 interface AnswerOption {
@@ -88,6 +90,10 @@ interface AnswerOption {
 export const ANSWER_LEAD = "Tick exactly one:"
 export const ANSWER_FIX = "fix as suggested"
 export const ANSWER_WONT_FIX = "won't fix"
+
+/** A chunk's leading `_critical: security_` paragraph: the tier gtd ranked it with, and why. */
+const SEVERITY_LINE_RE = /^_((?:critical|should|could)(?::[^_\n]*)?)_$/
+export const severityLine = (label: string): string => `_${label}_`
 
 interface ReviewDoc {
   readonly shortHash?: string
@@ -521,6 +527,26 @@ const answerListOf = (
   return { lead, list, options }
 }
 
+/** A leading severity line is the chunk's tier, never its prose. */
+const splitSeverity = (
+  content: string,
+  run: readonly RootContent[],
+): {
+  readonly severity?: { readonly label: string; readonly line: number } | undefined
+  readonly leadingRun: readonly RootContent[]
+} => {
+  const first = run[0]
+  const label =
+    first?.type === "paragraph"
+      ? SEVERITY_LINE_RE.exec(sourceText(content, first).trim())?.[1]
+      : undefined
+  if (label === undefined) return { leadingRun: run }
+  return {
+    severity: { label, line: toLspPosition(first!.position!.start).line },
+    leadingRun: run.slice(1),
+  }
+}
+
 /** Splits one chunk's body nodes into its file pointers (hunk pointers are task items, collected recursively at ANY nesting depth via `taskItems` — a nested hunk is the same kind of hunk as a top-level one) and description prose. The description is the chunk's own leading run and never a node that contains a hunk pointer: it stops at the first node whose `taskItems` include a real pointer (at any depth — a blockquote wrapping a pointer list stops it just as a top-level list would). Every node kind in what's left before that point contributes — a `footnoteDefinition` is the one exception, excluded by `blockNodesOfRun` itself (it's a note, never document content). */
 const parseChunkBody = (
   content: string,
@@ -534,6 +560,7 @@ const parseChunkBody = (
   readonly files: readonly ReviewFile[]
   readonly errors: readonly SteeringFinding[]
   readonly answers?: readonly AnswerOption[]
+  readonly severity?: { readonly label: string; readonly line: number } | undefined
   /** Whether a task box outside the answer list exists. */
   readonly boxed: boolean
 } => {
@@ -543,9 +570,10 @@ const parseChunkBody = (
   const firstPointerIndex = body.findIndex(
     (n) => !isAnswer(n) && taskItems(n).some((item) => hasPointerToken(content, item)),
   )
-  const leadingRun = (firstPointerIndex === -1 ? body : body.slice(0, firstPointerIndex)).filter(
+  const run = (firstPointerIndex === -1 ? body : body.slice(0, firstPointerIndex)).filter(
     (n) => !isAnswer(n),
   )
+  const { severity, leadingRun } = splitSeverity(content, run)
   const descriptionNodes = blockNodesOfRun(content, leadingRun)
   const descriptionInline = collapseImages(blockRunInline(content, leadingRun))
   const description = leadingRun
@@ -569,6 +597,7 @@ const parseChunkBody = (
     files,
     errors,
     ...(answer === undefined ? {} : { answers: answer.options }),
+    ...(severity === undefined ? {} : { severity }),
     boxed: body.some((n) => !isAnswer(n) && taskItems(n).length > 0),
   }
 }
@@ -618,6 +647,7 @@ const parseChangesets = (
       descriptionInline,
       files,
       answers,
+      severity,
       boxed,
       errors: bodyErrors,
     } = parseChunkBody(content, lines, title, body)
@@ -638,6 +668,7 @@ const parseChangesets = (
       files,
       headingLine,
       ...(answers === undefined ? {} : { answers }),
+      ...(severity === undefined ? {} : { severity }),
     })
   }
   if (changesets.length === 0) errors.push({ message: "REVIEW.md has no '##' chunks" })
@@ -997,6 +1028,7 @@ const reviewView = (content: string): SteeringView => {
       detail: chunk.description,
       detailInline: chunk.descriptionInline,
       body: chunk.descriptionNodes,
+      ...(chunk.severity === undefined ? {} : { status: chunk.severity.label }),
       anchor: { kind: "chunk", index: chunkIndex },
       ...noteAt(chunk.headingLine),
       children: chunk.files.map((file, index) => ({
@@ -1177,11 +1209,22 @@ const pointerLabel = (f: ReviewFile): string =>
 
 type Found = { line: number; note: Omit<ReviewNote, "id" | "forced"> }
 
-// A chunk added with its own answer boxes (a driver's imported note) is
-// answered by its tick, never judged as prose as well.
-const chunkNote = (chunk: Changeset, prior: Changeset | undefined): Found[] =>
-  chunk.description === (prior?.description ?? "") ||
-  (prior === undefined && chunk.answers !== undefined)
+// Rewording a tier disputes it, so a changed tier joins the note — after the
+// prose, so a leading `!` still forces; deleting one asks nothing.
+const chunkProse = (chunk: Changeset | undefined, retiered: boolean): string =>
+  [
+    chunk?.description ?? "",
+    retiered && chunk?.severity !== undefined ? severityLine(chunk.severity.label) : "",
+  ]
+    .filter((p) => p !== "")
+    .join("\n\n")
+
+const chunkNote = (chunk: Changeset, prior: Changeset | undefined): Found[] => {
+  const retiered = chunk.severity !== undefined && chunk.severity.label !== prior?.severity?.label
+  // A chunk added with its own answer boxes (a driver's imported note) is
+  // answered by its tick, never judged as prose as well.
+  return chunkProse(chunk, retiered) === chunkProse(prior, retiered) ||
+    (prior === undefined && chunk.answers !== undefined)
     ? []
     : [
         {
@@ -1189,11 +1232,12 @@ const chunkNote = (chunk: Changeset, prior: Changeset | undefined): Found[] =>
           note: {
             kind: "chunk",
             anchor: chunk.title,
-            before: prior?.description ?? "",
-            text: chunk.description,
+            before: chunkProse(prior, retiered),
+            text: chunkProse(chunk, retiered),
           },
         },
       ]
+}
 
 const pointerNotes = (chunk: Changeset, prior: Changeset | undefined): Found[] =>
   chunk.files.flatMap((file): Found[] => {
@@ -1342,9 +1386,22 @@ export const reviewDecisions = (before: string, after: string): readonly ReviewD
 /** Each `##` chunk in document order: its title, 0-based heading line and how many hunk pointers it holds. */
 export const reviewChunks = (
   content: string,
-): readonly { title: string; line: number; pointers: number }[] =>
+): readonly {
+  title: string
+  line: number
+  pointers: number
+  /** 0-based line of the chunk's severity line, when it has one. */
+  severityLine?: number
+  files: readonly { path: string; line?: number; rangeEnd?: number }[]
+}[] =>
   parseReviewDoc(content).changesets.map((c) => ({
     title: c.title,
     line: c.headingLine,
     pointers: c.files.length,
+    ...(c.severity === undefined ? {} : { severityLine: c.severity.line }),
+    files: c.files.map((f) => ({
+      path: f.path,
+      ...(f.line === undefined ? {} : { line: f.line }),
+      ...(f.rangeEnd === undefined ? {} : { rangeEnd: f.rangeEnd }),
+    })),
   }))
