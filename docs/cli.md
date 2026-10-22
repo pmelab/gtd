@@ -109,13 +109,6 @@ Commands:
                    gtd.config.ts governs yet, it also writes one importing each
                    shipped workflow from @pmelab/gtd/workflows/<name>; anywhere
                    else it writes nothing.
-  loop             Drive this worktree's process until it rests on you: read
-                   each beat, run the agent turn or script it demands, and
-                   land the result. Exits 0 at a human gate, at idle and when
-                   a landing settles; exits 1 on a stall or a failed turn or
-                   landing. The agent CLI and the model each workflow hint
-                   maps to are per-machine settings (GTD_LOOP_* variables, or
-                   ~/.config/gtd/loop.json); see docs/driver.md
   context-hook     A Claude Code PostToolUse and PreCompact hook that stops an
                    agent turn at a share of its context window. Reads the
                    hook's input on stdin and the context the transcript's

@@ -13,7 +13,7 @@ const uiConfigOf = (
 ): KeysCoveredBy<NonNullable<UiRequest["config"]>, UiConfig> | undefined => config
 
 // Each tool is imported only when its subcommand runs, so `gtd next` never
-// evaluates ui, lsp, judge or loop code (the one-file bundle still carries it).
+// evaluates ui, lsp, judge or hook code (the one-file bundle still carries it).
 // Imports stay destructured where they are awaited: that is the shape fallow
 // traces a dynamic import's uses through. A tool that fails to load fails its
 // command as a GtdError, like any other failure, never as a defect; only the
@@ -59,15 +59,10 @@ export const liveToolCommands = Layer.effect(
           const { startLspServer } = await import("./lsp/index.js")
           return () => startLspServer({ gtd })
         }),
-      loop: (gtd) =>
-        lazy("loop", async () => {
-          const { runLoop, liveLoopHost } = await import("./loop/index.js")
-          return () => runLoop({ gtd }).pipe(Effect.provide(liveLoopHost))
-        }),
       contextHook: (request) =>
-        lazy("loop", async () => {
-          const { runContextHook, liveLoopHost } = await import("./loop/index.js")
-          return () => runContextHook(request).pipe(Effect.provide(liveLoopHost))
+        lazy("context-hook", async () => {
+          const { runContextHook, liveHookHost } = await import("./hook/index.js")
+          return () => runContextHook(request).pipe(Effect.provide(liveHookHost))
         }),
       judge: async (request) => {
         const { runJudge } = await import("./judges/index.js").catch((error: unknown) => {

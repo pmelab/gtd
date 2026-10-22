@@ -1,10 +1,10 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { decide, guardOf } from "../../claude/hooks/context.js"
-import { runContextHook } from "../../src/loop/index.js"
-import { inMemoryLoopHost } from "../integration/support/loop-host.js"
+import { runContextHook } from "../../src/hook/index.js"
+import { inMemoryHookHost } from "../integration/support/hook-host.js"
 
-// The loop's `gtd context-hook` and the mod's classic hooks, held to the same
+// `gtd context-hook` and the mod's classic hooks, held to the same
 // answers: each case is one hook event against a transcript at `tokens`, in a
 // 1000-token window at the default limits.
 const transcript = (tokens: number): string =>
@@ -21,7 +21,7 @@ const viaCli = async (event: string, tokens: number): Promise<Outcome> => {
     runContextHook({
       input: JSON.stringify({ hook_event_name: event, transcript_path: MAIN }),
       window: 1000,
-    }).pipe(Effect.provide(inMemoryLoopHost(new Map([[MAIN, transcript(tokens)]])))),
+    }).pipe(Effect.provide(inMemoryHookHost(new Map([[MAIN, transcript(tokens)]])))),
   )
   if (out === "") return undefined
   const json = JSON.parse(out) as { decision?: string; reason?: string; stopReason?: string }

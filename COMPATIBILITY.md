@@ -46,8 +46,8 @@ histories written by an older or newer gtd.
 - **CLI** — every command (`next`, `land`, `abandon`, `restore`, `validate`,
   `check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `slices`,
   `strays`, `history list`, `history show`, `history metrics`, `history judges`,
-  `history fetch`, `version`, `help`, `ui`, `lsp`, `loop`, `context-hook`,
-  `judge`, `judge answer`, `judge run`), option and argument in
+  `history fetch`, `version`, `help`, `ui`, `lsp`, `context-hook`, `judge`,
+  `judge answer`, `judge run`), option and argument in
   [CLI reference](docs/cli.md), the doors the bundled `fix`, `review`, `rollout`
   and `cleanup` build (`fix`, `review [base]`, `rollout <flag>`,
   `cleanup <flag>`), and the `gtd doors --json` and `gtd history list --json`

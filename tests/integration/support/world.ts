@@ -29,8 +29,8 @@ import { setTimeout as delay } from "node:timers/promises"
 import { runCli } from "../../../src/cli/index.js"
 import { runJudge } from "../../../src/judges/index.js"
 import { inMemoryJudgeIo, type ScriptedClaude } from "./judge-io.js"
-import { inMemoryLoopHost } from "./loop-host.js"
-import { runContextHook } from "../../../src/loop/index.js"
+import { inMemoryHookHost } from "./hook-host.js"
+import { runContextHook } from "../../../src/hook/index.js"
 import { EXIT_OK } from "../../../src/wire/index.js"
 import {
   makeCapturingCliIo,
@@ -589,20 +589,15 @@ export class GtdWorld extends QuickPickleWorld {
     }
   }
 
-  async runGtdLive(...args: string[]): Promise<void> {
-    await this.runGtdLiveWithin(30_000, ...args)
-  }
-
-  /** `runGtdLive` with its own timeout — `gtd loop` runs a whole process, many gtd calls deep. */
   // fallow-ignore-next-line complexity
-  async runGtdLiveWithin(timeout: number, ...args: string[]): Promise<void> {
+  async runGtdLive(...args: string[]): Promise<void> {
     const verbose = process.env["GTD_E2E_VERBOSE"] === "1"
     try {
       const { stdout, stderr } = await execFile(process.execPath, [this.gtdBin, ...args], {
         cwd: this.repoDir,
         env: this.spawnEnv(),
         encoding: "utf-8",
-        timeout,
+        timeout: 30_000,
       })
       if (verbose) {
         process.stderr.write(stdout)
@@ -837,43 +832,6 @@ export class GtdWorld extends QuickPickleWorld {
     }
   }
 
-  /** The pids of the agent turn `spawnGtdLoopAndSignal` interrupted and of the command it backgrounded. `@live` only. */
-  signalledAgentPids: readonly number[] = []
-
-  /**
-   * Signals a spawned `gtd loop` mid agent turn. The scenario's stub agent
-   * writes a backgrounded descendant's pid to `$GTD_TEST_AGENT_MARKER.child`,
-   * then its own to `$GTD_TEST_AGENT_MARKER`, and blocks — so the signal lands
-   * while the loop waits on a process tree it must not leave behind.
-   */
-  async spawnGtdLoopAndSignal(signal: NodeJS.Signals): Promise<void> {
-    const markerDir = mkdtempSync(join(tmpdir(), "gtd-loop-agent-"))
-    const marker = join(markerDir, "marker")
-    try {
-      await this.signalAtMarker(
-        ["loop"],
-        { ...this.spawnEnv(), GTD_TEST_AGENT_MARKER: marker },
-        marker,
-        signal,
-        "gtd loop never started its agent turn",
-        () => {
-          this.signalledAgentPids = [marker, `${marker}.child`].map((path) =>
-            Number(readFileSync(path, "utf-8").trim()),
-          )
-        },
-      )
-    } finally {
-      for (const pid of this.signalledAgentPids) {
-        try {
-          process.kill(pid, "SIGKILL")
-        } catch {
-          // already gone, as it should be
-        }
-      }
-      rmSync(markerDir, { recursive: true, force: true })
-    }
-  }
-
   /** Spawns gtd, waits for `marker` to name a pid, then signals gtd and records how it died. */
   private async signalAtMarker(
     args: readonly string[],
@@ -881,7 +839,6 @@ export class GtdWorld extends QuickPickleWorld {
     marker: string,
     signal: NodeJS.Signals,
     timeoutMessage: string,
-    onMarker: () => void = () => {},
   ): Promise<void> {
     const child = spawn(process.execPath, [this.gtdBin, ...args], {
       cwd: this.repoDir,
@@ -901,7 +858,6 @@ export class GtdWorld extends QuickPickleWorld {
       await exited
       assert.fail(timeoutMessage)
     }
-    onMarker()
     this.signalAliveAtSend = child.exitCode === null && child.signalCode === null
     child.kill(signal)
     const { code, signal: died } = await exited
@@ -1642,7 +1598,7 @@ export class GtdWorld extends QuickPickleWorld {
     const { io, result } = makeCapturingCliIo(this.repo!, this.envVars, {
       judge: (request) => runJudge({ ...request, io: judgeIo }),
       contextHook: (request) =>
-        runContextHook(request).pipe(Effect.provide(inMemoryLoopHost(this.userFiles))),
+        runContextHook(request).pipe(Effect.provide(inMemoryHookHost(this.userFiles))),
       ui: this.uiTool(),
     })
     await Effect.runPromise(runCli(["node", "gtd.js", ...args], io), { signal }).catch(

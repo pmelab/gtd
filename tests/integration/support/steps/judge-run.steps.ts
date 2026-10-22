@@ -1,6 +1,9 @@
 import { createServer } from "node:http"
 import type { AddressInfo } from "node:net"
 import assert from "node:assert"
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { Given, Then, When } from "quickpickle"
 import type { GtdWorld } from "../world.js"
 
@@ -51,4 +54,19 @@ Then("claude was run with {string}", (world: GtdWorld, args: string) => {
     runs.some((run) => run.includes(args)),
     `Expected a claude run with "${args}". Got:\n${runs.join("\n")}`,
   )
+})
+
+// Points the user-level config home at a fresh directory, so the machine
+// running the suite never leaks its own ~/.config/gtd/judge.json — in memory,
+// a path no real file sits under.
+Given("a user-level judge config with:", (world: GtdWorld, json: string) => {
+  const home = (world.envVars["XDG_CONFIG_HOME"] ??=
+    world.repo !== undefined ? "/inmem-config" : mkdtempSync(join(tmpdir(), "gtd-config-")))
+  const path = join(home, "gtd", "judge.json")
+  if (world.repo !== undefined) {
+    world.userFiles.set(path, String(json))
+    return
+  }
+  mkdirSync(join(home, "gtd"), { recursive: true })
+  writeFileSync(path, String(json))
 })

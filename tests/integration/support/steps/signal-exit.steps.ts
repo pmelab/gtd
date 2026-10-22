@@ -4,12 +4,8 @@ import type { GtdWorld } from "../world.js"
 
 // ── Signal death (`@live` only — see world.ts's `spawnGtdNextAndSignal`) ──────
 
-When("I send SIGINT to a spawned gtd next", async (world: GtdWorld) => {
-  await world.spawnGtdNextAndSignal("SIGINT")
-})
-
-When("I send SIGTERM to a spawned gtd next", async (world: GtdWorld) => {
-  await world.spawnGtdNextAndSignal("SIGTERM")
+When("I send {word} to a spawned gtd next", async (world: GtdWorld, signal: string) => {
+  await world.spawnGtdNextAndSignal(signal as NodeJS.Signals)
 })
 
 // ── gtd ui's own process lifecycle (`@live` only — see world.ts's `spawnGtdUiAndSignal`) ──

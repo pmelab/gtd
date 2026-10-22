@@ -302,17 +302,19 @@ this with your environment. See
 [Driving the loop](https://github.com/pmelab/gtd/blob/main/docs/driver.md) for
 the full protocol.
 
-Or skip writing one: **`gtd loop`** is that loop, shipped with gtd. It drives
-`claude` (or `pi`) until the process rests on you, logs every turn to the file
-`gtd next --json=log` names, and maps the workflow's `smart`/`base` model hints
-to real model names through per-machine settings — see
-[`gtd loop`](https://github.com/pmelab/gtd/blob/main/docs/driver.md#the-bundled-driver-gtd-loop).
+Or skip writing one: the
+[complete minimal driver](https://github.com/pmelab/gtd/blob/main/docs/driver.md#a-complete-minimal-driver)
+is a paste to own outright. It drives `claude` until the process rests on you,
+logs every turn to the file `gtd next --json=log` names, records each turn's
+cost on its landing, answers judge gates through `gtd judge run`, and maps the
+workflow's `smart`/`base` model hints to real model names through
+`GTD_LOOP_MODEL_SMART`/`GTD_LOOP_MODEL_BASE`.
 
 Both it and the Claude Code mod stop an agent turn that outgrows its context:
 past 60% of the model's window the agent is asked to wrap up with a handoff
-note, past 70% (or when the context is about to be compacted) the turn stops and
-nothing lands. A step's `context` option, or the bundled workflows'
-`contextLimit` option, moves the two limits — see
+note, past 70% after a tool call (or when the context is about to be compacted)
+the turn stops and nothing lands. A step's `context` option, or the bundled
+workflows' `contextLimit` option, moves the two limits — see
 [Context limits](https://github.com/pmelab/gtd/blob/main/docs/driver.md#context-limits).
 In `feature`, a naive pass, refactor or build turn that wrapped up that way is a
 snapshot: a fresh turn picks up from it with the handoff note and the criteria
@@ -478,10 +480,10 @@ noted in steps 3 and 4 below.
    - After you review: is each of your notes an edit, a question, a nit or
      praise?
 
-   gtd itself never calls a judge: `gtd loop`, the Claude Code mod and the
-   reference driver answer these through `gtd judge run` (auto selection: jev
-   when `TYPESAFE_API_KEY` is set, else `llm` via `claude`, default model
-   sonnet, while the Claude Code mod's own judge subagent stays on `haiku` —
+   gtd itself never calls a judge: the Claude Code mod and the reference driver
+   answer these through `gtd judge run` (auto selection: jev when
+   `TYPESAFE_API_KEY` is set, else `llm` via `claude`, default model sonnet,
+   while the Claude Code mod's own judge subagent stays on `haiku` —
    `--model <name>` overrides); if that fails it shows you the message and
    stops. **The `llm` provider's `p` is self-reported by the model, not a
    measured probability, so a confidently wrong verdict can clear the 0.7 floor
@@ -896,7 +898,7 @@ install for any of these but `./testkit`: gtd resolves a `gtd.config.ts`'s
 The `gtd` bin's commands — `next`, `land`, `abandon`, `restore`, `validate`,
 `check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `slices`,
 `version`, `help`, `history list`, `history show`, `history metrics`,
-`history judges`, `history fetch`, `strays`, and the tools `ui`, `lsp`, `loop`,
+`history judges`, `history fetch`, `strays`, and the tools `ui`, `lsp`,
 `context-hook`, `judge` (`judge answer`, `judge run`) — are listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
 `gtd slices` lists the spans a flow's `slice()` calls mark. It refuses (exit 1)

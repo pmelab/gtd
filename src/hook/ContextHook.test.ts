@@ -1,22 +1,18 @@
 import { Effect, Layer } from "effect"
 import { expect, it } from "vitest"
 import { runContextHook } from "./ContextHook.js"
-import { LoopHost } from "./index.js"
+import { HookHost } from "./index.js"
 
 const run = (env: Record<string, string>, failAppend = false) => {
   const appended: [string, string][] = []
-  const host = Layer.succeed(LoopHost, {
+  const host = Layer.succeed(HookHost, {
     env,
-    color: false,
-    spawn: () => Effect.fail(new Error("no spawn")),
     readFile: () => Effect.succeed(undefined),
-    resetLog: () => Effect.void,
-    appendLog: (path, text) =>
+    appendFile: (path, text) =>
       Effect.sync(() => {
         if (failAppend) throw new Error("EACCES")
         appended.push([path, text])
       }),
-    say: () => Effect.void,
   })
   const input = JSON.stringify({ hook_event_name: "PreCompact", transcript_path: "/t.jsonl" })
   return Effect.runPromise(runContextHook({ input }).pipe(Effect.provide(host))).then((out) => ({
