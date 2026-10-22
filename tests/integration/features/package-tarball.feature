@@ -87,6 +87,9 @@ Feature: the packed package — gtd installed from its own tarball
       Build a calculator.
       """
     And an environment variable "GTD_TESTCOMMAND" set to "true"
+    # No judge.json from this machine: a judge gate goes to the stub, not to
+    # whatever provider the developer configured.
+    And an environment variable "XDG_CONFIG_HOME" set to "/nonexistent-gtd-config"
     And a stub agent script that responds to prompts with:
       """
       mkdir -p .gtd

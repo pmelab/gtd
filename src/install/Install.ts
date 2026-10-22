@@ -44,17 +44,22 @@ while :; do
     # \`gtd judge run\` and land the verdict via \`gtd judge answer\`. POSIX sh has
     # no pipefail, so each step is captured first and only piped on when it
     # succeeded; if \`gtd judge run\` fails or \`gtd judge answer\` rejects the
-    # verdict, its stderr reaches you and we fall through to the human hand-off,
-    # as we do when the gate we just answered comes straight back.
+    # verdict, its stderr reaches you and the gate is handed to you — on the
+    # opening beat too, so it never lands unanswered — as it is when the gate
+    # we just answered comes straight back.
     message)
-      state="$(gtd next --json=state)"
-      if [ -n "$(gtd next --json=judge)" ] && [ "$state" != "$judged_before" ] &&
-        verdict="$(gtd judge --json | gtd judge run)" &&
-        script="$(printf '%s\\n' "$verdict" | gtd judge answer --json=script)"; then
-        printf '%s\\n' "$script" | sh
-        judged="$state"
-        beat=$((beat + 1))
-        continue
+      if [ -n "$(gtd next --json=judge)" ]; then
+        state="$(gtd next --json=state)"
+        if [ "$state" != "$judged_before" ] &&
+          verdict="$(gtd judge --json | gtd judge run)" &&
+          script="$(printf '%s\\n' "$verdict" | gtd judge answer --json=script)"; then
+          printf '%s\\n' "$script" | sh
+          judged="$state"
+          beat=$((beat + 1))
+          continue
+        fi
+        gtd next
+        exit 0
       fi
       [ "$beat" = 1 ] || {
         gtd next
@@ -76,7 +81,7 @@ while :; do
       context="$(gtd next --json=context)"
       log="$(gtd next --json=log)"
       # Absolute, since the hook runs wherever the agent last cd'ed to.
-      case "$log" in /*) ;; *) log="$(pwd)/$log" ;; esac
+      case "$log" in /*) ;; *) log="$(git rev-parse --show-toplevel)/$log" ;; esac
       # \`model\` is a hint, not a model name — the bundled workflow ships
       # \`smart\` and \`base\`, which \`claude --model\` rejects. Resolve them
       # from your environment; unset, the hint is dropped and the agent runs
@@ -119,6 +124,7 @@ while :; do
         esac
         usd="$(printf '%s\\n' "$out" | sed -n 's/.*"total_cost_usd":\\([0-9.eE+-]*\\).*/\\1/p' | tail -n 1)"
         [ -z "$usd" ] || cost="$(awk -v a="\${cost:-0}" -v b="$usd" 'BEGIN { printf "%.6f", a + b }')"
+        [ "\${cost:-}" != 0.000000 ] || cost=
         if [ -s "$GTD_LOOP_CONTEXT_STOP_FILE" ]; then
           cat "$GTD_LOOP_CONTEXT_STOP_FILE" >&2
           exit 1
@@ -128,15 +134,23 @@ while :; do
       # Plain \`gtd next\` (not --json=content) renders the diff once.
       gtd next >"$log.prompt"
       if [ "\${resume:-}" = true ]
-      then turn --resume "$session_id" <"$log.prompt" || turn --session-id "$session_id" <"$log.prompt"
-      else turn --session-id "$session_id" <"$log.prompt" || turn --resume "$session_id" <"$log.prompt"
+      then first=--resume second=--session-id
+      else first=--session-id second=--resume
       fi
+      turn "$first" "$session_id" <"$log.prompt" ||
+        turn "$second" "$session_id" <"$log.prompt" || {
+        echo "agent turn failed on both session flags — see $log" >&2
+        exit 1
+      }
       n=0
       while [ -n "\${validate:-}" ] && ! fix="$(sh -c "$validate" 2>&1)"; do
         n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\\n' "$fix" >&2; exit 1; }
         # $fix IS the fix prompt, verbatim.
         printf '%s' "$fix" >"$log.prompt"
-        turn --resume "$session_id" <"$log.prompt"
+        turn --resume "$session_id" <"$log.prompt" || {
+          echo "fix turn failed — see $log" >&2
+          exit 1
+        }
       done
       rm -f "$log.prompt" ;;
   esac

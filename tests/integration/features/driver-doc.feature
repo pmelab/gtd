@@ -279,3 +279,38 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     When I run the driver from the docs
     Then it fails
     And the last commit subject is "gtd(human): idle → working"
+
+  Scenario: Hands an opening judge gate to the human, landing nothing, when the judge fails
+    # No provider is configured, so `gtd judge run` asks `claude`, and the
+    # stub fails that call.
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human, judge } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await judge("gate", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: {},
+          message: "judge me",
+        })
+        await human("done", { message: "all done" })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And gtd lands "gtd(human): idle → gate"
+    And an environment variable "XDG_CONFIG_HOME" set to "/nonexistent-gtd-config"
+    And a stub agent script that responds to prompts with:
+      """
+      echo "no login" >&2
+      exit 1
+      """
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
+    Then it succeeds
+    And stdout contains "judge me"
+    And the last commit subject is "gtd(human): idle → gate"
