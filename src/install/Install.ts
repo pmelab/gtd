@@ -11,6 +11,9 @@ export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
 export BASH_DEFAULT_TIMEOUT_MS=1800000
 export BASH_MAX_TIMEOUT_MS=7200000
 
+# gtd's paths, scripts and checks are relative to the repository root.
+cd "$(git rev-parse --show-toplevel)"
+
 beat=1
 while :; do
   cost=
@@ -100,8 +103,8 @@ while :; do
       hook="gtd context-hook\${soft:+ --soft $soft}\${hard:+ --hard $hard}\${window:+ --window $window}"
       hooks="[{\\"hooks\\":[{\\"type\\":\\"command\\",\\"command\\":\\"$hook\\"}]}]"
       settings="{\\"hooks\\":{\\"PostToolUse\\":$hooks,\\"PreCompact\\":$hooks}}"
-      export GTD_LOOP_CONTEXT_STOP_FILE="$log.context-stop"
-      rm -f "$GTD_LOOP_CONTEXT_STOP_FILE"
+      stop="$log.context-stop"
+      rm -f "$stop"
       # One turn, its prompt on stdin. The prompt embeds a full diff, so it
       # never goes on argv — argv is capped (~1 MB on macOS, and POSIX
       # guarantees only 4 KB, ARG_MAX), and a diff crosses that far sooner
@@ -111,22 +114,24 @@ while :; do
       # goes to the log, and its \`total_cost_usd\` adds up into $cost. An
       # \`is_error\` envelope (max turns, an error mid-turn) or one another
       # hook stopped fails the turn even at exit 0: landing it would land
-      # the failure as work.
+      # the failure as work. Only a turn that never ran (no envelope: the
+      # session flag was refused) is worth retrying under the other flag.
       turn() {
-        out="$(claude -p "$@" \\
+        out="$(GTD_LOOP_CONTEXT_STOP_FILE="$stop" claude -p "$@" \\
           \${model:+--model "$model"} \\
           \${system:+--system-prompt "$system"} \\
           --settings "$settings" --output-format json \\
           --dangerously-skip-permissions 2>>"$log")" && ok=0 || ok=$?
         printf '%s\\n' "$out" >>"$log"
+        case "$out" in *'"type":"result"'*) ran=true ;; *) ran=false ;; esac
         case "$out" in
           *'"is_error":true'* | *'"terminal_reason":"hook_stopped"'*) ok=1 ;;
         esac
         usd="$(printf '%s\\n' "$out" | sed -n 's/.*"total_cost_usd":\\([0-9.eE+-]*\\).*/\\1/p' | tail -n 1)"
         [ -z "$usd" ] || cost="$(awk -v a="\${cost:-0}" -v b="$usd" 'BEGIN { printf "%.6f", a + b }')"
         [ "\${cost:-}" != 0.000000 ] || cost=
-        if [ -s "$GTD_LOOP_CONTEXT_STOP_FILE" ]; then
-          cat "$GTD_LOOP_CONTEXT_STOP_FILE" >&2
+        if [ -s "$stop" ]; then
+          cat "$stop" >&2
           exit 1
         fi
         return "$ok"
@@ -138,8 +143,8 @@ while :; do
       else first=--session-id second=--resume
       fi
       turn "$first" "$session_id" <"$log.prompt" ||
-        turn "$second" "$session_id" <"$log.prompt" || {
-        echo "agent turn failed on both session flags — see $log" >&2
+        { [ "$ran" = false ] && turn "$second" "$session_id" <"$log.prompt"; } || {
+        echo "agent turn failed — see $log" >&2
         exit 1
       }
       n=0

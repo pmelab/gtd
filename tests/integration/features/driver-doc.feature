@@ -254,7 +254,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the log file contains "HOOK: gtd context-hook --soft 0.5 --hard 0.6"
     And the last commit subject is "gtd(human): idle → working"
 
-  Scenario: Lands nothing when the agent's envelope reports an error at exit 0
+  Scenario: Lands nothing, and retries nothing, when the agent's envelope reports an error at exit 0
+    # A second call would succeed: the paste must not make one, since the
+    # failed turn ran and the session flag was not the problem.
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -272,6 +274,12 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And gtd lands "gtd(human): idle → working"
     And a stub agent script that responds to prompts with:
       """
+      if [ -f .git/turned ]; then
+        echo whole > DONE.md
+        echo '{"type":"result","is_error":false}'
+        exit 0
+      fi
+      touch .git/turned
       echo half > DONE.md
       echo '{"type":"result","subtype":"error_max_turns","is_error":true}'
       """
