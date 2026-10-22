@@ -1485,7 +1485,17 @@ describe("walkthrough", () => {
     ).toBe(true)
   })
 
-  it("leaves a review with nothing to add as it was", () => {
+  it("leaves a review with nothing to add byte for byte, trailing newlines and all", () => {
     expect(withWalkthrough(review, empty)).toBe(review)
+    expect(withWalkthrough(review.trimEnd(), empty)).toBe(review.trimEnd())
+    expect(withWalkthrough(review, { ...empty, notes: [{ title: "absent", body: "x" }] })).toBe(
+      review,
+    )
+  })
+
+  it("keeps Risk: out of a finding's chunk", () => {
+    expect(walkthroughBlock([{ title: "x", body: "y" }])).toContain(
+      "never open a note in a finding's chunk with `Risk:`",
+    )
   })
 })

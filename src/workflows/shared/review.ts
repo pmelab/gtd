@@ -214,13 +214,22 @@ const composing = (
     { label: "Composing the review", file: REVIEW, base },
   )
 
-/** Refuses a review with a chunk pointing at no code, or a lap note without a chunk of its own. */
-const requirePointers = (review: string, notes: readonly { title: string }[]): void => {
+/**
+ * Refuses a review with a chunk pointing at no code, or a lap note without a
+ * chunk of its own. A range with no code change has nothing to point at, so
+ * there only a note's chunk needs a pointer.
+ */
+const requirePointers = (
+  review: string,
+  notes: readonly { title: string }[],
+  codeChanged: boolean,
+): void => {
   const chunks = reviewChunks(review)
   const titles = new Set(chunks.map((c) => c.title))
+  const noted = new Set(notes.map((n) => n.title))
   const problems = [
     ...chunks
-      .filter((c) => c.pointers === 0)
+      .filter((c) => c.pointers === 0 && (codeChanged || noted.has(c.title)))
       .map((c) => `  - ${REVIEW}:${c.line + 1}: ${c.title} — points at no code`),
     ...notes.filter((n) => !titles.has(n.title)).map((n) => `  - ${n.title} — no chunk of its own`),
   ]
@@ -246,7 +255,11 @@ const walkthrough = async (
   const review = read(REVIEW)
   // A review the reviewer did not write is the round's own refusal or rest.
   if (review === undefined) return
-  requirePointers(review, notes)
+  requirePointers(
+    review,
+    notes,
+    changesSince(base).some((c) => isCode(c.path)),
+  )
   const full = t.withWalkthrough(review, report)
   if (full !== review) {
     await run("review.carrying", writeScript(REVIEW, full), {
@@ -288,7 +301,6 @@ export const humanReview = (
     isCode,
     reviewing: (b, carry) => {
       const fixedAt = nitFix
-      nitFix = undefined
       const report = options.report ?? NO_FINDINGS
       return options.walkthrough === true
         ? walkthrough(b, composedOf(b, report, fixedAt, answered), options.lap ?? "first", carry)
@@ -296,7 +308,11 @@ export const humanReview = (
     },
     fixRisks: guarded((notes) => fixRisks(notes, fixAccess, rules), guard),
     keepGreen: () => healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules }),
-    awaitReview,
+    // Kept until the human sees a review, so a re-review after a risk fix still names it.
+    awaitReview: (b) => {
+      nitFix = undefined
+      return awaitReview(b)
+    },
     reviewMissing,
     collecting: feedback.collecting,
     triage: triage(severities),

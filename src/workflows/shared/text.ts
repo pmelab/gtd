@@ -192,18 +192,23 @@ const carriedOnly = (f: Origin): Origin => (f.slice === undefined ? {} : f)
 // The lead-in line keeps a body that ends in a list from absorbing the boxes.
 const ANSWER_BOXES = `${ANSWER_LEAD}\n\n- [ ] ${ANSWER_FIX}\n- [ ] ${ANSWER_WONT_FIX}\n- [ ] ${FREE_TEXT_PLACEHOLDER}`
 
+/** Numbers a title already in `used` — `x (2)`, `x (3)` — and claims the result; notes are told apart by title. */
+const uniquifier =
+  (used: Set<string>) =>
+  (title: string): string => {
+    let name = title
+    for (let n = 2; used.has(name); n++) name = `${title} (${n})`
+    used.add(name)
+    return name
+  }
+
 /** The notes as their review chunks are titled: unique, never a summary's or a conflict's; answered ones left out. */
 export const titledNotes = (report: ComposedReview): readonly LapNote[] => {
   const used = new Set([
     ...SUMMARY_TITLES,
     ...(report.standards?.undecided ?? []).map(conflictTitle),
   ])
-  const unique = (title: string): string => {
-    let name = title
-    for (let n = 2; used.has(name); n++) name = `${title} (${n})`
-    used.add(name)
-    return name
-  }
+  const unique = uniquifier(used)
   return report.notes
     .map((n) => ({ ...n, title: unique(n.title) }))
     .filter((n) => report.answered?.has(n.title) !== true)
@@ -235,7 +240,9 @@ holding one pointer per hunk of the code the finding cites, each with a
 short note on what that hunk has to do with it. A finding citing no line
 points at the code it is most about. Write nothing else in that chunk:
 gtd adds the finding's text under its heading and the human's answer
-boxes after your pointers. Never fold a finding into another chunk.
+boxes after your pointers. Never fold a finding into another chunk, and
+never open a note in a finding's chunk with \`Risk:\` — the human decides
+those.
 
 ${listed}
 
@@ -251,6 +258,7 @@ export const withWalkthrough = (review: string, report: ComposedReview): string 
   const lines = review.split("\n")
   const chunks = reviewChunks(review)
   const notes = new Map(titledNotes(report).map((n) => [n.title, n]))
+  const listed = notes.size
   // Last first, so an earlier chunk's line numbers still hold.
   for (let i = chunks.length - 1; i >= 0; i--) {
     const n = notes.get(chunks[i]!.title)
@@ -266,13 +274,8 @@ export const withWalkthrough = (review: string, report: ComposedReview): string 
     const rest = pointers === "" ? [] : [pointers, ""]
     lines.splice(start + 1, end - start - 1, "", text, "", ...rest, ANSWER_BOXES, "")
   }
-  const used = new Set(reviewChunks(review).map((c) => c.title))
-  const unique = (title: string): string => {
-    let name = title
-    for (let n = 2; used.has(name); n++) name = `${title} (${n})`
-    used.add(name)
-    return name
-  }
+  const used = new Set(chunks.map((c) => c.title))
+  const unique = uniquifier(used)
   const added = report.standards?.added ?? []
   const summary = [
     ...(report.standards?.undecided ?? [])
@@ -294,6 +297,8 @@ export const withWalkthrough = (review: string, report: ComposedReview): string 
           `## ${unique("Dropped as noise")}\n\n${report.noise.map((f) => noiseLine(f, carriedOnly(f))).join("\n")}`,
         ]),
   ]
+  // Nothing to add leaves the review byte for byte, so no carrying step runs.
+  if (notes.size === listed && summary.length === 0) return review
   const body = lines.join("\n").trimEnd()
   return summary.length === 0 ? `${body}\n` : `${body}\n\n${summary.join("\n\n")}\n`
 }
@@ -306,12 +311,7 @@ export const withWalkthrough = (review: string, report: ComposedReview): string 
 export const composedReview = (base: string, report: ComposedReview): string => {
   // Summary titles are taken first, so no note can claim one.
   const used = new Set(SUMMARY_TITLES)
-  const unique = (title: string): string => {
-    let name = title
-    for (let n = 2; used.has(name); n++) name = `${title} (${n})`
-    used.add(name)
-    return name
-  }
+  const unique = uniquifier(used)
   const chunk = (title: string, body: string): string => `## ${title}\n\n${body.trim()}`
   const conflicts = (report.standards?.undecided ?? []).map((c) =>
     chunk(unique(conflictTitle(c)), conflictBody(c)),
@@ -1269,12 +1269,7 @@ export const withLapFindings = (review: string, { notes, fixed, noise }: LapFind
       .filter((line) => line.startsWith("## "))
       .map((line) => line.slice(3).trim()),
   )
-  const unique = (title: string): string => {
-    let name = title
-    for (let n = 2; used.has(name); n++) name = `${title} (${n})`
-    used.add(name)
-    return name
-  }
+  const unique = uniquifier(used)
   const chunks = [
     ...notes.map((n) => `## ${unique(n.title)}\n\n${originLine(n)}${noteBody(n)}`),
     ...(fixed.length === 0
