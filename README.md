@@ -312,9 +312,9 @@ workflow's `smart`/`base` model hints to real model names through
 
 Both it and the Claude Code mod stop an agent turn that outgrows its context:
 past 60% of the model's window the agent is asked to wrap up with a handoff
-note, past 70% (or when the context is about to be compacted) the turn stops and
-nothing lands. A step's `context` option, or the bundled workflows'
-`contextLimit` option, moves the two limits — see
+note, past 70% after a tool call (or when the context is about to be compacted)
+the turn stops and nothing lands. A step's `context` option, or the bundled
+workflows' `contextLimit` option, moves the two limits — see
 [Context limits](https://github.com/pmelab/gtd/blob/main/docs/driver.md#context-limits).
 In `feature`, a naive pass, refactor or build turn that wrapped up that way is a
 snapshot: a fresh turn picks up from it with the handoff note and the criteria

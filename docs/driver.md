@@ -809,6 +809,8 @@ beat=1
 while :; do
   cost=
   model=
+  judged_before="${judged:-}"
+  judged=
   # One value per invocation: `gtd next --json=<path>` is a pure read (peek
   # or dispatch, indistinguishable, always safe to call again), so nothing is
   # lost by reading `kind`/`idle` as two separate calls rather than one
@@ -836,12 +838,15 @@ while :; do
     # `gtd judge run` and land the verdict via `gtd judge answer`. POSIX sh has
     # no pipefail, so each step is captured first and only piped on when it
     # succeeded; if `gtd judge run` fails or `gtd judge answer` rejects the
-    # verdict, its stderr reaches you and we fall through to the human hand-off.
+    # verdict, its stderr reaches you and we fall through to the human hand-off,
+    # as we do when the gate we just answered comes straight back.
     message)
-      if [ -n "$(gtd next --json=judge)" ] &&
+      state="$(gtd next --json=state)"
+      if [ -n "$(gtd next --json=judge)" ] && [ "$state" != "$judged_before" ] &&
         verdict="$(gtd judge --json | gtd judge run)" &&
         script="$(printf '%s\n' "$verdict" | gtd judge answer --json=script)"; then
         printf '%s\n' "$script" | sh
+        judged="$state"
         beat=$((beat + 1))
         continue
       fi
@@ -864,6 +869,8 @@ while :; do
       validate="$(gtd next --json=validate)"
       context="$(gtd next --json=context)"
       log="$(gtd next --json=log)"
+      # Absolute, since the hook runs wherever the agent last cd'ed to.
+      case "$log" in /*) ;; *) log="$(pwd)/$log" ;; esac
       # `model` is a hint, not a model name — the bundled workflow ships
       # `smart` and `base`, which `claude --model` rejects. Resolve them
       # from your environment; unset, the hint is dropped and the agent runs
@@ -878,7 +885,7 @@ while :; do
       soft="$(printf '%s' "$context" | sed -n 's/.*"soft":\([0-9.]*\).*/\1/p')"
       hard="$(printf '%s' "$context" | sed -n 's/.*"hard":\([0-9.]*\).*/\1/p')"
       window="${GTD_LOOP_CONTEXT_WINDOW:-}"
-      case "$model" in *'[1m]'*) window="${window:-1000000}" ;; esac
+      case "$model" in *'[1m]'* | *'[1M]'*) window="${window:-1000000}" ;; esac
       hook="gtd context-hook${soft:+ --soft $soft}${hard:+ --hard $hard}${window:+ --window $window}"
       hooks="[{\"hooks\":[{\"type\":\"command\",\"command\":\"$hook\"}]}]"
       settings="{\"hooks\":{\"PostToolUse\":$hooks,\"PreCompact\":$hooks}}"
@@ -890,7 +897,10 @@ while :; do
       # than you'd expect. Every turn passes the same $model/$system:
       # whether `claude --resume` re-applies the original session's is a
       # harness detail gtd cannot verify from outside. Its JSON envelope
-      # goes to the log, and its `total_cost_usd` adds up into $cost.
+      # goes to the log, and its `total_cost_usd` adds up into $cost. An
+      # `is_error` envelope (max turns, an error mid-turn) or one another
+      # hook stopped fails the turn even at exit 0: landing it would land
+      # the failure as work.
       turn() {
         out="$(claude -p "$@" \
           ${model:+--model "$model"} \
@@ -898,8 +908,11 @@ while :; do
           --settings "$settings" --output-format json \
           --dangerously-skip-permissions 2>>"$log")" && ok=0 || ok=$?
         printf '%s\n' "$out" >>"$log"
+        case "$out" in
+          *'"is_error":true'* | *'"terminal_reason":"hook_stopped"'*) ok=1 ;;
+        esac
         usd="$(printf '%s\n' "$out" | sed -n 's/.*"total_cost_usd":\([0-9.eE+-]*\).*/\1/p' | tail -n 1)"
-        cost="$(awk -v a="${cost:-0}" -v b="${usd:-0}" 'BEGIN { printf "%.6f", a + b }')"
+        [ -z "$usd" ] || cost="$(awk -v a="${cost:-0}" -v b="$usd" 'BEGIN { printf "%.6f", a + b }')"
         if [ -s "$GTD_LOOP_CONTEXT_STOP_FILE" ]; then
           cat "$GTD_LOOP_CONTEXT_STOP_FILE" >&2
           exit 1
@@ -918,7 +931,8 @@ while :; do
         # $fix IS the fix prompt, verbatim.
         printf '%s' "$fix" >"$log.prompt"
         turn --resume "$session_id" <"$log.prompt"
-      done ;;
+      done
+      rm -f "$log.prompt" ;;
   esac
 
   # Read every value the landing needs BEFORE piping the script to `sh`:
@@ -991,7 +1005,10 @@ paste reads `--json=context`, hands `gtd context-hook` with those limits to
 its hard limit leaves a line there; the paste prints it and exits 1, landing
 nothing. Each turn's `--output-format json` envelope goes to the log, and its
 `total_cost_usd` — failed and fix turns included — adds up into the `--cost`
-(and `--model`) the landing records.
+(and `--model`) the landing records. An envelope with `"is_error":true`, or one
+another hook stopped, fails the turn even at exit 0, so it never lands as work.
+A judge gate that comes straight back after the verdict the paste just landed is
+handed to you rather than answered again.
 
 This paste passes `$system` on argv, and POSIX guarantees only 4 KB of argv
 (`ARG_MAX`) — real systems are far higher (roughly 1 MB on both macOS and

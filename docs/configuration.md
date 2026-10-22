@@ -8,10 +8,10 @@ required: without one, every command that resolves workflow state fails, saying
 to run `gtd install`, which scaffolds one running gtd's shipped workflows.
 
 Settings that belong to a machine rather than a repository live outside it: the
-judge `gtd judge run` uses (see [Judge settings](#judge-settings)) and the
-loop's (see [the CLI reference](./cli.md)), plus `GTD_<NAME>` variables (see
-[Settings](#settings)). The `.gtdrc` files earlier versions read are gone — a
-leftover one is an error (see [Migrating from `.gtdrc`](#migrating-from-gtdrc)).
+judge `gtd judge run` uses (see [Judge settings](#judge-settings)), plus
+`GTD_<NAME>` variables (see [Settings](#settings)). The `.gtdrc` files earlier
+versions read are gone — a leftover one is an error (see
+[Migrating from `.gtdrc`](#migrating-from-gtdrc)).
 
 > **Trust: `gtd.config.ts` is code, and gtd runs it.** Because the workflow is a
 > TypeScript module, every gtd command that resolves workflow state evaluates

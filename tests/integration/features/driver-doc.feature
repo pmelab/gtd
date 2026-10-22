@@ -253,3 +253,29 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And stderr contains "gtd: context limit: the context is about to be compacted"
     And the log file contains "HOOK: gtd context-hook --soft 0.5 --hard 0.6"
     And the last commit subject is "gtd(human): idle → working"
+
+  Scenario: Lands nothing when the agent's envelope reports an error at exit 0
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "Write DONE.md.")
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And gtd lands "gtd(human): idle → working"
+    And a stub agent script that responds to prompts with:
+      """
+      echo half > DONE.md
+      echo '{"type":"result","subtype":"error_max_turns","is_error":true}'
+      """
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
+    Then it fails
+    And the last commit subject is "gtd(human): idle → working"
