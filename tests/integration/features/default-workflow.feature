@@ -185,11 +185,11 @@ Feature: The bundled unified workflow — one flow, end to end
     # findings, straight on to human review.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.spec-challenge.reviewing → build.review.composing"
+    And the last commit subject is "gtd(agent): build.quality.spec-challenge.reviewing → build.review.reviewing"
 
-    # No reviewer turn: gtd composes the review itself.
+    # The reviewer walks the human through the change, every chunk pointing at its code.
     When I run gtd next
-    Then stdout contains "State: build.review.composing"
+    Then stdout contains "Write `.gtd/REVIEW.md` in this exact format"
 
     Given a file ".gtd/REVIEW.md" with:
       """
@@ -203,7 +203,7 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.composing → build.review.await-review"
+    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.await-review"
     When I run gtd next
     Then it succeeds
     And stdout contains "State: build.review.await-review"
@@ -262,8 +262,8 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(agent): build.quality.ponytail-review.reviewing → build.quality.test-audit.reviewing
       gtd(agent): build.quality.test-audit.reviewing → build.quality.conventions.reviewing
       gtd(agent): build.quality.conventions.reviewing → build.quality.spec-challenge.reviewing
-      gtd(agent): build.quality.spec-challenge.reviewing → build.review.composing
-      gtd(check): build.review.composing → build.review.await-review
+      gtd(agent): build.quality.spec-challenge.reviewing → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.await-review
       gtd(human): build.review.await-review → build.review.closing
       gtd(check): build.review.closing → idle
       """

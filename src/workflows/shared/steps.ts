@@ -94,15 +94,16 @@ export const fixQuality = (rules?: string): Promise<void> =>
     allowEmpty: true,
   })
 
-/** Write `.gtd/REVIEW.md` over everything since `base`, carrying the answers of commit `carry` when given. */
+/** Write `.gtd/REVIEW.md` over everything since `base`, carrying the answers of commit `carry` when given; `extra` joins the prompt. */
 export const reviewing = (
   base: string,
   carry?: string,
   lap: t.ReviewRange = "first",
+  extra = "",
 ): Promise<void> =>
   t.agentWithSkills(
     "review.reviewing",
-    t.buildReviewReviewingPrompt(base, lap, carry, removedAssertions(changesSince(base))),
+    t.buildReviewReviewingPrompt(base, lap, carry, removedAssertions(changesSince(base)), extra),
     {
       label: "Reviewing",
       file: REVIEW,

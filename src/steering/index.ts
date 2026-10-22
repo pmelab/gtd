@@ -12,6 +12,7 @@ export {
   ANSWER_FIX,
   ANSWER_LEAD,
   ANSWER_WONT_FIX,
+  reviewChunks,
   reviewDecisions,
   reviewNotes,
   reviewRisks,

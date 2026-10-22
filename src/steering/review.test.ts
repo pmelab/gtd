@@ -1840,6 +1840,35 @@ describe("reviewRisks", async () => {
   })
 })
 
+describe("reviewChunks", async () => {
+  const { reviewChunks } = await import("./review.js")
+
+  it("counts each chunk's pointers, a chunk of prose and answer boxes holding none", () => {
+    const content = [
+      "# Review: abc1234",
+      "",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Walkthrough",
+      "",
+      "- [ ] ./src/a.ts#1-3 — first",
+      "- [ ] ./src/b.ts#4-6 — second",
+      "",
+      "## Fixed automatically",
+      "",
+      "Tick exactly one:",
+      "",
+      "- [ ] fix as suggested",
+      "- [ ] won't fix",
+      "- [ ] _your answer_",
+    ].join("\n")
+    expect(reviewChunks(content)).toEqual([
+      { title: "Walkthrough", line: 4, pointers: 2 },
+      { title: "Fixed automatically", line: 9, pointers: 0 },
+    ])
+  })
+})
+
 describe("answer boxes", async () => {
   const { reviewDecisions, reviewNotes, unansweredNotes } = await import("./review.js")
   const note = (title: string, boxes: readonly [string, string, string]): string =>

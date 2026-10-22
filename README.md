@@ -526,38 +526,44 @@ noted in steps 3 and 4 below.
    `Gtd-Mark: flaky=<check>` (see
    [Re-check before a person](docs/configuration.md#re-check-before-a-person)).
 
-4. **You review.** After the last slice's quality lap gtd writes the review
-   document itself (`build.review.composing`; no reviewer turn runs): one `## `
-   chunk per design note the lap left, each ending in three tick boxes — **fix
-   as suggested**, **won't fix**, or **your own answer** written over
-   `_your answer_` — then, for reference, no tick boxes, no answer needed — what
-   was **fixed automatically** (with the fixing commit) and what was **dropped
-   as noise**. On `refactor-first` the refactor slice gets one of its own first,
-   before the feature is built; see [the naive pass](#the-naive-pass). Review
-   the diff yourself (`gtd base` prints its base). **Every note needs exactly
-   one tick before `gtd land` accepts the review** (`answer-completeness`; an
-   open `- H:` thread waiting on the agent is the one exception). Fix as
-   suggested joins the nit batch below, unjudged; won't fix drops the note and
-   records it as `Gtd-Mark: wontfix=<title>` on the gate's commit; your own
-   answer is judged like a note. A note you answered is left out of the fresh
-   review after a nit fix; a round that also answered a question restores the
-   review instead, your ticks kept. Land with every note answered and nothing
-   else changed to approve, or write what is wrong — disagreeing with a fix or a
-   drop means writing a note of your own. Approving ends the process (at the
-   refactor review, it moves on to the feature); feedback is judged note by
-   note, each as `edit`, `question`, `nit` or `praise`. An `edit` sends the
-   process back to step 2 for re-derived requirements — the built criteria keep
-   their IDs (reworded in place when their behaviour changes) and new behaviour
-   gets new ones — then the implementation is amended to meet them, with no new
-   naive pass or seam judge, every criterion's coverage is judged again, the
-   quality lap runs, and you review again. At the refactor review an `edit`
-   re-derives the refactor instead. A `question` is answered inline under your
-   note and the process stops at the review again — no new plan. A `nit` is
-   fixed in one batch, the suite must go green (a red one gets fix turns first),
-   then a fresh review of the change stops at the review again. `praise` is
-   dropped; a round of only praise signs off. When a round mixes them, questions
-   are answered and nits fixed first, then the edits are planned — risk: the
-   planning lap may redo nit fixes it touches.
+4. **You review.** After the last slice's quality lap a reviewer turn
+   (`build.review.reviewing`) walks you through the whole change: `## ` chunks
+   grouped by concern, **every chunk pointing at its code**
+   (`./path#start-end`), so the phone shows the diff beside each one. Every
+   design note the slices' laps left gets a chunk of its own, pointing at the
+   code it cites; gtd adds the note's text and three tick boxes — **fix as
+   suggested**, **won't fix**, or **your own answer** written over
+   `_your answer_` (`build.review.carrying`) — then, for reference, no tick
+   boxes, no answer needed — what was **fixed automatically** (with the fixing
+   commit) and what was **dropped as noise**. A review with a chunk pointing at
+   no code, or a note left out, is refused (`review-pointers`). A pointer note
+   the reviewer opens with `Risk:` is fixed before you see the review
+   (`build.review.fix.risks.fixing`), then the review is written again. On
+   `refactor-first` the refactor slice gets a review of its own first, composed
+   by gtd from its lap's notes, before the feature is built; see
+   [the naive pass](#the-naive-pass). **Every note needs exactly one tick before
+   `gtd land` accepts the review** (`answer-completeness`; an open `- H:` thread
+   waiting on the agent is the one exception). Fix as suggested joins the nit
+   batch below, unjudged; won't fix drops the note and records it as
+   `Gtd-Mark: wontfix=<title>` on the gate's commit; your own answer is judged
+   like a note. A note you answered is left out of the fresh review after a nit
+   fix. Land with every note answered and nothing else changed to approve, or
+   write what is wrong — disagreeing with a fix or a drop means writing a note
+   of your own. Approving ends the process (at the refactor review, it moves on
+   to the feature); feedback is judged note by note, each as `edit`, `question`,
+   `nit` or `praise`. An `edit` sends the process back to step 2 for re-derived
+   requirements — the built criteria keep their IDs (reworded in place when
+   their behaviour changes) and new behaviour gets new ones — then the
+   implementation is amended to meet them, with no new naive pass or seam judge,
+   every criterion's coverage is judged again, the quality lap runs, and you
+   review again. At the refactor review an `edit` re-derives the refactor
+   instead. A `question` is answered inline under your note and the process
+   stops at the review again — no new plan. A `nit` is fixed in one batch, the
+   suite must go green (a red one gets fix turns first), then a fresh review of
+   the change stops at the review again. `praise` is dropped; a round of only
+   praise signs off. When a round mixes them, questions are answered and nits
+   fixed first, then the edits are planned — risk: the planning lap may redo nit
+   fixes it touches.
 
    Each `edit` note also gets a severity tier from four judge questions
    (security, reversibility, blast radius, new concept). Every tier is

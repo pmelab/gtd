@@ -1,7 +1,7 @@
 @inmem
 Feature: every note in the review is answered with one tick
 
-  Each note gtd writes to `.gtd/REVIEW.md` ends in three boxes — fix as
+  Each quality note in `.gtd/REVIEW.md` ends in three boxes — fix as
   suggested, won't fix, or the human's own answer written over the
   placeholder. The gate refuses to land until every note holds exactly one
   tick. A fix goes to the nit batch, a won't-fix is dropped and recorded in
@@ -74,7 +74,41 @@ Feature: every note in the review is answered with one tick
       Should subtract round? The criterion does not say.
       """
     And step "build.quality.sorting" runs its script
-    And step "build.review.composing" runs its script
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+      """
+    And step "build.review.reviewing", when prompted with "- `## AC-1 ignores floating point`", writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+
+      ## AC-1 ignores floating point
+
+      - [ ] ./src/calc.ts#2-2 — returns the raw difference
+      """
+    And step "build.review.reviewing", when prompted with "worked on the human's nits", writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — now rounds the difference
+      """
+    And step "build.review.carrying" runs its script
     And judge step "build.quality.triage" answers:
       """
       [{"id":"Q1","answer":"noise","p":0.9},{"id":"Q2","answer":"noise","p":0.9},{"id":"Q3","answer":"design","p":0.9}]
@@ -89,6 +123,10 @@ Feature: every note in the review is answered with one tick
       ## AC-1 ignores floating point
 
       Should subtract round? The criterion does not say.
+
+      In the code:
+
+      - [ ] ./src/calc.ts#2-2 — returns the raw difference
 
       Tick exactly one:
 
@@ -141,7 +179,7 @@ Feature: every note in the review is answered with one tick
     And the process is driven
     Then the process rests at "build.review.await-review"
     And no commit body contains "build.review.triage"
-    And ".gtd/REVIEW.md" contains "## Fixed from your notes"
+    And ".gtd/REVIEW.md" contains "now rounds the difference"
     And ".gtd/REVIEW.md" does not contain "AC-1 ignores floating point"
     And ".gtd/TODO.md" does not exist
     When gtd lands
@@ -176,8 +214,9 @@ Feature: every note in the review is answered with one tick
       gtd(judge): build.review.triage → build.review.fix.nits.fixing
       gtd(agent): build.review.fix.nits.fixing → build.health.check
       gtd(check): build.health.check → build.review.closing
-      gtd(check): build.review.closing → build.review.composing
-      gtd(check): build.review.composing → build.review.await-review
+      gtd(check): build.review.closing → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
       """
     And ".gtd/REVIEW.md" does not contain "AC-1 ignores floating point"
 

@@ -1338,3 +1338,13 @@ export const reviewDecisions = (before: string, after: string): readonly ReviewD
     return old?.choice === decision.choice && old.text === decision.text ? [] : [decision]
   })
 }
+
+/** Each `##` chunk in document order: its title, 0-based heading line and how many hunk pointers it holds. */
+export const reviewChunks = (
+  content: string,
+): readonly { title: string; line: number; pointers: number }[] =>
+  parseReviewDoc(content).changesets.map((c) => ({
+    title: c.title,
+    line: c.headingLine,
+    pointers: c.files.length,
+  }))
