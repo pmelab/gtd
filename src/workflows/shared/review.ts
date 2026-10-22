@@ -70,10 +70,15 @@ interface Severity {
   readonly reason: string
   /** Capture order: 0 one-way door, 1 new concept, 2 everything else. */
   readonly rank: 0 | 1 | 2
+  readonly security?: true
 }
 
 /** Anything unanswered, unrecognised, cut or below `minP` is `critical`, never `could`. */
-export const severityOf = (note: ReviewNote, judgment: Judgment, minP: number): Severity => {
+export const severityOf = (
+  note: { readonly id: string; readonly forced?: boolean | undefined },
+  judgment: Judgment,
+  minP: number,
+): Severity => {
   const ans = (q: string) => judgment.answers[`${note.id}.${q}`]
   const a = (q: string): string | undefined => ans(q)?.answer
   const rank = (): 0 | 1 | 2 =>
@@ -90,7 +95,12 @@ export const severityOf = (note: ReviewNote, judgment: Judgment, minP: number): 
     ...(a("reversibility") === "one-way" ? ["one-way door"] : []),
   ]
   if (critical.length > 0)
-    return { tier: "critical", reason: `critical: ${critical.join(", ")}`, rank: rank() }
+    return {
+      tier: "critical",
+      reason: `critical: ${critical.join(", ")}`,
+      rank: rank(),
+      ...(a("security") === "yes" ? { security: true as const } : {}),
+    }
   const should = [
     ...(a("blastRadius") === "contract" ? ["contract"] : []),
     ...(a("newConcept") === "yes" ? ["new concept"] : []),
@@ -100,31 +110,32 @@ export const severityOf = (note: ReviewNote, judgment: Judgment, minP: number): 
   return { tier: "could", reason: "could", rank: 2 }
 }
 
-const severityQuestions = (note: ReviewNote): JudgeQuestion[] => [
+/** `asks` names the change in full, `change` refers back to it. */
+const severityQuestions = (id: string, asks: string, change: string): JudgeQuestion[] => [
   {
-    id: `${note.id}.security`,
+    id: `${id}.security`,
     primitive: "noul",
-    instructions: `Does the change the human asks for in note "${note.id}" (on "${note.anchor}") touch security — authentication, authorisation, secrets, untrusted input or data exposure?`,
+    instructions: `Does ${asks} touch security — authentication, authorisation, secrets, untrusted input or data exposure?`,
     criteria: "yes: it changes or could weaken a security property. no: it does not.",
   },
   {
-    id: `${note.id}.reversibility`,
+    id: `${id}.reversibility`,
     primitive: "choice",
-    instructions: `Once the change in note "${note.id}" ships, can it be undone without breaking anyone who already depends on it?`,
+    instructions: `Once ${change} ships, can it be undone without breaking anyone who already depends on it?`,
     criteria:
       "one-way: a published API, file format, persisted data, protocol or other contract that cannot be taken back. two-way: can be reverted freely.",
   },
   {
-    id: `${note.id}.blastRadius`,
+    id: `${id}.blastRadius`,
     primitive: "choice",
-    instructions: `How far does the change in note "${note.id}" reach?`,
+    instructions: `How far does ${change} reach?`,
     criteria:
       "local: one function or file. module: a whole module or several files. contract: a public interface other code or users depend on.",
   },
   {
-    id: `${note.id}.newConcept`,
+    id: `${id}.newConcept`,
     primitive: "noul",
-    instructions: `Does the change in note "${note.id}" introduce a concept new to this codebase — a new abstraction, entity or term? Judge from the evidence, never a glossary; reusing or extending an existing concept is not new.`,
+    instructions: `Does ${change} introduce a concept new to this codebase — a new abstraction, entity or term? Judge from the evidence, never a glossary; reusing or extending an existing concept is not new.`,
     criteria: "yes: a genuinely new concept. no: reuses or extends an existing one.",
   },
 ]
@@ -144,7 +155,14 @@ const triage =
       asked.length === 0
         ? { answers: {}, truncated: [] }
         : await judge("review.triage", {
-            questions: asked.flatMap((n) => [verdictQuestion(n), ...severityQuestions(n)]),
+            questions: asked.flatMap((n) => [
+              verdictQuestion(n),
+              ...severityQuestions(
+                n.id,
+                `the change the human asks for in note "${n.id}" (on "${n.anchor}")`,
+                `the change in note "${n.id}"`,
+              ),
+            ]),
             evidence: Object.fromEntries(
               asked.map((n) => [
                 n.id,
@@ -169,6 +187,93 @@ const triage =
       }),
     )
   }
+
+/** Review order: security, one-way doors, the judge unsure, then should, then could. */
+const chunkKey = (s: Severity): number =>
+  s.tier === "could" ? 4 : s.tier === "should" ? 3 : s.security === true ? 0 : s.rank === 0 ? 1 : 2
+
+// A pointer's `./path#start` or `./path#start-end`, at the head of a task item.
+const POINTER_RE = /^\s*[-*+] \[[ xX]\] \.\/(\S+?)#(\d+)(?:-(\d+))?(?=\s|$)/gm
+
+/** A chunk's text, then the code each of its pointers covers. */
+const chunkEvidence = (text: string): string =>
+  [
+    text,
+    ...[...text.matchAll(POINTER_RE)].flatMap(([, path, from, to]) => {
+      const code = read(path!)
+        ?.split("\n")
+        .slice(Number(from) - 1, Number(to ?? from))
+      return code === undefined
+        ? []
+        : [`./${path}#${from}${to === undefined ? "" : `-${to}`}:\n${code.join("\n")}`]
+    }),
+  ].join("\n\n")
+
+const bytes = (text: string): number => new TextEncoder().encode(text).length
+
+/** Fills each batch while the budget's even share still holds its widest evidence, so nothing is cut that fits alone. */
+const batched = <T extends { readonly evidence: string }>(
+  items: readonly T[],
+  budget: number,
+): T[][] => {
+  const batches: T[][] = []
+  let batch: T[] = []
+  let widest = 0
+  for (const item of items) {
+    const wider = Math.max(widest, bytes(item.evidence))
+    if (batch.length > 0 && Math.floor(budget / (batch.length + 1)) < wider) {
+      batches.push(batch)
+      batch = []
+      widest = 0
+    }
+    batch.push(item)
+    widest = Math.max(widest, bytes(item.evidence))
+  }
+  return batch.length === 0 ? batches : [...batches, batch]
+}
+
+/**
+ * Rates every chunk the reviewer wrote — a walkthrough chunk or a carried
+ * finding — and sorts \`full\` by it, each chunk led by its tier and reason.
+ * gtd's summary chunks are not rated and stay last.
+ */
+const ranked = async (review: string, full: string): Promise<string> => {
+  const texts = t.chunkTexts(full)
+  const chunks = reviewChunks(review).map((c, i) => ({
+    id: `C${i + 1}`,
+    title: c.title,
+    evidence: chunkEvidence(texts.get(c.title) ?? ""),
+  }))
+  if (chunks.length === 0) return full
+  const minP = numeric(vars.reviewSeverityMinP, Infinity)
+  const batches = batched(chunks, numeric(vars.judgeBudgetBytes, 32768))
+  const severities = new Map<string, Severity>()
+  for (const [i, batch] of batches.entries()) {
+    const judgment = await judge("review.ranking", {
+      questions: batch.flatMap((c) =>
+        severityQuestions(
+          c.id,
+          `the change review chunk "${c.id}" ("${c.title}") walks through`,
+          `the change in review chunk "${c.id}"`,
+        ),
+      ),
+      evidence: Object.fromEntries(batch.map((c) => [c.id, c.evidence])),
+      message: t.reviewRankingMessage(),
+      label:
+        batches.length === 1
+          ? "Ranking the review"
+          : `Ranking the review (${i + 1}/${batches.length})`,
+    })
+    for (const c of batch) severities.set(c.id, severityOf(c, judgment, minP))
+  }
+  return t.rankedReview(
+    full,
+    chunks
+      .map((c, i) => ({ c, i, s: severities.get(c.id)! }))
+      .sort((x, y) => chunkKey(x.s) - chunkKey(y.s) || x.i - y.i)
+      .map(({ c, s }) => ({ title: c.title, label: s.reason })),
+  )
+}
 
 export const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
 
@@ -263,16 +368,17 @@ const walkthrough = async (
 ): Promise<void> => {
   const notes = t.titledNotes(report)
   await reviewing(base, carry, lap, t.walkthroughBlock(notes, report.nitFix))
-  const review = read(REVIEW)
+  const written = read(REVIEW)
   // A review the reviewer did not write is the round's own refusal or rest.
-  if (review === undefined) return
+  if (written === undefined) return
+  const review = t.unranked(written)
   requirePointers(
     review,
     notes,
     changesSince(base).some((c) => isCode(c.path)),
   )
-  const full = t.withWalkthrough(review, report)
-  if (full !== review) {
+  const full = await ranked(review, t.withWalkthrough(review, report))
+  if (full !== written) {
     await run("review.carrying", writeScript(REVIEW, full), {
       label: "Adding the quality lap's findings",
       file: REVIEW,

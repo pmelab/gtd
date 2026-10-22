@@ -92,6 +92,10 @@ Feature: the review learns standards from the human's answers
       - [ ] ./src/calc.ts#2-2 — a plain function
       """
     And step "build.review.carrying" runs its script
+    And judge step "build.review.ranking" answers:
+      """
+      []
+      """
     And judge step "build.quality.triage" answers:
       """
       [{"id":"Q1","answer":"design","p":0.9}]

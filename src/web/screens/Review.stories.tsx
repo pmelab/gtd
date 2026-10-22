@@ -612,6 +612,38 @@ export const ChunkCarryingAFootnoteKeepsTheRoundOpenEvenWhenFullyTicked: Story =
   },
 }
 
+export const EachChunkShowsTheTierGtdRankedItWith: Story = {
+  args: {
+    view: reviewFormat.view(
+      [
+        "# Review: abc1234",
+        "",
+        "## Token check",
+        "",
+        "_critical: security_",
+        "",
+        "Reads the session token.",
+        "",
+        "- [ ] ./src/auth.ts#1-1",
+        "",
+        "## Rename",
+        "",
+        "_could_",
+        "",
+        "- [ ] ./src/calc.ts#1-1",
+        "",
+      ].join("\n"),
+    ),
+    isLoading: false,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("chunk-severity-0")).toHaveTextContent("critical: security")
+    await expect(canvas.getByTestId("chunk-card-0")).not.toHaveTextContent("_critical")
+    await expect(canvas.getByTestId("chunk-severity-1")).toHaveTextContent("could")
+  },
+}
+
 export const ChunkWithNoFootnoteShowsNoBadgeEvenWhenFullyTicked: Story = {
   args: { view: SAMPLE_VIEW, isLoading: false },
   play: async ({ canvasElement }) => {

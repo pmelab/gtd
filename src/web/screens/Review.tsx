@@ -6,6 +6,7 @@ import type {
   SteeringViewThread,
 } from "../../steering/index.js"
 import { Button } from "../Button.js"
+import { cn } from "../cn.js"
 import { CardList } from "../Card.js"
 import { Deck } from "../Deck.js"
 import { FormatNoticeBanner, type FormatNotice } from "../FormatNotice.js"
@@ -304,6 +305,17 @@ const ChunkRow = ({
           disabled={hunks.length === 0}
           className="flex-1 text-left"
         >
+          {chunk.status !== undefined && (
+            <div
+              data-testid={`chunk-severity-${chunkIndex}`}
+              className={cn(
+                "text-small font-semibold",
+                chunk.status.startsWith("critical") ? "text-warning" : "text-muted",
+              )}
+            >
+              {chunk.status}
+            </div>
+          )}
           <div className="font-semibold">{chunk.title}</div>
           {chunk.detail !== undefined && chunk.detail.length > 0 && (
             <div className="text-small text-muted">

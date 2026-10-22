@@ -16,6 +16,8 @@ export {
   reviewDecisions,
   reviewNotes,
   reviewRisks,
+  SEVERITY_LINE_RE,
+  severityLine,
   unansweredNotes,
   type ReviewChoice,
   type ReviewDecision,

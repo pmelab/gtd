@@ -33,6 +33,8 @@ import {
   titledNotes,
   walkthroughBlock,
   withWalkthrough,
+  rankedReview,
+  unranked,
 } from "./text.js"
 import { reviewDecisions, steeringFormatFor, unansweredNotes } from "../../steering/index.js"
 import { captureStep, renderText } from "./text.fixture.js"
@@ -1515,5 +1517,69 @@ describe("walkthrough", () => {
     expect(walkthroughBlock([{ title: "x", body: "y" }])).toContain(
       "never open a note in a finding's chunk with `Risk:`",
     )
+  })
+})
+
+describe("rankedReview", () => {
+  const review = [
+    "# Review: abc1234",
+    "",
+    "<!-- base: abc1234 -->",
+    "",
+    "## Rename",
+    "",
+    "- [ ] ./a.ts#1-1",
+    "",
+    "## Token",
+    "",
+    "_could_",
+    "",
+    "Reads the token.",
+    "",
+    "- [ ] ./a.ts#2-2",
+    "",
+    "## Fixed automatically",
+    "",
+    "- x (abc1234)",
+    "",
+  ].join("\n")
+
+  it("puts the ranked chunks first, each led by its tier, and leaves the rest in place", () => {
+    expect(
+      rankedReview(unranked(review), [
+        { title: "Token", label: "critical: security" },
+        { title: "Rename", label: "could" },
+      ]),
+    ).toBe(
+      [
+        "# Review: abc1234",
+        "",
+        "<!-- base: abc1234 -->",
+        "",
+        "## Token",
+        "",
+        "_critical: security_",
+        "",
+        "Reads the token.",
+        "",
+        "- [ ] ./a.ts#2-2",
+        "",
+        "## Rename",
+        "",
+        "_could_",
+        "",
+        "- [ ] ./a.ts#1-1",
+        "",
+        "## Fixed automatically",
+        "",
+        "- x (abc1234)",
+        "",
+      ].join("\n"),
+    )
+  })
+
+  it("drops a stale tier, so a re-review is ranked afresh", () => {
+    expect(unranked(review)).not.toContain("_could_")
+    expect(unranked(unranked(review))).toBe(unranked(review))
   })
 })

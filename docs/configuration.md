@@ -907,9 +907,19 @@ title, a `Risk:` note in a note's chunk, or a note without its chunk refuses the
 turn (`review-pointers`). gtd then adds each note's text under its heading, an
 `In the code:` line before the pointers and its answer boxes after them, and
 appends any open standard conflicts, `## Fixed automatically`,
-`## Standards added` and `## Dropped as noise` (`build.review.carrying`). A
-pointer note the reviewer opens with `Risk:` is fixed by
-`build.review.fix.risks.fixing`, the suite is kept green, and the review is
+`## Standards added` and `## Dropped as noise` (`build.review.carrying`). Before
+that, a judge (`build.review.ranking`) rates every chunk the reviewer wrote — a
+walkthrough chunk or a note's — on the four severity questions, keyed
+`C<n>.security`, `C<n>.reversibility`, `C<n>.blastRadius` and `C<n>.newConcept`
+(`C1` the reviewer's first chunk), its evidence the chunk's text and the lines
+its pointers cover. gtd lists them `critical` first — security, then one-way
+doors, then those the judge was unsure of — then `should`, then `could`, in the
+reviewer's order within each, every chunk led by its tier and reason
+(`_critical: security, one-way door_`); the gtd-added chunks follow. A chunk
+with an unclear, cut or below-`reviewSeverityMinP` answer is `critical`. As many
+chunks go to one judgment as `judgeBudgetBytes`'s even share still holds whole;
+the rest go to the next. A pointer note the reviewer opens with `Risk:` is fixed
+by `build.review.fix.risks.fixing`, the suite is kept green, and the review is
 written once more. After a nit fix the reviewer is told the fixing commit and
 writes a fresh review without the notes already answered; after a round that
 also answered a question, it carries those answers over.
@@ -1016,6 +1026,15 @@ off a review holding notes ticks one box per note first. Workflow-kit's
 `decided`. A `## Deferred review notes` section already in `.gtd/TODO.md` is no
 longer kept out of a new process's triage: delete or move it before starting
 one.
+
+**Upgrading:** `feature`'s final review is ranked: after the reviewer turn
+`build.review.reviewing`, the judge step `build.review.ranking` runs (once per
+batch), then `build.review.carrying` — now on every review with a chunk. A
+`feature` process resting at `build.review.carrying` or later in its review no
+longer replays: finish or `gtd abandon` it before upgrading. A driver or fixture
+scripting `feature`'s review scripts `build.review.ranking` too (landing it
+without a verdict lists every chunk as `critical`), and expects each chunk of
+`.gtd/REVIEW.md` led by its tier line and the chunks reordered.
 
 **Upgrading:** `feature`'s final review is written by a reviewer again. A
 `feature` process resting at `build.review.composing`, or at any later step of
@@ -2102,7 +2121,8 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   `security`, `reversibility`, `blastRadius`, `newConcept`. An unclear, cut or
   below-floor answer makes the note `critical`, never `could`. Blank makes every
   tiered note `critical`. A leading `! ` (bang, space) on any human review note
-  forces `critical` and skips every judge question.
+  forces `critical` and skips every judge question. The same floor rates
+  `feature`'s review chunks (`build.review.ranking`), keyed `C<n>.<question>`.
 - **`standardMinP`** (`0.8`) — the floor a `yes` on "is this answer a reusable
   standard?" must clear at `build.review.standards.judge` (and
   `refactor.build.review.standards.judge`) before the answer is kept in
@@ -2152,6 +2172,8 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
 - **`judgeBudgetBytes`** (`32768`) — the total byte budget split across one
   judge step's evidence keys. Must be a positive integer; blank, zero, negative
   or fractional values fail the step rather than disabling the bound.
+  `build.review.ranking` splits its chunks into as many judgments as it takes
+  for each to fit its share whole.
 - **`qualityReviews`**
   (`correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge`)
   — sets the quality lap `build.quality` runs ahead of the human review: one

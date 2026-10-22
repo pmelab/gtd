@@ -19,6 +19,8 @@ import {
   ANSWER_WONT_FIX,
   FREE_TEXT_PLACEHOLDER,
   reviewChunks,
+  SEVERITY_LINE_RE,
+  severityLine,
 } from "../../steering/index.js"
 import { escapeRegExp } from "./registry.js"
 import {
@@ -305,6 +307,63 @@ export const withWalkthrough = (review: string, report: ComposedReview): string 
   if (notes.size === listed && summary.length === 0) return review
   const body = lines.join("\n").trimEnd()
   return summary.length === 0 ? `${body}\n` : `${body}\n\n${summary.join("\n\n")}\n`
+}
+
+/** A ranked chunk's title and the tier it shows, `critical: security`. */
+export interface RankedChunk {
+  readonly title: string
+  readonly label: string
+}
+
+const chunkBlocks = (review: string): { head: string[]; blocks: string[][] } => {
+  const lines = review.split("\n")
+  const chunks = reviewChunks(review)
+  return {
+    head: lines.slice(0, chunks[0]?.line ?? lines.length),
+    blocks: chunks.map((c, i) => lines.slice(c.line, chunks[i + 1]?.line ?? lines.length)),
+  }
+}
+
+// A block's heading, its blank line, then its severity line when it has one.
+const hasSeverity = (block: readonly string[]): boolean =>
+  block[1]?.trim() === "" && SEVERITY_LINE_RE.test(block[2]?.trim() ?? "")
+
+/** \`review\` with every chunk's severity line removed, so a re-review is ranked afresh. */
+export const unranked = (review: string): string => {
+  const { head, blocks } = chunkBlocks(review)
+  if (!blocks.some(hasSeverity)) return review
+  return [...head, ...blocks.flatMap((b) => (hasSeverity(b) ? [b[0]!, ...b.slice(3)] : b))].join(
+    "\n",
+  )
+}
+
+/** The text of every chunk in \`review\`, by title. */
+export const chunkTexts = (review: string): ReadonlyMap<string, string> => {
+  const { blocks } = chunkBlocks(review)
+  return new Map(reviewChunks(review).map((c, i) => [c.title, blocks[i]!.join("\n").trim()]))
+}
+
+/**
+ * \`review\` with the \`ranked\` chunks first, in their order, each led by its
+ * severity line; every other chunk follows in place.
+ */
+export const rankedReview = (review: string, ranked: readonly RankedChunk[]): string => {
+  const { head, blocks } = chunkBlocks(review)
+  const titles = reviewChunks(review).map((c) => c.title)
+  const place = new Map(ranked.map((r, k) => [r.title, k]))
+  const labels = new Map(ranked.map((r) => [r.title, r.label]))
+  const order = (i: number): number => place.get(titles[i]!) ?? ranked.length
+  const chunk = (i: number): string => {
+    const label = labels.get(titles[i]!)
+    const body = blocks[i]!.slice(1).join("\n").trim()
+    return [
+      blocks[i]![0]!,
+      ...(label === undefined ? [] : [severityLine(label)]),
+      ...(body === "" ? [] : [body]),
+    ].join("\n\n")
+  }
+  const sorted = blocks.map((_, i) => i).sort((x, y) => order(x) - order(y) || x - y)
+  return `${[head.join("\n").trim(), ...sorted.map(chunk)].filter((p) => p !== "").join("\n\n")}\n`
 }
 
 /**
@@ -1073,6 +1132,15 @@ const wrapItem = (item: string): string[] => {
   }
   return [...out, line]
 }
+
+export const reviewRankingMessage = (): string =>
+  `Ranking each chunk of the review before the human reads it. Run
+\`gtd judge answer\` and pipe, per chunk \`C<n>\`: \`C<n>.security\`
+(yes/no), \`C<n>.reversibility\` (one-way/two-way),
+\`C<n>.blastRadius\` (local/module/contract) and \`C<n>.newConcept\`
+(yes/no) — or land without a verdict, which lists every chunk as
+critical.
+`
 
 export const buildReviewTriageMessage = (): string =>
   `Judging each note the human added to \`.gtd/REVIEW.md\` (a line note, a

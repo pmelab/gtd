@@ -77,6 +77,8 @@ interface Changeset {
   readonly headingLine: number
   /** The chunk's answer boxes, when gtd gave it some. */
   readonly answers?: readonly AnswerOption[]
+  /** The tier and reason gtd ranked the chunk with, from its leading severity line. */
+  readonly severity?: string
 }
 
 interface AnswerOption {
@@ -88,6 +90,10 @@ interface AnswerOption {
 export const ANSWER_LEAD = "Tick exactly one:"
 export const ANSWER_FIX = "fix as suggested"
 export const ANSWER_WONT_FIX = "won't fix"
+
+/** A chunk's leading `_critical: security_` paragraph: the tier gtd ranked it with, and why. */
+export const SEVERITY_LINE_RE = /^_((?:critical|should|could)(?::[^_\n]*)?)_$/
+export const severityLine = (label: string): string => `_${label}_`
 
 interface ReviewDoc {
   readonly shortHash?: string
@@ -521,6 +527,19 @@ const answerListOf = (
   return { lead, list, options }
 }
 
+/** A leading severity line is the chunk's tier, never its prose. */
+const splitSeverity = (
+  content: string,
+  run: readonly RootContent[],
+): { readonly severity?: string | undefined; readonly leadingRun: readonly RootContent[] } => {
+  const first = run[0]
+  const severity =
+    first?.type === "paragraph"
+      ? SEVERITY_LINE_RE.exec(sourceText(content, first).trim())?.[1]
+      : undefined
+  return { severity, leadingRun: severity === undefined ? run : run.slice(1) }
+}
+
 /** Splits one chunk's body nodes into its file pointers (hunk pointers are task items, collected recursively at ANY nesting depth via `taskItems` — a nested hunk is the same kind of hunk as a top-level one) and description prose. The description is the chunk's own leading run and never a node that contains a hunk pointer: it stops at the first node whose `taskItems` include a real pointer (at any depth — a blockquote wrapping a pointer list stops it just as a top-level list would). Every node kind in what's left before that point contributes — a `footnoteDefinition` is the one exception, excluded by `blockNodesOfRun` itself (it's a note, never document content). */
 const parseChunkBody = (
   content: string,
@@ -534,6 +553,7 @@ const parseChunkBody = (
   readonly files: readonly ReviewFile[]
   readonly errors: readonly SteeringFinding[]
   readonly answers?: readonly AnswerOption[]
+  readonly severity?: string
   /** Whether a task box outside the answer list exists. */
   readonly boxed: boolean
 } => {
@@ -543,9 +563,10 @@ const parseChunkBody = (
   const firstPointerIndex = body.findIndex(
     (n) => !isAnswer(n) && taskItems(n).some((item) => hasPointerToken(content, item)),
   )
-  const leadingRun = (firstPointerIndex === -1 ? body : body.slice(0, firstPointerIndex)).filter(
+  const run = (firstPointerIndex === -1 ? body : body.slice(0, firstPointerIndex)).filter(
     (n) => !isAnswer(n),
   )
+  const { severity, leadingRun } = splitSeverity(content, run)
   const descriptionNodes = blockNodesOfRun(content, leadingRun)
   const descriptionInline = collapseImages(blockRunInline(content, leadingRun))
   const description = leadingRun
@@ -569,6 +590,7 @@ const parseChunkBody = (
     files,
     errors,
     ...(answer === undefined ? {} : { answers: answer.options }),
+    ...(severity === undefined ? {} : { severity }),
     boxed: body.some((n) => !isAnswer(n) && taskItems(n).length > 0),
   }
 }
@@ -618,6 +640,7 @@ const parseChangesets = (
       descriptionInline,
       files,
       answers,
+      severity,
       boxed,
       errors: bodyErrors,
     } = parseChunkBody(content, lines, title, body)
@@ -638,6 +661,7 @@ const parseChangesets = (
       files,
       headingLine,
       ...(answers === undefined ? {} : { answers }),
+      ...(severity === undefined ? {} : { severity }),
     })
   }
   if (changesets.length === 0) errors.push({ message: "REVIEW.md has no '##' chunks" })
@@ -997,6 +1021,7 @@ const reviewView = (content: string): SteeringView => {
       detail: chunk.description,
       detailInline: chunk.descriptionInline,
       body: chunk.descriptionNodes,
+      ...(chunk.severity === undefined ? {} : { status: chunk.severity }),
       anchor: { kind: "chunk", index: chunkIndex },
       ...noteAt(chunk.headingLine),
       children: chunk.files.map((file, index) => ({

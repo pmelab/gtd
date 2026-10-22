@@ -1276,6 +1276,33 @@ describe("review.view", () => {
     expect(view.nodes[1]!.detail).toBe("")
   })
 
+  it("shows a chunk's leading severity line as its status, not its prose", () => {
+    const view = review.view(
+      [
+        "# Review: abc1234",
+        "",
+        "## Ranked",
+        "",
+        "_critical: security, one-way door_",
+        "",
+        "The new export.",
+        "",
+        "- [ ] ./a.ts#1-1",
+        "",
+        "## Unranked",
+        "",
+        "_emphasis, not a tier_",
+        "",
+        "- [ ] ./a.ts#2-2",
+        "",
+      ].join("\n"),
+    )
+    expect(view.nodes.map((c) => [c.status, c.detail])).toEqual([
+      ["critical: security, one-way door", "The new export."],
+      [undefined, "_emphasis, not a tier_"],
+    ])
+  })
+
   it("is built from one parse of the document, not one per element", () => {
     const uniqueContent = [
       "# Review: def4567",

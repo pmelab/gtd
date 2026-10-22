@@ -203,7 +203,19 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.await-review"
+    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.ranking"
+
+    # The judge rates every chunk; gtd lists them by severity, each led by its tier.
+    Given gtd lands "gtd(judge): build.review.ranking → build.review.carrying" judging:
+      """
+      [{"id":"C1.security","answer":"no","p":0.9},{"id":"C1.reversibility","answer":"two-way","p":0.9},{"id":"C1.blastRadius","answer":"local","p":0.9},{"id":"C1.newConcept","answer":"no","p":0.9}]
+      """
+    When I run gtd next with "--json"
+    And I execute the printed check script
+    And I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(check): build.review.carrying → build.review.await-review"
+    And ".gtd/REVIEW.md" contains "_could_"
     When I run gtd next
     Then it succeeds
     And stdout contains "State: build.review.await-review"
@@ -215,6 +227,8 @@ Feature: The bundled unified workflow — one flow, end to end
       <!-- base: abc1234def5678901234567890123456789abcd -->
 
       ## Friendlier greeting
+
+      _could_
 
       - [x] ./src/greeter.ts#1
       new return value
@@ -263,7 +277,9 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(agent): build.quality.test-audit.reviewing → build.quality.conventions.reviewing
       gtd(agent): build.quality.conventions.reviewing → build.quality.spec-challenge.reviewing
       gtd(agent): build.quality.spec-challenge.reviewing → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.await-review
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
       gtd(human): build.review.await-review → build.review.closing
       gtd(check): build.review.closing → idle
       """
