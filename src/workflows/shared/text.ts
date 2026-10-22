@@ -361,9 +361,11 @@ export const rankedReview = (review: string, ranked: readonly RankedChunk[]): st
   const chunk = (i: number): string => {
     const { title, lines } = blocks[i]!
     const label = labels.get(title)
-    const body = trimBlankLines(lines.slice(1)).join("\n")
+    // A setext heading is its title line and its underline.
+    const heading = /^ {0,3}-+\s*$/.test(lines[1] ?? "") ? 2 : 1
+    const body = trimBlankLines(lines.slice(heading)).join("\n")
     return [
-      lines[0]!,
+      lines.slice(0, heading).join("\n"),
       ...(label === undefined ? [] : [severityLine(label)]),
       ...(body === "" ? [] : [body]),
     ].join("\n\n")

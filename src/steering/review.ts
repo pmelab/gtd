@@ -1209,20 +1209,21 @@ const pointerLabel = (f: ReviewFile): string =>
 
 type Found = { line: number; note: Omit<ReviewNote, "id" | "forced"> }
 
-// A chunk added with its own answer boxes (a driver's imported note) is
-// answered by its tick, never judged as prose as well.
-// Rewording a tier disputes it, so the tier is part of the note; deleting one asks nothing.
-const chunkProse = (chunk: Changeset | undefined, tier: boolean): string =>
+// Rewording a tier disputes it, so a changed tier joins the note — after the
+// prose, so a leading `!` still forces; deleting one asks nothing.
+const chunkProse = (chunk: Changeset | undefined, retiered: boolean): string =>
   [
-    !tier || chunk?.severity === undefined ? "" : severityLine(chunk.severity.label),
     chunk?.description ?? "",
+    retiered && chunk?.severity !== undefined ? severityLine(chunk.severity.label) : "",
   ]
     .filter((p) => p !== "")
     .join("\n\n")
 
 const chunkNote = (chunk: Changeset, prior: Changeset | undefined): Found[] => {
-  const tier = chunk.severity !== undefined
-  return chunkProse(chunk, tier) === chunkProse(prior, tier) ||
+  const retiered = chunk.severity !== undefined && chunk.severity.label !== prior?.severity?.label
+  // A chunk added with its own answer boxes (a driver's imported note) is
+  // answered by its tick, never judged as prose as well.
+  return chunkProse(chunk, retiered) === chunkProse(prior, retiered) ||
     (prior === undefined && chunk.answers !== undefined)
     ? []
     : [
@@ -1231,8 +1232,8 @@ const chunkNote = (chunk: Changeset, prior: Changeset | undefined): Found[] => {
           note: {
             kind: "chunk",
             anchor: chunk.title,
-            before: chunkProse(prior, tier),
-            text: chunkProse(chunk, tier),
+            before: chunkProse(prior, retiered),
+            text: chunkProse(chunk, retiered),
           },
         },
       ]

@@ -1739,9 +1739,16 @@ describe("reviewNotes", async () => {
     expect(reviewNotes(was, after)).toMatchObject([
       {
         kind: "chunk",
-        before: "_could_\n\nProse.",
-        text: "_critical: this leaks the token_\n\nProse.",
+        before: "Prose.\n\n_could_",
+        text: "Prose.\n\n_critical: this leaks the token_",
       },
+    ])
+  })
+
+  it("prose added under a tier is the human's alone, and a leading ! still forces", () => {
+    const was = doc("_could_\n\nProse.")
+    expect(reviewNotes(was, doc("_could_\n\n! Not here.\n\nProse."))).toMatchObject([
+      { kind: "chunk", text: "! Not here. Prose.", forced: true },
     ])
   })
 

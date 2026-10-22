@@ -1578,6 +1578,14 @@ describe("rankedReview", () => {
     )
   })
 
+  it("keeps a setext heading whole", () => {
+    expect(
+      rankedReview("# Review: a\n\nToken\n-----\n\n- [ ] ./a.ts#1\n", [
+        { title: "Token", label: "could" },
+      ]),
+    ).toBe("# Review: a\n\nToken\n-----\n\n_could_\n\n- [ ] ./a.ts#1\n")
+  })
+
   it("keeps a chunk's leading indented code block indented", () => {
     const code = "# Review: abc1234\n\n## Code\n\n    const x = 1\n\n- [ ] ./a.ts#1-1\n"
     expect(rankedReview(code, [{ title: "Code", label: "could" }])).toContain(

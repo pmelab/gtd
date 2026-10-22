@@ -370,8 +370,9 @@ const walkthrough = async (
   // A review the reviewer did not write is the round's own refusal or rest.
   if (written === undefined) return
   const review = t.unranked(written)
+  // Against the file as written, so a refusal's line numbers match it.
   requirePointers(
-    review,
+    written,
     notes,
     changesSince(base).some((c) => isCode(c.path)),
   )
