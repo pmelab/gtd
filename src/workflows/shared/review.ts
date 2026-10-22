@@ -192,20 +192,18 @@ const triage =
 const chunkKey = (s: Severity): number =>
   s.tier === "could" ? 4 : s.tier === "should" ? 3 : s.security === true ? 0 : s.rank === 0 ? 1 : 2
 
-// A pointer's `./path#start` or `./path#start-end`, at the head of a task item.
-const POINTER_RE = /^\s*[-*+] \[[ xX]\] \.\/(\S+?)#(\d+)(?:-(\d+))?(?=\s|$)/gm
+type Pointer = ReturnType<typeof reviewChunks>[number]["files"][number]
 
-/** A chunk's text, then the code each of its pointers covers. */
-const chunkEvidence = (text: string): string =>
+/** A chunk's text, then the code each of its pointers covers: a bare path the whole file. */
+const chunkEvidence = (text: string, files: readonly Pointer[]): string =>
   [
     text,
-    ...[...text.matchAll(POINTER_RE)].flatMap(([, path, from, to]) => {
-      const code = read(path!)
-        ?.split("\n")
-        .slice(Number(from) - 1, Number(to ?? from))
-      return code === undefined
-        ? []
-        : [`./${path}#${from}${to === undefined ? "" : `-${to}`}:\n${code.join("\n")}`]
+    ...files.map(({ path, line, rangeEnd }) => {
+      const where = `${path}${line === undefined ? "" : `#${line}${rangeEnd === undefined ? "" : `-${rangeEnd}`}`}`
+      const lines = read(path.replace(/^\.\//, ""))?.split("\n")
+      if (lines === undefined) return `${where}: no longer exists`
+      const code = line === undefined ? lines : lines.slice(line - 1, rangeEnd ?? line)
+      return `${where}:\n${code.join("\n")}`
     }),
   ].join("\n\n")
 
@@ -242,7 +240,7 @@ const ranked = async (review: string, full: string): Promise<string> => {
   const chunks = reviewChunks(review).map((c, i) => ({
     id: `C${i + 1}`,
     title: c.title,
-    evidence: chunkEvidence(texts.get(c.title) ?? ""),
+    evidence: chunkEvidence(texts.get(c.title) ?? "", c.files),
   }))
   if (chunks.length === 0) return full
   const minP = numeric(vars.reviewSeverityMinP, Infinity)

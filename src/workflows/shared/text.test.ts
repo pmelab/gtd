@@ -1586,7 +1586,10 @@ describe("rankedReview", () => {
   })
 
   it("drops a stale tier with no blank line under the heading, never a longer paragraph", () => {
-    expect(unranked("## A\n_could_\n\nbody\n")).toBe("## A\n\nbody\n")
+    expect(unranked("## A\n_could_\n\nbody\n")).toBe("## A\nbody\n")
+    expect(unranked("## A\n\n_could_\n- [ ] ./a.ts#1\n")).toBe("## A\n\n- [ ] ./a.ts#1\n")
+    const code = "## A\n\n    _could_\n"
+    expect(unranked(code)).toBe(code)
     const prose = "## A\n\n_should: x_\nruns on\n"
     expect(unranked(prose)).toBe(prose)
   })

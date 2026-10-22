@@ -1745,6 +1745,10 @@ describe("reviewNotes", async () => {
     ])
   })
 
+  it("a deleted tier line asks nothing", () => {
+    expect(reviewNotes(doc("_could_\n\nProse."), base)).toEqual([])
+  })
+
   it("a pointer note added", () => {
     const after = doc("Prose.").replace("#1-3", "#1-3 rename this")
     expect(reviewNotes(base, after)).toEqual([
@@ -1902,8 +1906,16 @@ describe("reviewChunks", async () => {
       "- [ ] _your answer_",
     ].join("\n")
     expect(reviewChunks(content)).toEqual([
-      { title: "Walkthrough", line: 4, pointers: 2 },
-      { title: "Fixed automatically", line: 9, pointers: 0 },
+      {
+        title: "Walkthrough",
+        line: 4,
+        pointers: 2,
+        files: [
+          { path: "./src/a.ts", line: 1, rangeEnd: 3 },
+          { path: "./src/b.ts", line: 4, rangeEnd: 6 },
+        ],
+      },
+      { title: "Fixed automatically", line: 9, pointers: 0, files: [] },
     ])
   })
 })

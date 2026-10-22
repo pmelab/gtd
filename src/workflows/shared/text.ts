@@ -19,7 +19,6 @@ import {
   ANSWER_WONT_FIX,
   FREE_TEXT_PLACEHOLDER,
   reviewChunks,
-  SEVERITY_LINE_RE,
   severityLine,
 } from "../../steering/index.js"
 import { escapeRegExp } from "./registry.js"
@@ -330,26 +329,12 @@ const chunkBlocks = (
 
 const isBlank = (line: string | undefined): boolean => line !== undefined && line.trim() === ""
 
-// The steering parser's rule: a severity line is the chunk's first paragraph, alone.
-const severityAt = (lines: readonly string[]): number | undefined => {
-  let i = 1
-  while (isBlank(lines[i])) i++
-  const line = lines[i]
-  if (line === undefined || !SEVERITY_LINE_RE.test(line.trim())) return undefined
-  return lines[i + 1] === undefined || isBlank(lines[i + 1]) ? i : undefined
-}
-
 /** \`review\` with every chunk's severity line removed, so a re-review is ranked afresh. */
 export const unranked = (review: string): string => {
-  const { head, blocks } = chunkBlocks(review)
-  if (blocks.every((b) => severityAt(b.lines) === undefined)) return review
-  return [
-    ...head,
-    ...blocks.flatMap(({ lines }) => {
-      const at = severityAt(lines)
-      return at === undefined ? lines : [...lines.slice(0, at), ...lines.slice(at + 1)]
-    }),
-  ].join("\n")
+  const drop = new Set(reviewChunks(review).flatMap((c) => c.severityLine ?? []))
+  if (drop.size === 0) return review
+  const lines = review.split("\n")
+  return lines.filter((_, i) => !drop.has(i) && !(drop.has(i - 1) && isBlank(lines[i]))).join("\n")
 }
 
 export const chunkTexts = (review: string): ReadonlyMap<string, string> =>
@@ -361,7 +346,7 @@ const trimBlankLines = (lines: readonly string[]): string[] => {
   let end = lines.length
   while (start < end && isBlank(lines[start])) start++
   while (end > start && isBlank(lines[end - 1])) end--
-  return lines.slice(start, end).map((l) => l.trimEnd())
+  return lines.slice(start, end)
 }
 
 /**
