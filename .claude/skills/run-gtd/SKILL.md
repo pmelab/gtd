@@ -24,10 +24,13 @@ look at what it does.
   `env | cut -d= -f1 | grep -E '^(GIT_|GTD_|TYPESAFE_)'` should list nothing but
   `GIT_CONFIG_*` and what you set on purpose; unset the rest. An inherited
   `GTD_LOOP_LOG` moves the loop log, `GTD_<SETTING>` (for example
-  `GTD_TESTCOMMAND`) overrides the workflow under test, and `TYPESAFE_API_KEY`
-  or `~/.config/gtd/judge.json` sends judge gates to a real model. Set on
-  purpose: `GTD_FLAG_<NAME>=1` for a change behind a release flag, and
+  `GTD_TESTCOMMAND`) overrides the workflow under test. Set on purpose:
+  `GTD_FLAG_<NAME>=1` for a change behind a release flag, and
   `GTD_JUDGE_PROVIDER=fixed` with `GTD_JUDGE_ANSWERS` for a driver run.
+- **Judge gates ask a real model** unless told otherwise: with no provider,
+  `gtd judge run` uses TypeSafe (`TYPESAFE_API_KEY`), a `judge.json`, or else
+  the real `claude` CLI. Always pass `--provider fixed`, or set
+  `GTD_JUDGE_PROVIDER=fixed`, as below.
 - **At most 2 driver runs or `npm test` runs at once** on this machine — more
   time out the `@live` scenarios.
 - **Never run `npm run test:mutation`.** It is a deliberate user action.
@@ -89,7 +92,9 @@ records it. Read `gtd next --json=kind`:
 | `stalled` | the process is stuck: `gtd next --json=content` says why                      |
 
 Land with `gtd land --json=script | sh` (plain `gtd land` only says what it
-would commit). `gtd next --json` shows the whole state: `state`, `file`,
+would commit). The pipe hides a refused landing — `sh` runs an empty script and
+exits 0 — so read `gtd land`'s stderr, or capture the script first as the worked
+example does. `gtd next --json` shows the whole state: `state`, `file`,
 `access.write`, `validate`. `git log --oneline` is the process's history.
 
 To run many beats at once, save the minimal driver from `docs/driver.md` ("A
@@ -97,10 +102,11 @@ complete minimal driver") and run it in the scratch repository with a `claude`
 stand-in on `PATH` (below). It stops at the first human rest.
 
 Answer a judge gate with a verdict you choose, one `{ id, answer, p }` per
-question `gtd judge --json` lists:
+question `gtd judge --json` lists, written OUTSIDE the scratch repository (a
+file inside it is committed with the answer):
 
 ```bash
-gtd judge --json | gtd judge run --provider fixed --answers=verdict.json |
+gtd judge --json | gtd judge run --provider fixed --answers="$repo.verdict.json" |
   gtd judge answer --json=script | sh
 ```
 
@@ -109,7 +115,7 @@ then land. Changing nothing and landing accepts a gate that allows it.
 
 ## Stand-ins for external tools
 
-No run needs the network or a model.
+No run needs the network or a model, with judge gates on `--provider fixed`.
 
 **An agent turn, by hand.** Read the prompt (`gtd next`), write only the files
 `gtd next --json=access.write` allows, run the step's validator, land:
@@ -205,15 +211,22 @@ EOF
 git add -A
 git commit -qm "chore: initial commit"
 
+# Capture the landing script first: piped straight into `sh`, a refused
+# landing would run an empty script and exit 0.
+land() {
+  script="$(gtd land --json=script)"
+  printf '%s\n' "$script" | sh
+}
+
 # Start: a sketch is a human edit, and landing it starts the process.
 mkdir -p .gtd
 echo "Add hello.sh that prints hello." >.gtd/TODO.md
-gtd land --json=script | sh
+land
 
 # Checks run until the first agent turn.
 while [ "$(gtd next --json=kind)" = script ]; do
   sh -c "$(gtd next --json=content)" >/dev/null 2>&1 || true
-  gtd land --json=script | sh
+  land
 done
 test "$(gtd next --json=state)" = design.triage
 
@@ -240,14 +253,14 @@ The greeting is user-visible.
 - AC-1: `sh hello.sh` prints the chosen greeting.
 EOF
 sh -c "$(gtd next --json=validate)"
-gtd land --json=script | sh
+land
 
 # A human rest: read it, answer by editing the steering file, land.
 test "$(gtd next --json=kind)" = message
 gtd next
 sed 's/^- \[ \] `hello`$/- [x] `hello`/' .gtd/REQUIREMENTS.md >"$repo.tmp"
 mv "$repo.tmp" .gtd/REQUIREMENTS.md
-gtd land --json=script | sh
+land
 test "$(gtd next --json=state)" = design.triage
 git log --oneline
 ```

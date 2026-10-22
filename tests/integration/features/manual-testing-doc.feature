@@ -5,8 +5,8 @@ Feature: the run-gtd skill's worked example — doc-tested
   change by hand, and ends in a worked example: one paste that starts a
   process in a scratch repository, reaches a human rest and lands an answer.
   Nothing else runs that paste, so it is extracted verbatim and run with only
-  $PATH (this build's `gtd` first) and $HOME, the way the skill's build step
-  leaves a shell.
+  $PATH (this build's `gtd` first), $HOME and the pass's release flags, the
+  way the skill's build step leaves a shell.
 
   Scenario: The worked example starts a process, rests at the answer gate and lands an answer
     Given a test project

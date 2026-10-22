@@ -15,7 +15,8 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
   --resume, --model, --settings, --dangerously-skip-permissions) and the prompt piped to
   it on stdin into the stub agent's env. The driver is spawned with only
   $PATH (the shim dir first) and $HOME —
-  no $GTD_* var, no test-harness leak — which is itself the
+  no $GTD_* var beyond the release-flag state the pass runs under, no
+  test-harness leak — which is itself the
   copy-paste-complete proof. Turn/transition reporting is not asserted here
   beyond what the emitted scripts print themselves
   (`src/emit/OutcomeScript.ts`).

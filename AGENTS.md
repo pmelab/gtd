@@ -57,9 +57,9 @@ decided by the tiers in [COMPATIBILITY.md](COMPATIBILITY.md).
   a real driver. The heading text and the single fence are load-bearing —
   renaming the heading or splitting the paste across more than one fence fails
   the extraction, not just a stale doc. The extracted script is spawned with
-  only `$PATH` (a shim dir first) and `$HOME` — any new env dependency the paste
-  grows must be documented in its own Prerequisites section, and is a scenario
-  failure until it is
+  only `$PATH` (a shim dir first), `$HOME` and the pass's `GTD_FLAG_*` — any new
+  env dependency the paste grows must be documented in its own Prerequisites
+  section, and is a scenario failure until it is
 - `docs/cli.md`'s `## Commands` block and its exit-code table are PINNED equal
   to the rendered help output and the exit-code set — they are generated views
   under test, not prose to hand-maintain
