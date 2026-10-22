@@ -41,6 +41,7 @@ import {
   reviewerPersona,
   builderPersona,
   finisherPersona,
+  testerPersona,
   escalationPersona,
   stateFileRules,
   questionBar,
@@ -1979,4 +1980,98 @@ Two ways forward (then run \`gtd land\`):
   retry budget
 - **Overrule** — land a clean tree to finish without them. The slice records
   the IDs it covers and, as \`uncovered\`, the ones it does not
+`
+
+export const testerSystem = (): string =>
+  `${testerPersona}
+
+${agentConduct}`
+
+const PROTOTYPE_FORMAT = `- Write \`.gtd/PROTOTYPE.md\`, replacing any earlier report: one \`## \` chunk
+  per criterion, headed \`## AC-<n>: pass\`, \`## AC-<n>: fail\` or
+  \`## AC-<n>: blocked\`, then one chunk per problem you found outside any
+  criterion, headed \`## Problem <short title>: fail\` (\`: pass\` once a
+  re-test shows it fixed). Under each: the exact steps you ran, what you
+  observed (output, a screenshot path, the error), and for a failure what
+  you expected instead
+- \`blocked\` is for a criterion you could not exercise, or one whose
+  expected behaviour itself looks wrong — say which and why: a person
+  decides it, never a fixer`
+
+export const prototypeTestingPrompt = (
+  slice: readonly string[] | undefined,
+  retest: boolean,
+): string =>
+  `${stateFileRules}
+- Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
+${sliceLine(slice)}- The change is built and its suite is green. Now test it by hand: use
+  every acceptance criterion the way a person would and watch what
+  happens. Running the test suite is not this — it already ran
+- Find how this project is exercised for real, in this order: a project
+  skill that launches or drives it (e.g. \`.claude/skills/*\`); a manual
+  testing or running section in \`AGENTS.md\`, \`CLAUDE.md\` or \`README.md\`;
+  failing those, the project's shape — a browser or Playwright for a web
+  project, the built CLI in a scratch directory for a CLI, a request client
+  for an API
+- Found none and recognised no shape: write only a chunk headed
+  \`## No testing instructions\` saying what you looked for, and finish —
+  a person is asked; never guess
+- Test in a disposable place only — a scratch directory outside this
+  repository, a throwaway repository, a dev server on a free port — never
+  against the user's real data or this working tree
+${
+  retest
+    ? `- This is a re-test: \`.gtd/PROTOTYPE.md\` holds the last round's report and
+  a fix turn has run since. Re-test every failed or blocked criterion and
+  every problem it lists in full, then re-run the passed ones quickly
+`
+    : ""
+}${PROTOTYPE_FORMAT}
+- Change nothing but \`.gtd/PROTOTYPE.md\` — a turn that does is refused
+- Leave everything uncommitted and finish your turn — do not commit
+`
+
+export const prototypeFixingPrompt = (slice: readonly string[] | undefined): string =>
+  `${stateFileRules}
+- Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
+${sliceLine(slice)}${criteriaBinding(true)}
+- Read \`.gtd/PROTOTYPE.md\`: a hands-on test of the change. Fix every
+  \`fail\` chunk — a criterion that did not hold, or a problem found beside
+  them — at its cause, with a test that shows it; leave \`blocked\` ones to
+  the person
+- Leave \`.gtd/PROTOTYPE.md\` as it is: the next round re-tests from it
+- Run \`${env.testCommand}\` and finish only once it is green
+- Leave everything uncommitted and finish your turn — do not commit
+`
+
+const openItems = (items: readonly { subject: string; verdict: string }[]): string =>
+  items.map((item) => `- ${item.subject}: ${item.verdict}`).join("\n")
+
+export const prototypeOpenMessage = (
+  items: readonly { subject: string; verdict: string }[],
+  rounds: number,
+): string =>
+  `The hands-on test of this slice still has open items${rounds > 0 ? ` after ${rounds} fix round${rounds === 1 ? "" : "s"}` : ", and none a fixer can take"}:
+${openItems(items)}
+
+\`.gtd/PROTOTYPE.md\` holds the last report: the steps run and what was seen.
+
+Two ways forward (then run \`gtd land\`):
+- **Fix** — change the code, or the testing instructions, yourself (the
+  criteria are settled: an edit to them is refused); the suite runs and the
+  slice is tested again, with a fresh round budget
+- **Overrule** — land a clean tree to go on to the quality lap with these
+  items open
+`
+
+export const prototypeUnguidedMessage = (): string =>
+  `The hands-on test found no way to exercise this project for real — no
+project skill, no manual testing section in \`AGENTS.md\`, \`CLAUDE.md\` or
+\`README.md\`, and no project shape it recognised. \`.gtd/PROTOTYPE.md\` says
+what it looked for.
+
+Two ways forward (then run \`gtd land\`):
+- **Instruct** — add testing instructions (a project skill, or a manual
+  testing section); the slice is tested again
+- **Skip** — land a clean tree to go on to the quality lap untested
 `

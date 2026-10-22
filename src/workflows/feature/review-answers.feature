@@ -10,6 +10,7 @@ Feature: every note in the review is answered with one tick
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
+    And an environment variable "GTD_PROTOTYPEROUNDS" set to "0"
     And an environment variable "GTD_QUALITYREVIEWS" set to "correctness"
     And an environment variable "GTD_FLAGMODE" set to "false"
     And a file "src/calc.ts" with:

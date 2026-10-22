@@ -777,6 +777,59 @@ nothing; a file with no ID'd criteria skips the judge.
 expects `implement.coverage` there. A process resting earlier keeps replaying.
 Custom fixtures driving the `feature` workflow must answer `implement.coverage`.
 
+### The hands-on test
+
+Once every criterion is covered, each `feature` slice — and every feedback lap —
+is used by hand before it closes: `implement.prototype.testing`, an agent turn,
+finds how the project is exercised for real (a project skill that launches or
+drives it, a manual testing or running section in `AGENTS.md`, `CLAUDE.md` or
+`README.md`, else the project's shape: a browser for a web project, the CLI in a
+scratch directory, a request client for an API), performs every acceptance
+criterion of the slice in a disposable place, and writes `.gtd/PROTOTYPE.md`:
+
+```markdown
+## AC-1: pass
+
+Ran `mycli add 1 2` in a scratch directory; printed 3.
+
+## AC-2: fail
+
+Ran `mycli sub 3 1`; printed 4. Expected 2.
+
+## Problem every command warns: fail
+
+Each run printed a deprecation warning.
+```
+
+One chunk per criterion, headed `## AC-<n>: pass|fail|blocked`, plus one per
+problem found beside them, headed `## Problem <title>: <verdict>`; under each,
+the steps run and what was seen. `gtd land` refuses the turn
+(`prototype-report`) when it changes anything but `.gtd/PROTOTYPE.md`, or the
+report lacks exactly one chunk for a criterion of the slice.
+
+- **Every chunk `pass`**: `implement.closing` follows, removing the report, and
+  the quality lap runs.
+- **A `fail`**: `implement.prototype.fix.fixing` fixes every failed chunk (the
+  criteria are frozen: `criteria-frozen`), the health loop
+  (`implement.prototype.health.*`) turns the suite green, and the slice is
+  tested again — failed items in full, passed ones quickly. Each round's report
+  lands with its turn.
+- **Past [`prototypeRounds`](#the-bundled-workflows-settings) fix rounds, or
+  only `blocked` items open** (a criterion the tester could not exercise, or one
+  whose expected behaviour looks wrong): the process rests at
+  `implement.prototype.open`, naming the open items. A change there runs the
+  health loop and tests again with a fresh budget; a clean `gtd land` goes on
+  with the items open.
+- **No way to test found**: the report holds only a `## No testing instructions`
+  chunk and the process rests at `implement.prototype.unguided`. Add
+  instructions and land to test again, or land a clean tree to go on untested.
+
+**Upgrading:** finish or `gtd abandon` any `feature` process past
+`implement.coverage` (resting at `implement.closing` or later in a slice):
+replay now expects `implement.prototype.testing` there. Custom fixtures driving
+the `feature` workflow must script `implement.prototype.testing` with a clean
+report, or set `prototypeRounds` to `0`.
+
 ### The naive-pass path
 
 The `feature` workflow's path while
@@ -841,7 +894,8 @@ order:
    person's edit at an escalation rest is not). The check reads test text — a
    skipped test passes it; the health loop is what runs them green. Then the
    health loop (`implement.health.*`, `implement.fix.suite.fixing`), the
-   [coverage judge](#acceptance-criteria-coverage) (`implement.coverage`) and
+   [coverage judge](#acceptance-criteria-coverage) (`implement.coverage`), the
+   [hands-on test](#the-hands-on-test) (`implement.prototype.*`) and
    `implement.closing`, which removes `.gtd/REQUIREMENTS.md` (and
    `.gtd/REFACTOR-NOTE.md`, when there is one). A build turn is asked for a new
    release flag. The feature's quality lap (`build.quality.<lens>`) follows,
@@ -2206,6 +2260,11 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   [continuations](#continuations) run before a turn that still stops at its
   context limit rests at `<phase>.oversized`. A whole number, `0` or more;
   anything else refuses the landing that reaches it.
+- **`prototypeRounds`** (`3`) — how many fix turns a slice's
+  [hands-on test](#the-hands-on-test) gets before open items rest at
+  `implement.prototype.open`. `0` skips the test. A whole number, `0` or more;
+  anything else refuses the landing that would start the process. Pinned at
+  process start.
 - **`continuationStall`** (`2`) — how many continuations in a row may close
   nothing still open before the phase rests at `<phase>.oversized`. A whole
   number, `1` or more.

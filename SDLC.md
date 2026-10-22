@@ -74,6 +74,18 @@ records `Gtd-Mark: covers=<id>` per ID. After two covering turns
 overrule records `Gtd-Mark: uncovered=<id>`. See
 [Acceptance-criteria coverage](docs/configuration.md#acceptance-criteria-coverage).
 
+## The hands-on test
+
+**Every criterion is used by hand before the quality lap.** After coverage,
+`implement.prototype.testing` runs the real program (guided by a project skill
+or a manual testing section, else the project's shape) in a disposable place and
+writes `.gtd/PROTOTYPE.md`: per criterion `pass`, `fail` or `blocked`, the steps
+run and what was seen, plus any problem found beside them. Failures go to
+`implement.prototype.fix.fixing` and are re-tested; past `prototypeRounds` (3)
+fix rounds, or with only blocked items, `implement.prototype.open` rests for a
+human. No way to test found rests at `implement.prototype.unguided`. See
+[The hands-on test](docs/configuration.md#the-hands-on-test).
+
 ## The quality lenses and the reviewer's walkthrough
 
 **In `feature`, a reviewer walks you through the code.** The quality lap's

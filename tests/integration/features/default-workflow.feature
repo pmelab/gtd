@@ -142,16 +142,28 @@ Feature: The bundled unified workflow — one flow, end to end
     And the last commit subject is "gtd(check): implement.health.check → implement.coverage"
 
     # implement.coverage: every acceptance-criterion ID needs a passing test.
-    Given gtd lands "gtd(judge): implement.coverage → implement.closing" judging:
+    Given gtd lands "gtd(judge): implement.coverage → implement.prototype.testing" judging:
       """
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """
 
-    # implement.closing removes REQUIREMENTS.md -> the quality lap, which
-    # every ordinary round pays for once, before any human sees the change.
-    # These lenses judge the code — one build.quality.<lens>.reviewing turn
-    # per bundled qualityReviews entry.
+    # implement.prototype.testing: every criterion used by hand, reported per ID.
+    Given a file ".gtd/PROTOTYPE.md" with:
+      """
+      ## AC-1: pass
+
+      Ran `node -e 'console.log(greet())'` in a scratch directory; printed hello.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): implement.prototype.testing → implement.closing"
+
+    # implement.closing removes REQUIREMENTS.md and PROTOTYPE.md -> the quality
+    # lap, which every ordinary round pays for once, before any human sees the
+    # change. These lenses judge the code — one build.quality.<lens>.reviewing
+    # turn per bundled qualityReviews entry.
     Given the file ".gtd/REQUIREMENTS.md" is deleted
+    And the file ".gtd/PROTOTYPE.md" is deleted
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): implement.closing → build.quality.correctness.reviewing"
@@ -269,7 +281,8 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(check): implement.health.check → implement.fix.suite.fixing
       gtd(agent): implement.fix.suite.fixing → implement.health.check
       gtd(check): implement.health.check → implement.coverage
-      gtd(judge): implement.coverage → implement.closing
+      gtd(judge): implement.coverage → implement.prototype.testing
+      gtd(agent): implement.prototype.testing → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.quality.owasp-security.reviewing
       gtd(agent): build.quality.owasp-security.reviewing → build.quality.ponytail-review.reviewing
@@ -1341,11 +1354,19 @@ Feature: The bundled unified workflow — one flow, end to end
       """
     And gtd lands "gtd(agent): implement.building → implement.health.check"
     And gtd lands "gtd(check): implement.health.check → implement.coverage"
-    And gtd lands "gtd(judge): implement.coverage → implement.closing" judging:
+    And gtd lands "gtd(judge): implement.coverage → implement.prototype.testing" judging:
       """
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """
+    And a file ".gtd/PROTOTYPE.md" with:
+      """
+      ## AC-1: pass
+
+      Used it by hand; it behaves as described.
+      """
+    And gtd lands "gtd(agent): implement.prototype.testing → implement.closing"
     And the file ".gtd/REQUIREMENTS.md" is deleted
+    And the file ".gtd/PROTOTYPE.md" is deleted
     And gtd lands "gtd(check): implement.closing → build.review.composing"
     When I run gtd next
     Then it succeeds

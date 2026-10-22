@@ -28,6 +28,7 @@ import {
 } from "./criteria.js"
 import { design } from "./planning.js"
 import { buildTail, humanReview, isCode, reUnwind, type ReviewOutcome } from "../shared/review.js"
+import { prototypeRounds } from "./prototype.js"
 import { implement, implementing, seamBuild } from "./seam.js"
 import { sliceCap, sliceCriteria, slicing } from "./slicing.js"
 import { recordRisk, riskTierOn, type RiskTier } from "./tier.js"
@@ -36,7 +37,8 @@ import { recordRisk, riskTierOn, type RiskTier } from "./tier.js"
 // `unwind` reverts the sketch (its intent survives in history) → a
 // green-baseline gate → design → per slice of the criteria, a naive pass,
 // judged with `flagMode` on: it lands as the implementation, or (refactoring
-// first when the judge asks) is built fresh from → the health loop → the
+// first when the judge asks) is built fresh from → the health loop → a
+// hands-on test of every criterion, fixed and re-tested → the
 // triaged quality lap, whose leftovers are carried on → after the last slice,
 // a reviewer's walkthrough of the whole change, every slice's findings
 // among its chunks, for the human, which
@@ -227,6 +229,7 @@ export const ordinaryStart = async (): Promise<void> => {
   // Read right after idle, so a bad value refuses the landing that would pin it.
   flagModeOn()
   sliceCap()
+  prototypeRounds()
   const stated = statedCriteria(changes(), head())
   await unwind()
   if (changes(FEEDBACK).some((c) => c.status !== "deleted")) {

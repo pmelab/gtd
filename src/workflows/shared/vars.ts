@@ -41,6 +41,9 @@ export const defaults: Readonly<Record<string, string>> = {
   // stopped at its context limit before a person is asked, and how many in a
   // row may close nothing still open.
   continuations: "3",
+  // Fix-and-retest rounds of a slice's prototype test before a person is
+  // asked; "0" skips the test.
+  prototypeRounds: "3",
   continuationStall: "2",
 }
 

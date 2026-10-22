@@ -9,6 +9,7 @@ Feature: a feature is done only when every acceptance criterion has a passing te
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
+    And an environment variable "GTD_PROTOTYPEROUNDS" set to "0"
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And an environment variable "GTD_FLAGMODE" set to "false"
     And a file "src/calc.ts" with:

@@ -33,6 +33,11 @@ export const skills = (
     seam: ["incremental-implementation"],
     implement: ["test-driven-development", "incremental-implementation"],
     "implement.fix.suite": ["debugging-and-error-recovery"],
+    // The hands-on tester runs the program, never the suite: no TDD.
+    "implement.prototype": [],
+    "implement.prototype.fix": ["test-driven-development", "incremental-implementation"],
+    "implement.prototype.fix.suite": ["debugging-and-error-recovery"],
+    "implement.prototype.health": ["debugging-and-error-recovery"],
     // `health` is shared code reached from both `implement` and `build`.
     "implement.health": ["debugging-and-error-recovery"],
     ...lensScopes(
