@@ -11,7 +11,7 @@ Feature: flag mode off lands the naive pass with no release flag, seam judge or 
       """
       import { feature } from "@pmelab/gtd/workflows/feature"
       export { summary, steering, skills, access } from "@pmelab/gtd/workflows/feature"
-      export default feature({ flagMode: false })
+      export default feature({ flagMode: false, prototypeRounds: "0" })
       """
     And an environment variable "GTD_QUALITYREVIEWS" set to "correctness"
     And a file "src/calc.ts" with:

@@ -27,6 +27,7 @@ export const ShippedOptions = Schema.Struct({
   qualityReviews: setting,
   refactorQualityReviews: setting,
   continuations: setting,
+  prototypeRounds: setting,
   continuationStall: setting,
   testCommand: setting,
   plannerModel: setting,

@@ -10,6 +10,7 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
+    And an environment variable "GTD_PROTOTYPEROUNDS" set to "0"
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And an environment variable "GTD_REFACTORQUALITYREVIEWS" set to ""
     And an environment variable "GTD_FLAG_RISK_TIER" set to "0"

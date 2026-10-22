@@ -8,6 +8,7 @@ Feature: a change with more criteria than the cap is built in coarse slices
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
+    And an environment variable "GTD_PROTOTYPEROUNDS" set to "0"
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And an environment variable "GTD_FLAGMODE" set to "false"
     And an environment variable "GTD_SLICEMAXCRITERIA" set to "2"

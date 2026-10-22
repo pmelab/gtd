@@ -26,10 +26,19 @@ import {
   type KeptTip,
 } from "../../flows/index.js"
 import { continuing, phase, type Handoff, type Phase } from "../shared/continuation.js"
-import { coder, FEEDBACK, HANDOFF, REFACTOR_NOTE, REQUIREMENTS, SLICES } from "../shared/steps.js"
+import {
+  coder,
+  FEEDBACK,
+  HANDOFF,
+  PROTOTYPE,
+  REFACTOR_NOTE,
+  REQUIREMENTS,
+  SLICES,
+} from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
 import { green, requireCoverage } from "./coverage.js"
+import { prototypeTest } from "./prototype.js"
 import {
   criterionIds,
   requireCriteria,
@@ -373,10 +382,11 @@ export const implementing = (options: ImplementOptions): Promise<readonly string
     if (built && acceptance !== undefined)
       requireAcceptance({ ...acceptance, ids: settled(acceptance.ids, options.slice) }, since)
     // Fix turns are held to the carried tests too: deleting a red one must not buy a green suite.
-    await green(
-      built && acceptance !== undefined ? () => requireAcceptanceKept(acceptance) : undefined,
-    )
+    const keepsTests =
+      built && acceptance !== undefined ? () => requireAcceptanceKept(acceptance) : undefined
+    await green(keepsTests)
     await requireCoverage(options.base, options.slice)
+    await prototypeTest(options.slice, keepsTests)
     const ids = criterionIds(read(REQUIREMENTS) ?? "")
     await closing(moreToBuild(options.more))
     return ids
@@ -393,7 +403,11 @@ export const closeOut = (): Promise<void> => scope("implement", () => closing(fa
 const closing = (more: boolean): Promise<void> =>
   run(
     "closing",
-    removeScript(more ? [REFACTOR_NOTE, HANDOFF] : [REQUIREMENTS, REFACTOR_NOTE, SLICES, HANDOFF]),
+    removeScript(
+      more
+        ? [REFACTOR_NOTE, HANDOFF, PROTOTYPE]
+        : [REQUIREMENTS, REFACTOR_NOTE, SLICES, HANDOFF, PROTOTYPE],
+    ),
     { label: "Closing out the implementation" },
   )
 

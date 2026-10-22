@@ -9,6 +9,7 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
+    And an environment variable "GTD_PROTOTYPEROUNDS" set to "0"
     And an environment variable "GTD_QUALITYREVIEWS" set to "correctness"
     And an environment variable "GTD_FLAGMODE" set to "false"
     And an environment variable "GTD_SLICEMAXCRITERIA" set to "1"

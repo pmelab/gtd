@@ -692,6 +692,13 @@ an uncovered one goes back to the agent (twice, then to you) instead of ending
 the feature, and each covered ID is recorded as a `Gtd-Mark: covers=<id>`
 trailer. See
 [Acceptance-criteria coverage](docs/configuration.md#acceptance-criteria-coverage).
+Then an agent uses the slice by hand — the real program in a scratch directory,
+the real page, guided by a project skill or a manual testing section in
+`AGENTS.md`, `CLAUDE.md` or `README.md` — and writes `.gtd/PROTOTYPE.md`: per
+criterion pass, fail or blocked, with the steps run and what it saw. Failures
+are fixed and re-tested before the quality lap, up to `prototypeRounds` (3) fix
+rounds; past them, with only blocked items, or with no way to test found, it
+rests for you. See [The hands-on test](docs/configuration.md#the-hands-on-test).
 Feedback at the feature review re-runs design and the implementation, never the
 naive pass; feedback at the refactor review re-runs the refactor, never design;
 a refactor-review change the refactor cannot build is refused, and the only way
