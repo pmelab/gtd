@@ -14,13 +14,23 @@ describe("reportOf", () => {
         { subject: "AC-2", verdict: "fail" },
         { subject: "Problem double replies", verdict: "blocked" },
       ],
+      malformed: [],
     })
   })
 
-  it("skips fenced lines, deeper headings and headings without a verdict", () => {
+  it("skips fenced lines, deeper headings and prose headings", () => {
+    expect(reportOf("```md\n## AC-1: fail\n```\n### AC-2: fail\n## Notes\n")).toEqual({
+      unguided: false,
+      items: [],
+      malformed: [],
+    })
+  })
+
+  it("lists an item-like heading that misses the shape", () => {
     expect(
-      reportOf("```md\n## AC-1: fail\n```\n### AC-2: fail\n## AC-3: maybe\n## Notes\n"),
-    ).toEqual({ unguided: false, items: [] })
+      reportOf("## Problem crash — fail\n## AC-2: failed\n## Problems: fail\n## AC-3: maybe\n")
+        .malformed,
+    ).toEqual(["Problem crash — fail", "AC-2: failed", "Problems: fail", "AC-3: maybe"])
   })
 
   it("upper-cases a criterion ID written in lower case", () => {

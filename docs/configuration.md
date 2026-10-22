@@ -805,9 +805,9 @@ One chunk per criterion, headed `## AC-<n>: pass|fail|blocked`, plus one per
 problem found beside them, headed `## Problem <title>: <verdict>`; under each,
 the steps run and what was seen. `gtd land` refuses the turn
 (`prototype-report`) when it changes anything but `.gtd/PROTOTYPE.md`, or the
-report lacks exactly one chunk for a criterion of the slice. A chunk for a
-criterion another slice builds is never an open item; any other non-`pass` chunk
-is.
+report lacks exactly one chunk for a criterion of the slice, or has a criterion-
+or problem-like heading in neither shape. A chunk for a criterion another slice
+builds is never an open item; any other non-`pass` chunk is.
 
 - **Every chunk `pass`**: `implement.closing` follows, removing the report, and
   the quality lap runs.
@@ -823,10 +823,10 @@ is.
   `implement.prototype.open`, naming the open items. A change outside
   `.gtd/PROTOTYPE.md` runs the health loop and tests again with a fresh budget;
   a `gtd land` without one goes on with the items open.
-- **No way to test found**: the report holds only a `## No testing instructions`
-  chunk and the process rests at `implement.prototype.unguided`. Add
-  instructions and land to run the health loop and test afresh, or land a clean
-  tree to go on untested.
+- **No way to test found** on a first test (a re-test must report every
+  criterion): the report holds only a `## No testing instructions` chunk and the
+  process rests at `implement.prototype.unguided`. Add instructions and land to
+  run the health loop and test afresh, or land a clean tree to go on untested.
 
 **Upgrading:** finish or `gtd abandon` any `feature` process past
 `implement.coverage` (resting at `implement.closing` or later in a slice):

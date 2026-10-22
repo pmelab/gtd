@@ -375,3 +375,45 @@ Feature: every criterion is tested by hand before the quality lap
       """
     When the process is driven
     Then the process rests at "build.quality.correctness.reviewing"
+
+  Scenario: a problem heading that misses the shape is refused, not dropped
+    Given step "implement.prototype.testing" writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## AC-1: pass
+
+      Printed 2.
+
+      ## AC-2: pass
+
+      Printed 2.
+
+      ## Problem every call warns — fail
+
+      Each call printed a deprecation warning.
+      """
+    Then driving the process is refused with "these miss it:"
+
+  Scenario: a re-test that finds no way to test is refused, keeping the open items in view
+    Given step "implement.prototype.testing", when prompted with "Find how this project", writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## AC-1: fail
+
+      Printed 4.
+
+      ## AC-2: pass
+
+      Printed 2.
+      """
+    And step "implement.prototype.fix.fixing" writes "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      export const subtract = (a: number, b: number) => a - b
+      """
+    And step "implement.prototype.health.check" changes nothing
+    And step "implement.prototype.testing", when prompted with "This is a re-test", writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## No testing instructions
+
+      The CLI is gone.
+      """
+    Then driving the process is refused with "needs exactly one chunk"

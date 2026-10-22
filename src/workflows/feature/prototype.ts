@@ -26,6 +26,8 @@ export interface Item {
 export interface Report {
   readonly unguided: boolean
   readonly items: readonly Item[]
+  /** Headings that read as an item but miss the shape: a failure there would go unseen. */
+  readonly malformed: readonly string[]
 }
 
 const CHUNK = /^(AC-\d+|Problem\b.*?)\s*:\s*(pass|fail|blocked)$/i
@@ -35,18 +37,20 @@ const UNGUIDED = /^no testing instructions$/i
 export const reportOf = (text: string): Report => {
   let unguided = false
   const items: Item[] = []
+  const malformed: string[] = []
   for (const { line, fenced } of markFenced(text)) {
     const heading = fenced ? null : HEADING.exec(line)
     if (heading?.[1] !== "##") continue
     if (UNGUIDED.test(heading[2]!)) unguided = true
     const chunk = CHUNK.exec(heading[2]!)
+    if (chunk === null && /^(ac-\d|problem)/i.test(heading[2]!)) malformed.push(heading[2]!)
     if (chunk !== null)
       items.push({
         subject: /^ac-/i.test(chunk[1]!) ? chunk[1]!.toUpperCase() : chunk[1]!,
         verdict: chunk[2]!.toLowerCase() as Verdict,
       })
   }
-  return { unguided, items }
+  return { unguided, items, malformed }
 }
 
 /**
@@ -56,6 +60,7 @@ export const reportOf = (text: string): Report => {
  */
 const requireReport = (
   slice: CriteriaSlice | undefined,
+  retest: boolean,
 ): { readonly unguided: boolean; readonly open: readonly Item[] } => {
   const others = changes()
     .map((c) => c.path)
@@ -67,8 +72,13 @@ const requireReport = (
   const text = read(PROTOTYPE)
   if (text === undefined) return refuse(`gtd land: prototype-report: write ${PROTOTYPE}`)
   const report = reportOf(text)
-  // Only a report with nothing else in it: a chunk beside it was tested after all.
-  if (report.unguided && report.items.length === 0) return { unguided: true, open: [] }
+  if (report.malformed.length > 0)
+    refuse(
+      `gtd land: prototype-report: head each chunk \`## <ID>: pass|fail|blocked\` or \`## Problem <title>: pass|fail|blocked\` — these miss it:\n${report.malformed.map((h) => `  - ${h}`).join("\n")}`,
+    )
+  // Only a first test with nothing else in it: a chunk beside it was tested after all, and a
+  // re-test's open items must reach a person, not slip past as untested.
+  if (report.unguided && report.items.length === 0 && !retest) return { unguided: true, open: [] }
   const requirements = read(REQUIREMENTS) ?? ""
   const ids = criterionIds(requirements, slice)
   const elsewhere = criterionIds(requirements).filter((id) => !ids.includes(id))
@@ -97,7 +107,7 @@ const testing = async (
     // A test that saw exactly what the last round saw leaves the report as it was.
     allowEmpty: true,
   })
-  return requireReport(slice)
+  return requireReport(slice, retest)
 }
 
 const fixing = async (slice: CriteriaSlice | undefined, guard?: Guard): Promise<void> => {
