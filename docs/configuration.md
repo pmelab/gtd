@@ -457,12 +457,15 @@ any of `buildTail`'s own steps run. Every `BuildTailOptions` field accepts an
 explicit `undefined` as absent, and its `feedback` and `lap` types are exported
 as `FeedbackTarget` and `ReviewRange`.
 
-`tail(finish, options?)` is the build tail without the review: `finish` gets the
-escalation count and runs last; `options` (`TailOptions`) takes `fixFirst`,
-`green`, `guard`, `lenses`, `guardRests`, `lensBase` and `rules`. `lenses`
-entries take the `qualityReviews` form, `<lens>` or `<lens>=<model>`
-(`lensEntriesOf` splits a list into them, `lensOf` splits one, `lensesOf` keeps
-only the names); passed in, they replace `qualityReviews` hints and all.
+`tail(finish, options?)` is the build tail without the review: its quality lap
+is [triaged](#the-triaged-quality-lap), `.gtd/QUALITY.md` is removed, and
+`finish` runs last with the escalation count and the lap's report (`LensReport`:
+`notes`, `fixed`, `noise`) for it to show or pass on; `options` (`TailOptions`)
+takes `fixFirst`, `green`, `guard`, `lenses`, `guardRests`, `lensBase` and
+`rules`. `lenses` entries take the `qualityReviews` form, `<lens>` or
+`<lens>=<model>` (`lensEntriesOf` splits a list into them, `lensOf` splits one,
+`lensesOf` keeps only the names); passed in, they replace `qualityReviews` hints
+and all.
 `tail(fixFirst, finish, green?, guard?, lenses?, guardRests?, lensBase?, rules?)`
 is deprecated; a function second argument selects it. A call fitting neither
 form is rejected before any step runs.
@@ -843,16 +846,12 @@ order:
    `.gtd/REFACTOR-NOTE.md`, when there is one). A build turn is asked for a new
    release flag. The feature's quality lap (`build.quality.<lens>`) follows,
    then the [feature review](#the-feature-review) (`build.review.*`); its
-   findings are [triaged](#the-triaged-quality-lap). Between
-   [coarse slices](#coarse-slices) nothing triages them: the fix turn fixes
-   every one, and those the fix cap leaves in `.gtd/QUALITY.md` rest at
-   `build.quality-unresolved`, a human step, until the file is deleted or
-   emptied; the health loop then checks any hand edits before the next slice.
-   After a `refactor` slice the build turn may change nothing but the
-   carried-over tests — the refactor already carried the whole feature — and an
-   empty turn completes the step when the naive pass's tests named no ID. A
-   feature slice that changed no code but test files has its quality lap cover
-   the whole change from the process start (with
+   findings are [triaged](#the-triaged-quality-lap), between
+   [coarse slices](#coarse-slices) too. After a `refactor` slice the build turn
+   may change nothing but the carried-over tests — the refactor already carried
+   the whole feature — and an empty turn completes the step when the naive
+   pass's tests named no ID. A feature slice that changed no code but test files
+   has its quality lap cover the whole change from the process start (with
    [coarse slices](#coarse-slices), from where its slice began), refactor
    included.
 
@@ -866,11 +865,12 @@ covers the whole change from the process start (from where its slice began, with
 
 #### The triaged quality lap
 
-Ahead of every `feature` review — the feature's and the refactor's — the quality
-lenses are the only agentic review. Each lens appends its findings to
-`.gtd/QUALITY.md`, one `## <title>` chunk per finding (prose outside every chunk
-counts as one more finding). A judge, `build.quality.triage`, classifies each
-one (`Q1`, `Q2`, … in file order):
+Every quality lap is triaged — ahead of every `feature` review (the feature's
+and the refactor's), between [coarse slices](#coarse-slices), and in `fix` and
+`cleanup` — and the quality lenses are the only agentic review. Each lens
+appends its findings to `.gtd/QUALITY.md`, one `## <title>` chunk per finding
+(prose outside every chunk counts as one more finding). A judge,
+`build.quality.triage`, classifies each one (`Q1`, `Q2`, … in file order):
 
 - `mechanical` — fixed by `build.fix.quality.fixing`, up to three turns, each
   deleting the chunks it resolved; the health loop then runs the suite green
@@ -881,25 +881,35 @@ one (`Q1`, `Q2`, … in file order):
 A verdict below `qualityTriageMinP` (`0.7`), a missing one, or a finding the
 judge's budget cut is `design`. `build.quality.sorting` leaves only the
 mechanical findings in `.gtd/QUALITY.md` for the fix turns; mechanical findings
-still there after the third turn become notes too.
+still there after the third turn become notes too — never an escalation.
 
-`build.review.composing` then writes `.gtd/REVIEW.md` — no reviewer turn runs —
-and removes `.gtd/QUALITY.md`: a `## Weakened scenarios` chunk naming each
-`Then` line a `.feature` file at the review base has lost, then one prose `## `
-chunk per note (a mechanical one the fixer left is marked so), then
-`## Fixed automatically` (one line per finding, with the fixing commit's short
-hash) and `## Dropped as noise` (one line per finding, with its `p`). Each note
-chunk ends in `Tick exactly one:` and three boxes — `fix as suggested`,
-`won't fix`, `_your answer_` — and the review gate refuses to land
-(`answer-completeness`) until every note holds exactly one tick, a ticked
-`_your answer_` replaced by the human's text; only a round with a `- H:` thread
-waiting on the agent may leave one open. The summary chunks carry no box and
-need no answer; disagreeing with one means writing a note of your own. With
-nothing to list, the file holds one `## Nothing to note` chunk. Task boxes in a
-finding are written as plain bullets. The fresh review after a nit fix adds
-`## Fixed from your notes` with the fixing commit and leaves out every note
-already answered; after a round that also answered a question, the review is
-restored as answered instead, ticks kept.
+Whatever the fix turns leave in `.gtd/QUALITY.md` is then removed
+(`build.quality.closing`). Between coarse slices nothing waits on a person for
+the findings: the next slice starts. The review after the last slice lists every
+slice's notes, fixes and noise; each names its slice and lens
+(`_From slice 1, lens correctness._` on a note,
+`(<hash>, slice 1, lens correctness)` on a fix). In `fix` and `cleanup`, after
+the reviewer turn (`build.review.reviewing`), gtd appends the notes to
+`.gtd/REVIEW.md` (`build.review.carrying`): one prose `## ` chunk each, naming
+its lens, a repeated title numbered, then `## Fixed automatically` and
+`## Dropped as noise`.
+
+`build.review.composing` then writes `.gtd/REVIEW.md` — no reviewer turn runs: a
+`## Weakened scenarios` chunk naming each `Then` line a `.feature` file at the
+review base has lost, then one prose `## ` chunk per note (a mechanical one the
+fixer left is marked so), then `## Fixed automatically` (one line per finding,
+with the fixing commit's short hash) and `## Dropped as noise` (one line per
+finding, with its `p`). Each note chunk ends in `Tick exactly one:` and three
+boxes — `fix as suggested`, `won't fix`, `_your answer_` — and the review gate
+refuses to land (`answer-completeness`) until every note holds exactly one tick,
+a ticked `_your answer_` replaced by the human's text; only a round with a
+`- H:` thread waiting on the agent may leave one open. The summary chunks carry
+no box and need no answer; disagreeing with one means writing a note of your
+own. With nothing to list, the file holds one `## Nothing to note` chunk. Task
+boxes in a finding are written as plain bullets. The fresh review after a nit
+fix adds `## Fixed from your notes` with the fixing commit and leaves out every
+note already answered; after a round that also answered a question, the review
+is restored as answered instead, ticks kept.
 
 An answer routes without the note judge: `fix as suggested` joins the nit batch
 (`build.review.fix.nits.fixing`) with the note's text; `won't fix` drops the
@@ -1197,12 +1207,27 @@ those, over the tests changed since the slice began. A slice's
 `implement.closing` keeps `.gtd/REQUIREMENTS.md` and `.gtd/SLICES.md` for the
 next one; the last removes both. The last slice also builds any criterion a
 steer at `seam.steer` added after slicing; a slice a steer left with no
-criterion is skipped. Until the last slice closes, a quality-lap fix turn that
-changes the criteria is refused (`criteria-frozen`). Every turn of a slice,
-covering turns included, is told its IDs, and to reuse a release flag an earlier
-slice added. Slices are named `feature-<n>`, with `refactor-<n>` ahead of one
-the seam judge sent to a refactor. A change within the cap runs no slicing turn
-and keeps the single `feature` (and `refactor`) slice.
+criterion is skipped. Each slice's quality lap is
+[triaged](#the-triaged-quality-lap) and carries its notes to the review after
+the last slice. Until the last slice closes, a quality-lap fix turn that changes
+the criteria is refused (`criteria-frozen`). Every turn of a slice, covering
+turns included, is told its IDs, and to reuse a release flag an earlier slice
+added. Slices are named `feature-<n>`, with `refactor-<n>` ahead of one the seam
+judge sent to a refactor. A change within the cap runs no slicing turn and keeps
+the single `feature` (and `refactor`) slice.
+
+**Upgrading:** every slice's quality lap is triaged, and
+`build.quality-unresolved` is gone. Finish or `gtd abandon` a `feature` process
+in a slice before its last, a `fix` or `cleanup` process past its quality lens
+turns, or any process past `build.fix.quality.fixing` whose fix turns left
+findings: replay now expects `build.quality.triage` and `build.quality.closing`
+there and refuses the history as divergence. A driver or fixture scripting such
+a lap scripts the `build.quality.triage` judge, and `build.quality.closing` (a
+script step) while `.gtd/QUALITY.md` is still there after the fix turns, and
+`build.review.carrying` (a script step) after `fix`'s and `cleanup`'s reviewer
+turn when the lap left anything. A config calling `tail()` passes no `triage`
+option — every lap triages — and its `finish` receives the report;
+`fixQualityFindings` is gone.
 
 **Upgrading:** finish or `gtd abandon` any process past design whose
 `.gtd/REQUIREMENTS.md` lists more than 8 criteria: replay now expects

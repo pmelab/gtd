@@ -74,6 +74,7 @@ Feature: the quality lenses are the only agentic review
       Should subtract round? The criterion does not say.
       """
     And step "build.quality.sorting" runs its script
+    And step "build.quality.closing" runs its script
     And step "build.review.composing" runs its script
 
   Scenario: a mechanical finding is fixed and listed, noise dropped and listed, a design one noted
@@ -184,7 +185,8 @@ Feature: the quality lenses are the only agentic review
       gtd(agent): build.fix.quality.fixing
       gtd(agent): build.fix.quality.fixing
       gtd(agent): build.fix.quality.fixing → build.health.check
-      gtd(check): build.health.check → build.review.composing
+      gtd(check): build.health.check → build.quality.closing
+      gtd(check): build.quality.closing → build.review.composing
       gtd(check): build.review.composing → build.review.await-review
       """
 

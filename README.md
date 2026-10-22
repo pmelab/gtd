@@ -504,12 +504,12 @@ noted in steps 3 and 4 below.
    unsure verdict (below `qualityTriageMinP`, `0.7`) is `design`; mechanical
    findings the fix turns leave become notes too. This lap is where code quality
    is looked at, and every round pays for it. It never replaces step 4 — your
-   review stays the final gate, and nothing here skips it. Between
-   [coarse slices](#coarse-slices) no review follows, so there the fix turn
-   fixes every finding, and those the fix cap leaves rest at
-   `build.quality-unresolved` until you delete or empty `.gtd/QUALITY.md`; the
-   suite then runs on any hand edits before the next slice. The `fix` door
-   (below) repairs a red baseline through the untriaged lap.
+   review stays the final gate, and nothing here skips it. Every
+   [coarse slice](docs/configuration.md#coarse-slices) runs the same triaged lap
+   and never rests for its findings: its notes are carried to the review after
+   the last slice, each naming its slice and lens, beside every slice's fixes.
+   The `fix` and `cleanup` doors triage their lap too, and hand its notes to
+   their own review.
 
    A red suite that keeps failing past a few fix attempts escalates instead of
    retrying forever: an agent turn reads the failing output and writes

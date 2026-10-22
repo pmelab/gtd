@@ -9,9 +9,10 @@ import {
   slice,
   start,
 } from "../../flows/index.js"
-import { gate, healthy } from "../shared/health.js"
+import { gate } from "../shared/health.js"
+import { joinReports, type LensReport } from "../shared/lenses.js"
 import { flagModeOn, shipped } from "../shared/options.js"
-import { FEEDBACK, fixCheck, QUALITY, REQUIREMENTS } from "../shared/steps.js"
+import { FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import { refusePendingHandOff, tail } from "../shared/tail.js"
 import * as t from "../shared/text.js"
 import {
@@ -36,7 +37,8 @@ import { recordRisk, riskTierOn, type RiskTier } from "./tier.js"
 // green-baseline gate → design → per slice of the criteria, a naive pass,
 // judged with `flagMode` on: it lands as the implementation, or (refactoring
 // first when the judge asks) is built fresh from → the health loop → the
-// quality lap → after the last slice, human review of the whole change, which
+// triaged quality lap, whose leftovers are carried on → after the last slice,
+// human review of the whole change and every slice's findings, which
 // signs off (the episode ends back at `idle`) or sends a design → implement
 // lap.
 
@@ -63,10 +65,12 @@ export const buildFeature = async (firstBase: string): Promise<void> => {
   const one = slices.length === 1
   // A steer may delete every criterion of a later slice: there is nothing to build there.
   const built = (i: number): boolean => sliceIds(sliceCriteria(slices, i))?.length !== 0
+  const reports: { slice: string; report: LensReport }[] = []
   for (const i of slices.keys()) {
     if (!built(i)) continue
     const n = one ? "" : `-${i + 1}`
     await buildSlice(i === 0 ? firstBase : head(), {
+      number: `${i + 1}`,
       tier,
       criteria: sliceCriteria(slices, i),
       refactor: `refactor${n}`,
@@ -76,6 +80,7 @@ export const buildFeature = async (firstBase: string): Promise<void> => {
       // Every slice but the one is built unreviewed, so the review covers them all.
       reviewBase: one ? undefined : firstBase,
       handedOut,
+      laps: reports,
     })
   }
 }
@@ -88,6 +93,8 @@ const gather = (handedOut: Set<string>): readonly string[] => {
 }
 
 interface SliceBuild {
+  /** The slice's number, from 1. */
+  readonly number: string
   readonly tier: RiskTier | undefined
   readonly criteria: CriteriaSlice | undefined
   readonly refactor: string
@@ -97,6 +104,8 @@ interface SliceBuild {
   readonly reviewBase?: string | undefined
   /** Every criterion ID handed out so far; the slice adds those a steer adds. */
   readonly handedOut: Set<string>
+  /** Each earlier slice's lap report, by slice number, for the review after the last one. */
+  readonly laps: { slice: string; report: LensReport }[]
 }
 
 /** A naive pass (judged only with `flagMode` on), then implement and the quality lap; after the last slice, the review. */
@@ -127,37 +136,38 @@ const buildSlice = async (sliceBase: string, build: SliceBuild): Promise<void> =
     if (more) {
       // The criteria stay in the tree for the next slice; no quality fix may move them.
       const guard = () => requireCriteriaFrozen(REQUIREMENTS)
-      await tail(settleQuality, { green: true, lensBase: base, guard, guardRests: false })
+      // No gate between slices: what the lap left waits for the review after the last one.
+      const report = await tail(async (_, report) => report, {
+        green: true,
+        lensBase: base,
+        guard,
+        guardRests: false,
+      })
+      build.laps.push({ slice: build.number, report })
       return
     }
     const reviewBase = build.reviewBase ?? base
-    await featureFeedback(await reviewedTail(reviewBase, base), base, { closed, used })
+    const outcome = await reviewedTail(reviewBase, base, { slice: build.number, laps: build.laps })
+    await featureFeedback(outcome, base, { closed, used })
   })
 }
 
-// Between slices nothing reviews the lap's leftovers, and the next lap appends to the file.
-// Empty counts as resolved, as the lap reads it.
-const settleQuality = async (): Promise<void> => {
-  let rested = false
-  while ((read(QUALITY) ?? "").length > 0) {
-    rested = true
-    await human("quality-unresolved", {
-      message: t.qualityUnresolvedMessage(),
-      label: "Quality findings left unresolved",
-      file: QUALITY,
-    })
-  }
-  // The person may have fixed code by hand there; nothing else checks it before the review.
-  if (rested) await healthy(() => fixCheck())
-}
-
-/** The triaged quality lap, then the human review since `base`. */
-const reviewedTail = (base: string, lensBase: string): Promise<ReviewOutcome> =>
-  tail((escalations, report) => humanReview(base, escalations, { report }), {
-    green: true,
-    lensBase,
-    triage: true,
-  })
+/** The quality lap of slice `last.slice`, then the human review since `base`, listing what earlier slices' `laps` left too. */
+const reviewedTail = (
+  base: string,
+  lensBase: string,
+  last: { readonly slice: string; readonly laps: SliceBuild["laps"] } = { slice: "", laps: [] },
+): Promise<ReviewOutcome> =>
+  tail(
+    (escalations, report) =>
+      humanReview(base, escalations, {
+        report:
+          last.laps.length === 0
+            ? report
+            : joinReports([...last.laps, { slice: last.slice, report }]),
+      }),
+    { green: true, lensBase },
+  )
 
 // seam.naive / seam.judge never run on a feedback lap: its design → implement is built unjudged
 // and unrefactored, held to every criterion's coverage since the process start.

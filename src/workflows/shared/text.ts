@@ -117,16 +117,22 @@ export const qualityFindingsFile = (
 ): string =>
   `# Quality\n\n${findings.map((f) => `## ${f.title}\n\n${f.body}`.trim()).join("\n\n")}\n`
 
+/** Where a reported finding came from; absent when unknown or, for `slice`, a single-slice build. */
+export interface Origin {
+  readonly lens?: string | undefined
+  readonly slice?: string | undefined
+}
+
 export interface ComposedReview {
-  readonly notes: readonly {
+  readonly notes: readonly (Origin & {
     readonly title: string
     readonly body: string
     readonly unresolved?: true
     /** A fix turn removed its chunk while renaming another. */
     readonly unclear?: true
-  }[]
-  readonly fixed: readonly { readonly title: string; readonly commit: string }[]
-  readonly noise: readonly { readonly title: string; readonly p: number }[]
+  })[]
+  readonly fixed: readonly (Origin & { readonly title: string; readonly commit: string })[]
+  readonly noise: readonly (Origin & { readonly title: string; readonly p: number })[]
   /** `Then` lines a `.feature` file at the review base no longer carries. */
   readonly weakened?: readonly RemovedAssertions[]
   /** The commit that fixed the human's nits, on the review that follows it. */
@@ -153,6 +159,34 @@ const unboxed = (body: string): string =>
   body.replace(/^(\s*(?:>\s*)*(?:[-*+]|\d+[.)])\s+)\[[ xX]\]\s?/gm, "$1")
 
 const short = (hash: string): string => hash.slice(0, 7)
+
+/** `slice 2, lens tests`; empty when neither is known. */
+const originOf = (f: Origin): string =>
+  [
+    ...(f.slice === undefined ? [] : [`slice ${f.slice}`]),
+    ...(f.lens === undefined ? [] : [`lens ${f.lens}`]),
+  ].join(", ")
+
+const originLine = (f: Origin): string => {
+  const origin = originOf(f)
+  return origin === "" ? "" : `_From ${origin}._\n\n`
+}
+
+const withOrigin = (f: Origin, rest: string): string =>
+  [rest, originOf(f)].filter((s) => s !== "").join(", ")
+
+type LapNote = ComposedReview["notes"][number]
+
+const noteBody = (n: LapNote): string => {
+  const body = unboxed(n.body) || "_No detail given._"
+  if (n.unresolved === true) return `_The fixer left this unresolved._\n\n${body}`
+  if (n.unclear === true)
+    return `_A fix turn removed this while renaming another finding — check whether it was fixed._\n\n${body}`
+  return body
+}
+
+// A one-slice review needs no provenance: only carried findings name their slice and lens.
+const carriedOnly = (f: Origin): Origin => (f.slice === undefined ? {} : f)
 
 /**
  * \`.gtd/REVIEW.md\` as gtd writes it: one chunk per note, each ending in its
@@ -200,23 +234,14 @@ export const composedReview = (base: string, report: ComposedReview): string => 
         ]),
     ...conflicts,
     ...notes.map((n) =>
-      chunk(
-        n.title,
-        `${
-          n.unresolved === true
-            ? `_The fixer left this unresolved._\n\n${unboxed(n.body)}`
-            : n.unclear === true
-              ? `_A fix turn removed this while renaming another finding — check whether it was fixed._\n\n${unboxed(n.body)}`
-              : unboxed(n.body) || "_No detail given._"
-        }\n\n${answerBoxes}`,
-      ),
+      chunk(n.title, `${originLine(carriedOnly(n))}${noteBody(n)}\n\n${answerBoxes}`),
     ),
     ...(report.fixed.length === 0
       ? []
       : [
           chunk(
             "Fixed automatically",
-            report.fixed.map((f) => `- ${f.title} (${short(f.commit)})`).join("\n"),
+            report.fixed.map((f) => fixedLine(f, carriedOnly(f))).join("\n"),
           ),
         ]),
     ...(added.length === 0
@@ -229,7 +254,12 @@ export const composedReview = (base: string, report: ComposedReview): string => 
         ]),
     ...(report.noise.length === 0
       ? []
-      : [chunk("Dropped as noise", report.noise.map((f) => `- ${f.title} (p=${f.p})`).join("\n"))]),
+      : [
+          chunk(
+            "Dropped as noise",
+            report.noise.map((f) => noiseLine(f, carriedOnly(f))).join("\n"),
+          ),
+        ]),
   ]
   const body =
     chunks.length > 0
@@ -242,19 +272,6 @@ export const composedReview = (base: string, report: ComposedReview): string => 
         ]
   return `# Review: ${short(base)}\n\n<!-- base: ${base} -->\n\n${body.join("\n\n")}\n`
 }
-
-export const qualityUnresolvedMessage = (): string =>
-  `The quality lap's fix turns hit their cap and \`.gtd/QUALITY.md\` still
-holds findings. Nothing after this fixes them, so the process will not
-go on with them open.
-
-Fix what matters by hand, then delete or empty \`.gtd/QUALITY.md\` —
-dropping a finding is your call to make.
-
-What each change does next (then run \`gtd land\`):
-- **Delete or empty \`.gtd/QUALITY.md\`** — the suite runs on your edits, then the next slice is built, or after the last one you review the change (**build.review.reviewing**).
-- **Anything else** — rests here again.
-`
 
 export const startGateBlockedMessage = (): string =>
   `The test baseline is red — gtd will not start new work on a broken suite.
@@ -1123,6 +1140,45 @@ const lapRange: Record<ReviewRange, string> = {
     "it starts at the previous review's boundary, so it covers only what is new since the previous review.",
   refactor:
     "it covers the whole refactor since it started, on every round. A refactor may update an existing test's call sites only: give any test-file hunk its own chunk, and say so if it changes a test, an assertion or an expected value.",
+}
+
+/** What the quality lap left for a reviewer-written review: its notes, fixes and noise. */
+export type LapFindings = Pick<ComposedReview, "notes" | "fixed" | "noise">
+
+const fixedLine = (f: ComposedReview["fixed"][number], origin: Origin = f): string =>
+  `- ${f.title} (${withOrigin(origin, short(f.commit))})`
+
+const noiseLine = (f: ComposedReview["noise"][number], origin: Origin = f): string =>
+  `- ${f.title} (${withOrigin(origin, `p=${f.p}`)})`
+
+/**
+ * `review` with the lap's notes appended as prose chunks — no pointer, no
+ * answer boxes — then what it fixed and dropped. A title the review already
+ * holds gets a numbered suffix, as notes are told apart by title.
+ */
+export const withLapFindings = (review: string, { notes, fixed, noise }: LapFindings): string => {
+  const used = new Set(
+    review
+      .split("\n")
+      .filter((line) => line.startsWith("## "))
+      .map((line) => line.slice(3).trim()),
+  )
+  const unique = (title: string): string => {
+    let name = title
+    for (let n = 2; used.has(name); n++) name = `${title} (${n})`
+    used.add(name)
+    return name
+  }
+  const chunks = [
+    ...notes.map((n) => `## ${unique(n.title)}\n\n${originLine(n)}${noteBody(n)}`),
+    ...(fixed.length === 0
+      ? []
+      : [`## ${unique("Fixed automatically")}\n\n${fixed.map((f) => fixedLine(f)).join("\n")}`]),
+    ...(noise.length === 0
+      ? []
+      : [`## ${unique("Dropped as noise")}\n\n${noise.map((f) => noiseLine(f)).join("\n")}`]),
+  ]
+  return chunks.length === 0 ? review : `${review.trimEnd()}\n\n${chunks.join("\n\n")}\n`
 }
 
 export const buildReviewReviewingPrompt = (
