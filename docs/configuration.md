@@ -805,15 +805,17 @@ One chunk per criterion, headed `## AC-<n>: pass|fail|blocked`, plus one per
 problem found beside them, headed `## Problem <title>: <verdict>`; under each,
 the steps run and what was seen. `gtd land` refuses the turn
 (`prototype-report`) when it changes anything but `.gtd/PROTOTYPE.md`, or the
-report lacks exactly one chunk for a criterion of the slice.
+report lacks exactly one chunk for a criterion of the slice. A chunk for a
+criterion another slice builds is never an open item.
 
 - **Every chunk `pass`**: `implement.closing` follows, removing the report, and
   the quality lap runs.
 - **A `fail`**: `implement.prototype.fix.fixing` fixes every failed chunk (the
-  criteria are frozen: `criteria-frozen`), the health loop
-  (`implement.prototype.health.*`) turns the suite green, and the slice is
-  tested again — failed items in full, passed ones quickly. Each round's report
-  lands with its turn.
+  criteria are frozen: `criteria-frozen`; a rebuild's carried acceptance tests
+  stay, as in the implementation's fix turns; editing the report is refused,
+  `prototype-fix`), the health loop (`implement.prototype.health.*`) turns the
+  suite green, and the slice is tested again — failed items in full, passed ones
+  quickly. Each round's report lands with its turn.
 - **Past [`prototypeRounds`](#the-bundled-workflows-settings) fix rounds, or
   only `blocked` items open** (a criterion the tester could not exercise, or one
   whose expected behaviour looks wrong): the process rests at
@@ -822,7 +824,8 @@ report lacks exactly one chunk for a criterion of the slice.
   with the items open.
 - **No way to test found**: the report holds only a `## No testing instructions`
   chunk and the process rests at `implement.prototype.unguided`. Add
-  instructions and land to test again, or land a clean tree to go on untested.
+  instructions and land to run the health loop and test afresh, or land a clean
+  tree to go on untested.
 
 **Upgrading:** finish or `gtd abandon` any `feature` process past
 `implement.coverage` (resting at `implement.closing` or later in a slice):

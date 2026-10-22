@@ -382,11 +382,11 @@ export const implementing = (options: ImplementOptions): Promise<readonly string
     if (built && acceptance !== undefined)
       requireAcceptance({ ...acceptance, ids: settled(acceptance.ids, options.slice) }, since)
     // Fix turns are held to the carried tests too: deleting a red one must not buy a green suite.
-    await green(
-      built && acceptance !== undefined ? () => requireAcceptanceKept(acceptance) : undefined,
-    )
+    const keepsTests =
+      built && acceptance !== undefined ? () => requireAcceptanceKept(acceptance) : undefined
+    await green(keepsTests)
     await requireCoverage(options.base, options.slice)
-    await prototypeTest(options.slice)
+    await prototypeTest(options.slice, keepsTests)
     const ids = criterionIds(read(REQUIREMENTS) ?? "")
     await closing(moreToBuild(options.more))
     return ids

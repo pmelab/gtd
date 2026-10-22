@@ -23,6 +23,10 @@ describe("reportOf", () => {
     ).toEqual({ unguided: false, items: [] })
   })
 
+  it("upper-cases a criterion ID written in lower case", () => {
+    expect(reportOf("## ac-1: pass\n").items).toEqual([{ subject: "AC-1", verdict: "pass" }])
+  })
+
   it("reads the no-instructions chunk", () => {
     expect(reportOf("## No testing instructions\n\nNo skill found.\n").unguided).toBe(true)
   })

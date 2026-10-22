@@ -240,3 +240,92 @@ Feature: every criterion is tested by hand before the quality lap
       - AC-2: add is unchanged.
       """
     Then driving the process is refused with "criteria-frozen"
+
+  Scenario: a fix turn may not edit the report it fixes from
+    Given step "implement.prototype.testing" writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## AC-1: fail
+
+      Printed 4.
+
+      ## AC-2: pass
+
+      Printed 2.
+      """
+    And step "implement.prototype.fix.fixing" writes "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      export const subtract = (a: number, b: number) => a - b
+      """
+    And step "implement.prototype.fix.fixing" writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## AC-1: pass
+
+      Fixed.
+
+      ## AC-2: pass
+
+      Printed 2.
+      """
+    Then driving the process is refused with "prototype-fix: leave .gtd/PROTOTYPE.md as it is"
+
+  Scenario: a chunk for a criterion this slice does not build is not an open item
+    Given step "implement.prototype.testing" writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## AC-1: pass
+
+      Printed 2.
+
+      ## AC-2: pass
+
+      Printed 2.
+
+      ## AC-9: fail
+
+      No such command yet.
+      """
+    When the process is driven
+    Then the process rests at "build.quality.correctness.reviewing"
+
+  Scenario: instructions added at the unguided gate run the suite, then a fresh test
+    Given step "implement.prototype.testing", when prompted with "Find how this project", writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## No testing instructions
+
+      Nothing found.
+      """
+    And step "implement.prototype.unguided" writes "AGENTS.md" with:
+      """
+      ## Manual testing
+
+      Run `node -e` against the calculator in a scratch directory.
+      """
+    And step "implement.prototype.health.check" changes nothing
+    And step "implement.prototype.testing" is prompted with "Find how this project"
+    When the process is driven
+    Then the process rests at "implement.prototype.testing"
+    # The fresh test finds nothing new here, so its empty turn stays an attempt.
+    And the commit subjects end with:
+      """
+      gtd(human): implement.prototype.unguided → implement.prototype.health.check
+      gtd(check): implement.prototype.health.check → implement.prototype.testing
+      gtd(agent): implement.prototype.testing
+      """
+    And the resting step's content does not contain "This is a re-test"
+
+  Scenario: a clean land at the unguided gate goes on untested
+    Given step "implement.prototype.testing" writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## No testing instructions
+
+      Nothing found.
+      """
+    And step "implement.prototype.unguided" changes nothing
+    When the process is driven
+    Then the process rests at "build.quality.correctness.reviewing"
+    And the commit subjects end with:
+      """
+      gtd(agent): implement.prototype.testing → implement.prototype.unguided
+      gtd(human): implement.prototype.unguided → implement.closing
+      gtd(check): implement.closing → build.quality.correctness.reviewing
+      """

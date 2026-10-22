@@ -123,3 +123,30 @@ Feature: past its round cap the hands-on test rests at a person's gate
       gtd(agent): implement.prototype.testing → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
       """
+
+  Scenario: a re-test that sees exactly what the last round saw still ends the round
+    Given step "implement.prototype.testing" writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## AC-1: fail
+
+      `subtract(3, 1)` printed 4. Expected 2.
+
+      ## AC-2: pass
+
+      Printed 2.
+      """
+    And step "implement.prototype.fix.fixing" writes "src/calc.ts" with:
+      """
+      export const add = (a: number, b: number) => a + b
+      export const subtract = (a: number, b: number) => b - a
+      """
+    And step "implement.prototype.health.check" changes nothing
+    When the process is driven
+    Then the process rests at "implement.prototype.open"
+    And the commit subjects end with:
+      """
+      gtd(agent): implement.prototype.testing → implement.prototype.fix.fixing
+      gtd(agent): implement.prototype.fix.fixing → implement.prototype.health.check
+      gtd(check): implement.prototype.health.check → implement.prototype.testing
+      gtd(agent): implement.prototype.testing → implement.prototype.open
+      """

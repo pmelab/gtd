@@ -2022,7 +2022,7 @@ ${sliceLine(slice)}- The change is built and its suite is green. Now test it by 
 ${
   retest
     ? `- This is a re-test: \`.gtd/PROTOTYPE.md\` holds the last round's report and
-  a fix turn has run since. Re-test every failed or blocked criterion and
+  a fix turn or a person has changed the code since. Re-test every failed or blocked criterion and
   every problem it lists in full, then re-run the passed ones quickly
 `
     : ""
