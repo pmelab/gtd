@@ -67,17 +67,19 @@ const requireReport = (
   const text = read(PROTOTYPE)
   if (text === undefined) return refuse(`gtd land: prototype-report: write ${PROTOTYPE}`)
   const report = reportOf(text)
-  if (report.unguided) return { unguided: true, open: [] }
-  const ids = criterionIds(read(REQUIREMENTS) ?? "", slice)
+  // Only a report with nothing else in it: a chunk beside it was tested after all.
+  if (report.unguided && report.items.length === 0) return { unguided: true, open: [] }
+  const requirements = read(REQUIREMENTS) ?? ""
+  const ids = criterionIds(requirements, slice)
+  const elsewhere = criterionIds(requirements).filter((id) => !ids.includes(id))
   const count = (id: string): number => report.items.filter((i) => i.subject === id).length
   const wrong = ids.filter((id) => count(id) !== 1)
   if (wrong.length > 0)
     refuse(
       `gtd land: prototype-report: ${PROTOTYPE} needs exactly one chunk headed \`## <ID>: pass|fail|blocked\` for ${wrong.join(", ")}`,
     )
-  const open = report.items.filter(
-    (i) => i.verdict !== "pass" && (ids.includes(i.subject) || !i.subject.startsWith("AC-")),
-  )
+  // A mistyped ID stays open: only another slice's criteria are not this one's to fix.
+  const open = report.items.filter((i) => i.verdict !== "pass" && !elsewhere.includes(i.subject))
   return { unguided: false, open }
 }
 
@@ -92,8 +94,8 @@ const testing = async (
     file: PROTOTYPE,
     model: coder(),
     system: t.testerSystem(),
-    // A re-test that saw exactly what the last round saw leaves the report as it was.
-    allowEmpty: retest,
+    // A test that saw exactly what the last round saw leaves the report as it was.
+    allowEmpty: true,
   })
   return requireReport(slice)
 }
@@ -105,6 +107,8 @@ const fixing = async (slice: CriteriaSlice | undefined, guard?: Guard): Promise<
       file: PROTOTYPE,
       model: coder(),
       system: t.builderSystem(),
+      // A `fail` the tester got wrong has nothing to fix: the re-test says so, or the cap ends it.
+      allowEmpty: true,
     }),
   )
   // The re-test may land empty: a report the fixer edited would pass untested.
@@ -117,7 +121,8 @@ const fixing = async (slice: CriteriaSlice | undefined, guard?: Guard): Promise<
 /** A person's rest; resolves `true` when they changed something to test again, `false` on a clean overrule. */
 const askPerson = async (name: string, message: string, label: string): Promise<boolean> => {
   await human(name, { message, label, file: PROTOTYPE, acceptClean: true })
-  if (changes().length === 0) return false
+  // A note in the report alone tests nothing new.
+  if (!changes().some((c) => c.path !== PROTOTYPE)) return false
   frozen()
   return true
 }

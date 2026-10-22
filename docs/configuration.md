@@ -806,7 +806,8 @@ problem found beside them, headed `## Problem <title>: <verdict>`; under each,
 the steps run and what was seen. `gtd land` refuses the turn
 (`prototype-report`) when it changes anything but `.gtd/PROTOTYPE.md`, or the
 report lacks exactly one chunk for a criterion of the slice. A chunk for a
-criterion another slice builds is never an open item.
+criterion another slice builds is never an open item; any other non-`pass` chunk
+is.
 
 - **Every chunk `pass`**: `implement.closing` follows, removing the report, and
   the quality lap runs.
@@ -819,9 +820,9 @@ criterion another slice builds is never an open item.
 - **Past [`prototypeRounds`](#the-bundled-workflows-settings) fix rounds, or
   only `blocked` items open** (a criterion the tester could not exercise, or one
   whose expected behaviour looks wrong): the process rests at
-  `implement.prototype.open`, naming the open items. A change there runs the
-  health loop and tests again with a fresh budget; a clean `gtd land` goes on
-  with the items open.
+  `implement.prototype.open`, naming the open items. A change outside
+  `.gtd/PROTOTYPE.md` runs the health loop and tests again with a fresh budget;
+  a `gtd land` without one goes on with the items open.
 - **No way to test found**: the report holds only a `## No testing instructions`
   chunk and the process rests at `implement.prototype.unguided`. Add
   instructions and land to run the health loop and test afresh, or land a clean

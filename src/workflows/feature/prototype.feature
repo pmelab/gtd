@@ -269,7 +269,7 @@ Feature: every criterion is tested by hand before the quality lap
       """
     Then driving the process is refused with "prototype-fix: leave .gtd/PROTOTYPE.md as it is"
 
-  Scenario: a chunk for a criterion this slice does not build is not an open item
+  Scenario: a chunk naming no criterion of the change is still an open item
     Given step "implement.prototype.testing" writes ".gtd/PROTOTYPE.md" with:
       """
       ## AC-1: pass
@@ -285,7 +285,7 @@ Feature: every criterion is tested by hand before the quality lap
       No such command yet.
       """
     When the process is driven
-    Then the process rests at "build.quality.correctness.reviewing"
+    Then the process rests at "implement.prototype.fix.fixing"
 
   Scenario: instructions added at the unguided gate run the suite, then a fresh test
     Given step "implement.prototype.testing", when prompted with "Find how this project", writes ".gtd/PROTOTYPE.md" with:
@@ -303,15 +303,17 @@ Feature: every criterion is tested by hand before the quality lap
     And step "implement.prototype.health.check" changes nothing
     And step "implement.prototype.testing" is prompted with "Find how this project"
     When the process is driven
-    Then the process rests at "implement.prototype.testing"
-    # The fresh test finds nothing new here, so its empty turn stays an attempt.
+    # The fresh test still finds no way in; the gate's second visit adds nothing new and goes on.
+    Then the process rests at "build.quality.correctness.reviewing"
     And the commit subjects end with:
       """
+      gtd(agent): implement.prototype.testing → implement.prototype.unguided
       gtd(human): implement.prototype.unguided → implement.prototype.health.check
       gtd(check): implement.prototype.health.check → implement.prototype.testing
-      gtd(agent): implement.prototype.testing
+      gtd(agent): implement.prototype.testing → implement.prototype.unguided
+      gtd(human): implement.prototype.unguided → implement.closing
+      gtd(check): implement.closing → build.quality.correctness.reviewing
       """
-    And the resting step's content does not contain "This is a re-test"
 
   Scenario: a clean land at the unguided gate goes on untested
     Given step "implement.prototype.testing" writes ".gtd/PROTOTYPE.md" with:
@@ -329,3 +331,47 @@ Feature: every criterion is tested by hand before the quality lap
       gtd(human): implement.prototype.unguided → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
       """
+
+  Scenario: a no-instructions chunk beside tested criteria is read as an ordinary report
+    Given step "implement.prototype.testing" writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## AC-1: fail
+
+      Printed 4.
+
+      ## AC-2: pass
+
+      Printed 2.
+
+      ## No testing instructions
+
+      Found none for the edge cases; used the CLI.
+      """
+    When the process is driven
+    Then the process rests at "implement.prototype.fix.fixing"
+
+  Scenario: a fix turn that finds nothing to fix goes on to the re-test
+    Given step "implement.prototype.testing", when prompted with "Find how this project", writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## AC-1: fail
+
+      Printed 4, I think.
+
+      ## AC-2: pass
+
+      Printed 2.
+      """
+    And step "implement.prototype.fix.fixing" changes nothing
+    And step "implement.prototype.health.check" changes nothing
+    And step "implement.prototype.testing", when prompted with "This is a re-test", writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## AC-1: pass
+
+      Looked again: printed 2.
+
+      ## AC-2: pass
+
+      Printed 2.
+      """
+    When the process is driven
+    Then the process rests at "build.quality.correctness.reviewing"

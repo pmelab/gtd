@@ -2018,7 +2018,8 @@ ${sliceLine(slice)}- The change is built and its suite is green. Now test it by 
   a person is asked; never guess
 - Test in a disposable place only — a scratch directory outside this
   repository, a throwaway repository, a dev server on a free port — never
-  against the user's real data or this working tree
+  against the user's real data or this working tree. Point every tool's
+  output (screenshots, traces, test results) outside the repository too
 ${
   retest
     ? `- This is a re-test: \`.gtd/PROTOTYPE.md\` holds the last round's report and
@@ -2036,9 +2037,11 @@ export const prototypeFixingPrompt = (slice: readonly string[] | undefined): str
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
 ${sliceLine(slice)}${criteriaBinding(true)}
 - Read \`.gtd/PROTOTYPE.md\`: a hands-on test of the change. Fix every
-  \`fail\` chunk — a criterion that did not hold, or a problem found beside
-  them — at its cause, with a test that shows it; leave \`blocked\` ones to
-  the person
+  \`fail\` chunk of this change's criteria${slice === undefined ? "" : " (this slice's only)"} or a problem found
+  beside them, at its cause, with a test that shows it; leave \`blocked\`
+  ones to the person
+- A \`fail\` the code does not explain (the tester misread what it saw) has
+  nothing to fix: leave it and change nothing for it — the next round re-tests
 - Leave \`.gtd/PROTOTYPE.md\` as it is: the next round re-tests from it
 - Run \`${env.testCommand}\` and finish only once it is green
 - Leave everything uncommitted and finish your turn — do not commit
