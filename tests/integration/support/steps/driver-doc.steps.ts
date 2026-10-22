@@ -75,8 +75,8 @@ function extractPaste(world: GtdWorld, file: string, heading: string): void {
   const scriptPath = join(dir, "paste.sh")
   writeFileSync(scriptPath, script)
   chmodSync(scriptPath, 0o755)
-  world.driverDocDir = dir
-  world.driverDocPath = scriptPath
+  world.pasteDir = dir
+  world.pastePath = scriptPath
 }
 
 Given("the driver pasted from docs\\/driver.md", (world: GtdWorld) =>
@@ -97,20 +97,22 @@ function toFailedResult(err: unknown): { exitCode: number; stdout: string; stder
 // The MINIMAL env the driver spawns with — PATH (the shim dir first, so
 // `gtd` and `claude` resolve to this build's bundle and the stub) and HOME,
 // nothing else. That absence is itself the copy-paste-complete proof: no
-// $GTD_* var, no $NODE_*, no test-harness leak. The one exception is an
-// `an environment variable` step: it
-// parameterizes the WORKFLOW under test, not the driver.
+// $GTD_* var, no $NODE_*, no test-harness leak. The exceptions parameterize
+// the WORKFLOW under test, not the paste: an `an environment variable` step,
+// and the release-flag state `npm test` runs this pass under.
 // The git config isolation (vitest.config.ts) is harness, not a driver
 // dependency: without it the driver's commits read the developer's ~/.gitconfig.
-const gitConfigEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => key.startsWith("GIT_CONFIG_")),
+const inheritedEnv = Object.fromEntries(
+  Object.entries(process.env).filter(
+    ([key]) => key.startsWith("GIT_CONFIG_") || key.startsWith("GTD_FLAG_"),
+  ),
 )
 
 function driverEnv(world: GtdWorld): Record<string, string> {
   return {
     PATH: `${world.pathShimDir}:${process.env["PATH"] ?? ""}`,
     HOME: process.env["HOME"] ?? "",
-    ...gitConfigEnv,
+    ...inheritedEnv,
     ...world.envVars,
   }
 }
@@ -119,8 +121,8 @@ function driverEnv(world: GtdWorld): Record<string, string> {
 // driver's `#!/usr/bin/env sh` shebang is the thing actually resolving and
 // running it — the most faithful proof the ported script's shebang is
 // correct, not just that *some* shell can execute the paste.
-When(/^I run (?:the driver from the docs|the pasted script)$/, async (world: GtdWorld) => {
-  const path = world.driverDocPath
+When("I run the pasted script", async (world: GtdWorld) => {
+  const path = world.pastePath
   assert.ok(path, "no paste — extract one from a doc first")
   try {
     // 120s, matching e2e-live's own `stepTimeout` (see vitest.config.ts):

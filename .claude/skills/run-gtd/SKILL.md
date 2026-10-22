@@ -20,13 +20,16 @@ look at what it does.
   scratch repository OUTSIDE this checkout.
 - **Never export `GIT_DIR` or `GIT_WORK_TREE`.** gtd and its emitted scripts
   honour them, so the scratch run commits onto this checkout's branch instead.
-- **Start from a clean env.** `env | cut -d= -f1 | grep -E '^(GIT_|GTD_)'`
-  should list nothing but `GIT_CONFIG_*`; unset the rest. An inherited
-  `GTD_LOOP_LOG` moves the loop log, and `GTD_<SETTING>` (for example
-  `GTD_TESTCOMMAND`) overrides the workflow under test. The one to set: a change
-  behind a release flag needs `GTD_FLAG_<NAME>=1` to be seen.
-- **At most 2 gtd loops at once** on this machine, the test suite included —
-  more time out the `@live` scenarios.
+- **Start from a clean env.**
+  `env | cut -d= -f1 | grep -E '^(GIT_|GTD_|TYPESAFE_)'` should list nothing but
+  `GIT_CONFIG_*` and what you set on purpose; unset the rest. An inherited
+  `GTD_LOOP_LOG` moves the loop log, `GTD_<SETTING>` (for example
+  `GTD_TESTCOMMAND`) overrides the workflow under test, and `TYPESAFE_API_KEY`
+  or `~/.config/gtd/judge.json` sends judge gates to a real model. Set on
+  purpose: `GTD_FLAG_<NAME>=1` for a change behind a release flag, and
+  `GTD_JUDGE_PROVIDER=fixed` with `GTD_JUDGE_ANSWERS` for a driver run.
+- **At most 2 driver runs or `npm test` runs at once** on this machine — more
+  time out the `@live` scenarios.
 - **Never run `npm run test:mutation`.** It is a deliberate user action.
 - **Never print env values** — inspect by name only, as above.
 
@@ -82,6 +85,7 @@ records it. Read `gtd next --json=kind`:
 | `script`  | a check: `sh -c "$(gtd next --json=content)"`, then land, whatever it exits   |
 | `prompt`  | an agent turn: do what `gtd next` prints (below), then land                   |
 | `message` | a human rest: read `gtd next`, answer by editing its steering file, then land |
+| `message` | with `gtd next --json=judge` non-empty, a judge gate: answer it (below)       |
 | `stalled` | the process is stuck: `gtd next --json=content` says why                      |
 
 Land with `gtd land --json=script | sh` (plain `gtd land` only says what it
@@ -91,6 +95,14 @@ would commit). `gtd next --json` shows the whole state: `state`, `file`,
 To run many beats at once, save the minimal driver from `docs/driver.md` ("A
 complete minimal driver") and run it in the scratch repository with a `claude`
 stand-in on `PATH` (below). It stops at the first human rest.
+
+Answer a judge gate with a verdict you choose, one `{ id, answer, p }` per
+question `gtd judge --json` lists:
+
+```bash
+gtd judge --json | gtd judge run --provider fixed --answers=verdict.json |
+  gtd judge answer --json=script | sh
+```
 
 Answer a human rest as a person would: tick a box, write a footnote, edit code —
 then land. Changing nothing and landing accepts a gate that allows it.
@@ -127,12 +139,15 @@ chmod +x "$shims/claude"
 ```
 
 **`gh`.** The gtd Claude Code mod opens and edits pull requests through `gh`. A
-shim records every call and answers with canned output:
+shim records every call, and the body `--body-file -` sends on stdin, and
+answers with canned output:
 
 ```bash
 cat > "$shims/gh" <<'EOF'
 #!/bin/sh
-echo "gh $*" >>"$(dirname "$0")/gh-calls.log"
+log="$(dirname "$0")/gh-calls.log"
+echo "gh $*" >>"$log"
+case " $* " in *" --body-file - "*) cat >>"$log" ;; esac
 case "$1 $2" in
   "pr view") echo "no pull requests found for branch" >&2; exit 1 ;;
   "pr create") echo "https://github.com/example/repo/pull/1" ;;

@@ -182,9 +182,7 @@ function removeScaffolding(...dirs: ReadonlyArray<string | undefined>): void {
 
 function cleanupLiveTier(world: GtdWorld): void {
   const keep = process.env["KEEP_TEST_REPO"] === "1"
-  const dirs = [world.repoDir, world.extraCleanupDir, world.driverDocDir].filter(
-    Boolean,
-  ) as string[]
+  const dirs = [world.repoDir, world.extraCleanupDir, world.pasteDir].filter(Boolean) as string[]
   for (const dir of dirs) {
     if (keep) process.stderr.write(`Test repo preserved at: ${dir}\n`)
     else rmSync(dir, { recursive: true, force: true })

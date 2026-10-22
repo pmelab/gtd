@@ -1,36 +1,39 @@
-// A heading inside a fence (a heredoc'd markdown file) does not end the section:
-// blank out fenced `#`s, keeping offsets, before looking for the next heading.
-const sectionOf = (rest: string): string => {
-  const masked = rest.replace(/```[\s\S]*?```/g, (fence) => fence.replaceAll("#", " "))
-  const end = masked.search(/\n#{2,3} /)
-  return end === -1 ? rest : rest.slice(0, end)
-}
-
 /**
  * Pulls the one ```bash fenced block out of a markdown section, verbatim — the
  * doc-tested proof that this exact paste is what a feature runs. Throws if the
  * heading is gone (renamed or removed) or the section doesn't carry exactly one
  * bash fence (more than one would mean the paste isn't self-contained, which is
- * exactly the claim under test).
+ * exactly the claim under test). Fences follow CommonMark: ``` or ~~~, closed
+ * only by a run of the same character at least as long, so a heading or a
+ * shorter fence inside one (a heredoc'd markdown file) is part of the paste.
  */
 // fallow-ignore-next-line complexity
 export function extractBashBlock(doc: string, heading: string): string {
-  const headingIndex = doc.indexOf(`\n${heading}\n`)
-  if (headingIndex === -1) {
+  const depth = heading.indexOf(" ")
+  const lines = doc.split("\n")
+  const start = lines.indexOf(heading)
+  if (start === -1) {
     throw new Error(`the doc is missing the "${heading}" heading`)
   }
-  const sectionStart = headingIndex + `\n${heading}\n`.length
-  const rest = doc.slice(sectionStart)
-  const section = sectionOf(rest)
-
-  const fences = [...section.matchAll(/```bash\n([\s\S]*?)\n```/g)]
-  if (fences.length === 0) {
-    throw new Error(`no \`\`\`bash fenced block found in the "${heading}" section`)
+  const fences: string[] = []
+  let open: { marker: string; bash: boolean; body: string[] } | undefined
+  for (const line of lines.slice(start + 1)) {
+    if (open) {
+      const close = /^(`{3,}|~{3,})\s*$/.exec(line)?.[1] ?? ""
+      if (close[0] === open.marker[0] && close.length >= open.marker.length) {
+        if (open.bash) fences.push(open.body.join("\n"))
+        open = undefined
+      } else open.body.push(line)
+      continue
+    }
+    const fence = /^(`{3,}|~{3,})\s*(\S*)/.exec(line)
+    if (fence) open = { marker: fence[1]!, bash: fence[2] === "bash", body: [] }
+    else if (/^#+ /.test(line) && line.indexOf(" ") <= depth) break
   }
-  if (fences.length > 1) {
+  if (fences.length !== 1) {
     throw new Error(
       `expected exactly one \`\`\`bash fenced block in the "${heading}" section, found ${fences.length}`,
     )
   }
-  return fences[0]![1]!
+  return fences[0]!
 }

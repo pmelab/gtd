@@ -402,9 +402,9 @@ export class GtdWorld extends QuickPickleWorld {
   formatWriteResult: { readonly firstContentHash: string; readonly secondOk: boolean } | undefined =
     undefined
   /** A temp dir OUTSIDE the repo holding a doc's extracted bash paste (the minimal driver, the run-gtd worked example) — proves the paste needs nothing inside the project. */
-  driverDocDir: string | undefined = undefined
-  /** Absolute path to the extracted paste inside `driverDocDir`, chmod'd executable. */
-  driverDocPath: string | undefined = undefined
+  pasteDir: string | undefined = undefined
+  /** Absolute path to the extracted paste inside `pasteDir`, chmod'd executable. */
+  pastePath: string | undefined = undefined
 
   /** The gtd bundle a live spawn runs: this build's, or one installed from the packed tarball. */
   gtdBin: string = GTD_BIN
