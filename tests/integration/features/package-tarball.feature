@@ -5,8 +5,8 @@ Feature: the packed package — gtd installed from its own tarball
   one package fetched — into a test project. Its companions (typescript,
   vitest, quickpickle, @types/node) are linked from this checkout. Every subpath
   resolves with types, the installed `gtd install` scaffolds a config from the
-  per-workflow subpaths, and the installed `gtd loop` runs the feature workflow
-  with a stub agent.
+  per-workflow subpaths, and the driver from docs/driver.md runs the feature
+  workflow on the installed gtd with a stub agent.
 
   Background:
     Given a test project
@@ -79,7 +79,7 @@ Feature: the packed package — gtd installed from its own tarball
     And stdout contains "imported ./flows ./wire ./steering ./workflow-kit ./workflows ./workflows/feature ./workflows/review ./workflows/fix ./workflow"
     And stdout contains "1 passed"
 
-  Scenario: the installed gtd loop runs the feature workflow with a stub agent
+  Scenario: the driver from docs/driver.md runs the feature workflow on the installed gtd
     Given I run gtd with args "install"
     And the working tree is committed
     And a file "NOTE.md" with:
@@ -87,13 +87,13 @@ Feature: the packed package — gtd installed from its own tarball
       Build a calculator.
       """
     And an environment variable "GTD_TESTCOMMAND" set to "true"
-    And an empty user-level loop config
     And a stub agent script that responds to prompts with:
       """
       mkdir -p .gtd
       printf '## Acceptance Criteria\n\n- AC-1: a calculator exists.\n' > .gtd/REQUIREMENTS.md
       """
-    When I run gtd loop
+    And the driver pasted from docs/driver.md
+    When I run the driver from the docs
     Then it succeeds
     And "gtd.config.ts" contains "from \"@pmelab/gtd/workflows/feature\""
     And the commit subjects from oldest to newest are:
@@ -146,13 +146,3 @@ Feature: the packed package — gtd installed from its own tarball
     When I run gtd next
     Then the exit code is 1
     And stderr contains "is written in history format 2, but this gtd reads format 1"
-
-  Scenario: the installed gtd loop refuses a document in an unsupported schema
-    Given an empty user-level loop config
-    And gtd runs through a script whose next command prints:
-      """
-      {"schema":2,"kind":"message","content":"","idle":true,"log":".git/gtd-loop.log","state":"idle"}
-      """
-    When I run gtd loop
-    Then it fails
-    And stderr contains "`gtd next --json` has schema 2, but this loop reads schema 1 only — upgrade the loop's gtd"

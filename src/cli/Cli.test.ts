@@ -1147,7 +1147,6 @@ describe("standaloneKinds / needsOf", () => {
       "check",
       "uncheck",
       "install",
-      "loop",
       "contextHook",
       "judgeRun",
       "strays",
@@ -1159,7 +1158,6 @@ describe("standaloneKinds / needsOf", () => {
     expect(needsOf("check")).toBe("fs")
     expect(needsOf("uncheck")).toBe("fs")
     expect(needsOf("install")).toBe("none")
-    expect(needsOf("loop")).toBe("none")
     expect(needsOf("contextHook")).toBe("none")
     expect(needsOf("judgeRun")).toBe("none")
     expect(needsOf("strays")).toBe("none")

@@ -1,4 +1,4 @@
-// The context-limit decision every driver shares: the loop's `gtd context-hook`
+// The context-limit decision every driver shares: `gtd context-hook`
 // and the Claude Code mod both answer a hook event through `contextHook`, so
 // the two cannot drift on thresholds, wording or which tokens count.
 

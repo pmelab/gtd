@@ -163,7 +163,6 @@ export type Command =
     }
   | { readonly kind: "uncheck"; readonly file: string }
   | { readonly kind: "install" }
-  | { readonly kind: "loop" }
   | {
       readonly kind: "contextHook"
       readonly soft?: number
@@ -238,9 +237,6 @@ const runInstallCommand = (
       `gtd install: wrote ${WORKFLOW_MODULE}, importing gtd's shipped workflows — commit it before your first \`gtd land\``,
     )
   })
-
-const runLoopCommand = (): Effect.Effect<void, Error, ToolCommands> =>
-  Effect.flatMap(ToolCommands, (tools) => tools.loop(selfGtd()))
 
 /**
  * `planLanding`'s result — a preview of what `gtd land` would do, plus the
@@ -1221,7 +1217,6 @@ export const needsOf = (kind: Command["kind"]): Needs => {
   switch (kind) {
     case "lsp":
     case "install":
-    case "loop":
     case "contextHook":
     case "judgeRun":
     case "strays":
@@ -1240,7 +1235,6 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
   "check",
   "uncheck",
   "install",
-  "loop",
   "contextHook",
   "judgeRun",
   "strays",
@@ -1311,8 +1305,6 @@ const dispatchVoidCommand = (
       return runUncheckCommand(command.file)
     case "install":
       return runInstallCommand(out)
-    case "loop":
-      return runLoopCommand()
     case "contextHook":
       return runContextHookCommand(command, out)
     case "summary":

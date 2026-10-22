@@ -1685,7 +1685,6 @@ describe("runCommand — refuses in a repository with no commits", () => {
     check: { kind: "check", mode: "qa", file: ".gtd/TODO.md" },
     uncheck: { kind: "uncheck", file: ".gtd/REVIEW.md" },
     install: { kind: "install" },
-    loop: { kind: "loop" },
     contextHook: { kind: "contextHook" },
     summary: { kind: "summary" },
     base: { kind: "base" },

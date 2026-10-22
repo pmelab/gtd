@@ -12,7 +12,6 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, resolve } from "node:path"
-import { pathToFileURL } from "node:url"
 import { promisify } from "node:util"
 import type { GtdWorld } from "../world.js"
 
@@ -95,26 +94,6 @@ Given(
     const shim = join(world.pathShimDir!, "gtd")
     writeFileSync(shim, `#!/usr/bin/env bash\nexec node "${world.gtdBin}" "$@"\n`)
     chmodSync(shim, 0o755)
-  },
-)
-
-// From here on gtd runs through a script: `next` prints `document`, every other
-// command is the real one — the loop it runs calls this script back each beat.
-Given(
-  "gtd runs through a script whose next command prints:",
-  (world: GtdWorld, document: string) => {
-    const dir = mkdtempSync(join(tmpdir(), "gtd-next-stub-"))
-    world.closers.push(async () => rmSync(dir, { recursive: true, force: true }))
-    const script = join(dir, "next-stub.mjs")
-    writeFileSync(
-      script,
-      [
-        `if (process.argv[2] === "next") process.stdout.write(${JSON.stringify(`${document}\n`)})`,
-        `else await import(${JSON.stringify(pathToFileURL(world.gtdBin).href)})`,
-        ``,
-      ].join("\n"),
-    )
-    world.gtdBin = script
   },
 )
 

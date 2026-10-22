@@ -111,76 +111,6 @@ remembered session is gone — retention expired, `~/.claude/projects` wiped —
 `--resume` fails and the driver falls back to `--session-id`). There is no file
 to delete and nothing to restart.
 
-### The bundled driver: `gtd loop`
-
-`gtd loop` is this protocol, shipped with gtd: run it from anywhere inside a
-repository and it drives the process until it rests on you. It reads one
-`gtd next --json` document per beat, refuses any document whose `schema` it does
-not speak, runs the agent turn or script the beat demands, and lands the result
-through `gtd land --json`'s script. It always drives the gtd it was started
-from, never another one on `$PATH`.
-
-- **At a human gate** it prints one line naming the step (and its `label`) and
-  exits 0; the gate's own message goes to the log. The opening beat is yours, as
-  above: it lands even at a clean gate.
-- **At idle, or when a landing settles,** it exits 0.
-- **On a stall, a failed turn or landing, or validation still failing after
-  three fix turns,** it exits 1.
-- **Agent turns** run `claude -p` (or `pi -p`) in the repository root with the
-  prompt on stdin, the beat's session id behind `--session-id`/`--resume`
-  (trying the `resume` hint's flag first, then the other), its `model` and
-  `system`, and background tasks disabled. A turn's reported cost is recorded on
-  the landing with `--cost`/`--model`, failed and fix turns included.
-- **The log** is the file `gtd next --json=log` names: truncated when the run
-  starts, then every turn's output, script output and gate message. The terminal
-  carries only beat headers, landed subjects and the final line.
-- **A `claude` turn runs under its step's [context limit](#context-limits)**:
-  `gtd context-hook` is passed in through `--settings` as its PostToolUse and
-  PreCompact hook, and the loop reads `--output-format stream-json --verbose` to
-  kill the turn itself should no hook stop it — halfway from the hard limit to a
-  full window (85% at the default), so the hook's clean stop after a tool always
-  comes first. A turn stopped at its hard limit is neither retried nor landed:
-  the loop exits 1 with a line starting `gtd: context limit`. A turn some other
-  hook stopped is an ordinary failed turn. A `pi` turn runs without a limit.
-
-- **At a judge gate** it pipes the beat's `judge` document through
-  `gtd judge run` — whose own settings pick the provider, see
-  [The `judge:` key](./configuration.md#the-judge-key) — and lands the verdict
-  through `gtd judge answer --json`'s script. If either command fails, or the
-  same gate comes back on the very next beat, it stops there with the reason in
-  the log — on the opening beat too, landing nothing, so the conservative
-  default is never taken unseen. **That document's evidence, diffs included,
-  goes to the provider**: with `TYPESAFE_API_KEY` exported that is TypeSafe's
-  API unless something picks another — `GTD_JUDGE_PROVIDER` or your user-level
-  `judge.json`.
-
-**Per-machine settings.** Which agent CLI runs a turn and which real model a
-workflow hint means are your machine's business, never the repository's. Each
-setting is read from an environment variable first, then from an optional JSON
-file, then from the default:
-
-| Setting            | Environment variable      | File key        | Default                                 |
-| ------------------ | ------------------------- | --------------- | --------------------------------------- |
-| Agent CLI          | `GTD_LOOP_AGENT`          | `agent`         | `claude`                                |
-| Model for `<hint>` | `GTD_LOOP_MODEL_<HINT>`   | `models.<hint>` | none                                    |
-| Model for `smart`  | `GTD_LOOP_MODEL_SMART`    | `models.smart`  | `opus` with `claude`, none with `pi`    |
-| Model for `base`   | `GTD_LOOP_MODEL_BASE`     | `models.base`   | `sonnet` with `claude`, none with `pi`  |
-| Context window     | `GTD_LOOP_CONTEXT_WINDOW` | `contextWindow` | 1000000 for a `[1m]` model, else 200000 |
-
-`<HINT>` is the hint in upper case, with every character other than a letter or
-digit replaced by `_`. An unmapped `smart` or `base` is dropped, so the agent
-runs its own default model; any other unmapped hint is passed through unchanged,
-so a workflow may name a real model outright. An empty variable counts as unset.
-`GTD_LOOP_AGENT` accepts `claude` or `pi`.
-
-The file is `$GTD_LOOP_CONFIG` when set, else `$XDG_CONFIG_HOME/gtd/loop.json`,
-else `~/.config/gtd/loop.json`. A missing file is fine; an unreadable or invalid
-one, or an unknown key, stops the loop before its first beat:
-
-```json
-{ "agent": "claude", "models": { "smart": "opus", "base": "sonnet" } }
-```
-
 ### Context limits
 
 An agent step may carry `context` — `{ "soft": <share>, "hard": <share> }`,
@@ -243,7 +173,13 @@ cache-read and cache-creation tokens — and compares it with the shares of
 - **Otherwise, and for a subagent's tool call** (an input carrying `agent_id`,
   whose context is its own), it prints nothing.
 
-A turn stopped at its hard limit is too big for one turn. The bundled loop and
+The hook fires only after a tool call, so a turn that keeps answering without
+one runs past `hard` unstopped until compaction. A driver that wants a backstop
+can read `claude -p --output-format stream-json --verbose`, sum each top-level
+assistant message's `usage` the same way, and kill the turn itself somewhat past
+`hard` — halfway to a full window keeps the hook's cleaner stop first.
+
+A turn stopped at its hard limit is too big for one turn. The minimal driver and
 the Claude Code mod land nothing and stop with the marker. The limit counts the
 whole conversation, so a memory scope resumed across steps that has grown past
 its hard limit stops again on every run; start the process over with
@@ -871,6 +807,8 @@ export BASH_MAX_TIMEOUT_MS=7200000
 
 beat=1
 while :; do
+  cost=
+  model=
   # One value per invocation: `gtd next --json=<path>` is a pure read (peek
   # or dispatch, indistinguishable, always safe to call again), so nothing is
   # lost by reading `kind`/`idle` as two separate calls rather than one
@@ -924,44 +862,62 @@ while :; do
       model="$(gtd next --json=model)"
       system="$(gtd next --json=system)"
       validate="$(gtd next --json=validate)"
+      context="$(gtd next --json=context)"
       log="$(gtd next --json=log)"
       # `model` is a hint, not a model name — the bundled workflow ships
       # `smart` and `base`, which `claude --model` rejects. Resolve them
-      # with the variables `gtd loop` reads; unset, the hint is dropped and
-      # the agent runs its own default. Any other value is a real model name.
+      # from your environment; unset, the hint is dropped and the agent runs
+      # its own default. Any other value is a real model name.
       case "$model" in
         smart) model="${GTD_LOOP_MODEL_SMART:-}" ;;
         base) model="${GTD_LOOP_MODEL_BASE:-}" ;;
       esac
-      # The prompt embeds a full diff, so it goes to the agent over stdin,
-      # never as an argv positional — argv is capped (~1 MB on macOS, and
-      # POSIX guarantees only 4 KB, ARG_MAX), and a diff crosses that far
-      # sooner than you'd expect. Piping plain `gtd next` (not
-      # --json=content) means the diff is rendered once, for this input,
-      # rather than twice.
-      agent_turn() { gtd next | claude -p "$1" "$session_id" \
-        ${model:+--model "$model"} \
-        ${system:+--system-prompt "$system"} \
-        --dangerously-skip-permissions >>"$log" 2>&1; }
+      # The step's context limit, as a Claude Code hook after every tool
+      # call and before compacting. Past `hard` it stops the turn and
+      # appends why to the stop file, so we land nothing and stop too.
+      soft="$(printf '%s' "$context" | sed -n 's/.*"soft":\([0-9.]*\).*/\1/p')"
+      hard="$(printf '%s' "$context" | sed -n 's/.*"hard":\([0-9.]*\).*/\1/p')"
+      window="${GTD_LOOP_CONTEXT_WINDOW:-}"
+      case "$model" in *'[1m]'*) window="${window:-1000000}" ;; esac
+      hook="gtd context-hook${soft:+ --soft $soft}${hard:+ --hard $hard}${window:+ --window $window}"
+      hooks="[{\"hooks\":[{\"type\":\"command\",\"command\":\"$hook\"}]}]"
+      settings="{\"hooks\":{\"PostToolUse\":$hooks,\"PreCompact\":$hooks}}"
+      export GTD_LOOP_CONTEXT_STOP_FILE="$log.context-stop"
+      rm -f "$GTD_LOOP_CONTEXT_STOP_FILE"
+      # One turn, its prompt on stdin. The prompt embeds a full diff, so it
+      # never goes on argv — argv is capped (~1 MB on macOS, and POSIX
+      # guarantees only 4 KB, ARG_MAX), and a diff crosses that far sooner
+      # than you'd expect. Every turn passes the same $model/$system:
+      # whether `claude --resume` re-applies the original session's is a
+      # harness detail gtd cannot verify from outside. Its JSON envelope
+      # goes to the log, and its `total_cost_usd` adds up into $cost.
+      turn() {
+        out="$(claude -p "$@" \
+          ${model:+--model "$model"} \
+          ${system:+--system-prompt "$system"} \
+          --settings "$settings" --output-format json \
+          --dangerously-skip-permissions 2>>"$log")" && ok=0 || ok=$?
+        printf '%s\n' "$out" >>"$log"
+        usd="$(printf '%s\n' "$out" | sed -n 's/.*"total_cost_usd":\([0-9.eE+-]*\).*/\1/p' | tail -n 1)"
+        cost="$(awk -v a="${cost:-0}" -v b="${usd:-0}" 'BEGIN { printf "%.6f", a + b }')"
+        if [ -s "$GTD_LOOP_CONTEXT_STOP_FILE" ]; then
+          cat "$GTD_LOOP_CONTEXT_STOP_FILE" >&2
+          exit 1
+        fi
+        return "$ok"
+      }
+      # Plain `gtd next` (not --json=content) renders the diff once.
+      gtd next >"$log.prompt"
       if [ "${resume:-}" = true ]
-      then agent_turn --resume || agent_turn --session-id
-      else agent_turn --session-id || agent_turn --resume
+      then turn --resume "$session_id" <"$log.prompt" || turn --session-id "$session_id" <"$log.prompt"
+      else turn --session-id "$session_id" <"$log.prompt" || turn --resume "$session_id" <"$log.prompt"
       fi
       n=0
       while [ -n "${validate:-}" ] && ! fix="$(sh -c "$validate" 2>&1)"; do
         n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\n' "$fix" >&2; exit 1; }
-        # $fix IS the fix prompt, verbatim — piped for the same reason the
-        # agent's own turn above is. Whether `claude --resume` re-applies the
-        # original session's model/system prompt is a harness detail gtd
-        # cannot verify from outside, so this passes the identical
-        # $model/$system on both calls rather than assume it does —
-        # otherwise this fix turn might silently fall back to Claude Code's
-        # own defaults while the turn that produced the file ran under the
-        # workflow's own model and persona.
-        printf '%s' "$fix" | claude -p --resume "$session_id" \
-          ${model:+--model "$model"} \
-          ${system:+--system-prompt "$system"} \
-          --dangerously-skip-permissions >>"$log" 2>&1
+        # $fix IS the fix prompt, verbatim.
+        printf '%s' "$fix" >"$log.prompt"
+        turn --resume "$session_id" <"$log.prompt"
       done ;;
   esac
 
@@ -972,7 +928,8 @@ while :; do
   # before the script runs and changes the tree out from under them.
   settled="$(gtd land --json=settled)"
   idle="$(gtd land --json=idle)"
-  gtd land --json=script | sh
+  # A prompt beat's turns record their cost, tagged with the model that ran.
+  gtd land --json=script ${cost:+--cost="$cost"} ${cost:+${model:+--model="$model"}} | sh
   if [ "${settled:-}" = true ]; then
     [ "${idle:-}" = true ] && gtd next
     exit 0
@@ -1026,6 +983,15 @@ resolves `idle` on the FOLLOWING beat's own `gtd next --json=idle` read — the
 reference driver reads once more (a plain `gtd next`) only to DISPLAY that
 gate's own message, the decision to stop already made from `settled`/`idle`
 alone.
+
+Each agent turn runs under the step's [context limit](#context-limits): the
+paste reads `--json=context`, hands `gtd context-hook` with those limits to
+`claude` through `--settings` as its PostToolUse and PreCompact hook, and points
+`GTD_LOOP_CONTEXT_STOP_FILE` at `<log>.context-stop`. A turn the hook stopped at
+its hard limit leaves a line there; the paste prints it and exits 1, landing
+nothing. Each turn's `--output-format json` envelope goes to the log, and its
+`total_cost_usd` — failed and fix turns included — adds up into the `--cost`
+(and `--model`) the landing records.
 
 This paste passes `$system` on argv, and POSIX guarantees only 4 KB of argv
 (`ARG_MAX`) — real systems are far higher (roughly 1 MB on both macOS and
@@ -1215,7 +1181,12 @@ do not queue it, store it, or hand it to another worktree.
   release, say), you can get version skew between the two — the command that
   validates may not be the command that decided. Keep the two in sync (one `gtd`
   on `PATH`, consistently) if you care about that gap.
+- **`sed` and `awk`** — the paste reads a prompt beat's `context` limits and
+  each turn's `total_cost_usd` out of JSON with them; both are POSIX.
 - **`GTD_LOOP_MODEL_SMART` / `GTD_LOOP_MODEL_BASE`** (optional) — the real model
   names the paste passes to `claude --model` for the workflow's `smart` and
-  `base` hints, the same variables `gtd loop` reads. Unset, the hint is dropped
-  and `claude` runs its own default model.
+  `base` hints. Unset, the hint is dropped and `claude` runs its own default
+  model.
+- **`GTD_LOOP_CONTEXT_WINDOW`** (optional) — the model's context window in
+  tokens, passed to `gtd context-hook --window`. Unset, it is 1000000 for a
+  model whose name carries `[1m]` and `gtd context-hook`'s own 200000 otherwise.

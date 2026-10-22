@@ -13,6 +13,8 @@ export BASH_MAX_TIMEOUT_MS=7200000
 
 beat=1
 while :; do
+  cost=
+  model=
   # One value per invocation: \`gtd next --json=<path>\` is a pure read (peek
   # or dispatch, indistinguishable, always safe to call again), so nothing is
   # lost by reading \`kind\`/\`idle\` as two separate calls rather than one
@@ -66,44 +68,62 @@ while :; do
       model="$(gtd next --json=model)"
       system="$(gtd next --json=system)"
       validate="$(gtd next --json=validate)"
+      context="$(gtd next --json=context)"
       log="$(gtd next --json=log)"
       # \`model\` is a hint, not a model name — the bundled workflow ships
       # \`smart\` and \`base\`, which \`claude --model\` rejects. Resolve them
-      # with the variables \`gtd loop\` reads; unset, the hint is dropped and
-      # the agent runs its own default. Any other value is a real model name.
+      # from your environment; unset, the hint is dropped and the agent runs
+      # its own default. Any other value is a real model name.
       case "$model" in
         smart) model="\${GTD_LOOP_MODEL_SMART:-}" ;;
         base) model="\${GTD_LOOP_MODEL_BASE:-}" ;;
       esac
-      # The prompt embeds a full diff, so it goes to the agent over stdin,
-      # never as an argv positional — argv is capped (~1 MB on macOS, and
-      # POSIX guarantees only 4 KB, ARG_MAX), and a diff crosses that far
-      # sooner than you'd expect. Piping plain \`gtd next\` (not
-      # --json=content) means the diff is rendered once, for this input,
-      # rather than twice.
-      agent_turn() { gtd next | claude -p "$1" "$session_id" \\
-        \${model:+--model "$model"} \\
-        \${system:+--system-prompt "$system"} \\
-        --dangerously-skip-permissions >>"$log" 2>&1; }
+      # The step's context limit, as a Claude Code hook after every tool
+      # call and before compacting. Past \`hard\` it stops the turn and
+      # appends why to the stop file, so we land nothing and stop too.
+      soft="$(printf '%s' "$context" | sed -n 's/.*"soft":\\([0-9.]*\\).*/\\1/p')"
+      hard="$(printf '%s' "$context" | sed -n 's/.*"hard":\\([0-9.]*\\).*/\\1/p')"
+      window="\${GTD_LOOP_CONTEXT_WINDOW:-}"
+      case "$model" in *'[1m]'*) window="\${window:-1000000}" ;; esac
+      hook="gtd context-hook\${soft:+ --soft $soft}\${hard:+ --hard $hard}\${window:+ --window $window}"
+      hooks="[{\\"hooks\\":[{\\"type\\":\\"command\\",\\"command\\":\\"$hook\\"}]}]"
+      settings="{\\"hooks\\":{\\"PostToolUse\\":$hooks,\\"PreCompact\\":$hooks}}"
+      export GTD_LOOP_CONTEXT_STOP_FILE="$log.context-stop"
+      rm -f "$GTD_LOOP_CONTEXT_STOP_FILE"
+      # One turn, its prompt on stdin. The prompt embeds a full diff, so it
+      # never goes on argv — argv is capped (~1 MB on macOS, and POSIX
+      # guarantees only 4 KB, ARG_MAX), and a diff crosses that far sooner
+      # than you'd expect. Every turn passes the same $model/$system:
+      # whether \`claude --resume\` re-applies the original session's is a
+      # harness detail gtd cannot verify from outside. Its JSON envelope
+      # goes to the log, and its \`total_cost_usd\` adds up into $cost.
+      turn() {
+        out="$(claude -p "$@" \\
+          \${model:+--model "$model"} \\
+          \${system:+--system-prompt "$system"} \\
+          --settings "$settings" --output-format json \\
+          --dangerously-skip-permissions 2>>"$log")" && ok=0 || ok=$?
+        printf '%s\\n' "$out" >>"$log"
+        usd="$(printf '%s\\n' "$out" | sed -n 's/.*"total_cost_usd":\\([0-9.eE+-]*\\).*/\\1/p' | tail -n 1)"
+        cost="$(awk -v a="\${cost:-0}" -v b="\${usd:-0}" 'BEGIN { printf "%.6f", a + b }')"
+        if [ -s "$GTD_LOOP_CONTEXT_STOP_FILE" ]; then
+          cat "$GTD_LOOP_CONTEXT_STOP_FILE" >&2
+          exit 1
+        fi
+        return "$ok"
+      }
+      # Plain \`gtd next\` (not --json=content) renders the diff once.
+      gtd next >"$log.prompt"
       if [ "\${resume:-}" = true ]
-      then agent_turn --resume || agent_turn --session-id
-      else agent_turn --session-id || agent_turn --resume
+      then turn --resume "$session_id" <"$log.prompt" || turn --session-id "$session_id" <"$log.prompt"
+      else turn --session-id "$session_id" <"$log.prompt" || turn --resume "$session_id" <"$log.prompt"
       fi
       n=0
       while [ -n "\${validate:-}" ] && ! fix="$(sh -c "$validate" 2>&1)"; do
         n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\\n' "$fix" >&2; exit 1; }
-        # $fix IS the fix prompt, verbatim — piped for the same reason the
-        # agent's own turn above is. Whether \`claude --resume\` re-applies the
-        # original session's model/system prompt is a harness detail gtd
-        # cannot verify from outside, so this passes the identical
-        # $model/$system on both calls rather than assume it does —
-        # otherwise this fix turn might silently fall back to Claude Code's
-        # own defaults while the turn that produced the file ran under the
-        # workflow's own model and persona.
-        printf '%s' "$fix" | claude -p --resume "$session_id" \\
-          \${model:+--model "$model"} \\
-          \${system:+--system-prompt "$system"} \\
-          --dangerously-skip-permissions >>"$log" 2>&1
+        # $fix IS the fix prompt, verbatim.
+        printf '%s' "$fix" >"$log.prompt"
+        turn --resume "$session_id" <"$log.prompt"
       done ;;
   esac
 
@@ -114,7 +134,8 @@ while :; do
   # before the script runs and changes the tree out from under them.
   settled="$(gtd land --json=settled)"
   idle="$(gtd land --json=idle)"
-  gtd land --json=script | sh
+  # A prompt beat's turns record their cost, tagged with the model that ran.
+  gtd land --json=script \${cost:+--cost="$cost"} \${cost:+\${model:+--model="$model"}} | sh
   if [ "\${settled:-}" = true ]; then
     [ "\${idle:-}" = true ] && gtd next
     exit 0

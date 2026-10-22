@@ -3,7 +3,7 @@ import type { Effect } from "effect"
 import type { UiSettings } from "../flows/index.js"
 import type { ContextHookRequest } from "../wire/index.js"
 
-/** How to run THIS gtd — a driver (the loop, the LSP) never reads a different version's state than the one it ships with. */
+/** How to run THIS gtd — a tool (the LSP) never reads a different version's state than the one it ships with. */
 export type SelfGtd = readonly [string, ...string[]]
 
 export interface UiRequest {
@@ -38,7 +38,6 @@ export class ToolCommands extends Context.Tag("ToolCommands")<
       out: { readonly write: (chunk: string) => void; readonly flush: () => void },
     ) => Effect.Effect<void, Error>
     readonly lsp: (gtd: SelfGtd) => Effect.Effect<void, Error>
-    readonly loop: (gtd: SelfGtd) => Effect.Effect<void, Error>
     /** The hook's stdout: a JSON document, or empty to let the turn go on. */
     readonly contextHook: (request: ContextHookRequest) => Effect.Effect<string, Error>
     readonly judge: (request: JudgeRequest) => Promise<string>

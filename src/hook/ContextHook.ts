@@ -10,7 +10,7 @@ import {
   type ContextHookRequest,
   type ContextLimit,
 } from "../wire/index.js"
-import { LoopHost } from "./Host.js"
+import { HookHost } from "./HookHost.js"
 
 interface HookInput {
   readonly event: "PostToolUse" | "PreCompact"
@@ -46,26 +46,26 @@ const parseInput = (text: string): Effect.Effect<HookInput | undefined, Error> =
     }),
   )
 
-const tokensOf = (input: HookInput): Effect.Effect<number | undefined, Error, LoopHost> =>
+const tokensOf = (input: HookInput): Effect.Effect<number | undefined, Error, HookHost> =>
   input.event === "PostToolUse" && input.transcript !== undefined
-    ? Effect.flatMap(LoopHost, (host) => host.readFile(input.transcript!)).pipe(
+    ? Effect.flatMap(HookHost, (host) => host.readFile(input.transcript!)).pipe(
         Effect.map((text) => (text === undefined ? undefined : transcriptTokens(text))),
       )
     : Effect.succeed(undefined)
 
-const recordStop = (stopReason: string): Effect.Effect<void, never, LoopHost> =>
-  Effect.flatMap(LoopHost, (host) => {
+const recordStop = (stopReason: string): Effect.Effect<void, never, HookHost> =>
+  Effect.flatMap(HookHost, (host) => {
     const file = host.env[CONTEXT_STOP_FILE_ENV]
     // A record that cannot be written must not cost the stop itself.
     return file === undefined || file === ""
       ? Effect.void
-      : host.appendLog(file, `${stopReason}\n`).pipe(Effect.catchAllDefect(() => Effect.void))
+      : host.appendFile(file, `${stopReason}\n`).pipe(Effect.catchAllDefect(() => Effect.void))
   })
 
 /** `gtd context-hook`: one settings hook for PostToolUse and PreCompact. */
 export const runContextHook = (
   request: ContextHookRequest,
-): Effect.Effect<string, Error, LoopHost> =>
+): Effect.Effect<string, Error, HookHost> =>
   Effect.gen(function* () {
     const limit = yield* limitOf(request)
     const input = yield* parseInput(request.input)

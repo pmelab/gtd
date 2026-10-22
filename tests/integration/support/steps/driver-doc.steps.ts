@@ -16,7 +16,7 @@ const PROJECT_ROOT = resolve(import.meta.dirname, "../../../..")
 // verbatim (no substitution of its `claude` lines), so the stub agent stands
 // in as a real `claude` binary on $PATH instead. It parses the flags the
 // docs/driver.md's paste actually uses (-p, --session-id, --resume, --model,
-// --dangerously-skip-permissions) into the $GTD_LOOP_* env the stub script
+// --settings, --dangerously-skip-permissions) into the $GTD_LOOP_* env the stub script
 // reads, then execs the stub. The prompt itself no longer arrives as `-p`'s
 // argv value (the paste pipes it on stdin instead, to stay under argv's cap
 // on a large diff) — `-p` here is a bare flag, and the prompt is read off
@@ -27,6 +27,7 @@ function claudeShimScript(stubPath: string): string {
 set -euo pipefail
 session_id=""
 model=""
+settings=""
 resume=0
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -34,6 +35,7 @@ while [ $# -gt 0 ]; do
     --resume) session_id="$2"; resume=1; shift 2 ;;
     --session-id) session_id="$2"; shift 2 ;;
     --model) model="$2"; shift 2 ;;
+    --settings) settings="$2"; shift 2 ;;
     *) shift ;;
   esac
 done
@@ -41,6 +43,7 @@ prompt="$(cat)"
 export GTD_LOOP_PROMPT="$prompt"
 export GTD_LOOP_SESSION_ID="$session_id"
 export GTD_LOOP_MODEL="$model"
+export GTD_LOOP_SETTINGS="$settings"
 export GTD_LOOP_MEMORY_RESUME="$resume"
 exec bash "${stubPath}"
 `
