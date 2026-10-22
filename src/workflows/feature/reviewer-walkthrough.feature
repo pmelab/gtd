@@ -101,6 +101,8 @@ Feature: a reviewer walks the human through the feature's code
 
       Should subtract round? The criterion does not say.
 
+      In the code:
+
       - [ ] ./src/calc.ts#2-2 — returns the raw difference
 
       Tick exactly one:
@@ -174,3 +176,20 @@ Feature: a reviewer walks the human through the feature's code
       gtd(agent): build.review.reviewing → build.review.carrying
       gtd(check): build.review.carrying → build.review.await-review
       """
+
+  Scenario: a standard conflict the reviewer writes itself is refused
+    Given step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Standard conflict 0123abcd
+
+      - [ ] ./src/calc.ts#2-2 — copied over
+
+      ## AC-1 ignores floating point
+
+      - [ ] ./src/calc.ts#2-2 — returns the raw difference
+      """
+    Then driving the process is refused with "Standard conflict 0123abcd — gtd writes conflicts"

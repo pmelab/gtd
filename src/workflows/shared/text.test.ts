@@ -1459,6 +1459,8 @@ describe("walkthrough", () => {
         "",
         "It may overflow.",
         "",
+        "In the code:",
+        "",
         "- [ ] ./src/calc.ts#2-2 — subtract(a, b)",
         "",
         "Tick exactly one:",
@@ -1490,6 +1492,22 @@ describe("walkthrough", () => {
     expect(withWalkthrough(review.trimEnd(), empty)).toBe(review.trimEnd())
     expect(withWalkthrough(review, { ...empty, notes: [{ title: "absent", body: "x" }] })).toBe(
       review,
+    )
+  })
+
+  it("keeps a note ending in a list apart from the pointers, so its answer carries the list", () => {
+    const out = withWalkthrough(review, {
+      ...empty,
+      notes: [{ title: "Subtract", body: "Do this:\n\n- step one\n- step two" }],
+    }).replace("- [ ] fix as suggested", "- [x] fix as suggested")
+    const [decision] = reviewDecisions("", out)
+    expect(decision?.body).toContain("step two")
+    expect(decision?.body).not.toContain("./src/calc.ts")
+  })
+
+  it("shows a title holding backticks as one unbroken code span", () => {
+    expect(walkthroughBlock([{ title: "`sub` drifts", body: "x" }])).toContain(
+      "- `` ## `sub` drifts ``:",
     )
   })
 

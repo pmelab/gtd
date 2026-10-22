@@ -33,7 +33,7 @@ import {
   reviewMissing,
 } from "./steps.js"
 import { learnStandards, settlesStandard, standardsAddedSince, standardsPending } from "./learn.js"
-import { parseStandards, STANDARDS } from "./standards.js"
+import { isConflictTitle, parseStandards, STANDARDS } from "./standards.js"
 import { closeReview, isOptionalObject, tail, type TailOptions } from "./tail.js"
 import * as t from "./text.js"
 
@@ -231,6 +231,9 @@ const requirePointers = (
     ...chunks
       .filter((c) => c.pointers === 0 && (codeChanged || noted.has(c.title)))
       .map((c) => `  - ${REVIEW}:${c.line + 1}: ${c.title} — points at no code`),
+    ...chunks
+      .filter((c) => isConflictTitle(c.title))
+      .map((c) => `  - ${REVIEW}:${c.line + 1}: ${c.title} — gtd writes conflicts; leave it out`),
     ...notes.filter((n) => !titles.has(n.title)).map((n) => `  - ${n.title} — no chunk of its own`),
   ]
   if (problems.length === 0) return
@@ -303,7 +306,16 @@ export const humanReview = (
       const fixedAt = nitFix
       const report = options.report ?? NO_FINDINGS
       return options.walkthrough === true
-        ? walkthrough(b, composedOf(b, report, fixedAt, answered), options.lap ?? "first", carry)
+        ? guarded(
+            () =>
+              walkthrough(
+                b,
+                composedOf(b, report, fixedAt, answered),
+                options.lap ?? "first",
+                carry,
+              ),
+            guard,
+          )()
         : composing(b, report, carry, fixedAt, answered)
     },
     fixRisks: guarded((notes) => fixRisks(notes, fixAccess, rules), guard),

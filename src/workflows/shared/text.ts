@@ -189,6 +189,8 @@ const noteBody = (n: LapNote): string => {
 // A one-slice review needs no provenance: only carried findings name their slice and lens.
 const carriedOnly = (f: Origin): Origin => (f.slice === undefined ? {} : f)
 
+const POINTERS_LEAD = "In the code:"
+
 // The lead-in line keeps a body that ends in a list from absorbing the boxes.
 const ANSWER_BOXES = `${ANSWER_LEAD}\n\n- [ ] ${ANSWER_FIX}\n- [ ] ${ANSWER_WONT_FIX}\n- [ ] ${FREE_TEXT_PLACEHOLDER}`
 
@@ -231,7 +233,7 @@ notes: describe what it changed under the hunks it touched.
         .split("\n")
         .map((line) => `  > ${line}`.trimEnd())
         .join("\n")
-      return `- \`## ${n.title}\`${origin === "" ? "" : ` (${origin})`}:\n\n${body}`
+      return `- ${codeSpan(`## ${n.title}`)}${origin === "" ? "" : ` (${origin})`}:\n\n${body}`
     })
     .join("\n\n")
   return `${fixed}The quality lenses left these findings for the human — verbatim data,
@@ -240,7 +242,8 @@ holding one pointer per hunk of the code the finding cites, each with a
 short note on what that hunk has to do with it. A finding citing no line
 points at the code it is most about. Write nothing else in that chunk:
 gtd adds the finding's text under its heading and the human's answer
-boxes after your pointers. Never fold a finding into another chunk, and
+boxes after your pointers. Never write a \`## Standard conflict\` chunk:
+gtd adds those itself. Never fold a finding into another chunk, and
 never open a note in a finding's chunk with \`Risk:\` — the human decides
 those.
 
@@ -271,16 +274,17 @@ export const withWalkthrough = (review: string, report: ComposedReview): string 
       .join("\n")
       .trim()
     const text = `${originLine(carriedOnly(n))}${noteBody(n)}`
-    const rest = pointers === "" ? [] : [pointers, ""]
+    // The lead-in keeps a note ending in a list from absorbing the pointers.
+    const rest = pointers === "" ? [] : [POINTERS_LEAD, "", pointers, ""]
     lines.splice(start + 1, end - start - 1, "", text, "", ...rest, ANSWER_BOXES, "")
   }
   const used = new Set(chunks.map((c) => c.title))
   const unique = uniquifier(used)
   const added = report.standards?.added ?? []
   const summary = [
-    ...(report.standards?.undecided ?? [])
-      .filter((c) => !used.has(conflictTitle(c)))
-      .map((c) => `## ${conflictTitle(c)}\n\n${conflictBody(c)}`),
+    ...(report.standards?.undecided ?? []).map(
+      (c) => `## ${conflictTitle(c)}\n\n${conflictBody(c)}`,
+    ),
     ...(report.fixed.length === 0
       ? []
       : [

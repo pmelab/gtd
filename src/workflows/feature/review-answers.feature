@@ -124,6 +124,8 @@ Feature: every note in the review is answered with one tick
 
       Should subtract round? The criterion does not say.
 
+      In the code:
+
       - [ ] ./src/calc.ts#2-2 — returns the raw difference
 
       Tick exactly one:

@@ -112,6 +112,8 @@ Feature: the quality lap's findings are triaged before the review
 
       Should subtract round? The criterion does not say.
 
+      In the code:
+
       - [ ] ./src/calc.ts#2-2 — where it applies
 
       Tick exactly one:
