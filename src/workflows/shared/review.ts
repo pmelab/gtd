@@ -5,7 +5,6 @@ import {
   judge,
   numeric,
   read,
-  removeScript,
   requireRevert,
   restoreScript,
   run,
@@ -23,7 +22,6 @@ import { NO_FINDINGS, type LensReport } from "./lenses.js"
 import {
   answerReviewQuestions,
   awaitReview,
-  coder,
   collecting,
   fixCheck,
   fixNits,
@@ -368,19 +366,6 @@ const callForm = (
   if (typeof second === "string") return legacyForm(first, second, third, fourth)
   if (typeof first === "string") return currentForm(first, second, third, fourth)
   return undefined
-}
-
-/** Build the concerns a review round collected into `.gtd/REQUIREMENTS.md`, then remove it. */
-export const fixFeedback = async (): Promise<void> => {
-  await t.agentWithSkills("feedback.fixing", t.reviewFeedbackFixPrompt(), {
-    label: "Fixing your review feedback",
-    file: REQUIREMENTS,
-    model: coder(),
-    system: t.finisherSystem(),
-    // An earlier nit fix may already have built the concern.
-    allowEmpty: true,
-  })
-  await run("feedback.closing", removeScript([REQUIREMENTS]), { label: "Closing the feedback" })
 }
 
 /**
