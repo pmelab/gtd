@@ -943,6 +943,14 @@ describe("reviewedRefactor", () => {
     expect(reviewing?.kind === "agent" ? reviewing.prompt : "").toContain("<!-- base: c0 -->")
   })
 
+  it("has the reviewer walk the whole refactor on every round", async () => {
+    const h = await driveReviewed(shape())
+    const reviewing = h.steps.find((s) => s.kind === "agent" && s.name === "review.reviewing")
+    expect(reviewing?.kind === "agent" ? reviewing.prompt : "").toContain(
+      "it covers the whole refactor since it started, on every round",
+    )
+  })
+
   it("names the entry commit in every lens prompt, on the first lap and after a feedback lap", async () => {
     const lensPrompts = (h: Reviewed) =>
       h.steps.flatMap((s) =>

@@ -1176,7 +1176,6 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
 
     Scenario: a reviewer walks the human through the whole refactor, every chunk pointing at its code
-      Given step "refactor.build.review.reviewing" is prompted with "it covers the whole refactor since it started, on every round"
       When the process is driven
       Then the process rests at "refactor.build.review.await-review"
       And ".gtd/REVIEW.md" contains:
