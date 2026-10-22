@@ -62,11 +62,6 @@
       "source": "./src/workflows/cleanup/index.ts",
       "default": "./dist/workflows/cleanup.mjs"
     },
-    "./workflows/tests": {
-      "types": "./src/workflows/tests/index.ts",
-      "source": "./src/workflows/tests/index.ts",
-      "default": "./dist/workflows/tests.mjs"
-    },
     "./testkit": {
       "types": "./src/testkit/index.ts",
       "source": "./src/testkit/index.ts",

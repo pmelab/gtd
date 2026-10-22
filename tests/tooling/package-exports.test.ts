@@ -43,12 +43,11 @@ describe("the entrypoint docs", () => {
   }
 })
 
-describe("rollout, cleanup and tests", () => {
+describe("rollout and cleanup", () => {
   const factories = {
-    "./workflows": ["rollout", "cleanup", "tests"],
+    "./workflows": ["rollout", "cleanup"],
     "./workflows/rollout": ["default", "rollout"],
     "./workflows/cleanup": ["default", "cleanup"],
-    "./workflows/tests": ["default", "tests"],
   } as const
   for (const [subpath, names] of Object.entries(factories)) {
     it(`${subpath} exports ${names.join(" and ")} as functions`, async () => {

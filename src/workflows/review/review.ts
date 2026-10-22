@@ -1,10 +1,22 @@
-import { read, refuse, start, type WorkflowBase } from "../../flows/index.js"
-import { buildTail, fixFeedback, reUnwind } from "../shared/review.js"
+import { read, refuse, removeScript, run, start, type WorkflowBase } from "../../flows/index.js"
+import { buildTail, reUnwind } from "../shared/review.js"
 import { gate } from "../shared/health.js"
 import { shipped } from "../shared/options.js"
-import { REQUIREMENTS } from "../shared/steps.js"
+import { coder, REQUIREMENTS } from "../shared/steps.js"
 import { refusePendingHandOff } from "../shared/tail.js"
 import * as t from "../shared/text.js"
+
+const fixFeedback = async (): Promise<void> => {
+  await t.agentWithSkills("feedback.fixing", t.reviewFeedbackFixPrompt(), {
+    label: "Fixing your review feedback",
+    file: REQUIREMENTS,
+    model: coder(),
+    system: t.finisherSystem(),
+    // An earlier nit fix may already have built the concern.
+    allowEmpty: true,
+  })
+  await run("feedback.closing", removeScript([REQUIREMENTS]), { label: "Closing the feedback" })
+}
 
 /**
  * The feature's review of everything since `reviewBase` — a green gate, the

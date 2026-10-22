@@ -1326,21 +1326,20 @@ of process settings — no git runs while it is evaluated.
 A [workflow factory](#workflow-factories) may build doors of its own, without a
 `workflow` (it is whatever name the config exports it under): gtd's `fix` builds
 `fix`, its `review` builds `review [base]`, its `rollout` builds
-`rollout <flag>`, its `cleanup` builds `cleanup <flag>`, its `tests` builds
-`tests`. A config's doors are those of every workflow it exports, plus its
-`doors` export, which wins a name clash — a door several exported workflows
-build belongs to the one exported under the door's own name (the others build
-none, whatever the order); when none is, no workflow builds that door and
-loading warns (`gtd: warning: …` on every command that loads the config) until
-the `doors` export declares it; a declared door replaces the derived one whole,
-so it restates `args` and `vars` itself. A config exporting only `fix` offers
-only the `fix` door. The shipped module's own `doors` export is an empty no-op,
-and its `base` export maps `reviewBase` for a workflow named `review`; both are
-kept only so an older config re-exporting them still loads.
-`gtd door <name> [args...]` starts the process (printing the same script
-`gtd --workflow` does); an unknown door or the wrong number of args is a usage
-error (exit 2). `gtd doors` lists every door, one `name [args] → workflow` line
-each; `gtd doors --json` prints them as data for a driver to offer.
+`rollout <flag>`, its `cleanup` builds `cleanup <flag>`. A config's doors are
+those of every workflow it exports, plus its `doors` export, which wins a name
+clash — a door several exported workflows build belongs to the one exported
+under the door's own name (the others build none, whatever the order); when none
+is, no workflow builds that door and loading warns (`gtd: warning: …` on every
+command that loads the config) until the `doors` export declares it; a declared
+door replaces the derived one whole, so it restates `args` and `vars` itself. A
+config exporting only `fix` offers only the `fix` door. The shipped module's own
+`doors` export is an empty no-op, and its `base` export maps `reviewBase` for a
+workflow named `review`; both are kept only so an older config re-exporting them
+still loads. `gtd door <name> [args...]` starts the process (printing the same
+script `gtd --workflow` does); an unknown door or the wrong number of args is a
+usage error (exit 2). `gtd doors` lists every door, one `name [args] → workflow`
+line each; `gtd doors --json` prints them as data for a driver to offer.
 
 ### Episodes, replay and divergence
 
@@ -2294,84 +2293,6 @@ Refusals, each exiting non-zero with the text on stderr:
 | `gtd land: cleanup: <paths> still names GTD_FLAG_<NAME>`                                     | cleanup left or reintroduced an env-var check under `src/`                      |
 
 New step names in both workflows are public API.
-
-## Reviving skipped tests
-
-The bundled `tests` workflow revives skipped tests, or proposes their deletion.
-Export it from `gtd.config.ts`
-(`export { tests } from "@pmelab/gtd/workflows/tests"`) and start it:
-
-```bash
-gtd door tests
-```
-
-`gtd --workflow tests` starts the same process. In order:
-
-1. `tests-gate.check` runs `testCommand`; a red suite rests at
-   `tests-gate.blocked`.
-2. `tests.sweeping`: an agent, told every skipped test gtd found (`path:line`),
-   audits the whole suite with the `test-audit` skill and writes `.gtd/TESTS.md`
-   — `# Tests`, then one `## <path>` section per test file that needs work.
-   Every file with a skipped test needs a section, and every section must name a
-   test file (one `testFiles` matches); it may change no other file. Writing
-   nothing ends the process, as do rewrites that change no code and propose
-   nothing.
-3. `tests.rewriting`, once per section: the file's tests are rewritten until
-   none is skipped, then `tests.health.check` (the shared health loop) keeps the
-   suite green. A test the agent calls obsolete stays skipped and gets a
-   `## <title>` section in `.gtd/RETIRE.md` naming its file and why it should go
-   — one section per test left skipped, a line the pattern misread (fixture
-   text, a comment) included, so a person can keep it. A file needing no change
-   may land an empty turn, and skips its suite run.
-4. `tests.closing` removes both files, and `.gtd/REVIEW.md` holds one chunk per
-   proposal, ending in three boxes:
-
-   ```markdown
-   Tick exactly one:
-
-   - [ ] delete it
-   - [ ] keep it skipped
-   - [ ] _your answer_
-   ```
-
-   The review (`build.review.await-review`, no quality lap) refuses every
-   landing until each proposal holds exactly one tick. `delete it` has the nit
-   fixer delete the test, then the suite runs and the review comes back;
-   `keep it skipped` is dropped and recorded as `Gtd-Mark: wontfix=<title>`; an
-   own answer is judged like any review note.
-
-The sweep, the rewrites and their fix turns are refused when they delete a test
-file; a test removed inside a file shows only in the diff you review. A person
-at the health loop's escalation rests is not checked.
-
-Two factory options say what a skipped test is; each is also a process setting
-(`--var`, `GTD_<NAME>`):
-
-- `testFiles` — comma-separated globs of the files scanned, default
-  `**/*.test.*, **/*.spec.*, **/*.feature, **/tests/**, **/test/**, **/__tests__/**`.
-- `skipPattern` — a regular expression tested against each line, default: a line
-  opening with `.skip`/`.todo` on
-  `describe`/`context`/`suite`/`it`/`test`/`specify`, with
-  `xdescribe(`/`xit(`/…, or with a tag line holding `@skip` or `@ignore`.
-
-```ts
-import { tests as shipped } from "@pmelab/gtd/workflows/tests"
-export const tests = shipped({
-  testFiles: "tests/test_*.py",
-  skipPattern: "@pytest\\.mark\\.skip\\b",
-})
-```
-
-Refusals, each exiting non-zero with the text on stderr:
-
-| Text                                                                                                             | When                                                                           |
-| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
-| `gtd: <file> is left over — finish or remove it first.`                                                          | `.gtd/REQUIREMENTS.md`, `.gtd/TESTS.md` or `.gtd/RETIRE.md` at start           |
-| `gtd: skipPattern must not be blank`, `… is not a valid regular expression`, `… must not match the empty string` | an unusable `skipPattern`                                                      |
-| `gtd land: tests: in .gtd/TESTS.md, <faults>`                                                                    | a section names no test file, or a file with a skipped test has none           |
-| `gtd land: tests: the sweep changed <paths> — it writes only .gtd/TESTS.md`                                      | the sweep changed another file                                                 |
-| `gtd land: tests: <path>:<line> still skipped — revive it, or propose …`                                         | a rewritten file keeps more skips than `.gtd/RETIRE.md` has sections naming it |
-| `gtd land: tests: <paths> deleted — a test goes only once a person ticks …`                                      | a sweep, rewrite or fix turn deleted a test file                               |
 
 ## Migrating from `.gtdrc`
 
