@@ -90,6 +90,13 @@ describe("the cleanup guard over every later agent turn", () => {
     "build.health.check": () => undefined,
   }
 
+  // One lens finding, judged mechanical, so it reaches the fix turn.
+  const MECHANICAL: Actors = {
+    "build.quality.correctness.reviewing": (_, r) =>
+      r.write(".gtd/QUALITY.md", "# Quality\n\n## a finding\n\nFix it.\n"),
+    "build.quality.triage": () => '[{"id":"Q1","answer":"mechanical","p":0.9}]',
+  }
+
   // Without the shipped access rules, which would refuse a source write from a read-only turn first: the guard is the second line.
   const NO_ACCESS = CONFIG.replace("  access,\n", "")
 
@@ -185,15 +192,11 @@ describe("the cleanup guard over every later agent turn", () => {
     ).rejects.toThrow("src/b.ts:1 still names GTD_FLAG_LIVE")
   })
 
-  it("refuses the first fix after escalating quality findings that re-adds the env var", async () => {
+  it("refuses a quality fix turn that re-adds the env var", async () => {
     await expect(
       driven(guarded("correctness", NO_ACCESS), {
-        "build.quality.correctness.reviewing": (_, r) =>
-          r.write(".gtd/QUALITY.md", "- a finding\n"),
-        "build.fix.quality.fixing": () => undefined,
-        "build.health.describe": () => undefined,
-        "build.health.stop": () => undefined,
-        "build.fix": (_, r) => r.write("src/b.ts", NAMED),
+        ...MECHANICAL,
+        "build.fix.quality.fixing": (_, r) => r.write("src/b.ts", NAMED),
       }),
     ).rejects.toThrow("src/b.ts:1 still names GTD_FLAG_LIVE")
   })
@@ -209,8 +212,7 @@ describe("the cleanup guard over every later agent turn", () => {
   it("refuses a quality fix turn that restores the registry entry", async () => {
     await expect(
       driven(guarded("correctness"), {
-        "build.quality.correctness.reviewing": (_, r) =>
-          r.write(".gtd/QUALITY.md", "- a finding\n"),
+        ...MECHANICAL,
         "build.fix.quality.fixing": (_, r) => r.write("src/flags/index.ts", REGISTRY),
       }),
     ).rejects.toThrow('still declares flag "live"')

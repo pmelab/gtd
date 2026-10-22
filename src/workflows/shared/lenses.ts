@@ -15,6 +15,7 @@ import {
 import { FIX_CAP, guarded, healthy, type EscalationCount, type Guard } from "./health.js"
 import { fixCheck, fixQuality, QUALITY } from "./steps.js"
 import * as t from "./text.js"
+import type { Origin } from "./text.js"
 
 /** One `## ` section of `.gtd/QUALITY.md`. */
 export interface Finding {
@@ -29,12 +30,29 @@ type FindingKind = "mechanical" | "noise" | "design"
 /** What the triaged quality lap did with its findings, for the review to list. */
 export interface LensReport {
   /** Design findings, then the mechanical ones the fix cap left. */
-  readonly notes: readonly (Finding & { readonly unresolved?: true; readonly unclear?: true })[]
-  readonly fixed: readonly (Finding & { readonly commit: string })[]
-  readonly noise: readonly (Finding & { readonly p: number })[]
+  readonly notes: readonly (Finding &
+    Origin & {
+      readonly unresolved?: true
+      readonly unclear?: true
+    })[]
+  readonly fixed: readonly (Finding & Origin & { readonly commit: string })[]
+  readonly noise: readonly (Finding & Origin & { readonly p: number })[]
 }
 
 export const NO_FINDINGS: LensReport = { notes: [], fixed: [], noise: [] }
+
+/** `reports` as one, each finding labelled with the slice it came from, in slice order. */
+export const joinReports = (
+  reports: readonly { readonly slice: string; readonly report: LensReport }[],
+): LensReport => {
+  const tag = <F extends Origin>(slice: string, fs: readonly F[]): F[] =>
+    fs.map((f) => ({ ...f, slice }))
+  return {
+    notes: reports.flatMap((r) => tag(r.slice, r.report.notes)),
+    fixed: reports.flatMap((r) => tag(r.slice, r.report.fixed)),
+    noise: reports.flatMap((r) => tag(r.slice, r.report.noise)),
+  }
+}
 
 const UNTITLED = "Quality findings"
 
@@ -129,6 +147,8 @@ export interface TriageOptions {
   readonly guard?: Guard | undefined
   readonly guardRests?: boolean | undefined
   readonly rules?: string | undefined
+  /** The lens that wrote a finding, when known; asked once per finding, in file order. */
+  readonly lensOf?: ((f: Finding) => string | undefined) | undefined
 }
 
 /**
@@ -139,7 +159,11 @@ export interface TriageOptions {
  */
 export const triageFindings = async (options: TriageOptions): Promise<LensReport> => {
   const { escalations, guard, guardRests, rules } = options
-  const findings = findingsOf(read(QUALITY) ?? "")
+  const withLens = (f: Finding): Finding & Origin => {
+    const lens = options.lensOf?.(f)
+    return lens === undefined ? f : { ...f, lens }
+  }
+  const findings = findingsOf(read(QUALITY) ?? "").map(withLens)
   if (findings.length === 0) return NO_FINDINGS
   const { mechanical, noise, design } = await classify(findings)
   // Rewritten whenever it is not one chunk per mechanical finding: the fixer deletes chunks.
@@ -160,7 +184,8 @@ export const triageFindings = async (options: TriageOptions): Promise<LensReport
     const commit = head()
     fixed.push(...turn.fixed.map((f) => ({ ...f, commit })))
     unclear.push(...turn.unclear)
-    open = turn.open
+    // A turn that renamed a chunk hands back fresh parses: keep the lens a same-titled finding had.
+    open = turn.open.map((f) => ({ ...mechanical.find((m) => m.title === f.title), ...f }))
   }
   if (mechanical.length > 0)
     await healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules })

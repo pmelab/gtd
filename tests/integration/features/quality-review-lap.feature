@@ -5,7 +5,8 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
   `qualityReviews` lens, in the order listed, each its own scope loading only its own
   lens skill, naming its own lens and
   APPENDING every finding, blocking or not, to `.gtd/QUALITY.md`. Once every lens has
-  had its turn, a non-empty `.gtd/QUALITY.md` routes to `build.fix.quality.fixing`;
+  had its turn, a non-empty `.gtd/QUALITY.md` routes to the `build.quality.triage`
+  judge, whose mechanical findings go to `build.fix.quality.fixing`;
   otherwise the lap hands straight on to `build.review.reviewing`. The lap
   runs once per build tail: after its findings are fixed and the suite is
   green again, the human review follows directly.
@@ -104,7 +105,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     And the last commit subject is "gtd(agent): build.quality.spec-challenge.reviewing → build.review.reviewing"
 
   @inmem
-  Scenario: a findings lap routes through build.fix.quality.fixing and the health check, then straight on to the human review
+  Scenario: a findings lap routes through the triage judge, build.fix.quality.fixing and the health check, then straight on to the human review
     Given a test project
     And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to "owasp-security"
@@ -128,6 +129,8 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     # a `## ` chunk, never overwriting the file.
     Given a file ".gtd/QUALITY.md" with:
       """
+      # Quality
+
       ## Hardcoded secret in src/thing.ts
 
       `thing` embeds what looks like a credential inline — move it to an
@@ -135,7 +138,11 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.owasp-security.reviewing → build.fix.quality.fixing"
+    And the last commit subject is "gtd(agent): build.quality.owasp-security.reviewing → build.quality.triage"
+    And gtd lands "gtd(judge): build.quality.triage → build.fix.quality.fixing" judging:
+      """
+      [{"id":"Q1","answer":"mechanical","p":0.95}]
+      """
 
     # build.fix.quality.fixing's prompt names its bundled skills — grounds this
     # step's own map key against the real scoped name it resolves to.
@@ -177,7 +184,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     And the git log does not contain "build.quality"
 
   @inmem
-  Scenario: lenses are trimmed and reviewed one turn each, and a lens's finding routes to build.fix.quality.fixing
+  Scenario: lenses are trimmed and reviewed one turn each, and a lens's finding routes to the triage judge
     Given a test project
     And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to " first-lens , second-lens "
@@ -211,7 +218,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     And stdout contains "`second-lens`"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.second-lens.reviewing → build.fix.quality.fixing"
+    And the last commit subject is "gtd(agent): build.quality.second-lens.reviewing → build.quality.triage"
     And ".gtd/QUALITY.md" contains "A blocking finding"
 
   @inmem
@@ -264,7 +271,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
     And stdout contains "partial-failure"
 
   @inmem
-  Scenario: a non-blocking finding still routes to build.fix.quality.fixing
+  Scenario: a non-blocking finding still routes to the triage judge
     Given a test project
     And the workflow gtd install scaffolds
     And an environment variable "GTD_QUALITYREVIEWS" set to "ponytail-review"
@@ -290,7 +297,7 @@ Feature: the qualitative review lap (.gtd/packages/01-quality-review-lap.md)
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.ponytail-review.reviewing → build.fix.quality.fixing"
+    And the last commit subject is "gtd(agent): build.quality.ponytail-review.reviewing → build.quality.triage"
 
   @inmem
   Scenario: a lens skills key loads only while the lens is in qualityReviews

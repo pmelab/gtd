@@ -135,9 +135,6 @@ approval:
   continuations hit the `continuations` cap or stalled; landing grants a fresh
   round
 - `*.health.stop` and `*.health.exhausted` — escalation stops
-- `build.quality-unresolved` — quality findings the fix cap left between slices;
-  a person fixes what matters, then deletes or empties `.gtd/QUALITY.md` before
-  the next slice
 - `*.blocked`, `review.review-missing`, `unwind-failed` — a person must clear
   the cause by hand; a red suite after the `rollout` flip rests at
   `rollout.suite.blocked`

@@ -11,7 +11,6 @@ export * from "./shared/steps.js"
 export * from "./shared/health.js"
 export {
   closeReview,
-  fixQualityFindings,
   handOffReview,
   handOffTail,
   qualityLap,

@@ -26,7 +26,6 @@ import {
   fixCheck,
   fixNits,
   fixRisks,
-  QUALITY,
   REQUIREMENTS,
   REVIEW,
   reviewMissing,
@@ -173,7 +172,7 @@ export const isCode = (path: string): boolean => path !== ".gtd" && !path.starts
 
 /**
  * gtd writes `.gtd/REVIEW.md` from the quality lap's `report` — no reviewer
- * turn — and removes what the fixer left in `.gtd/QUALITY.md`. A re-review
+ * turn. A re-review
  * after fixed nits restores the doc as committed at `carry`, answers kept;
  * a fresh one leaves out the notes the human already answered.
  */
@@ -199,7 +198,6 @@ const composing = (
               undecided: parseStandards(read(STANDARDS) ?? "").undecided,
             },
           }),
-          [QUALITY],
         )
       : showScript(carry, REVIEW, REVIEW),
     { label: "Composing the review", file: REVIEW, base },
@@ -305,7 +303,7 @@ export interface BuildTailOptions extends TailOptions {
   readonly report?: LensReport | undefined
 }
 
-/** The build tail: fix (when entered red), keep green unless `green`, the triaged quality lap, then human review since `base`. */
+/** The build tail: fix (when entered red), keep green unless `green`, the quality lap, then human review since `base`. */
 export function buildTail(base: string, options?: BuildTailOptions): Promise<kit.ReviewOutcome>
 /** @deprecated Pass `buildTail(base, { fixFirst, green, ...options })`. */
 export function buildTail(
@@ -329,10 +327,7 @@ export function buildTail(
     )
   }
   const [base, form] = options
-  return tail((escalations, report) => humanReview(base, escalations, { ...form, report }), {
-    ...form,
-    triage: true,
-  })
+  return tail((escalations, report) => humanReview(base, escalations, { ...form, report }), form)
 }
 
 const isOptionalBoolean = (value: unknown): value is boolean | null | undefined =>

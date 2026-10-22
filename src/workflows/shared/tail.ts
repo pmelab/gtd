@@ -1,17 +1,18 @@
-import { read, refuse, removeScript, run, scope, showScript, vars } from "../../flows/index.js"
-import * as kit from "../../workflow-kit/index.js"
 import {
-  escalation,
-  FIX_CAP,
-  guarded,
-  healthy,
-  type EscalationCount,
-  type Guard,
-} from "./health.js"
+  read,
+  refuse,
+  removeScript,
+  run,
+  scope,
+  showScript,
+  vars,
+  writeScript,
+} from "../../flows/index.js"
+import * as kit from "../../workflow-kit/index.js"
+import { guarded, healthy, type EscalationCount, type Guard } from "./health.js"
 import {
   awaitReview,
   fixCheck,
-  fixQuality,
   fixRisks,
   QUALITY,
   REVIEW,
@@ -19,7 +20,7 @@ import {
   reviewMissing,
   reviewQuality,
 } from "./steps.js"
-import { NO_FINDINGS, triageFindings, type LensReport } from "./lenses.js"
+import { findingsOf, NO_FINDINGS, triageFindings, type Finding, type LensReport } from "./lenses.js"
 import * as t from "./text.js"
 
 /** The reviewer's own `.gtd/REVIEW.md`, kept beside the human's notes so `fix` can tell them apart. */
@@ -34,29 +35,30 @@ export const qualityLap = (
   guard?: Guard,
   lenses?: readonly string[],
   base?: string,
+): Promise<"clean" | "findings"> => lensLap(guard, lenses, base, () => {})
+
+// `seen` gets each lens and every finding in the file once its turn is done.
+const lensLap = (
+  guard: Guard | undefined,
+  lenses: readonly string[] | undefined,
+  base: string | undefined,
+  seen: (lens: string, findings: readonly Finding[]) => void,
 ): Promise<"clean" | "findings"> =>
   kit.qualityLap(
     lenses ?? kit.lensEntriesOf(vars.qualityReviews ?? ""),
-    guarded((entry: string) => {
+    guarded(async (entry: string) => {
       const { lens, model } = kit.lensOf(entry)
-      return reviewQuality(lens, base, model)
+      await reviewQuality(lens, base, model)
+      seen(lens, findingsOf(read(QUALITY) ?? ""))
     }, guard),
     QUALITY,
   )
 
-/** Resolves `true` once `.gtd/QUALITY.md` is resolved, `false` when the fix cap escalated instead. */
-export const fixQualityFindings = (
-  escalations: EscalationCount,
-  guard?: Guard,
-  guardRests = true,
-  rules?: string,
-): Promise<boolean> =>
-  kit.fixFindings({
-    fix: guarded(() => fixQuality(rules), guard),
-    findings: QUALITY,
-    cap: FIX_CAP,
-    escalate: () => escalation(escalations, guard, guardRests, rules),
-  })
+// What the fixer left is in the lap's report by now; the next lap must not append to it.
+const closeQuality = async (): Promise<void> => {
+  if (read(QUALITY) === undefined) return
+  await run("quality.closing", removeScript([QUALITY]), { label: "Clearing quality findings" })
+}
 
 /** `.gtd/REVIEW.md` removed at the end of a round at commit `round`. */
 export const closeReview = (round: string): Promise<void> =>
@@ -89,17 +91,12 @@ export interface TailOptions {
   readonly lensBase?: string | undefined
   /** Appended to every fix and describe prompt of the tail. */
   readonly rules?: string | undefined
-  /**
-   * Judge the lap's findings: fix the mechanical ones, drop noise, and hand
-   * `finish` the rest as notes for the human review; default `false`. `finish`
-   * must remove `.gtd/QUALITY.md`, which still holds what the fixer left.
-   */
-  readonly triage?: boolean | undefined
 }
 
 /**
- * The build tail: fix (when entered red), keep green, the quality lap, then
- * `finish` — whatever the calling workflow runs last, a human review or nothing.
+ * The build tail: fix (when entered red), keep green, the quality lap — a
+ * judge sorts its findings, the mechanical ones are fixed, noise dropped —
+ * then `finish` with the rest as notes: a human review, or carrying them on.
  */
 export function tail<T>(
   finish: (escalations: EscalationCount, report: LensReport) => Promise<T>,
@@ -108,7 +105,7 @@ export function tail<T>(
 /** @deprecated Pass `tail(finish, { fixFirst, green, guard, lenses, guardRests, lensBase, rules })`. */
 export function tail<T>(
   fixFirst: boolean,
-  finish: (escalations: EscalationCount) => Promise<T>,
+  finish: (escalations: EscalationCount, report: LensReport) => Promise<T>,
   green?: boolean,
   guard?: Guard,
   lenses?: readonly string[],
@@ -164,29 +161,34 @@ const runTail = <T>(finish: Finish<T>, options: TailOptions): Promise<T> =>
     const guardRests = options.guardRests === undefined ? true : options.guardRests
     const escalations: EscalationCount = { rounds: 0 }
     const fix = () => fixCheck(rules)
-    const repair = async () => {
-      await guarded(fix, guard)()
-      await healthy(fix, { fixesSoFar: 1, escalations, guard, guardRests, rules })
-    }
     // fixFirst's own fix + healthy below already is the full run.
     // Truthy, not `true`: an untyped config's flags read as they always did.
-    if (options.fixFirst) await repair()
-    else if (!options.green) await healthy(fix, { escalations, guard, guardRests, rules })
+    if (options.fixFirst) {
+      await guarded(fix, guard)()
+      await healthy(fix, { fixesSoFar: 1, escalations, guard, guardRests, rules })
+    } else if (!options.green) await healthy(fix, { escalations, guard, guardRests, rules })
     // The lap runs once a tail: after its findings are fixed, `finish` follows.
-    const lap = await qualityLap(guard, lenses, lensBase)
-    if (options.triage) {
-      const report =
-        lap === "findings"
-          ? await triageFindings({ escalations, guard, guardRests, rules })
-          : NO_FINDINGS
-      return finish(escalations, report)
+    // Lenses append, so a title the file did not hold before a lens's turn is that lens's.
+    const byTitle: { title: string; lens: string }[] = []
+    const lap = await lensLap(guard, lenses, lensBase, (lens, findings) => {
+      const before = byTitle.map((f) => f.title)
+      for (const { title } of findings) {
+        const at = before.indexOf(title)
+        if (at >= 0) before.splice(at, 1)
+        else byTitle.push({ title, lens })
+      }
+    })
+    // Asked once per finding in file order, so a title two lenses wrote goes to each in turn.
+    const lensOf = (f: Finding): string | undefined => {
+      const at = byTitle.findIndex((e) => e.title === f.title)
+      return at < 0 ? undefined : byTitle.splice(at, 1)[0]!.lens
     }
-    if (lap === "findings") {
-      if (await fixQualityFindings(escalations, guard, guardRests, rules)) {
-        await healthy(fix, { escalations, guard, guardRests, rules })
-      } else await repair()
-    }
-    return finish(escalations, NO_FINDINGS)
+    const report =
+      lap === "findings"
+        ? await triageFindings({ escalations, guard, guardRests, rules, lensOf })
+        : NO_FINDINGS
+    await closeQuality()
+    return finish(escalations, report)
   })
 
 /**
@@ -198,10 +200,22 @@ export const handOffReview = (
   base: string,
   escalations: EscalationCount,
   guard?: Guard,
+  report: LensReport = NO_FINDINGS,
 ): Promise<void> =>
   kit.reviewToHandOff(base, {
     file: REVIEW,
-    reviewing: guarded((b, carry) => reviewing(b, carry), guard),
+    reviewing: guarded(async (b, carry) => {
+      await reviewing(b, carry)
+      // gtd adds the lap's chunks itself: .gtd/QUALITY.md is gone, so a reviewer leaving one out would lose it.
+      const review = read(REVIEW)
+      if (review === undefined) return
+      const full = t.withLapFindings(review, report)
+      if (full !== review) {
+        await run("review.carrying", writeScript(REVIEW, full), {
+          label: "Adding the quality lap's findings",
+        })
+      }
+    }, guard),
     fixRisks: guarded(fixRisks, guard),
     keepGreen: () => healthy(fixCheck, { escalations, guard }),
     awaitReview: (b) => awaitReview(b, t.handOffAwaitReviewMessage(b)),
@@ -220,6 +234,9 @@ export const handOffReview = (
       "gtd land: review-doc: .gtd/REVIEW.md was deleted — restore it, or leave a note to hand to fix.",
   })
 
-/** The tail the fix workflow runs: ends at the hand-off review since `base`. */
+/** The tail the fix workflow runs: ends at the hand-off review since `base`, which gets what the lap left. */
 export const handOffTail = (fixFirst: boolean, base: string, guard?: Guard): Promise<void> =>
-  tail((escalations) => handOffReview(base, escalations, guard), { fixFirst, guard })
+  tail((escalations, report) => handOffReview(base, escalations, guard, report), {
+    fixFirst,
+    guard,
+  })
