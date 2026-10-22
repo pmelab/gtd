@@ -96,7 +96,7 @@ Feature: the packed package — gtd installed from its own tarball
       printf '## Acceptance Criteria\n\n- AC-1: a calculator exists.\n' > .gtd/REQUIREMENTS.md
       """
     And the driver pasted from docs/driver.md
-    When I run the driver from the docs
+    When I run the pasted script
     Then it succeeds
     And "gtd.config.ts" contains "from \"@pmelab/gtd/workflows/feature\""
     And the commit subjects from oldest to newest are:

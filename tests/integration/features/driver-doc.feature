@@ -15,7 +15,8 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
   --resume, --model, --settings, --dangerously-skip-permissions) and the prompt piped to
   it on stdin into the stub agent's env. The driver is spawned with only
   $PATH (the shim dir first) and $HOME —
-  no $GTD_* var, no test-harness leak — which is itself the
+  no $GTD_* var beyond the release-flag state the pass runs under, no
+  test-harness leak — which is itself the
   copy-paste-complete proof. Turn/transition reporting is not asserted here
   beyond what the emitted scripts print themselves
   (`src/emit/OutcomeScript.ts`).
@@ -63,7 +64,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       esac
       """
     And the driver pasted from docs/driver.md
-    When I run the driver from the docs
+    When I run the pasted script
     Then it succeeds
     And stdout contains "write NOTE.md to start a process"
     And the last commit subject is "gtd(check): checking → idle"
@@ -117,7 +118,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       esac
       """
     And the driver pasted from docs/driver.md
-    When I run the driver from the docs
+    When I run the pasted script
     Then it succeeds
     And "src/calc.ts" exists
     And the last commit subject is "gtd(check): checking → idle"
@@ -183,7 +184,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       esac
       """
     And the driver pasted from docs/driver.md
-    When I run the driver from the docs
+    When I run the pasted script
     Then it succeeds
     And the log file contains "AGENT: first draft"
     And the log file contains "AGENT: fixing the plan"
@@ -216,7 +217,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       echo '{"type":"result","is_error":false,"result":"done","total_cost_usd":0.25}'
       """
     And the driver pasted from docs/driver.md
-    When I run the driver from the docs
+    When I run the pasted script
     Then it succeeds
     And the last commit subject is "gtd(agent): working → idle"
     And the last commit body contains "Gtd-Cost: 0.25 opus"
@@ -248,7 +249,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       echo '{"type":"result","is_error":false,"terminal_reason":"hook_stopped"}'
       """
     And the driver pasted from docs/driver.md
-    When I run the driver from the docs
+    When I run the pasted script
     Then it fails
     And stderr contains "gtd: context limit: the context is about to be compacted"
     And the log file contains "HOOK: gtd context-hook --soft 0.5 --hard 0.6"
@@ -284,7 +285,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       echo '{"type":"result","subtype":"error_max_turns","is_error":true}'
       """
     And the driver pasted from docs/driver.md
-    When I run the driver from the docs
+    When I run the pasted script
     Then it fails
     And the last commit subject is "gtd(human): idle → working"
 
@@ -318,7 +319,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       exit 1
       """
     And the driver pasted from docs/driver.md
-    When I run the driver from the docs
+    When I run the pasted script
     Then it succeeds
     And stdout contains "judge me"
     And the last commit subject is "gtd(human): idle → gate"

@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
-import { extractMinimalDriver } from "../../helpers/driver-doc.js"
+import { extractBashBlock } from "../../helpers/driver-doc.js"
 
 const execFile = promisify(execFileCb)
 
@@ -67,19 +67,26 @@ Given("a stub agent script that responds to prompts with:", (world: GtdWorld, sc
   }
 })
 
-// Extracts docs/driver.md's "A complete minimal driver" fenced block and
-// writes it to a fresh temp dir OUTSIDE the repo — proving the paste needs
-// nothing inside the project it drives.
-Given("the driver pasted from docs\\/driver.md", (world: GtdWorld) => {
-  const doc = readFileSync(join(PROJECT_ROOT, "docs/driver.md"), "utf-8")
-  const script = extractMinimalDriver(doc)
-  const dir = mkdtempSync(join(tmpdir(), "gtd-driver-doc-"))
-  const scriptPath = join(dir, "gtd-loop.sh")
+// Extracts one doc's bash paste and writes it to a fresh temp dir OUTSIDE the
+// repo — proving the paste needs nothing inside the project it drives.
+function extractPaste(world: GtdWorld, file: string, heading: string): void {
+  const script = extractBashBlock(readFileSync(join(PROJECT_ROOT, file), "utf-8"), heading)
+  const dir = mkdtempSync(join(tmpdir(), "gtd-doc-paste-"))
+  const scriptPath = join(dir, "paste.sh")
   writeFileSync(scriptPath, script)
   chmodSync(scriptPath, 0o755)
-  world.driverDocDir = dir
-  world.driverDocPath = scriptPath
-})
+  world.pasteDir = dir
+  world.pastePath = scriptPath
+}
+
+Given("the driver pasted from docs\\/driver.md", (world: GtdWorld) =>
+  extractPaste(world, "docs/driver.md", "### A complete minimal driver"),
+)
+
+Given(
+  "the bash block under {string} in {string}",
+  (world: GtdWorld, heading: string, file: string) => extractPaste(world, file, heading),
+)
 
 function toFailedResult(err: unknown): { exitCode: number; stdout: string; stderr: string } {
   const e = err as { code?: unknown; stdout?: string; stderr?: string }
@@ -90,20 +97,22 @@ function toFailedResult(err: unknown): { exitCode: number; stdout: string; stder
 // The MINIMAL env the driver spawns with — PATH (the shim dir first, so
 // `gtd` and `claude` resolve to this build's bundle and the stub) and HOME,
 // nothing else. That absence is itself the copy-paste-complete proof: no
-// $GTD_* var, no $NODE_*, no test-harness leak. The one exception is an
-// `an environment variable` step: it
-// parameterizes the WORKFLOW under test, not the driver.
+// $GTD_* var, no $NODE_*, no test-harness leak. The exceptions parameterize
+// the WORKFLOW under test, not the paste: an `an environment variable` step,
+// and the release-flag state `npm test` runs this pass under.
 // The git config isolation (vitest.config.ts) is harness, not a driver
 // dependency: without it the driver's commits read the developer's ~/.gitconfig.
-const gitConfigEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => key.startsWith("GIT_CONFIG_")),
+const inheritedEnv = Object.fromEntries(
+  Object.entries(process.env).filter(
+    ([key]) => key.startsWith("GIT_CONFIG_") || key.startsWith("GTD_FLAG_"),
+  ),
 )
 
 function driverEnv(world: GtdWorld): Record<string, string> {
   return {
     PATH: `${world.pathShimDir}:${process.env["PATH"] ?? ""}`,
     HOME: process.env["HOME"] ?? "",
-    ...gitConfigEnv,
+    ...inheritedEnv,
     ...world.envVars,
   }
 }
@@ -112,9 +121,9 @@ function driverEnv(world: GtdWorld): Record<string, string> {
 // driver's `#!/usr/bin/env sh` shebang is the thing actually resolving and
 // running it — the most faithful proof the ported script's shebang is
 // correct, not just that *some* shell can execute the paste.
-When("I run the driver from the docs", async (world: GtdWorld) => {
-  const path = world.driverDocPath
-  assert.ok(path, 'no driver — run "Given the driver pasted from docs/driver.md" first')
+When("I run the pasted script", async (world: GtdWorld) => {
+  const path = world.pastePath
+  assert.ok(path, "no paste — extract one from a doc first")
   try {
     // 120s, matching e2e-live's own `stepTimeout` (see vitest.config.ts):
     // the reference driver now issues one real subprocess per field read

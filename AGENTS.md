@@ -57,9 +57,9 @@ decided by the tiers in [COMPATIBILITY.md](COMPATIBILITY.md).
   a real driver. The heading text and the single fence are load-bearing —
   renaming the heading or splitting the paste across more than one fence fails
   the extraction, not just a stale doc. The extracted script is spawned with
-  only `$PATH` (a shim dir first) and `$HOME` — any new env dependency the paste
-  grows must be documented in its own Prerequisites section, and is a scenario
-  failure until it is
+  only `$PATH` (a shim dir first), `$HOME` and the pass's `GTD_FLAG_*` — any new
+  env dependency the paste grows must be documented in its own Prerequisites
+  section, and is a scenario failure until it is
 - `docs/cli.md`'s `## Commands` block and its exit-code table are PINNED equal
   to the rendered help output and the exit-code set — they are generated views
   under test, not prose to hand-maintain
@@ -110,6 +110,17 @@ lint-staged runs `oxfmt --write` over staged files during the step commit, and a
 step that declares a `mode` carries its own `format:`/`validate:` pair, run by
 the DRIVER (via `gtd next --json`'s `validate` field, or `gtd validate`) ahead
 of `gtd land` — never emitted into the landing script.
+
+## Manual testing
+
+To test a change by hand — build this checkout, start a process in a scratch
+repository, reach a criterion's behaviour and observe it — follow the `run-gtd`
+project skill,
+[.claude/skills/run-gtd/SKILL.md](.claude/skills/run-gtd/SKILL.md), rules first.
+Its worked example is DOC-TESTED by
+`tests/integration/features/manual-testing-doc.feature`, like the minimal
+driver: the `## Worked example` heading and its single bash fence are
+load-bearing.
 
 ## Comments
 
