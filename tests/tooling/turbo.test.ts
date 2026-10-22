@@ -60,6 +60,10 @@ describe("turbo.json / package.json invariants", () => {
     expect(turbo.tasks["test:e2e:live"].inputs).toContain("docs/**")
   })
 
+  it("lists .claude/skills/** as an input to test:e2e:live, which runs the run-gtd worked example", () => {
+    expect(turbo.tasks["test:e2e:live"].inputs).toContain(".claude/skills/**")
+  })
+
   it("lists tests/**, scripts/**, and dev/** as inputs to test:unit", () => {
     // tests/tooling/stale-paths.test.ts scans the whole of src/ and tests/
     // (feature files included) for backtick-quoted src/tests/docs/scripts/dev

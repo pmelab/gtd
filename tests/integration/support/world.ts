@@ -401,9 +401,9 @@ export class GtdWorld extends QuickPickleWorld {
   /** Package 01 Task 10's own `ui.format` proof: the first write's own post-format `contentHash`, and whether a second write issued against it succeeded — `spawnGtdUiAndWriteTwiceReusingHash`'s result. */
   formatWriteResult: { readonly firstContentHash: string; readonly secondOk: boolean } | undefined =
     undefined
-  /** A temp dir OUTSIDE the repo holding docs/driver.md's extracted driver script — proves the paste needs nothing inside the project. */
+  /** A temp dir OUTSIDE the repo holding a doc's extracted bash paste (the minimal driver, the run-gtd worked example) — proves the paste needs nothing inside the project. */
   driverDocDir: string | undefined = undefined
-  /** Absolute path to the extracted driver script inside `driverDocDir`, chmod'd executable. */
+  /** Absolute path to the extracted paste inside `driverDocDir`, chmod'd executable. */
   driverDocPath: string | undefined = undefined
 
   /** The gtd bundle a live spawn runs: this build's, or one installed from the packed tarball. */

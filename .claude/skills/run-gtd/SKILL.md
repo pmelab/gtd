@@ -23,7 +23,8 @@ look at what it does.
 - **Start from a clean env.** `env | cut -d= -f1 | grep -E '^(GIT_|GTD_)'`
   should list nothing but `GIT_CONFIG_*`; unset the rest. An inherited
   `GTD_LOOP_LOG` moves the loop log, and `GTD_<SETTING>` (for example
-  `GTD_TESTCOMMAND`) overrides the workflow under test.
+  `GTD_TESTCOMMAND`) overrides the workflow under test. The one to set: a change
+  behind a release flag needs `GTD_FLAG_<NAME>=1` to be seen.
 - **At most 2 gtd loops at once** on this machine, the test suite included —
   more time out the `@live` scenarios.
 - **Never run `npm run test:mutation`.** It is a deliberate user action.
@@ -34,7 +35,7 @@ look at what it does.
 ```bash
 npm run build                 # after every source change
 export PATH="$PWD/bin:$PATH"  # this checkout's gtd, first on PATH
-gtd version
+command -v gtd                # must print this checkout's bin/gtd
 ```
 
 `bin/gtd` runs this checkout's `dist/`. The `gtd` already on `PATH` may be
@@ -65,7 +66,8 @@ git add -A && git commit -qm "chore: initial commit"
 - **A different workflow:** export it, e.g.
   `export { review } from "@pmelab/gtd/workflows"`, and start it with
   `gtd --workflow review | sh` (review needs a branch with commits beyond
-  `main`). `gtd install` writes the full shipped config.
+  `main`). `gtd install`, run before the config exists, writes the full shipped
+  one instead.
 - **A fake `origin`** where pushing or a base branch matters:
   `git init -q --bare "$repo.git" && git remote add origin "$repo.git" && git push -q -u origin main`.
 
@@ -130,7 +132,7 @@ shim records every call and answers with canned output:
 ```bash
 cat > "$shims/gh" <<'EOF'
 #!/bin/sh
-echo "gh $*" >>"$HOME/gh-calls.log"
+echo "gh $*" >>"$(dirname "$0")/gh-calls.log"
 case "$1 $2" in
   "pr view") echo "no pull requests found for branch" >&2; exit 1 ;;
   "pr create") echo "https://github.com/example/repo/pull/1" ;;
@@ -140,7 +142,7 @@ EOF
 chmod +x "$shims/gh"
 ```
 
-Then read `gh-calls.log` to check what would have been sent.
+Then read `$shims/gh-calls.log` to check what would have been sent.
 
 ## The web UI
 
@@ -153,11 +155,11 @@ gtd ui --host 127.0.0.1 --self-signed   # prints the URL; Ctrl-C stops it (exit 
 
 `--host` skips `tailscale serve`; `--self-signed` needs no certificate. From
 this checkout (Playwright is a dev dependency), capture the screen at a phone
-size:
+size — into a path outside both repositories:
 
 ```bash
 npx playwright screenshot --ignore-https-errors --wait-for-timeout 2000 \
-  --viewport-size 390,844 "https://127.0.0.1:<port>/" ui.png
+  --viewport-size 390,844 "https://127.0.0.1:<port>/" "$repo.png"
 ```
 
 To click and type, drive the same URL with Playwright (or the `playwright-cli`

@@ -67,19 +67,26 @@ Given("a stub agent script that responds to prompts with:", (world: GtdWorld, sc
   }
 })
 
-// Extracts docs/driver.md's "A complete minimal driver" fenced block and
-// writes it to a fresh temp dir OUTSIDE the repo — proving the paste needs
-// nothing inside the project it drives.
-Given("the driver pasted from docs\\/driver.md", (world: GtdWorld) => {
-  const doc = readFileSync(join(PROJECT_ROOT, "docs/driver.md"), "utf-8")
-  const script = extractBashBlock(doc, "### A complete minimal driver")
-  const dir = mkdtempSync(join(tmpdir(), "gtd-driver-doc-"))
-  const scriptPath = join(dir, "gtd-loop.sh")
+// Extracts one doc's bash paste and writes it to a fresh temp dir OUTSIDE the
+// repo — proving the paste needs nothing inside the project it drives.
+function extractPaste(world: GtdWorld, file: string, heading: string): void {
+  const script = extractBashBlock(readFileSync(join(PROJECT_ROOT, file), "utf-8"), heading)
+  const dir = mkdtempSync(join(tmpdir(), "gtd-doc-paste-"))
+  const scriptPath = join(dir, "paste.sh")
   writeFileSync(scriptPath, script)
   chmodSync(scriptPath, 0o755)
   world.driverDocDir = dir
   world.driverDocPath = scriptPath
-})
+}
+
+Given("the driver pasted from docs\\/driver.md", (world: GtdWorld) =>
+  extractPaste(world, "docs/driver.md", "### A complete minimal driver"),
+)
+
+Given(
+  "the bash block under {string} in {string}",
+  (world: GtdWorld, heading: string, file: string) => extractPaste(world, file, heading),
+)
 
 function toFailedResult(err: unknown): { exitCode: number; stdout: string; stderr: string } {
   const e = err as { code?: unknown; stdout?: string; stderr?: string }
@@ -112,20 +119,6 @@ function driverEnv(world: GtdWorld): Record<string, string> {
 // driver's `#!/usr/bin/env sh` shebang is the thing actually resolving and
 // running it — the most faithful proof the ported script's shebang is
 // correct, not just that *some* shell can execute the paste.
-// The worked example in the run-gtd skill, extracted like the driver above.
-Given(
-  "the bash block under {string} in {string}",
-  (world: GtdWorld, heading: string, file: string) => {
-    const script = extractBashBlock(readFileSync(join(PROJECT_ROOT, file), "utf-8"), heading)
-    const dir = mkdtempSync(join(tmpdir(), "gtd-doc-paste-"))
-    const scriptPath = join(dir, "paste.sh")
-    writeFileSync(scriptPath, script)
-    chmodSync(scriptPath, 0o755)
-    world.driverDocDir = dir
-    world.driverDocPath = scriptPath
-  },
-)
-
 When(/^I run (?:the driver from the docs|the pasted script)$/, async (world: GtdWorld) => {
   const path = world.driverDocPath
   assert.ok(path, "no paste — extract one from a doc first")
