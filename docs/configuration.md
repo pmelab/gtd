@@ -894,7 +894,25 @@ the reviewer turn (`build.review.reviewing`), gtd appends the notes to
 its lens, a repeated title numbered, then `## Fixed automatically` and
 `## Dropped as noise`.
 
-`build.review.composing` then writes `.gtd/REVIEW.md` — no reviewer turn runs: a
+In `feature`, the reviewer turn (`build.review.reviewing`) then writes
+`.gtd/REVIEW.md` as a walkthrough of the change: `## ` chunks grouped by
+concern, each with at least one pointer to its code (`./path#start-end`), a
+`Weakened:` note on each scenario that lost a `Then` line. The prompt lists the
+notes, each under the exact `## <title>` its chunk must carry (a repeated title
+numbered), with its slice and lens; the reviewer gives each a chunk of its own
+holding the pointers to the code it cites. A chunk with no pointer, or a note
+without its chunk, refuses the turn (`review-pointers`). gtd then adds each
+note's text under its heading and its answer boxes after the pointers, and
+appends any open standard conflicts, `## Fixed automatically`,
+`## Standards added` and `## Dropped as noise` (`build.review.carrying`). A
+pointer note the reviewer opens with `Risk:` is fixed by
+`build.review.fix.risks.fixing`, the suite is kept green, and the review is
+written once more. After a nit fix the reviewer is told the fixing commit and
+writes a fresh review without the notes already answered; after a round that
+also answered a question, it carries those answers over.
+
+In the `review` door and the refactor's review (`refactor.build.review.*`),
+`build.review.composing` writes `.gtd/REVIEW.md` — no reviewer turn runs: a
 `## Weakened scenarios` chunk naming each `Then` line a `.feature` file at the
 review base has lost, then one prose `## ` chunk per note (a mechanical one the
 fixer left is marked so), then `## Fixed automatically` (one line per finding,
@@ -911,12 +929,13 @@ fix adds `## Fixed from your notes` with the fixing commit and leaves out every
 note already answered; after a round that also answered a question, the review
 is restored as answered instead, ticks kept.
 
-An answer routes without the note judge: `fix as suggested` joins the nit batch
-(`build.review.fix.nits.fixing`) with the note's text; `won't fix` drops the
-note and records `Gtd-Mark: wontfix=<title>` on the gate's commit; an own answer
-is judged like any other note, keyed `answer-<n>`. Nothing is written to
-`.gtd/TODO.md`. The `review` workflow runs this same review; `fix` keeps the
-untriaged lap and its reviewer turn.
+In every one of these reviews, an answer routes without the note judge:
+`fix as suggested` joins the nit batch (`build.review.fix.nits.fixing`) with the
+note's text; `won't fix` drops the note and records `Gtd-Mark: wontfix=<title>`
+on the gate's commit; an own answer is judged like any other note, keyed
+`answer-<n>`. Nothing is written to `.gtd/TODO.md`. The `review` workflow
+composes its review as the refactor does; `fix` keeps the untriaged lap and its
+reviewer turn.
 
 #### Learned standards
 
@@ -994,6 +1013,17 @@ off a review holding notes ticks one box per note first. Workflow-kit's
 `decided`. A `## Deferred review notes` section already in `.gtd/TODO.md` is no
 longer kept out of a new process's triage: delete or move it before starting
 one.
+
+**Upgrading:** `feature`'s final review is written by a reviewer again. A
+`feature` process resting at `build.review.composing`, or at any later step of
+its review, no longer replays: finish or `gtd abandon` it before upgrading. A
+driver or fixture scripting `build.review.composing` for `feature` scripts the
+agent turn `build.review.reviewing` instead — a walkthrough whose every chunk
+points at its code, with one chunk per note the prompt lists — and the script
+step `build.review.carrying` when the lap left anything to list. A `Risk:` note
+runs `build.review.fix.risks.fixing` again. The refactor's review and the
+`review` door still compose theirs. `BuildTailOptions` gains `walkthrough`, and
+its `lap` is read again, by the walkthrough reviewer.
 
 **Upgrading:** `review` runs `feature`'s review and fixes its notes in place. A
 `review` process past its `review-gate.check` no longer replays: finish or

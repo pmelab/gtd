@@ -70,7 +70,7 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
     And step "build.quality.sorting" runs its script
     And step "build.quality.closing" runs its script
     And step "build.health.check" changes nothing
-    And step "build.review.composing" runs its script
+    And step "build.review.carrying" runs its script
 
   Scenario: a finding questioning a criterion reaches the final review, never the fixer
     Given step "build.quality.correctness.reviewing" writes ".gtd/QUALITY.md" with:
@@ -84,6 +84,25 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
     And judge step "build.quality.triage" answers:
       """
       [{"id":"Q1","answer":"design","p":0.9}]
+      """
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract and multiply
+
+      - [ ] ./src/sub.test.ts#1-1 — subtract
+      - [ ] ./src/mul.test.ts#1-1 — multiply
+
+      ## AC-1 ignores floating point
+
+      - [ ] ./src/sub.test.ts#1-1 — where it applies
+
+      ## AC-1 ignores floating point (2)
+
+      - [ ] ./src/sub.test.ts#1-1 — where it applies
       """
     When the process is driven
     Then the process rests at "build.review.await-review"
@@ -117,8 +136,9 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
       gtd(check): implement.closing → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.quality.triage
       gtd(judge): build.quality.triage → build.quality.sorting
-      gtd(check): build.quality.sorting → build.review.composing
-      gtd(check): build.review.composing → build.review.await-review
+      gtd(check): build.quality.sorting → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
       """
 
   Scenario: a mechanical finding the fix cap leaves in an early slice is carried, never escalated
@@ -135,6 +155,25 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
       [{"id":"Q1","answer":"mechanical","p":0.9}]
       """
     And step "build.fix.quality.fixing" changes nothing
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract and multiply
+
+      - [ ] ./src/sub.test.ts#1-1 — subtract
+      - [ ] ./src/mul.test.ts#1-1 — multiply
+
+      ## subtract has no negative test
+
+      - [ ] ./src/sub.test.ts#1-1 — where it applies
+
+      ## subtract has no negative test (2)
+
+      - [ ] ./src/sub.test.ts#1-1 — where it applies
+      """
     When the process is driven
     Then the process rests at "build.review.await-review"
     And no commit body contains "build.health.describe"
@@ -168,8 +207,9 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
       gtd(agent): build.fix.quality.fixing
       gtd(agent): build.fix.quality.fixing → build.health.check
       gtd(check): build.health.check → build.quality.closing
-      gtd(check): build.quality.closing → build.review.composing
-      gtd(check): build.review.composing → build.review.await-review
+      gtd(check): build.quality.closing → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
       """
 
   Scenario: the final review lists every slice's fixes with their commits
@@ -190,6 +230,17 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
       it("subtracts a larger number", () => {})
       """
     And step "build.fix.quality.fixing" deletes ".gtd/QUALITY.md"
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract and multiply
+
+      - [ ] ./src/sub.test.ts#1-1 — subtract
+      - [ ] ./src/mul.test.ts#1-1 — multiply
+      """
     When the process is driven
     Then the process rests at "build.review.await-review"
     And ".gtd/REVIEW.md" contains ", slice 1, lens correctness)"

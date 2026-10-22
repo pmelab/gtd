@@ -30,6 +30,9 @@ import {
   summaryPrompt,
   withSkills,
   composedReview,
+  titledNotes,
+  walkthroughBlock,
+  withWalkthrough,
 } from "./text.js"
 import { reviewDecisions, steeringFormatFor, unansweredNotes } from "../../steering/index.js"
 import { captureStep, renderText } from "./text.fixture.js"
@@ -1389,5 +1392,100 @@ describe("composedReview", () => {
     })
     expect(doc).not.toContain("## a\n")
     expect(doc).toContain("## a (2)\n\n2")
+  })
+})
+
+describe("walkthrough", () => {
+  const empty = { notes: [], fixed: [], noise: [] }
+  const review = [
+    "# Review: abc1234",
+    "",
+    "<!-- base: abc1234 -->",
+    "",
+    "## Subtract",
+    "",
+    "- [ ] ./src/calc.ts#2-2 — subtract(a, b)",
+    "",
+    "## Fixed automatically",
+    "",
+    "- [ ] ./src/calc.ts#2-2 — the reviewer's own chunk",
+    "",
+  ].join("\n")
+
+  it("titles notes uniquely, never a summary's, and leaves out answered ones", () => {
+    const notes = [
+      { title: "Fixed automatically", body: "a" },
+      { title: "x", body: "b" },
+      { title: "x", body: "c" },
+    ]
+    expect(titledNotes({ ...empty, notes }).map((n) => n.title)).toEqual([
+      "Fixed automatically (2)",
+      "x",
+      "x (2)",
+    ])
+    expect(titledNotes({ ...empty, notes, answered: new Set(["x"]) }).map((n) => n.title)).toEqual([
+      "Fixed automatically (2)",
+      "x (2)",
+    ])
+  })
+
+  it("lists each note with its exact heading, origin and quoted body", () => {
+    const block = walkthroughBlock([
+      { title: "No test", body: "Add one.\n\n- [ ] a box", slice: "2", lens: "tests" },
+    ])
+    expect(block).toContain(
+      "- `## No test` (slice 2, lens tests):\n\n  > Add one.\n  >\n  > - a box",
+    )
+    expect(block).toContain("its heading exactly as given")
+  })
+
+  it("names the nit fix's commit, and says nothing with nothing to tell", () => {
+    expect(walkthroughBlock([], "0123456789")).toContain(
+      "Commit `0123456` worked on the human's nits",
+    )
+    expect(walkthroughBlock([])).toBe("")
+  })
+
+  it("puts a note's text under its heading and its boxes after the reviewer's pointers", () => {
+    const out = withWalkthrough(review, {
+      ...empty,
+      notes: [{ title: "Subtract", body: "It may overflow.", unresolved: true }],
+    })
+    expect(out).toContain(
+      [
+        "## Subtract",
+        "",
+        "_The fixer left this unresolved._",
+        "",
+        "It may overflow.",
+        "",
+        "- [ ] ./src/calc.ts#2-2 — subtract(a, b)",
+        "",
+        "Tick exactly one:",
+        "",
+        "- [ ] fix as suggested",
+        "- [ ] won't fix",
+        "- [ ] _your answer_",
+        "",
+        "## Fixed automatically",
+      ].join("\n"),
+    )
+  })
+
+  it("appends the fixes and noise, numbered past a title the reviewer took", () => {
+    const out = withWalkthrough(review, {
+      ...empty,
+      fixed: [{ title: "a", commit: "0123456789", slice: "1" }],
+      noise: [{ title: "b", p: 0.9 }],
+    })
+    expect(
+      out.endsWith(
+        "## Fixed automatically (2)\n\n- a (0123456, slice 1)\n\n## Dropped as noise\n\n- b (p=0.9)\n",
+      ),
+    ).toBe(true)
+  })
+
+  it("leaves a review with nothing to add as it was", () => {
+    expect(withWalkthrough(review, empty)).toBe(review)
   })
 })

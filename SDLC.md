@@ -74,14 +74,16 @@ records `Gtd-Mark: covers=<id>` per ID. After two covering turns
 overrule records `Gtd-Mark: uncovered=<id>`. See
 [Acceptance-criteria coverage](docs/configuration.md#acceptance-criteria-coverage).
 
-## The quality lenses are the only agentic review
+## The quality lenses and the reviewer's walkthrough
 
-**In `feature`, no reviewer turn writes the review.** The quality lap's lenses
-write one `## ` finding each to `.gtd/QUALITY.md`; `build.quality.triage` judges
-each `mechanical` (fixed by the fix turn, up to three turns), `noise` (dropped,
-`Gtd-Mark: noise=<id> p=<p> <title>`) or `design` (a note for the human). **An
-unsure verdict is `design`**, and a mechanical finding the fix cap leaves is a
-note too. gtd writes `.gtd/REVIEW.md` itself: the notes, each with three tick
+**In `feature`, a reviewer walks you through the code.** The quality lap's
+lenses write one `## ` finding each to `.gtd/QUALITY.md`; `build.quality.triage`
+judges each `mechanical` (fixed by the fix turn, up to three turns), `noise`
+(dropped, `Gtd-Mark: noise=<id> p=<p> <title>`) or `design` (a note for the
+human). **An unsure verdict is `design`**, and a mechanical finding the fix cap
+leaves is a note too. The reviewer turn writes `.gtd/REVIEW.md` as a walkthrough
+of the change, every chunk pointing at its code and every note a chunk of its
+own pointing at the code it cites; gtd adds each note's text and three tick
 boxes (fix as suggested, won't fix, your answer) of which the gate needs exactly
 one, then — no tick boxes, no answer required — what was fixed automatically
 (with the fixing commit) and what was dropped as noise. See

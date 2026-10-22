@@ -38,7 +38,8 @@ import { recordRisk, riskTierOn, type RiskTier } from "./tier.js"
 // judged with `flagMode` on: it lands as the implementation, or (refactoring
 // first when the judge asks) is built fresh from → the health loop → the
 // triaged quality lap, whose leftovers are carried on → after the last slice,
-// human review of the whole change and every slice's findings, which
+// a reviewer's walkthrough of the whole change, every slice's findings
+// among its chunks, for the human, which
 // signs off (the episode ends back at `idle`) or sends a design → implement
 // lap.
 
@@ -152,11 +153,15 @@ const buildSlice = async (sliceBase: string, build: SliceBuild): Promise<void> =
   })
 }
 
-/** The quality lap of slice `last.slice`, then the human review since `base`, listing what earlier slices' `laps` left too. */
+/**
+ * The quality lap of slice `last.slice`, then a reviewer's walkthrough since
+ * `base` for the human, carrying what earlier slices' `laps` left too.
+ */
 const reviewedTail = (
   base: string,
   lensBase: string,
   last: { readonly slice: string; readonly laps: SliceBuild["laps"] } = { slice: "", laps: [] },
+  lap: "first" | "feedback" = "first",
 ): Promise<ReviewOutcome> =>
   tail(
     (escalations, report) =>
@@ -165,6 +170,8 @@ const reviewedTail = (
           last.laps.length === 0
             ? report
             : joinReports([...last.laps, { slice: last.slice, report }]),
+        walkthrough: true,
+        lap,
       }),
     { green: true, lensBase },
   )
@@ -189,7 +196,7 @@ const featureFeedback = async (
     })
     const tier = riskTierOn() ? recordRisk() : undefined
     closed = await implementing({ tier, amend: true })
-    outcome = await reviewedTail(outcome.base, lensBase)
+    outcome = await reviewedTail(outcome.base, lensBase, undefined, "feedback")
   }
 }
 

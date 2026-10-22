@@ -67,7 +67,31 @@ Feature: the review learns standards from the human's answers
       Calculators read better as classes.
       """
     And step "build.quality.sorting" runs its script
-    And step "build.review.composing" runs its script
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+      """
+    And step "build.review.reviewing", when prompted with "- `## subtract has no class`", writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+
+      ## subtract has no class
+
+      - [ ] ./src/calc.ts#2-2 — a plain function
+      """
+    And step "build.review.carrying" runs its script
     And judge step "build.quality.triage" answers:
       """
       [{"id":"Q1","answer":"design","p":0.9}]

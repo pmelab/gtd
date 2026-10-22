@@ -5,6 +5,7 @@ import {
   judge,
   numeric,
   read,
+  refuse,
   requireRevert,
   restoreScript,
   run,
@@ -15,7 +16,7 @@ import {
   type Judgment,
   type ScopeAccess,
 } from "../../flows/index.js"
-import type { ReviewNote } from "../../steering/index.js"
+import { reviewChunks, type ReviewNote } from "../../steering/index.js"
 import * as kit from "../../workflow-kit/index.js"
 import { guarded, healthy, type EscalationCount } from "./health.js"
 import { NO_FINDINGS, type LensReport } from "./lenses.js"
@@ -28,6 +29,7 @@ import {
   fixRisks,
   REQUIREMENTS,
   REVIEW,
+  reviewing,
   reviewMissing,
 } from "./steps.js"
 import { learnStandards, settlesStandard, standardsAddedSince, standardsPending } from "./learn.js"
@@ -170,6 +172,21 @@ const triage =
 
 export const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
 
+const composedOf = (
+  base: string,
+  report: LensReport,
+  nitFix: string | undefined,
+  answered: ReadonlySet<string>,
+): t.ComposedReview => ({
+  ...report,
+  nitFix,
+  answered,
+  standards: {
+    added: standardsAddedSince(base),
+    undecided: parseStandards(read(STANDARDS) ?? "").undecided,
+  },
+})
+
 /**
  * gtd writes `.gtd/REVIEW.md` from the quality lap's `report` — no reviewer
  * turn. A re-review
@@ -189,19 +206,56 @@ const composing = (
       ? writeScript(
           REVIEW,
           t.composedReview(base, {
-            ...report,
+            ...composedOf(base, report, nitFix, answered),
             weakened: kit.removedAssertions(changesSince(base)),
-            nitFix,
-            answered,
-            standards: {
-              added: standardsAddedSince(base),
-              undecided: parseStandards(read(STANDARDS) ?? "").undecided,
-            },
           }),
         )
       : showScript(carry, REVIEW, REVIEW),
     { label: "Composing the review", file: REVIEW, base },
   )
+
+/** Refuses a review with a chunk pointing at no code, or a lap note without a chunk of its own. */
+const requirePointers = (review: string, notes: readonly { title: string }[]): void => {
+  const chunks = reviewChunks(review)
+  const titles = new Set(chunks.map((c) => c.title))
+  const problems = [
+    ...chunks
+      .filter((c) => c.pointers === 0)
+      .map((c) => `  - ${REVIEW}:${c.line + 1}: ${c.title} — points at no code`),
+    ...notes.filter((n) => !titles.has(n.title)).map((n) => `  - ${n.title} — no chunk of its own`),
+  ]
+  if (problems.length === 0) return
+  refuse(
+    `gtd land: review-pointers: ${problems.length} problem(s) in ${REVIEW} — every chunk needs a pointer to its code, and every quality finding its own chunk, headed exactly as the prompt gave it:\n${problems.join("\n")}`,
+  )
+}
+
+/**
+ * A reviewer walks the human through everything since `base`, every chunk
+ * pointing at its code and each of the lap's notes a chunk of its own; gtd
+ * then adds each note's text and answer boxes, and the summary chunks.
+ */
+const walkthrough = async (
+  base: string,
+  report: t.ComposedReview,
+  lap: t.ReviewRange,
+  carry: string | undefined,
+): Promise<void> => {
+  const notes = t.titledNotes(report)
+  await reviewing(base, carry, lap, t.walkthroughBlock(notes, report.nitFix))
+  const review = read(REVIEW)
+  // A review the reviewer did not write is the round's own refusal or rest.
+  if (review === undefined) return
+  requirePointers(review, notes)
+  const full = t.withWalkthrough(review, report)
+  if (full !== review) {
+    await run("review.carrying", writeScript(REVIEW, full), {
+      label: "Adding the quality lap's findings",
+      file: REVIEW,
+      base,
+    })
+  }
+}
 
 /**
  * The quality lap's notes reach a human over everything since `base`, who
@@ -235,7 +289,10 @@ export const humanReview = (
     reviewing: (b, carry) => {
       const fixedAt = nitFix
       nitFix = undefined
-      return composing(b, options.report ?? NO_FINDINGS, carry, fixedAt, answered)
+      const report = options.report ?? NO_FINDINGS
+      return options.walkthrough === true
+        ? walkthrough(b, composedOf(b, report, fixedAt, answered), options.lap ?? "first", carry)
+        : composing(b, report, carry, fixedAt, answered)
     },
     fixRisks: guarded((notes) => fixRisks(notes, fixAccess, rules), guard),
     keepGreen: () => healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules }),
@@ -297,8 +354,10 @@ export interface BuildTailOptions extends TailOptions {
   readonly feedback?: FeedbackTarget | undefined
   /** Write access for the nit and risk fix turns; absent: the bundled `access` export decides. */
   readonly fixAccess?: ScopeAccess | undefined
-  /** @deprecated No reviewer turn reads it since the review is composed. */
+  /** Which round a `walkthrough` reviewer writes; absent: `first`. */
   readonly lap?: t.ReviewRange | undefined
+  /** A reviewer turn writes the review as a walkthrough of the code, the lap's notes among its chunks; absent: gtd composes it from the notes alone. */
+  readonly walkthrough?: boolean | undefined
   /** What the triaged quality lap left for the review; absent: nothing. */
   readonly report?: LensReport | undefined
 }

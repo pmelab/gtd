@@ -646,7 +646,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       When gtd lands
       And the process is driven
-      Then the process rests at "build.review.composing"
+      Then the process rests at "build.review.reviewing"
       And "src/calc.ts" contains "subtract"
 
     Scenario: a praise-only one-shot footnote signs off and the feature slice follows
@@ -688,7 +688,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       When gtd lands
       And the process is driven
-      Then the process rests at "build.review.composing"
+      Then the process rests at "build.review.reviewing"
       And "src/calc.ts" contains "subtract"
 
     Scenario: a one-shot footnote judged edit that collecting leaves out refuses naming its anchor
@@ -1003,7 +1003,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       When gtd lands
       And the process is driven
-      Then the process rests at "build.review.composing"
+      Then the process rests at "build.review.reviewing"
       And "src/calc.ts" contains "subtract"
 
     Scenario: a praise-only refactor review still signs off and the feature slice follows
@@ -1038,7 +1038,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       When gtd lands
       And the process is driven
-      Then the process rests at "build.review.composing"
+      Then the process rests at "build.review.reviewing"
       And "src/calc.ts" contains "subtract"
 
     Scenario: a nit fix in the refactor slice that changes a non-stray is refused, though a glob stray widens the write access
@@ -1228,11 +1228,11 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       And the resting step's content contains the hash of the commit "gtd(check): refactor.build.review.closing → implement.building"
       Given step "build.quality.correctness.reviewing" changes nothing
       When the process is driven
-      Then the process rests at "build.review.composing"
+      Then the process rests at "build.review.reviewing"
       And the commit subjects end with:
         """
         gtd(check): implement.closing → build.quality.correctness.reviewing
-        gtd(agent): build.quality.correctness.reviewing → build.review.composing
+        gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
         """
 
   Rule: a refactor package never carries a test file, and demoted headings stop at ######

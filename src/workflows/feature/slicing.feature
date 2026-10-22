@@ -51,7 +51,7 @@ Feature: a change with more criteria than the cap is built in coarse slices
       [{"id":"AC-1","answer":"yes","p":0.9},{"id":"AC-2","answer":"yes","p":0.9}]
       """
     When the process is driven
-    Then the process rests at "build.review.composing"
+    Then the process rests at "build.review.reviewing"
     And the commit subjects end with:
       """
       gtd(human): design.gate.answer → seam.naive
@@ -60,7 +60,7 @@ Feature: a change with more criteria than the cap is built in coarse slices
       gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
-      gtd(check): implement.closing → build.review.composing
+      gtd(check): implement.closing → build.review.reviewing
       """
     And the output lines of gtd "slices" start with:
       """
@@ -112,7 +112,7 @@ Feature: a change with more criteria than the cap is built in coarse slices
       [{"id":"AC-2","answer":"yes","p":0.9}]
       """
     When the process is driven
-    Then the process rests at "build.review.composing"
+    Then the process rests at "build.review.reviewing"
     And the commit subjects end with:
       """
       gtd(agent): design.triage → design.gate.answer
@@ -129,7 +129,7 @@ Feature: a change with more criteria than the cap is built in coarse slices
       gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
-      gtd(check): implement.closing → build.review.composing
+      gtd(check): implement.closing → build.review.reviewing
       """
     And the output lines of gtd "slices" start with:
       """
@@ -268,7 +268,7 @@ Feature: a change with more criteria than the cap is built in coarse slices
       """
     When gtd lands
     And the process is driven
-    Then the process rests at "build.review.composing"
+    Then the process rests at "build.review.reviewing"
     And the commit subjects end with:
       """
       gtd(human): seam.steer → seam.naive
@@ -277,7 +277,7 @@ Feature: a change with more criteria than the cap is built in coarse slices
       gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.coverage
       gtd(judge): implement.coverage → implement.closing
-      gtd(check): implement.closing → build.review.composing
+      gtd(check): implement.closing → build.review.reviewing
       """
     And ".gtd/REQUIREMENTS.md" does not exist
     And ".gtd/SLICES.md" does not exist

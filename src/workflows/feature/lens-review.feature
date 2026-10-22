@@ -1,12 +1,11 @@
 @inmem
-Feature: the quality lenses are the only agentic review
+Feature: the quality lap's findings are triaged before the review
 
   A judge classifies each `## ` finding the lenses wrote to `.gtd/QUALITY.md`:
   a mechanical one is fixed by the fixer, noise is dropped with its `p` kept in
   a trailer, and a design one becomes a note in `.gtd/REVIEW.md`, with answer
-  boxes. gtd writes that file itself — no reviewer turn runs — and lists,
-  without tick boxes, what was fixed automatically and what was dropped as
-  noise.
+  boxes, in the chunk the reviewer gave it. gtd lists, without tick boxes,
+  what was fixed automatically and what was dropped as noise.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -75,7 +74,7 @@ Feature: the quality lenses are the only agentic review
       """
     And step "build.quality.sorting" runs its script
     And step "build.quality.closing" runs its script
-    And step "build.review.composing" runs its script
+    And step "build.review.carrying" runs its script
 
   Scenario: a mechanical finding is fixed and listed, noise dropped and listed, a design one noted
     Given judge step "build.quality.triage" answers:
@@ -89,6 +88,20 @@ Feature: the quality lenses are the only agentic review
       """
     And step "build.fix.quality.fixing" deletes ".gtd/QUALITY.md"
     And step "build.health.check" changes nothing
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+
+      ## AC-1 ignores floating point
+
+      - [ ] ./src/calc.ts#2-2 — where it applies
+      """
     When the process is driven
     Then the process rests at "build.review.await-review"
     And ".gtd/QUALITY.md" does not exist
@@ -98,6 +111,8 @@ Feature: the quality lenses are the only agentic review
       ## AC-1 ignores floating point
 
       Should subtract round? The criterion does not say.
+
+      - [ ] ./src/calc.ts#2-2 — where it applies
 
       Tick exactly one:
 
@@ -129,14 +144,37 @@ Feature: the quality lenses are the only agentic review
       gtd(judge): build.quality.triage → build.quality.sorting
       gtd(check): build.quality.sorting → build.fix.quality.fixing
       gtd(agent): build.fix.quality.fixing → build.health.check
-      gtd(check): build.health.check → build.review.composing
-      gtd(check): build.review.composing → build.review.await-review
+      gtd(check): build.health.check → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
       """
 
   Scenario: an unsure verdict makes a finding a note, never a fix or a drop
     Given judge step "build.quality.triage" answers:
       """
       [{"id":"Q1","answer":"mechanical","p":0.5},{"id":"Q2","answer":"noise","p":0.6}]
+      """
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+
+      ## subtract has no negative test
+
+      - [ ] ./src/calc.ts#2-2 — where it applies
+
+      ## add could be a method
+
+      - [ ] ./src/calc.ts#2-2 — where it applies
+
+      ## AC-1 ignores floating point
+
+      - [ ] ./src/calc.ts#2-2 — where it applies
       """
     When the process is driven
     Then the process rests at "build.review.await-review"
@@ -148,8 +186,9 @@ Feature: the quality lenses are the only agentic review
     And the commit subjects end with:
       """
       gtd(judge): build.quality.triage → build.quality.sorting
-      gtd(check): build.quality.sorting → build.review.composing
-      gtd(check): build.review.composing → build.review.await-review
+      gtd(check): build.quality.sorting → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
       """
 
   Scenario: a mechanical finding the fix cap leaves becomes a note
@@ -166,6 +205,20 @@ Feature: the quality lenses are the only agentic review
       A class would read better.
       """
     And step "build.health.check" changes nothing
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+
+      ## add could be a method
+
+      - [ ] ./src/calc.ts#2-2 — where it applies
+      """
     When the process is driven
     Then the process rests at "build.review.await-review"
     And ".gtd/QUALITY.md" does not exist
@@ -186,8 +239,9 @@ Feature: the quality lenses are the only agentic review
       gtd(agent): build.fix.quality.fixing
       gtd(agent): build.fix.quality.fixing → build.health.check
       gtd(check): build.health.check → build.quality.closing
-      gtd(check): build.quality.closing → build.review.composing
-      gtd(check): build.review.composing → build.review.await-review
+      gtd(check): build.quality.closing → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
       """
 
   Scenario: a fixer that renames a chunk it leaves counts nothing fixed
@@ -204,6 +258,32 @@ Feature: the quality lenses are the only agentic review
       Still open.
       """
     And step "build.health.check" changes nothing
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+
+      ## subtract has no negative test
+
+      - [ ] ./src/calc.ts#2-2 — where it applies
+
+      ## add could be a method
+
+      - [ ] ./src/calc.ts#2-2 — where it applies
+
+      ## AC-1 ignores floating point
+
+      - [ ] ./src/calc.ts#2-2 — where it applies
+
+      ## null check in parse()
+
+      - [ ] ./src/calc.ts#2-2 — where it applies
+      """
     When the process is driven
     Then the process rests at "build.review.await-review"
     And ".gtd/REVIEW.md" contains "## null check in parse()"
@@ -223,17 +303,37 @@ Feature: the quality lenses are the only agentic review
       All fixed.
       """
     And step "build.health.check" changes nothing
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+      """
     When the process is driven
     Then the process rests at "build.review.await-review"
     And ".gtd/REVIEW.md" contains "- subtract has no negative test ("
     And ".gtd/REVIEW.md" does not contain "check whether it was fixed"
 
-  Scenario: signing off a composed review ends the process
+  Scenario: signing off a review with no notes ends the process
     Given judge step "build.quality.triage" answers:
       """
       [{"id":"Q1","answer":"noise","p":0.9},{"id":"Q2","answer":"noise","p":0.9},{"id":"Q3","answer":"noise","p":0.9}]
       """
     And step "build.review.closing" runs its script
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+      """
     When the process is driven
     Then the process rests at "build.review.await-review"
     When gtd lands
@@ -242,7 +342,8 @@ Feature: the quality lenses are the only agentic review
     And ".gtd/REVIEW.md" does not exist
     And the commit subjects end with:
       """
-      gtd(check): build.review.composing → build.review.await-review
+      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
       gtd(human): build.review.await-review → build.review.closing
       gtd(check): build.review.closing → idle
       """
