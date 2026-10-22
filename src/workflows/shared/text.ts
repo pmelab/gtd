@@ -124,8 +124,6 @@ export interface ComposedReview {
     readonly unresolved?: true
     /** A fix turn removed its chunk while renaming another. */
     readonly unclear?: true
-    /** Labels for the first two boxes; absent: fix as suggested, won't fix. Read by position, so only the wording changes. */
-    readonly answers?: readonly [string, string]
   }[]
   readonly fixed: readonly { readonly title: string; readonly commit: string }[]
   readonly noise: readonly { readonly title: string; readonly p: number }[]
@@ -172,8 +170,7 @@ export const composedReview = (base: string, report: ComposedReview): string => 
   }
   const chunk = (title: string, body: string): string => `## ${title}\n\n${body.trim()}`
   // The lead-in line keeps a body that ends in a list from absorbing the boxes.
-  const answerBoxes = ([fix, wontFix]: readonly [string, string] = [ANSWER_FIX, ANSWER_WONT_FIX]) =>
-    `${ANSWER_LEAD}\n\n- [ ] ${fix}\n- [ ] ${wontFix}\n- [ ] ${FREE_TEXT_PLACEHOLDER}`
+  const answerBoxes = `${ANSWER_LEAD}\n\n- [ ] ${ANSWER_FIX}\n- [ ] ${ANSWER_WONT_FIX}\n- [ ] ${FREE_TEXT_PLACEHOLDER}`
   const conflicts = (report.standards?.undecided ?? []).map((c) =>
     chunk(unique(conflictTitle(c)), conflictBody(c)),
   )
@@ -211,7 +208,7 @@ export const composedReview = (base: string, report: ComposedReview): string => 
             : n.unclear === true
               ? `_A fix turn removed this while renaming another finding — check whether it was fixed._\n\n${unboxed(n.body)}`
               : unboxed(n.body) || "_No detail given._"
-        }\n\n${answerBoxes(n.answers)}`,
+        }\n\n${answerBoxes}`,
       ),
     ),
     ...(report.fixed.length === 0

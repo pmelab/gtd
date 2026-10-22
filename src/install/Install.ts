@@ -516,11 +516,10 @@ rather than starting the review; \`gtd-door fix\` on a GREEN suite is a no-op
 straight back to \`idle\` — the exec'd \`gtd-build\` exits immediately on it.
 \`gtd doors\` lists the doors a repository offers (those of the workflows its
 config exports — the bundled \`fix\` and \`review [base]\`, plus the opt-in
-\`rollout <flag>\` (turn a release flag default-on), \`cleanup <flag>\`
-(remove it) and \`tests\` (revive skipped tests), which a config adds by
-exporting \`rollout\` from \`@pmelab/gtd/workflows/rollout\`, \`cleanup\` from
-\`@pmelab/gtd/workflows/cleanup\` and \`tests\` from
-\`@pmelab/gtd/workflows/tests\` — plus any it declares). Refuses with
+\`rollout <flag>\` (turn a release flag default-on) and \`cleanup <flag>\`
+(remove it), which a config adds by exporting \`rollout\` from
+\`@pmelab/gtd/workflows/rollout\` and \`cleanup\` from
+\`@pmelab/gtd/workflows/cleanup\` — plus any it declares). Refuses with
 \`usage: gtd-door <name> [args...]\` on stderr and exit \`2\` when the name is
 missing — nothing was even attempted. Default path: \`~/.local/bin/gtd-door\`.
 

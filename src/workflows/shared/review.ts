@@ -220,7 +220,7 @@ export const humanReview = (
   escalations: EscalationCount = { rounds: 0 },
   options: Omit<BuildTailOptions, "fixFirst" | "green"> = {},
 ): Promise<kit.ReviewOutcome> => {
-  const { guard, guardRests, fixAccess, rules, awaitMessage } = options
+  const { guard, guardRests, fixAccess, rules } = options
   const feedback: FeedbackTarget = options.feedback ?? {
     file: REQUIREMENTS,
     collecting,
@@ -243,7 +243,7 @@ export const humanReview = (
     },
     fixRisks: guarded((notes) => fixRisks(notes, fixAccess, rules), guard),
     keepGreen: () => healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules }),
-    awaitReview: (b) => awaitReview(b, awaitMessage?.(b)),
+    awaitReview: (b) => awaitReview(b),
     reviewMissing,
     collecting: feedback.collecting,
     triage: triage(severities),
@@ -305,8 +305,6 @@ export interface BuildTailOptions extends TailOptions {
   readonly lap?: t.ReviewRange | undefined
   /** What the triaged quality lap left for the review; absent: nothing. */
   readonly report?: LensReport | undefined
-  /** The review gate's message for the review base; absent: the quality lap's. */
-  readonly awaitMessage?: ((base: string) => string) | undefined
 }
 
 /** The build tail: fix (when entered red), keep green unless `green`, the triaged quality lap, then human review since `base`. */

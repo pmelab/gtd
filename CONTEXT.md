@@ -334,8 +334,8 @@ bundled workflow's data, not a key gtd interprets. Avoid: "Vars", "env var"
 
 These terms belong to the workflows gtd ships, not to the engine: `feature` (the
 ordinary start), `review` (`feature`'s review since a base, its notes fixed in
-place), `fix` (repair a red baseline), `rollout`, `cleanup` and `tests`. Replace
-them and the terms go with them.
+place), `fix` (repair a red baseline), `rollout` and `cleanup`. Replace them and
+the terms go with them.
 
 **Rollout**: The bundled workflow that turns one release flag default-on — an
 agent edits only its registry entry, no review. _Avoid_: beat (that is the
@@ -343,14 +343,6 @@ driver's unit), flip beat
 
 **Cleanup**: The bundled workflow that removes one default-on release flag and
 its checks, keeping the flag-on path, then reviews. _Avoid_: beat, sweep
-
-**Tests**: The bundled workflow that revives skipped tests — a sweep, one
-rewrite per test file — and proposes deleting the obsolete ones at a review only
-a person answers. _Avoid_: test cleanup (cleanup is the flag workflow)
-
-**Deletion proposal**: A `## ` section the `tests` workflow's rewrite leaves in
-`.gtd/RETIRE.md` for a test it kept skipped; at the review its answer boxes read
-`delete it` / `keep it skipped` / `_your answer_`. _Avoid_: retirement, purge
 
 **Unwind**: The step (`unwind`) that reverts the entry commit's diff — the
 change that started the process, whether a hand-edit to real code or a scratch
