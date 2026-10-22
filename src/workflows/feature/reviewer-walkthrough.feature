@@ -193,3 +193,37 @@ Feature: a reviewer walks the human through the feature's code
       - [ ] ./src/calc.ts#2-2 — returns the raw difference
       """
     Then driving the process is refused with "Standard conflict 0123abcd — gtd writes conflicts"
+
+  Scenario: two chunks with one title are refused
+    Given step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## AC-1 ignores floating point
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+
+      ## AC-1 ignores floating point
+
+      - [ ] ./src/calc.ts#2-2 — returns the raw difference
+      """
+    Then driving the process is refused with "AC-1 ignores floating point — a second chunk with this title"
+
+  Scenario: a risk marked in a finding's chunk is refused, never fixed
+    Given step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+
+      ## AC-1 ignores floating point
+
+      - [ ] ./src/calc.ts#2-2 — Risk: no rounding
+      """
+    Then driving the process is refused with "no `Risk:` in a quality finding's chunk"

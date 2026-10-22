@@ -902,10 +902,11 @@ notes, each under the exact `## <title>` its chunk must carry (a repeated title
 numbered), with its slice and lens; the reviewer gives each a chunk of its own
 holding the pointers to the code it cites, and no `Risk:` note. A chunk with no
 pointer (in a range that changed code; otherwise only a note's chunk needs one),
-a `## Standard conflict` chunk the reviewer wrote itself, or a note without its
-chunk refuses the turn (`review-pointers`). gtd then adds each note's text under
-its heading, an `In the code:` line before the pointers and its answer boxes
-after them, and appends any open standard conflicts, `## Fixed automatically`,
+a `## Standard conflict` chunk the reviewer wrote itself, two chunks sharing a
+title, a `Risk:` note in a note's chunk, or a note without its chunk refuses the
+turn (`review-pointers`). gtd then adds each note's text under its heading, an
+`In the code:` line before the pointers and its answer boxes after them, and
+appends any open standard conflicts, `## Fixed automatically`,
 `## Standards added` and `## Dropped as noise` (`build.review.carrying`). A
 pointer note the reviewer opens with `Risk:` is fixed by
 `build.review.fix.risks.fixing`, the suite is kept green, and the review is

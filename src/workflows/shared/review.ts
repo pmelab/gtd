@@ -16,7 +16,7 @@ import {
   type Judgment,
   type ScopeAccess,
 } from "../../flows/index.js"
-import { reviewChunks, type ReviewNote } from "../../steering/index.js"
+import { reviewChunks, reviewRisks, type ReviewNote } from "../../steering/index.js"
 import * as kit from "../../workflow-kit/index.js"
 import { guarded, healthy, type EscalationCount } from "./health.js"
 import { NO_FINDINGS, type LensReport } from "./lenses.js"
@@ -235,6 +235,14 @@ const requirePointers = (
       .filter((c) => isConflictTitle(c.title))
       .map((c) => `  - ${REVIEW}:${c.line + 1}: ${c.title} — gtd writes conflicts; leave it out`),
     ...notes.filter((n) => !titles.has(n.title)).map((n) => `  - ${n.title} — no chunk of its own`),
+    // Notes and answers are matched to their chunk by title.
+    ...chunks
+      .filter((c, i) => chunks.findIndex((d) => d.title === c.title) !== i)
+      .map((c) => `  - ${REVIEW}:${c.line + 1}: ${c.title} — a second chunk with this title`),
+    // A risk is fixed before the human sees it; a note is the human's to decide.
+    ...reviewRisks(review)
+      .filter((r) => [...noted].some((title) => r.anchor.startsWith(`${title} ./`)))
+      .map((r) => `  - ${r.anchor} — no \`Risk:\` in a quality finding's chunk`),
   ]
   if (problems.length === 0) return
   refuse(
