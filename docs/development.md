@@ -16,6 +16,11 @@ npm run lint
 npm run build && npm run bench:replay # git-history replay timing (manual only, not gated; ~90s + a 50k-commit fixture build)
 ```
 
+To try a change by hand — the real `gtd` from this checkout, a scratch
+repository, stand-ins for the agent, `gh` and the browser — follow
+[.claude/skills/run-gtd/SKILL.md](../.claude/skills/run-gtd/SKILL.md). Never run
+gtd inside this checkout itself.
+
 `npm test` is a turbo task graph (`turbo.json`): each check declares its own
 `inputs`, so an unchanged check is skipped, and a check that does run is run in
 parallel with the others. Caveat from the `test:e2e:live` task's `build`

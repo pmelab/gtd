@@ -6,7 +6,7 @@ import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
-import { extractMinimalDriver } from "../../helpers/driver-doc.js"
+import { extractBashBlock } from "../../helpers/driver-doc.js"
 
 const execFile = promisify(execFileCb)
 
@@ -72,7 +72,7 @@ Given("a stub agent script that responds to prompts with:", (world: GtdWorld, sc
 // nothing inside the project it drives.
 Given("the driver pasted from docs\\/driver.md", (world: GtdWorld) => {
   const doc = readFileSync(join(PROJECT_ROOT, "docs/driver.md"), "utf-8")
-  const script = extractMinimalDriver(doc)
+  const script = extractBashBlock(doc, "### A complete minimal driver")
   const dir = mkdtempSync(join(tmpdir(), "gtd-driver-doc-"))
   const scriptPath = join(dir, "gtd-loop.sh")
   writeFileSync(scriptPath, script)
@@ -112,9 +112,23 @@ function driverEnv(world: GtdWorld): Record<string, string> {
 // driver's `#!/usr/bin/env sh` shebang is the thing actually resolving and
 // running it — the most faithful proof the ported script's shebang is
 // correct, not just that *some* shell can execute the paste.
-When("I run the driver from the docs", async (world: GtdWorld) => {
+// The worked example in the run-gtd skill, extracted like the driver above.
+Given(
+  "the bash block under {string} in {string}",
+  (world: GtdWorld, heading: string, file: string) => {
+    const script = extractBashBlock(readFileSync(join(PROJECT_ROOT, file), "utf-8"), heading)
+    const dir = mkdtempSync(join(tmpdir(), "gtd-doc-paste-"))
+    const scriptPath = join(dir, "paste.sh")
+    writeFileSync(scriptPath, script)
+    chmodSync(scriptPath, 0o755)
+    world.driverDocDir = dir
+    world.driverDocPath = scriptPath
+  },
+)
+
+When(/^I run (?:the driver from the docs|the pasted script)$/, async (world: GtdWorld) => {
   const path = world.driverDocPath
-  assert.ok(path, 'no driver — run "Given the driver pasted from docs/driver.md" first')
+  assert.ok(path, "no paste — extract one from a doc first")
   try {
     // 120s, matching e2e-live's own `stepTimeout` (see vitest.config.ts):
     // the reference driver now issues one real subprocess per field read

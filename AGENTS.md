@@ -111,6 +111,23 @@ step that declares a `mode` carries its own `format:`/`validate:` pair, run by
 the DRIVER (via `gtd next --json`'s `validate` field, or `gtd validate`) ahead
 of `gtd land` — never emitted into the landing script.
 
+## Manual testing
+
+To test a change by hand — build this checkout, start a process in a scratch
+repository, reach a criterion's behaviour and observe it — follow the `run-gtd`
+project skill,
+[.claude/skills/run-gtd/SKILL.md](.claude/skills/run-gtd/SKILL.md). Its worked
+example is DOC-TESTED by
+`tests/integration/features/manual-testing-doc.feature`, like the minimal
+driver: the `## Worked example` heading and its single bash fence are
+load-bearing. Its rules hold for every hand-run:
+
+- never run gtd in this checkout — it may host a live process, and a land here
+  commits or reverts that process's work
+- never export `GIT_DIR` or `GIT_WORK_TREE` — the scratch run then commits onto
+  this checkout's branch
+- at most 2 gtd loops at once, the test suite included
+
 ## Comments
 
 Keep a comment — module doc comment or per-export JSDoc alike — only where it

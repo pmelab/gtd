@@ -116,7 +116,8 @@
         "tests/integration/**",
         "tests/vitest.*.ts",
         "vitest.config.ts",
-        "docs/**"
+        "docs/**",
+        ".claude/skills/**"
       ],
       "outputs": []
     },
@@ -128,7 +129,8 @@
         "tests/integration/**",
         "tests/vitest.*.ts",
         "vitest.config.ts",
-        "docs/**"
+        "docs/**",
+        ".claude/skills/**"
       ],
       "outputs": []
     },
