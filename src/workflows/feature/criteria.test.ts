@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { Change } from "../../flows/index.js"
-import { criteriaOf, criterionIds, statedCriteria, unstableIds } from "./criteria.js"
+import { criteriaOf, criterionIds, handsOnIds, statedCriteria, unstableIds } from "./criteria.js"
 
 const added = (path: string, after: string): Change => ({
   path,
@@ -48,6 +48,17 @@ describe("criteriaOf", () => {
     ).toEqual([{ id: "AC-1", text: "exits 2 when config is bad - missing file" }])
   })
 
+  it("reads the (no hands-on) tag between an ID and its colon", () => {
+    expect(
+      criteriaOf(
+        "## Acceptance Criteria\n\n- AC-1: runs\n- AC-2 (no hands-on): the prompt says so\n",
+      ),
+    ).toEqual([
+      { id: "AC-1", text: "runs" },
+      { id: "AC-2", text: "the prompt says so", noHandsOn: true },
+    ])
+  })
+
   it("is undefined without the section", () => {
     expect(criteriaOf("# R\n\n- AC-1: x\n")).toBeUndefined()
   })
@@ -64,6 +75,19 @@ describe("statedCriteria", () => {
         { id: "AC-2", text: "b" },
       ],
     })
+  })
+
+  it("keeps a stated (no hands-on) tag, renumbered or not", () => {
+    const tagged = "## Acceptance criteria\n\n- AC-1: a\n- AC-2 (no hands-on): b\n"
+    expect(statedCriteria([added("TODO.md", tagged)], "abc")?.criteria).toEqual([
+      { id: "AC-1", text: "a" },
+      { id: "AC-2", text: "b", noHandsOn: true },
+    ])
+    const partial = "## Acceptance criteria\n\n- a\n- AC-7 (no hands-on): b\n"
+    expect(statedCriteria([added("TODO.md", partial)], "abc")?.criteria).toEqual([
+      { id: "AC-1", text: "a" },
+      { id: "AC-2", text: "b", noHandsOn: true },
+    ])
   })
 
   it("renumbers when the stated IDs are partial or clash", () => {
@@ -118,6 +142,20 @@ describe("criterionIds", () => {
 
   it("gives `except` every other ID, one added since included", () => {
     expect(criterionIds(requirements, { except: ["AC-1", "AC-3"] })).toEqual(["AC-2", "AC-4"])
+  })
+})
+
+describe("handsOnIds", () => {
+  const requirements =
+    "## Acceptance Criteria\n\n- AC-1: a\n- AC-2 (no hands-on): b\n- AC-3: c\n- AC-4 (no hands-on): d\n"
+
+  it("leaves out every criterion tagged (no hands-on)", () => {
+    expect(handsOnIds(requirements)).toEqual(["AC-1", "AC-3"])
+  })
+
+  it("keeps to the slice", () => {
+    expect(handsOnIds(requirements, { only: ["AC-2", "AC-3"] })).toEqual(["AC-3"])
+    expect(handsOnIds(requirements, { only: ["AC-2", "AC-4"] })).toEqual([])
   })
 })
 
