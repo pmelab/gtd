@@ -1,15 +1,15 @@
 /**
  * Stories have TWO hosts: the vitest browser runner (`test:web`), where
- * `@vitest/browser/context` resolves to a virtual module, and the Storybook
+ * `vitest/browser` resolves to a virtual module, and the Storybook
  * dev UI, where that specifier resolves to a stub whose module body THROWS
  * ("can be imported only inside the Browser Mode"). A static import of it
  * anywhere in a story's module graph therefore breaks the whole story page in
  * Storybook — it must stay behind a dynamic import whose rejection is the
  * signal that these runner-only effects have to be skipped.
  */
-const browserContext = async (): Promise<typeof import("@vitest/browser/context") | null> => {
+const browserContext = async (): Promise<typeof import("vitest/browser") | null> => {
   try {
-    return await import("@vitest/browser/context")
+    return await import("vitest/browser")
   } catch {
     return null
   }

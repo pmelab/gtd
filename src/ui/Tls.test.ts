@@ -11,11 +11,9 @@ import { liveUiHost, UiError, UiHost, UiShell } from "./index.js"
 import { liveUiShell } from "./Ports.fixture.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert } from "./Tls.js"
 
-// `{ spy: true }` keeps every real `node:fs` implementation (a plain
-// `vi.spyOn(fs, "mkdtempSync")` below throws — Node's ESM module namespace
-// isn't configurable, so only a `vi.mock`-registered module can be spied on)
-// while still letting `withTrackedTlsTmpDir` wrap ONE export for the
-// duration of one run.
+// `{ spy: true }` keeps every real `node:fs` implementation while recording
+// each call, so `withTrackedTlsTmpDir` can read back the directory a run made
+// (Node's ESM namespace isn't configurable, so a plain `vi.spyOn` throws).
 vi.mock("node:fs", { spy: true })
 
 let tmpDir: string
@@ -40,18 +38,13 @@ afterEach(() => {
  * caused. Tracking the one path THIS run created sidesteps that entirely.
  */
 const withTrackedTlsTmpDir = async (run: () => Promise<unknown>): Promise<string> => {
-  const realMkdtempSync = fs.mkdtempSync
-  let created: string | undefined
-  const spy = vi.spyOn(fs, "mkdtempSync").mockImplementation((...args: [string, unknown?]) => {
-    const dir = realMkdtempSync(...(args as Parameters<typeof fs.mkdtempSync>))
-    created = dir as string
-    return dir
-  })
-  try {
-    await run()
-  } finally {
-    spy.mockRestore()
-  }
+  const spy = vi.mocked(fs.mkdtempSync)
+  const before = spy.mock.results.length
+  await run()
+  const created = spy.mock.results
+    .slice(before)
+    .map((result) => result.value as unknown)
+    .find((dir): dir is string => typeof dir === "string" && dir.includes("gtd-tls-"))
   if (created === undefined) throw new Error("mkdtempSync was never called during this run")
   return created
 }
