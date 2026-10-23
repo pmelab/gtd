@@ -26,6 +26,36 @@
         "index": 0
       },
       "group": "Findings",
+      "answered": true,
+      "decision": [
+        {
+          "title": "fix as suggested",
+          "checked": false,
+          "anchor": {
+            "kind": "option",
+            "questionIndex": 0,
+            "index": 0
+          }
+        },
+        {
+          "title": "won't fix",
+          "checked": true,
+          "anchor": {
+            "kind": "option",
+            "questionIndex": 0,
+            "index": 1
+          }
+        },
+        {
+          "title": "",
+          "checked": false,
+          "anchor": {
+            "kind": "option",
+            "questionIndex": 0,
+            "index": 2
+          }
+        }
+      ],
       "children": [
         {
           "title": "./src/parse.ts#30-31",

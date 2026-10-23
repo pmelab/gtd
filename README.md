@@ -617,7 +617,9 @@ conversation under their block, question, chunk, or hunk, and one the agent
 answered last carries a "waiting on you" badge. Tap it to reply — your reply is
 added as a new `H:` entry; while the agent has yet to answer, reopening it edits
 your last entry instead. Tap an already-answered question to leave a note on it;
-the agent may overturn the answer. See
+the agent may overturn the answer. On a review, each finding takes its decision
+on the phone too — fix as suggested, won't fix, or your own answer — and Done
+stays disabled, saying how many are left, until every finding has one. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 

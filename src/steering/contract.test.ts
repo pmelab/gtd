@@ -97,7 +97,8 @@ describe.each(FORMATS)("the %s format", (dir, format, ticks) => {
 
     if (ticks)
       it("round-trips every tick: writing back what was read leaves the bytes unchanged", () => {
-        for (const node of nodesOf(format.view(content).nodes)) {
+        const nodes = nodesOf(format.view(content).nodes)
+        for (const node of [...nodes, ...nodes.flatMap((n) => n.decision ?? [])]) {
           if (node.checked === undefined || node.anchor.kind === "chunk") continue
           const anchor: SteeringAnchor = node.anchor
           const same = write(

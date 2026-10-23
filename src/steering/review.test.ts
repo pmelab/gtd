@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { FOOTNOTE_ACTION_TITLE, steeringFormatFor, viewOf } from "./index.js"
-import { parseReviewDoc } from "./review.js"
+import { parseReviewDoc, unansweredNotes } from "./review.js"
 import { getParseCount } from "./index.js"
 
 describe("parseReviewDoc", () => {
@@ -1532,10 +1532,87 @@ describe("review.apply", () => {
     ).toEqual({ ok: false, reason: "anchor-not-found" })
   })
 
-  it("a question/option anchor — not this format's own kind — refuses anchor-not-found", () => {
+  it("a question anchor — not this format's own kind — refuses anchor-not-found", () => {
     expect(review.apply(NESTED_CONTENT, { kind: "question", index: 0 }, { checked: true })).toEqual(
       { ok: false, reason: "anchor-not-found" },
     )
+  })
+})
+
+describe("review decisions — a finding's answer boxes", () => {
+  const FINDINGS = [
+    "# Review: abc1234",
+    "",
+    "<!-- base: abc1234def5678901234567890123456789abcd -->",
+    "",
+    "## Findings",
+    "",
+    "### Token check",
+    "",
+    "- [ ] ./src/auth.ts#1-2",
+    "",
+    "Tick exactly one:",
+    "",
+    "- [ ] fix as suggested",
+    "- [x] won't fix",
+    "- [ ] _your answer_",
+    "",
+    "## Walkthrough",
+    "",
+    "### Rename",
+    "",
+    "- [ ] ./src/calc.ts#1-1",
+    "",
+  ].join("\n")
+  const option = (index: number) => ({ kind: "option" as const, questionIndex: 0, index })
+  const write = (content: string, index: number, opts: { checked?: boolean; text?: string }) => {
+    const result = review.apply(content, option(index), opts)
+    if (!result.ok) throw new Error(result.reason)
+    return applyEdits(content, result.edits)
+  }
+
+  it("views a finding's boxes as its decision, apart from its hunks", () => {
+    const [finding, walkthrough] = review.view(FINDINGS).nodes
+    expect(finding!.answered).toBe(true)
+    expect(finding!.decision!.map((o) => [o.title, o.checked])).toEqual([
+      ["fix as suggested", false],
+      ["won't fix", true],
+      ["", false],
+    ])
+    expect(finding!.children!.map((c) => c.anchor.kind)).toEqual(["hunk"])
+    expect(walkthrough!.decision).toBeUndefined()
+    expect(walkthrough!.answered).toBeUndefined()
+  })
+
+  it("ticking a box unticks the others", () => {
+    const after = write(FINDINGS, 0, { checked: true })
+    expect(after).toContain("- [x] fix as suggested\n- [ ] won't fix\n- [ ] _your answer_")
+    expect(unansweredNotes(after)).toEqual([])
+  })
+
+  it("an answer ticks the free-text slot and writes its text in one edit set", () => {
+    const after = write(FINDINGS, 2, { checked: true, text: "Only for\n admin tokens " })
+    expect(after).toContain("- [ ] won't fix\n- [x] Only for admin tokens\n")
+    expect(review.view(after).nodes[0]!.decision![2]!.title).toBe("Only for admin tokens")
+    expect(unansweredNotes(after)).toEqual([])
+    expect(review.validate(after)).toEqual([])
+  })
+
+  it("clearing the answer unticks the slot and restores its placeholder", () => {
+    const answered = write(FINDINGS, 2, { checked: true, text: "Later" })
+    const cleared = write(answered, 2, { checked: false, text: "" })
+    expect(cleared).toContain("- [ ] won't fix\n- [ ] _your answer_\n")
+    expect(review.view(cleared).nodes[0]!.answered).toBe(false)
+  })
+
+  it("a walkthrough chunk or a missing box refuses anchor-not-found", () => {
+    expect(
+      review.apply(FINDINGS, { kind: "option", questionIndex: 1, index: 0 }, { checked: true }),
+    ).toEqual({ ok: false, reason: "anchor-not-found" })
+    expect(review.apply(FINDINGS, option(3), { checked: true })).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
   })
 })
 
