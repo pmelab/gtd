@@ -9,7 +9,6 @@ import {
   requireRevert,
   restoreScript,
   run,
-  showScript,
   vars,
   writeScript,
   type JudgeQuestion,
@@ -21,7 +20,6 @@ import {
   reviewChunks,
   reviewRisks,
   reviewSections,
-  sectionedReview,
   type ReviewNote,
 } from "../../steering/index.js"
 import * as kit from "../../workflow-kit/index.js"
@@ -195,214 +193,59 @@ const triage =
     )
   }
 
-/** Review order: security, one-way doors, the judge unsure, then should, then could. */
-const chunkKey = (s: Severity): number =>
-  s.tier === "could" ? 4 : s.tier === "should" ? 3 : s.security === true ? 0 : s.rank === 0 ? 1 : 2
-
-type Pointer = ReturnType<typeof reviewChunks>[number]["files"][number]
-
-/** A chunk's text, then the code each of its pointers covers: a bare path the whole file. */
-const chunkEvidence = (text: string, files: readonly Pointer[]): string =>
-  [
-    text,
-    ...files.map(({ path, line, rangeEnd }) => {
-      const where = `${path}${line === undefined ? "" : `#${line}${rangeEnd === undefined ? "" : `-${rangeEnd}`}`}`
-      const lines = read(path.replace(/^\.\//, ""))?.split("\n")
-      if (lines === undefined) return `${where}: no longer exists`
-      const code = line === undefined ? lines : lines.slice(line - 1, rangeEnd ?? line)
-      return `${where}:\n${code.join("\n")}`
-    }),
-  ].join("\n\n")
-
-const bytes = (text: string): number => new TextEncoder().encode(text).length
-
-/** Fills each batch while the budget's even share still holds its widest evidence, so nothing is cut that fits alone. */
-const batched = <T extends { readonly evidence: string }>(
-  items: readonly T[],
-  budget: number,
-): T[][] => {
-  const batches: T[][] = []
-  let batch: T[] = []
-  let widest = 0
-  for (const item of items) {
-    const size = bytes(item.evidence)
-    if (batch.length > 0 && Math.floor(budget / (batch.length + 1)) < Math.max(widest, size)) {
-      batches.push(batch)
-      batch = []
-      widest = 0
-    }
-    batch.push(item)
-    widest = Math.max(widest, size)
-  }
-  return batch.length === 0 ? batches : [...batches, batch]
-}
-
-/**
- * Rates every chunk the reviewer wrote and sorts the \`findings\` among them
- * first in \`full\`, each led by its tier and reason; a walkthrough chunk
- * keeps its place and carries no tier. It is still rated, so a review with no
- * findings still reaches \`review.ranking\` and older histories replay.
- */
-const ranked = async (
-  review: string,
-  full: string,
-  findings: ReadonlySet<string>,
-): Promise<string> => {
-  const texts = t.chunkTexts(full)
-  const chunks = reviewChunks(review).map((c, i) => ({
-    id: `C${i + 1}`,
-    title: c.title,
-    evidence: chunkEvidence(texts.get(c.title) ?? "", c.files),
-  }))
-  if (chunks.length === 0) return full
-  const minP = numeric(vars.reviewSeverityMinP, Infinity)
-  const batches = batched(chunks, numeric(vars.judgeBudgetBytes, 32768))
-  const severities = new Map<string, Severity>()
-  for (const [i, batch] of batches.entries()) {
-    const judgment = await judge("review.ranking", {
-      questions: batch.flatMap((c) =>
-        severityQuestions(
-          c.id,
-          `the change review chunk "${c.id}" ("${c.title}") walks through`,
-          `the change in review chunk "${c.id}"`,
-        ),
-      ),
-      evidence: Object.fromEntries(batch.map((c) => [c.id, c.evidence])),
-      message: t.reviewRankingMessage(),
-      label:
-        batches.length === 1
-          ? "Ranking the review"
-          : `Ranking the review (${i + 1}/${batches.length})`,
-    })
-    for (const c of batch) severities.set(c.id, severityOf(c, judgment, minP))
-  }
-  return t.rankedReview(
-    full,
-    chunks
-      .map((c, i) => ({ c, i, s: severities.get(c.id)! }))
-      .filter(({ c }) => findings.has(c.title))
-      .sort((x, y) => chunkKey(x.s) - chunkKey(y.s) || x.i - y.i)
-      .map(({ c, s }) => ({ title: c.title, label: s.reason })),
-  )
-}
-
 export const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".gtd/")
 
-const composedOf = (
-  base: string,
-  report: LensReport,
-  nitFix: string | undefined,
-  answered: ReadonlySet<string>,
-): t.ComposedReview => ({
-  ...report,
-  nitFix,
-  answered,
-  standards: {
-    added: standardsAddedSince(base),
-    undecided: parseStandards(read(STANDARDS) ?? "").undecided,
-  },
-})
-
-/**
- * gtd writes `.gtd/REVIEW.md` from the quality lap's `report` — no reviewer
- * turn. A re-review
- * after fixed nits restores the doc as committed at `carry`, answers kept;
- * a fresh one leaves out the notes the human already answered.
- */
-const composing = (
-  base: string,
-  report: LensReport,
-  carry?: string,
-  nitFix?: string,
-  answered: ReadonlySet<string> = new Set(),
-): Promise<void> =>
-  run(
-    "review.composing",
-    carry === undefined
-      ? writeScript(
-          REVIEW,
-          t.composedReview(base, {
-            ...composedOf(base, report, nitFix, answered),
-            weakened: kit.removedAssertions(changesSince(base)),
-          }),
-        )
-      : showScript(carry, REVIEW, REVIEW),
-    { label: "Composing the review", file: REVIEW, base },
-  )
-
-/**
- * Refuses a review with a chunk pointing at no code, or a lap note without a
- * chunk of its own. A range with no code change has nothing to point at, so
- * there only a note's chunk needs a pointer.
- */
-const requirePointers = (
-  review: string,
-  notes: readonly { title: string }[],
-  codeChanged: boolean,
-): void => {
+/** Refuses a review with a chunk pointing at no code; a range with no code change has nothing to point at. */
+const requirePointers = (review: string, codeChanged: boolean): void => {
   const chunks = reviewChunks(review)
-  const titles = new Set(chunks.map((c) => c.title))
-  const noted = new Set(notes.map((n) => n.title))
   const problems = [
     ...chunks
-      .filter((c) => c.pointers === 0 && (codeChanged || noted.has(c.title)))
+      .filter((c) => c.pointers === 0 && codeChanged)
       .map((c) => `  - ${REVIEW}:${c.line + 1}: ${c.title} — points at no code`),
     ...chunks
       .filter((c) => isConflictTitle(c.title))
       .map((c) => `  - ${REVIEW}:${c.line + 1}: ${c.title} — gtd writes conflicts; leave it out`),
-    ...notes.filter((n) => !titles.has(n.title)).map((n) => `  - ${n.title} — no chunk of its own`),
     // Notes and answers are matched to their chunk by title.
     ...chunks
       .filter((c, i) => chunks.findIndex((d) => d.title === c.title) !== i)
       .map((c) => `  - ${REVIEW}:${c.line + 1}: ${c.title} — a second chunk with this title`),
     ...reviewSections(review).map(
       (s) =>
-        `  - ${REVIEW}:${s.line + 1}: ${REVIEW_SECTIONS[s.section]} — gtd sorts the chunks into sections; write \`## \` chunks only`,
+        `  - ${REVIEW}:${s.line + 1}: ${REVIEW_SECTIONS[s.section]} — write \`## \` chunks only`,
     ),
-    // A risk is fixed before the human sees it; a note is the human's to decide.
-    ...reviewRisks(review)
-      .filter((r) => [...noted].some((title) => r.anchor.startsWith(`${title} ./`)))
-      .map((r) => `  - ${r.anchor} — no \`Risk:\` in a quality finding's chunk`),
   ]
   if (problems.length === 0) return
   refuse(
-    `gtd land: review-pointers: ${problems.length} problem(s) in ${REVIEW} — every chunk needs a pointer to its code, and every quality finding its own chunk, headed exactly as the prompt gave it:\n${problems.join("\n")}`,
+    `gtd land: review-pointers: ${problems.length} problem(s) in ${REVIEW} — every chunk needs a pointer to its code:\n${problems.join("\n")}`,
   )
 }
 
 /**
  * A reviewer walks the human through everything since `base`, every chunk
- * pointing at its code and each of the lap's notes a chunk of its own; gtd
- * then adds each note's text and answer boxes, and the summary chunks.
+ * pointing at its code; gtd then appends the summary chunks.
  */
 const walkthrough = async (
   base: string,
-  report: t.ComposedReview,
+  summary: t.ReviewSummary,
   lap: t.ReviewRange,
   carry: string | undefined,
+  nitFix: string | undefined,
   afterRiskFix: boolean,
 ): Promise<void> => {
-  const notes = t.titledNotes(report)
-  await reviewing(base, carry, lap, t.walkthroughBlock(notes, report.nitFix))
+  await reviewing(base, carry, lap, t.nitFixBlock(nitFix))
   const written = read(REVIEW)
   // A review the reviewer did not write is the round's own refusal or rest.
   if (written === undefined) return
-  const review = t.unranked(written)
-  // Against the file as written, so a refusal's line numbers match it.
   requirePointers(
     written,
-    notes,
     changesSince(base).some((c) => isCode(c.path)),
   )
-  // Its risks are fixed and the review written again, so the re-reviewer edits this draft, never gtd's layout.
+  // Its risks are fixed and the review written again, so the re-reviewer edits this draft, never gtd's additions.
   if (!afterRiskFix && reviewRisks(written).length > 0) return
-  const full = sectionedReview(
-    await ranked(review, t.withWalkthrough(review, report), new Set(notes.map((n) => n.title))),
-    new Set(reviewChunks(review).map((c) => c.title)),
-  )
+  const full = t.withSummary(written, summary)
   if (full !== written) {
     await run("review.carrying", writeScript(REVIEW, full), {
-      label: "Ordering the review and adding the quality lap's findings",
+      label: "Adding the quality lap's summary",
       file: REVIEW,
       base,
     })
@@ -410,12 +253,10 @@ const walkthrough = async (
 }
 
 /**
- * The quality lap's notes reach a human over everything since `base`, who
- * answers each one — fix as suggested, won't fix, or their own answer — and
- * may comment. A fix joins the nit batch, a won't-fix is dropped, and an own
- * answer or comment is judged: edits end the review as `feedback` for the
- * caller to build, questions are answered in place, nits fixed in one batch,
- * praise dropped.
+ * A reviewer's walkthrough of everything since `base` reaches a human, who
+ * may comment: each note is judged — edits end the review as `feedback` for
+ * the caller to build, questions are answered in place, nits fixed in one
+ * batch, praise dropped.
  */
 export const humanReview = (
   base: string,
@@ -432,8 +273,6 @@ export const humanReview = (
   const severities = new Map<string, Severity>()
   // Set by a nit fix, so the fresh review that follows names its commit.
   let nitFix: string | undefined
-  // Every note the human answered in this review, left out of a fresh one.
-  const answered = new Set<string>()
   // Set by a risk fix, so the review written next reaches the human whatever it marks.
   let riskFixed = false
   return kit.review(base, {
@@ -444,20 +283,17 @@ export const humanReview = (
       const fixedAt = nitFix
       const afterRiskFix = riskFixed
       riskFixed = false
-      const report = options.report ?? NO_FINDINGS
-      return options.walkthrough === true
-        ? guarded(
-            () =>
-              walkthrough(
-                b,
-                composedOf(b, report, fixedAt, answered),
-                options.lap ?? "first",
-                carry,
-                afterRiskFix,
-              ),
-            guard,
-          )()
-        : composing(b, report, carry, fixedAt, answered)
+      const summary: t.ReviewSummary = {
+        report: options.report ?? NO_FINDINGS,
+        standards: {
+          added: standardsAddedSince(b),
+          undecided: parseStandards(read(STANDARDS) ?? "").undecided,
+        },
+      }
+      return guarded(
+        () => walkthrough(b, summary, options.lap ?? "first", carry, fixedAt, afterRiskFix),
+        guard,
+      )()
     },
     fixRisks: guarded((notes) => {
       riskFixed = true
@@ -472,7 +308,6 @@ export const humanReview = (
     reviewMissing,
     collecting: feedback.collecting,
     triage: triage(severities),
-    decided: (decisions) => decisions.forEach((d) => answered.add(d.anchor)),
     settles: settlesStandard,
     learn: learnStandards,
     pending: standardsPending,
@@ -526,11 +361,9 @@ export interface BuildTailOptions extends TailOptions {
   readonly feedback?: FeedbackTarget | undefined
   /** Write access for the nit and risk fix turns; absent: the bundled `access` export decides. */
   readonly fixAccess?: ScopeAccess | undefined
-  /** Which round a `walkthrough` reviewer writes; absent: `first`. */
+  /** Which round the reviewer writes; absent: `first`. */
   readonly lap?: t.ReviewRange | undefined
-  /** A reviewer turn writes the review as a walkthrough of the code, the lap's notes among its chunks; absent: gtd composes it from the notes alone. */
-  readonly walkthrough?: boolean | undefined
-  /** What the triaged quality lap left for the review; absent: nothing. */
+  /** What the quality lap and its finding gate did, for the review's summary; absent: nothing. */
   readonly report?: LensReport | undefined
 }
 

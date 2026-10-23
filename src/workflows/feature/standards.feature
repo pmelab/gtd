@@ -1,8 +1,8 @@
 @inmem
 Feature: the review learns standards from the human's answers
 
-  A won't-fix tick or an own answer at the review gate is a candidate
-  standard. A judge asks whether it is reusable; above `standardMinP` it is
+  A won't-fix tick or an own answer at the review gate — on a note the human
+  added with its own answer boxes — is a candidate standard. A judge asks whether it is reusable; above `standardMinP` it is
   kept in `.gtd/STANDARDS.md` with no further question, and every later agent
   turn — lenses and coder alike — is told to follow it. One that contradicts
   a standard already kept becomes a note in `.gtd/REVIEW.md` the review cannot
@@ -12,7 +12,7 @@ Feature: the review learns standards from the human's answers
   Background:
     Given the shipped workflows, as gtd install scaffolds them
     And an environment variable "GTD_PROTOTYPEROUNDS" set to "0"
-    And an environment variable "GTD_QUALITYREVIEWS" set to "correctness"
+    And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And an environment variable "GTD_FLAGMODE" set to "false"
     And a file "src/calc.ts" with:
       """
@@ -59,15 +59,6 @@ Feature: the review learns standards from the human's answers
     And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
-    And step "build.quality.correctness.reviewing" writes ".gtd/QUALITY.md" with:
-      """
-      # Quality
-
-      ## subtract has no class
-
-      Calculators read better as classes.
-      """
-    And step "build.quality.sorting" runs its script
     And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -78,29 +69,7 @@ Feature: the review learns standards from the human's answers
 
       - [ ] ./src/calc.ts#2-2 — subtract(a, b)
       """
-    And step "build.review.reviewing", when prompted with "- `## subtract has no class`", writes ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## Subtract
-
-      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
-
-      ## subtract has no class
-
-      - [ ] ./src/calc.ts#2-2 — a plain function
-      """
     And step "build.review.carrying" runs its script
-    And judge step "build.review.ranking" answers:
-      """
-      []
-      """
-    And judge step "build.quality.triage" answers:
-      """
-      [{"id":"Q1","answer":"design","p":0.9}]
-      """
     And step "build.review.closing" runs its script
     And step "build.review.standards.recording" runs its script
     And step "build.review.standards.raising" runs its script
@@ -111,6 +80,18 @@ Feature: the review learns standards from the human's answers
       [{"id":"standard-1","answer":"yes","p":0.9}]
       """
     When the process is driven
+    And ".gtd/REVIEW.md" gets appended:
+      """
+      ## subtract has no class
+
+      Calculators read better as classes.
+
+      Tick exactly one:
+
+      - [ ] fix as suggested
+      - [ ] won't fix
+      - [ ] _your answer_
+      """
     And the text "- [ ] won't fix" in ".gtd/REVIEW.md" is replaced with "- [x] won't fix"
     And gtd lands
     And the process is driven
@@ -143,6 +124,18 @@ Feature: the review learns standards from the human's answers
       """
     And step "build.health.check" changes nothing
     When the process is driven
+    And ".gtd/REVIEW.md" gets appended:
+      """
+      ## subtract has no class
+
+      Calculators read better as classes.
+
+      Tick exactly one:
+
+      - [ ] fix as suggested
+      - [ ] won't fix
+      - [ ] _your answer_
+      """
     And the text "- [ ] _your answer_" in ".gtd/REVIEW.md" is replaced with "- [x] Calculators are plain functions."
     And gtd lands
     And the process is driven
@@ -162,6 +155,18 @@ Feature: the review learns standards from the human's answers
       [{"id":"standard-1","answer":"yes","p":0.6}]
       """
     When the process is driven
+    And ".gtd/REVIEW.md" gets appended:
+      """
+      ## subtract has no class
+
+      Calculators read better as classes.
+
+      Tick exactly one:
+
+      - [ ] fix as suggested
+      - [ ] won't fix
+      - [ ] _your answer_
+      """
     And the text "- [ ] won't fix" in ".gtd/REVIEW.md" is replaced with "- [x] won't fix"
     And gtd lands
     And the process is driven
@@ -210,6 +215,18 @@ Feature: the review learns standards from the human's answers
       [{"id":"answer-1","answer":"praise","p":0.9}]
       """
     When the process is driven
+    And ".gtd/REVIEW.md" gets appended:
+      """
+      ## subtract has no class
+
+      Calculators read better as classes.
+
+      Tick exactly one:
+
+      - [ ] fix as suggested
+      - [ ] won't fix
+      - [ ] _your answer_
+      """
     And the text "- [ ] _your answer_" in ".gtd/REVIEW.md" is replaced with "- [x] Calculators are plain functions."
     And gtd lands
     And the process is driven
@@ -267,6 +284,18 @@ Feature: the review learns standards from the human's answers
       [{"id":"standard-1","answer":"yes","p":0.9},{"id":"standard-1.contradicts-1","answer":"yes","p":0.8}]
       """
     When the process is driven
+    And ".gtd/REVIEW.md" gets appended:
+      """
+      ## subtract has no class
+
+      Calculators read better as classes.
+
+      Tick exactly one:
+
+      - [ ] fix as suggested
+      - [ ] won't fix
+      - [ ] _your answer_
+      """
     And the text "- [ ] won't fix" in ".gtd/REVIEW.md" is replaced with "- [x] won't fix"
     And gtd lands
     And the process is driven
@@ -303,6 +332,18 @@ Feature: the review learns standards from the human's answers
       [{"id":"standard-1","answer":"yes","p":0.9},{"id":"standard-1.contradicts-1","answer":"yes","p":0.8}]
       """
     When the process is driven
+    And ".gtd/REVIEW.md" gets appended:
+      """
+      ## subtract has no class
+
+      Calculators read better as classes.
+
+      Tick exactly one:
+
+      - [ ] fix as suggested
+      - [ ] won't fix
+      - [ ] _your answer_
+      """
     And the text "- [ ] won't fix" in ".gtd/REVIEW.md" is replaced with "- [x] won't fix"
     And gtd lands
     And the process is driven

@@ -88,10 +88,6 @@ Feature: the criteria-coverage lens checks the change's tests against its criter
 
       - [ ] ./src/calc.ts#2-2 — subtract(a, b)
       """
-    And judge step "build.review.ranking" answers:
-      """
-      []
-      """
     And step "build.review.carrying" runs its script
     When the process is driven
     Then the process rests at "build.review.await-review"
@@ -103,7 +99,6 @@ Feature: the criteria-coverage lens checks the change's tests against its criter
       gtd(judge): build.quality.triage → build.fix.quality.fixing
       gtd(agent): build.fix.quality.fixing → build.health.check
       gtd(check): build.health.check → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.ranking
-      gtd(judge): build.review.ranking → build.review.carrying
+      gtd(agent): build.review.reviewing → build.review.carrying
       gtd(check): build.review.carrying → build.review.await-review
       """

@@ -109,9 +109,9 @@ workflow that fails to load breaks every gtd command in the repository.
   step you add must fit one of them; there is no sixth.
 
 Options (all optional): `label`, `file` (a `.gtd/` path), `mode` (needs `file`;
-`qa`, `review`, or a `config.modes` name), `message` (human/judge), `model`,
-`system` (agent), `allowEmpty` (agent), `acceptClean` (human), `base` (the
-commit the step reviews since — what `gtd base` prints).
+`qa`, `review`, `findings`, or a `config.modes` name), `message` (human/judge),
+`model`, `system` (agent), `allowEmpty` (agent), `acceptClean` (human), `base`
+(the commit the step reviews since — what `gtd base` prints).
 
 Helpers — pure reads of the commit replay stands on (the tree the last step
 left, never the live working tree): `read(path)`, `glob(pattern)`,

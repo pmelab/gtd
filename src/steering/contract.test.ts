@@ -34,6 +34,7 @@ const fixture = (path: string): string => {
 const FORMATS: readonly (readonly [dir: string, format: SteeringFormat, ticks: boolean])[] = [
   ["qa", steeringFormatFor("qa")!, true],
   ["review", steeringFormatFor("review")!, true],
+  ["findings", steeringFormatFor("findings")!, true],
   ["free-form", freeFormFormat, false],
 ]
 

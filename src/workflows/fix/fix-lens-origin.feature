@@ -1,9 +1,8 @@
 @inmem
-Feature: each finding the reviewer is handed names the lens that wrote it
+Feature: each finding at the finding gate names the lens that wrote it
 
   Lenses append to `.gtd/QUALITY.md` in turn, so a finding belongs to the lens
-  whose turn added it — even when two lenses give findings the same title,
-  which the review then tells apart by a numbered suffix.
+  whose turn added it — even when two lenses give findings the same title.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -62,7 +61,7 @@ Feature: each finding the reviewer is handed names the lens that wrote it
 
       From tests.
       """
-    And step "build.quality.sorting" runs its script
+    And step "build.quality.gating" runs its script
     And step "build.quality.closing" runs its script
     And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
       """
@@ -84,8 +83,8 @@ Feature: each finding the reviewer is handed names the lens that wrote it
       """
     When gtd opens door "fix"
     And the process is driven
-    Then the process rests at "build.review.await-review"
-    And ".gtd/REVIEW.md" contains:
+    Then the process rests at "build.quality.gate"
+    And ".gtd/QUALITY.md" contains:
       """
       ## sum is untested
 
@@ -93,9 +92,23 @@ Feature: each finding the reviewer is handed names the lens that wrote it
 
       From correctness.
 
-      ## sum is untested (2)
+      - [ ] fix
+
+      ## sum is untested
 
       _From lens tests._
 
       From tests.
+
+      - [ ] fix
+      """
+    When gtd lands
+    And the process is driven
+    Then the process rests at "build.review.await-review"
+    And ".gtd/REVIEW.md" contains:
+      """
+      Dropped at the finding gate:
+
+      - sum is untested (lens correctness)
+      - sum is untested (lens tests)
       """

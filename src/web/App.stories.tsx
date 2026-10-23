@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, waitFor, within } from "storybook/test"
-import { BUILT_IN_MODE_NAMES } from "../steering/index.js"
+import { BUILT_IN_MODE_NAMES, steeringFormatFor } from "../steering/index.js"
 import { App } from "./App.js"
 import { TrpcTestProvider } from "./testing/TrpcTestProvider.js"
 
@@ -232,6 +232,36 @@ export const NoModeOpensDirectlyOnTheFreeFormScreen: Story = {
   },
 }
 
+/** A `findings` rest — the finding gate — opens on the `Findings` screen. */
+export const FindingsModeOpensDirectlyOnTheFindingsScreen: Story = {
+  decorators: [
+    (Story) => {
+      const content = "# Quality\n\n## a\n\nBody.\n\n- [ ] fix\n"
+      return (
+        <TrpcTestProvider
+          resolvers={{
+            step: () => okStep({ file: ".gtd/QUALITY.md", mode: "findings" }),
+            readSteeringFile: () => ({
+              ok: true,
+              content,
+              headSha: "abc123",
+              contentHash: "deadbeef",
+              view: steeringFormatFor("findings")!.view(content),
+            }),
+          }}
+        >
+          <Story />
+        </TrpcTestProvider>
+      )
+    },
+  ],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("findings-screen")).toBeInTheDocument())
+    expect(canvas.queryByTestId("freeform-screen")).not.toBeInTheDocument()
+  },
+}
+
 /** Package 01's own dispatch branch: an UNREGISTERED `mode` (not "review"/"qa", and not in `steeringFormatFor`'s registry) also falls through to `FreeForm`. */
 export const UnregisteredModeOpensDirectlyOnTheFreeFormScreen: Story = {
   decorators: [
@@ -271,15 +301,15 @@ export const UnregisteredModeOpensDirectlyOnTheFreeFormScreen: Story = {
 
 /**
  * A pinning test for the assumption `App.tsx`'s own dispatch hardcodes:
- * `"qa"`/`"review"` are the only two names with their own dedicated screen.
- * If the built-in registry (`steering/index.ts#REGISTRY`) ever grows a third
- * entry, THIS test breaks — loudly, at the source of truth — rather than
- * that third format silently rendering `FreeForm` while nothing here notices
+ * `"qa"`/`"review"`/`"findings"` are the only names with their own dedicated
+ * screen. If the built-in registry (`steering/index.ts#REGISTRY`) ever grows
+ * another entry, THIS test breaks — loudly, at the source of truth — rather than
+ * that new format silently rendering `FreeForm` while nothing here notices
  * `App.tsx`'s dispatch and the registry have quietly diverged.
  */
-export const TheBuiltInRegistryStillHasExactlyTheTwoModesAppDispatchesByName: Story = {
+export const TheBuiltInRegistryStillHasExactlyTheModesAppDispatchesByName: Story = {
   render: () => <></>,
   play: () => {
-    expect(BUILT_IN_MODE_NAMES).toEqual(["qa", "review"])
+    expect(BUILT_IN_MODE_NAMES).toEqual(["qa", "review", "findings"])
   },
 }

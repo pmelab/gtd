@@ -1010,7 +1010,7 @@ do not queue it, store it, or hand it to another worktree.
   `gtd restore`) are POSIX sh; captured, then piped into it (see
   [Writing your own driver](#writing-your-own-driver) above).
 - **`gtd` on `PATH`** — a mode's seeded `validate:` command (the one gtd fills
-  in for the built-in `qa`/`review` formats) is literally the string
+  in for the built-in `qa`/`review`/`findings` formats) is literally the string
   `gtd check <mode> '<file>'`, invoked by NAME from inside an emitted script,
   not by absolute path. This is a deliberate trade: a readable, overridable,
   copy-pasteable command in exchange for depending on shell name resolution at

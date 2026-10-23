@@ -11,7 +11,7 @@ import {
 import { gate } from "../shared/health.js"
 import { flagModeOn, shipped } from "../shared/options.js"
 import { FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
-import { refusePendingHandOff, tail } from "../shared/tail.js"
+import { refusePendingHandOff } from "../shared/tail.js"
 import * as t from "../shared/text.js"
 import {
   criterionIds,
@@ -22,7 +22,7 @@ import {
   type StatedCriteria,
 } from "./criteria.js"
 import { design } from "./planning.js"
-import { buildTail, humanReview, isCode, reUnwind, type ReviewOutcome } from "../shared/review.js"
+import { buildTail, isCode, reUnwind, type ReviewOutcome } from "../shared/review.js"
 import { prototypeRounds } from "./prototype.js"
 import { implement, implementing, seamBuild } from "./seam.js"
 import { recordRisk, riskTierOn } from "./tier.js"
@@ -32,10 +32,9 @@ import { recordRisk, riskTierOn } from "./tier.js"
 // green-baseline gate → design → a naive pass, judged with `flagMode` on: it
 // lands as the implementation, or (refactoring first when the judge asks) is
 // built fresh from → the health loop → a hands-on test of every criterion,
-// fixed and re-tested → the triaged quality lap, whose leftovers are carried
-// on → a reviewer's walkthrough of the whole change, its findings among its
-// chunks, for the human, which signs off (the episode ends back at `idle`) or
-// sends a design → implement lap.
+// fixed and re-tested → the triaged quality lap and its finding gate → a
+// reviewer's walkthrough of the whole change for the human, which signs off
+// (the episode ends back at `idle`) or sends a design → implement lap.
 
 /** Revert the sketch that started the process out of the working tree; its intent survives in history. */
 export const unwind = (): Promise<void> => {
@@ -74,7 +73,7 @@ export const buildFeature = async (firstBase: string): Promise<void> => {
     !changesSince(seam.base).some((c) => isCode(c.path) && !carried.includes(c.path))
       ? firstBase
       : seam.base
-  const outcome = await reviewedTail(base, base, requirements)
+  const outcome = await buildTail(base, { green: true, lensBase: base, requirements })
   await featureFeedback(outcome, base, { closed, used })
 }
 
@@ -84,18 +83,6 @@ const gather = (handedOut: Set<string>): readonly string[] => {
   for (const id of listedIds()) handedOut.add(id)
   return [...handedOut]
 }
-
-/** The quality lap, then a reviewer's walkthrough since `base` for the human. */
-const reviewedTail = (
-  base: string,
-  lensBase: string,
-  requirements: string | undefined,
-  lap: "first" | "feedback" = "first",
-): Promise<ReviewOutcome> =>
-  tail(
-    (escalations, report) => humanReview(base, escalations, { report, walkthrough: true, lap }),
-    { green: true, lensBase, requirements },
-  )
 
 // seam.naive / seam.judge never run on a feedback lap: its design → implement is built unjudged
 // and unrefactored.
@@ -118,7 +105,12 @@ const featureFeedback = async (
     const tier = riskTierOn() ? recordRisk() : undefined
     const requirements = read(REQUIREMENTS)
     closed = await implementing({ tier, amend: true })
-    outcome = await reviewedTail(outcome.base, lensBase, requirements, "feedback")
+    outcome = await buildTail(outcome.base, {
+      green: true,
+      lensBase,
+      requirements,
+      lap: "feedback",
+    })
   }
 }
 

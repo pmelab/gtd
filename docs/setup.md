@@ -209,10 +209,10 @@ that `REVIEW.md` fallback applies. So does a file from any repository other than
 the one the editor's workspace belongs to: asking `gtd next` there would run
 that repository's `gtd.config.ts`.
 
-`qa` and `review` are gtd's two built-in steering-file formats: each has its own
-outline, actions, go-to-definition, and a validator gtd implements itself.
-`gtd lsp` reads no workflow configuration, so it always shows the built-in
-validator's live diagnostics — even when a workflow overrides that mode's
-`validate:` command, which `gtd validate` runs instead. Any other mode name has
-no built-in format and gets no live editor support at all; `gtd validate` still
-formats and validates it like any other mode.
+`qa`, `review` and `findings` are gtd's built-in steering-file formats: each has
+its own outline, actions, go-to-definition, and a validator gtd implements
+itself. `gtd lsp` reads no workflow configuration, so it always shows the
+built-in validator's live diagnostics — even when a workflow overrides that
+mode's `validate:` command, which `gtd validate` runs instead. Any other mode
+name has no built-in format and gets no live editor support at all;
+`gtd validate` still formats and validates it like any other mode.

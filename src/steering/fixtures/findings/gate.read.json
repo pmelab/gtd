@@ -1,0 +1,87 @@
+{
+  "nodes": [
+    {
+      "title": "AC-1 ignores floating point",
+      "anchor": {
+        "kind": "chunk",
+        "index": 0
+      },
+      "group": "Open",
+      "checked": true,
+      "note": "Round half up.",
+      "body": [
+        {
+          "title": "_From lens correctness._",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 4
+          }
+        },
+        {
+          "title": "Should subtract round? The criterion does not say.",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 6
+          }
+        },
+        {
+          "title": "// - [ ] fix, inside a fence, is no box",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 8
+          }
+        }
+      ]
+    },
+    {
+      "title": "add has no test",
+      "anchor": {
+        "kind": "chunk",
+        "index": 1
+      },
+      "group": "Open",
+      "checked": false,
+      "body": [
+        {
+          "title": "_From lens test-audit. The fixer left it unresolved._",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 18
+          }
+        },
+        {
+          "title": "a list in the finding's body with two items",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 20
+          }
+        }
+      ]
+    },
+    {
+      "title": "add could be a method",
+      "anchor": {
+        "kind": "chunk",
+        "index": 2
+      },
+      "group": "Dropped as noise",
+      "checked": false,
+      "body": [
+        {
+          "title": "_From lens correctness. The judge called it noise (p=0.85)._",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 29
+          }
+        },
+        {
+          "title": "A class would read better.",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 31
+          }
+        }
+      ]
+    }
+  ]
+}

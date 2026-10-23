@@ -10,6 +10,7 @@ describe("compileConfig", () => {
       modes: {
         qa: { validate: seededValidateCommand("qa") },
         review: { validate: seededValidateCommand("review") },
+        findings: { validate: seededValidateCommand("findings") },
       },
       skills: {},
       access: {},

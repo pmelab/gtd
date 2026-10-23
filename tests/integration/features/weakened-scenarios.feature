@@ -4,8 +4,8 @@ Feature: the review flags an existing scenario that lost an assertion
   Scenario wording is not frozen while a workflow builds: the human
   signs the scenarios off once, in the review. A `Then` line (or an `And`/`But`
   continuing one) that a `.feature` file existing at the review's base no
-  longer carries is listed under `## Weakened scenarios` in the review gtd
-  composes. A reworded `Given` or `When` is not.
+  longer carries is listed in the reviewer's prompt, which asks for a
+  `Weakened:` note on that scenario. A reworded `Given` or `When` is not.
 
   Background:
     Given a test project
@@ -51,11 +51,11 @@ Feature: the review flags an existing scenario that lost an assertion
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
     And the file ".gtd/FEEDBACK.md" is deleted
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     When I run gtd next
     Then it succeeds
-    And stdout contains "## Weakened scenarios"
-    And stdout contains "- spec/widget.feature — Scenario: shown — Then it is shown"
+    And stdout contains "spec/widget.feature — Scenario: shown — Then it is shown"
+    And stdout contains "Open the note of each scenario that lost one with `Weakened:`"
     And stdout does not contain "And it is blue"
 
   Scenario: a reworded Given is not listed
@@ -70,8 +70,8 @@ Feature: the review flags an existing scenario that lost an assertion
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
     And the file ".gtd/FEEDBACK.md" is deleted
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     When I run gtd next
     Then it succeeds
-    And stdout contains "## Nothing to note"
+    And stdout contains "Write `.gtd/REVIEW.md` in this exact format"
     And stdout does not contain "Weakened"

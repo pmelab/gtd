@@ -286,7 +286,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => undefined
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -297,7 +297,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       - [ ] ./src/widget.ts#1
       new export
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     # await-review: a hand-edit outside `.gtd/` is feedback — closing
     # (simulated by hand) hands it straight on to collecting.
     And a file "src/greet.ts" with:
@@ -405,7 +405,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => 1
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
 
     Given a file ".gtd/REVIEW.md" with:
       """
@@ -417,7 +417,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       - [ ] ./src/widget.ts#1
       new export
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     # await-review: a hand-edit outside `.gtd/` is feedback — closing
     # (simulated by hand) hands it straight on to collecting.
     And a file "src/greet.ts" with:
@@ -485,7 +485,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And gtd lands "gtd(agent): implement.prototype.testing → implement.closing"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And the file ".gtd/PROTOTYPE.md" is deleted
-    And gtd lands "gtd(check): implement.closing → build.review.composing"
+    And gtd lands "gtd(check): implement.closing → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -494,8 +494,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       ## Add widget.ts
 
       The widget export.
+
+      - [ ] ./src/widget.ts#1
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     And a file "src/greet.ts" with:
       """
       export const greet = "hello"
@@ -560,7 +562,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => undefined
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -571,7 +573,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       - [ ] ./src/widget.ts#1
       new export
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     # await-review: a hand-edit outside `.gtd/` is feedback — closing
     # (simulated by hand) hands it straight on to collecting.
     And a file "src/greet.ts" with:
@@ -636,7 +638,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And gtd lands "gtd(agent): implement.prototype.testing → implement.closing"
     And the file ".gtd/REQUIREMENTS.md" is deleted
     And the file ".gtd/PROTOTYPE.md" is deleted
-    And gtd lands "gtd(check): implement.closing → build.review.composing"
+    And gtd lands "gtd(check): implement.closing → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -645,8 +647,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       ## Add widget.ts
 
       The widget export.
+
+      - [ ] ./src/widget.ts#1
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     And a file "src/greet.ts" with:
       """
       export const greet = "hello"

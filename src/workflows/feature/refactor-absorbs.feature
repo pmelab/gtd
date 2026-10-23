@@ -74,10 +74,6 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
       """
     And step "refactor.health.check" changes nothing
     And step "refactor.closing" runs its script
-    And judge step "refactor.build.review.ranking" answers:
-      """
-      []
-      """
     And step "refactor.build.review.carrying" runs its script
     And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
       """
@@ -100,9 +96,7 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
 
       <!-- base: 0000000 -->
 
-      ## Walkthrough
-
-      ### calc
+      ## calc
 
       - [x] ./src/calc.ts#1-2
         subtract next to add

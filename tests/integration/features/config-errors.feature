@@ -28,7 +28,7 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     Then it fails
     And stderr contains "gtd config:"
     And stderr contains "mode \"adrs\" is not a mode this workflow knows"
-    And stderr contains "qa, review, adr"
+    And stderr contains "qa, review, findings, adr"
     And stderr contains "step \"idle\""
 
   Scenario: a "modes:" entry declaring neither format nor validate still registers the name, so a step may use it
@@ -67,7 +67,7 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     When I run gtd next
     Then it fails
     And stderr contains "gtd config:"
-    And stderr contains "mode \"prose\" is not a mode this workflow knows (qa, review)"
+    And stderr contains "mode \"prose\" is not a mode this workflow knows (qa, review, findings)"
     And stderr contains "step \"idle\""
 
   Scenario: an unknown key inside a "modes:" entry fails naming both

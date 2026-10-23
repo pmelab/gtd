@@ -39,6 +39,7 @@ export const config = {
   modes: {
     qa: { format, validate: 'node ./dist/gtd.bundle.mjs check qa "$GTD_FILE"' },
     review: { format, validate: 'node ./dist/gtd.bundle.mjs check review "$GTD_FILE"' },
+    findings: { format, validate: 'node ./dist/gtd.bundle.mjs check findings "$GTD_FILE"' },
   },
   ui: { format },
 } satisfies GtdConfig

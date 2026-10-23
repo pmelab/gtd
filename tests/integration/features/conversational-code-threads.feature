@@ -45,7 +45,7 @@ Feature: Code threads — an H:/A: conversation in line comments of changed code
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -57,7 +57,7 @@ Feature: Code threads — an H:/A: conversation in line comments of changed code
       - [ ] ./src/calc.ts#1
       new add function
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
 
   Scenario: a code thread question gets one A: reply and the gate rests again, no lap
     Given "src/calc.ts" is modified to:

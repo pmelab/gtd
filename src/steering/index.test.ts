@@ -14,8 +14,8 @@ describe("steeringFormatFor / BUILT_IN_MODE_NAMES", () => {
     expect(steeringFormatFor("bogus")).toBeUndefined()
   })
 
-  it("lists both built-in mode names, in registry order", () => {
-    expect(BUILT_IN_MODE_NAMES).toEqual(["qa", "review"])
+  it("lists the built-in mode names, in registry order", () => {
+    expect(BUILT_IN_MODE_NAMES).toEqual(["qa", "review", "findings"])
   })
 })
 

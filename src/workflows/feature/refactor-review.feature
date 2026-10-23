@@ -83,10 +83,6 @@ Feature: the refactor is reviewed on its own before the feature is implemented
       """
     And step "refactor.health.check" changes nothing
     And step "refactor.closing" runs its script
-    And judge step "refactor.build.review.ranking" answers:
-      """
-      []
-      """
     And step "refactor.build.review.carrying" runs its script
     And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
       """
@@ -185,10 +181,6 @@ Feature: the refactor is reviewed on its own before the feature is implemented
       """
     And step "refactor.health.check" changes nothing
     And step "refactor.closing" runs its script
-    And judge step "refactor.build.review.ranking" answers:
-      """
-      []
-      """
     And step "refactor.build.review.carrying" runs its script
     And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
       """
@@ -211,9 +203,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
       """
       gtd(check): refactor.closing → refactor.build.quality.correctness.reviewing
       gtd(agent): refactor.build.quality.correctness.reviewing → refactor.build.review.reviewing
-      gtd(agent): refactor.build.review.reviewing → refactor.build.review.ranking
-      gtd(judge): refactor.build.review.ranking → refactor.build.review.carrying
-      gtd(check): refactor.build.review.carrying → refactor.build.review.await-review
+      gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
       """
 
 
@@ -288,10 +278,6 @@ Feature: the refactor is reviewed on its own before the feature is implemented
         """
       And step "refactor.health.check" changes nothing
       And step "refactor.closing" runs its script
-      And judge step "refactor.build.review.ranking" answers:
-        """
-        []
-        """
       And step "refactor.build.review.carrying" runs its script
       And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
         """
@@ -315,9 +301,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^why]
@@ -354,9 +338,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op
@@ -380,9 +362,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
         gtd(agent): refactor.building → refactor.health.check
         gtd(check): refactor.health.check → refactor.closing
         gtd(check): refactor.closing → refactor.build.review.reviewing
-        gtd(agent): refactor.build.review.reviewing → refactor.build.review.ranking
-        gtd(judge): refactor.build.review.ranking → refactor.build.review.carrying
-        gtd(check): refactor.build.review.carrying → refactor.build.review.await-review
+        gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
         """
 
     Scenario: a question answered at the refactor review reaches the re-derived package as ### Answered Questions
@@ -394,9 +374,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-1
           why a shared op?
@@ -473,9 +451,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
         gtd(agent): refactor.building → refactor.health.check
         gtd(check): refactor.health.check → refactor.closing
         gtd(check): refactor.closing → refactor.build.review.reviewing
-        gtd(agent): refactor.build.review.reviewing → refactor.build.review.ranking
-        gtd(judge): refactor.build.review.ranking → refactor.build.review.carrying
-        gtd(check): refactor.build.review.carrying → refactor.build.review.await-review
+        gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
         """
 
     Scenario: an edit note the collecting turn leaves out refuses the landing and never signs off
@@ -487,9 +463,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op — this should change behaviour, not just structure
@@ -533,9 +507,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2 rename the helper
           add built on the shared op
@@ -562,9 +534,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op, lovely work
@@ -583,9 +553,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^q]
@@ -635,9 +603,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^q]
@@ -669,9 +635,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^q]
@@ -718,9 +682,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^n1]
@@ -746,9 +708,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^n1]
@@ -775,9 +735,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^q]
@@ -809,9 +767,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^n1]
@@ -837,9 +793,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op - this should change behaviour, not just structure[^q]
@@ -871,9 +825,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op - this should change behaviour, not just structure[^q]
@@ -918,9 +870,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^q]
@@ -952,9 +902,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^q]
@@ -1000,9 +948,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op, lovely work[^q]
@@ -1034,9 +980,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op, lovely work[^q]
@@ -1087,9 +1031,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [x] ./src/calc.ts#1-2
           add built on the shared op
@@ -1112,9 +1054,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op — rename `sign` to `direction`
@@ -1143,9 +1083,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op — rename `sign` to `direction`
@@ -1166,9 +1104,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
       And the commit subjects end with:
         """
         gtd(check): refactor.closing → refactor.build.review.reviewing
-        gtd(agent): refactor.build.review.reviewing → refactor.build.review.ranking
-        gtd(judge): refactor.build.review.ranking → refactor.build.review.carrying
-        gtd(check): refactor.build.review.carrying → refactor.build.review.await-review
+        gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
         """
 
     Scenario: a reviewer walks the human through the whole refactor, every chunk pointing at its code
@@ -1176,9 +1112,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
       Then the process rests at "refactor.build.review.await-review"
       And ".gtd/REVIEW.md" contains:
         """
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op
@@ -1206,21 +1140,17 @@ Feature: the refactor is reviewed on its own before the feature is implemented
       Then the process rests at "refactor.build.review.await-review"
       And ".gtd/REVIEW.md" contains:
         """
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2 — Risk: still drops the sign
         """
-      And ".gtd/REVIEW.md" contains "## Walkthrough" exactly once
+      And ".gtd/REVIEW.md" contains "## calc" exactly once
       And the commit subjects end with:
         """
         gtd(agent): refactor.build.review.reviewing → refactor.build.review.fix.risks.fixing
         gtd(agent): refactor.build.review.fix.risks.fixing → refactor.build.health.check
         gtd(check): refactor.build.health.check → refactor.build.review.reviewing
-        gtd(agent): refactor.build.review.reviewing → refactor.build.review.ranking
-        gtd(judge): refactor.build.review.ranking → refactor.build.review.carrying
-        gtd(check): refactor.build.review.carrying → refactor.build.review.await-review
+        gtd(agent): refactor.build.review.reviewing → refactor.build.review.await-review
         """
 
   Rule: with a quality lens on both the refactor and the feature
@@ -1295,10 +1225,6 @@ Feature: the refactor is reviewed on its own before the feature is implemented
         """
       And step "refactor.health.check" changes nothing
       And step "refactor.closing" runs its script
-      And judge step "refactor.build.review.ranking" answers:
-        """
-        []
-        """
       And step "refactor.build.review.carrying" runs its script
       And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
         """
@@ -1338,9 +1264,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [x] ./src/calc.ts#1-2
           add built on the shared op
@@ -1509,10 +1433,6 @@ Feature: the refactor is reviewed on its own before the feature is implemented
         """
       And step "refactor.health.check" changes nothing
       And step "refactor.closing" runs its script
-      And judge step "refactor.build.review.ranking" answers:
-        """
-        []
-        """
       And step "refactor.build.review.carrying" runs its script
       And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
         """
@@ -1533,9 +1453,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^why]
@@ -1575,9 +1493,7 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         <!-- base: 0000000 -->
 
-        ## Walkthrough
-
-        ### calc
+        ## calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op

@@ -91,7 +91,7 @@ describe("afterTail feedback lap", () => {
     await repo.drive({
       "review-gate.check": () => undefined,
       "build.health.check": () => undefined,
-      "build.review.composing": (_, r) => r.write(".gtd/REVIEW.md", review()),
+      "build.review.reviewing": (_, r) => r.write(".gtd/REVIEW.md", review()),
     })
     repo.write(".gtd/REVIEW.md", review("also export multiply"))
     await repo.land()

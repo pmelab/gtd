@@ -80,11 +80,11 @@ Commands:
                    instead of the packaged build
   check <mode> <file>
                    Read <file> and run the built-in steering format named
-                   <mode> (see `gtd validate`'s modes: qa, review) over its
-                   contents, printing each finding one per line and exiting
-                   non-zero when there are any. Resolves no workflow state and
-                   reads no config — standalone, runnable from any directory
-                   with <mode>/<file> given explicitly. This is what a
+                   <mode> (see `gtd validate`'s modes: qa, review, findings)
+                   over its contents, printing each finding one per line and
+                   exiting non-zero when there are any. Resolves no workflow
+                   state and reads no config — standalone, runnable from any
+                   directory with <mode>/<file> given explicitly. This is what a
                    workflow's emitted validation script invokes as a leaf step.
                    --open-questions runs the qa unanswered-questions predicate
                    instead (see --help); --open-threads lists open threads.

@@ -56,7 +56,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -71,7 +71,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       - [ ] ./src/calc.ts#3-3
       mul
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -144,7 +144,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -159,7 +159,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       - [ ] ./src/calc.ts#3-3
       mul
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -236,7 +236,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -251,7 +251,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       - [ ] ./src/calc.ts#3-3
       mul
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -324,7 +324,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -339,7 +339,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       - [ ] ./src/calc.ts#3-3
       mul
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -411,7 +411,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -426,7 +426,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       - [ ] ./src/calc.ts#3-3
       mul
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -517,7 +517,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -532,7 +532,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       - [ ] ./src/calc.ts#3-3
       mul
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -574,7 +574,7 @@ Feature: Review triage — one four-way verdict per note, and its route
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.closing → build.review.composing"
+    And the last commit subject is "gtd(check): build.review.closing → build.review.reviewing"
     And the git log does not contain "build.review.collecting"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -588,7 +588,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.composing → build.review.await-review"
+    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.await-review"
 
   @inmem
   Scenario: questions and nits — the fresh review carries each answer over
@@ -631,7 +631,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -646,7 +646,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       - [ ] ./src/calc.ts#3-3
       mul
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -703,11 +703,11 @@ Feature: Review triage — one four-way verdict per note, and its route
     Given the file ".gtd/REVIEW.md" is deleted
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.closing → build.review.composing"
+    And the last commit subject is "gtd(check): build.review.closing → build.review.reviewing"
     When I run gtd next
     Then it succeeds
     And stdout contains "git show"
-    And stdout contains ":.gtd/REVIEW.md' > '.gtd/REVIEW.md'"
+    And stdout contains "Carry-over: commit"
 
   @inmem
   Scenario: edit, question and nit together — answer, fix, then collect the edit
@@ -750,7 +750,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -765,7 +765,7 @@ Feature: Review triage — one four-way verdict per note, and its route
       - [ ] ./src/calc.ts#3-3
       mul
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     Given ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234

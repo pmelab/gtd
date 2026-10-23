@@ -18,9 +18,13 @@ read them.
   its decision. A `## Findings` or `## Walkthrough` heading groups the `###`
   chunks under it; a walkthrough chunk takes no decision. Any other `##` is a
   chunk of its own.
+- **`findings`**: the finding gate's file. `## ` entries, those under a
+  `# Dropped as noise` heading being the noise; each holds exactly one
+  `- [ ] fix` box. A ticked box fixes the finding; text below the box is the
+  human's guidance, valid only under a ticked one.
 - **Free-form**: any markdown, for a file with no mode or an unknown one. Only
   its threads are validated.
-- **Threads**, shared by all three: a footnote whose definition is a list of
+- **Threads**, shared by all of them: a footnote whose definition is a list of
   alternating `- H:` / `- A:` entries. Any other footnote is a one-shot note.
 - **Code threads**: `H:` / `A:` line comments (`//`, `#`, `--`, `;`, chosen by
   file extension) in a changed code file. A comment run is a thread only when
