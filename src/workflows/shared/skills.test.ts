@@ -39,6 +39,7 @@ describe("the bundled workflow's skills export", () => {
         "build.quality.test-audit",
         "build.quality.conventions",
         "build.quality.spec-challenge",
+        "build.quality.criteria-coverage",
         "refactor.build",
         "refactor.build.health",
         "refactor.build.fix.quality",
@@ -98,10 +99,11 @@ describe("the bundled workflow's skills export", () => {
     expect(Object.keys(none).filter((k) => k.startsWith("refactor.build.quality."))).toEqual([])
   })
 
-  it("loads one lens skill per quality lens: correctness its review skill, conventions and spec-challenge none, any other itself", () => {
+  it("loads one lens skill per quality lens: correctness its review skill, conventions, spec-challenge and criteria-coverage none, any other itself", () => {
     expect(bundled["build.quality.correctness"]).toEqual(["code-review-and-quality"])
     expect(bundled["build.quality.conventions"]).toEqual([])
     expect(bundled["build.quality.spec-challenge"]).toEqual([])
+    expect(bundled["build.quality.criteria-coverage"]).toEqual([])
     expect(bundled["build.quality.owasp-security"]).toEqual(["owasp-security"])
   })
 

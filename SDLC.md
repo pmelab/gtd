@@ -24,11 +24,12 @@ takes the off path.
 
 ## Naive pass and seam judge
 
-After design the agent implements first, breadth-first, with a behaviour-level
-acceptance test naming each criterion's ID; `seam.check` runs the suite on the
-pass, and a seam judge rules `land`/`refactor-first`/`reject`. On `land` the
-pass itself is the implementation (`implement.applying`), with no rebuild and no
-release flag; with `flagMode` off no judge runs and every vetted pass lands so.
+After design the agent implements first, breadth-first, testing the behaviour
+the criteria describe (one test per behaviour, no criterion ID in a test name,
+no test required); `seam.check` runs the suite on the pass, and a seam judge
+rules `land`/`refactor-first`/`reject`. On `land` the pass itself is the
+implementation (`implement.applying`), with no rebuild and no release flag; with
+`flagMode` off no judge runs and every vetted pass lands so.
 `GTD_FLAG_RISK_TIER` (off by default) adds a proposed risk tier at the design
 gate.
 
@@ -42,10 +43,9 @@ turns:
    existing suite stays green.** It lands on its own, after its review.
 3. **Rebuild.** The change re-implemented on the refactored base, behind a
    release flag read at the composition point, with the note and the naive diff
-   as reference. **Gate: the naive pass's `AC-<n>`-tagged acceptance tests,
-   carried over, are green** — a rebuild whose tests leave out an ID the naive
-   tests named is refused (`rebuild-acceptance`), and the health loop runs the
-   suite green. See
+   as reference, asked to carry over every test file the naive pass added or
+   changed. **Gate: the suite is green** — nothing checks the carried tests
+   stayed; an untested criterion surfaces as a `criteria-coverage` finding. See
    [The naive-pass path](docs/configuration.md#the-naive-pass-path).
 
 The third reject, test fault or red check rests at `seam.steer`, where a human
@@ -57,8 +57,8 @@ steers or overrules.
 one build, one quality lap, one review. Sizing the work is the human's job
 before the sketch — a change too big for one process is split into several.
 Nothing guards a turn's context: a long turn relies on the agent harness's own
-compaction, and the acceptance-test check and the naive retries (then
-`seam.steer`) catch an incomplete pass.
+compaction, and the red-suite check, the naive retries (then `seam.steer`) and
+the `criteria-coverage` lens catch an incomplete pass.
 
 ## The hands-on test
 
@@ -79,16 +79,17 @@ human. No way to test found rests at `implement.prototype.unguided`. See
 ## The quality lenses and the reviewer's walkthrough
 
 **In `feature`, a reviewer walks you through the code.** The quality lap's
-lenses write one `## ` finding each to `.gtd/QUALITY.md`; `build.quality.triage`
-judges each `mechanical` (fixed by the fix turn, up to three turns), `noise`
-(dropped, `Gtd-Mark: noise=<id> p=<p> <title>`) or `design` (a note for the
-human). **An unsure verdict is `design`**, and a mechanical finding the fix cap
-leaves is a note too. The reviewer turn writes `.gtd/REVIEW.md` as a walkthrough
-of the change, every chunk pointing at its code and every note a chunk of its
-own pointing at the code it cites; gtd adds each note's text and three tick
-boxes (fix as suggested, won't fix, your answer) of which the gate needs exactly
-one, then — no tick boxes, no answer required — what was fixed automatically
-(with the fixing commit) and what was dropped as noise. See
+lenses write one `## ` finding each to `.gtd/QUALITY.md` — `criteria-coverage`
+one per acceptance criterion no test exercises; `build.quality.triage` judges
+each `mechanical` (fixed by the fix turn, up to three turns), `noise` (dropped,
+`Gtd-Mark: noise=<id> p=<p> <title>`) or `design` (a note for the human). **An
+unsure verdict is `design`**, and a mechanical finding the fix cap leaves is a
+note too. The reviewer turn writes `.gtd/REVIEW.md` as a walkthrough of the
+change, every chunk pointing at its code and every note a chunk of its own
+pointing at the code it cites; gtd adds each note's text and three tick boxes
+(fix as suggested, won't fix, your answer) of which the gate needs exactly one,
+then — no tick boxes, no answer required — what was fixed automatically (with
+the fixing commit) and what was dropped as noise. See
 [The triaged quality lap](docs/configuration.md#the-triaged-quality-lap).
 
 **The review learns your taste.** A won't-fix or an own answer the
@@ -190,17 +191,14 @@ Paths and text are checked, **never behaviour**.
 - `gtd land` refusals in `refactor.*` (a path outside the strays, a raised
   flag-read count): see [`refactorFirst`](docs/configuration.md#refactorfirst).
 - `seam.note` is refused when it changes anything but the note
-  (`refactor-note`); the rebuild's `implement.building` when its tests leave out
-  a naive acceptance-test ID (`rebuild-acceptance`), and so is a fix turn that
-  drops one. **Both read text only**: the rebuild's carried tests run in the
-  health loop, a carried test may be edited to reach the flag, and **a skipped
-  test naming the ID passes**.
+  (`refactor-note`). **Nothing refuses a rebuild or fix turn that drops a
+  carried test**: a criterion left untested is a `criteria-coverage` finding in
+  the quality lap.
 - `gtd land` refusals in `rollout` and `cleanup`: see
   [Rolling out and cleaning up a release flag](docs/configuration.md#rolling-out-and-cleaning-up-a-release-flag).
   `cleanup` checks shipped `src/` sources only.
-- `seam.naive` is sent back, not refused, when a criterion ID no test of the
-  pass names (`acceptance-tests`) or a test imports a file the pass added
-  (`acceptance-internals`). See
+- `seam.naive` is sent back, not refused, when a test imports a file the pass
+  added (`acceptance-internals`). See
   [The naive-pass path](docs/configuration.md#the-naive-pass-path). `seam.check`
   is the one place the naive pass's behaviour is run.
 - `build.quality.triage` reads finding text only. **A finding judged `noise` is

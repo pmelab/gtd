@@ -197,11 +197,16 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(agent): build.quality.conventions.reviewing → build.quality.spec-challenge.reviewing"
 
-    # The sixth and final lens (spec-challenge) is clean too -> the lap has no
-    # findings, straight on to human review.
+    # A clean lens turn (spec-challenge) — nothing found, so no .gtd/QUALITY.md.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.spec-challenge.reviewing → build.review.reviewing"
+    And the last commit subject is "gtd(agent): build.quality.spec-challenge.reviewing → build.quality.criteria-coverage.reviewing"
+
+    # The seventh and final lens (criteria-coverage) is clean too -> the lap has
+    # no findings, straight on to human review.
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): build.quality.criteria-coverage.reviewing → build.review.reviewing"
 
     # The reviewer walks the human through the change, every chunk pointing at its code.
     When I run gtd next
@@ -290,7 +295,8 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(agent): build.quality.ponytail-review.reviewing → build.quality.test-audit.reviewing
       gtd(agent): build.quality.test-audit.reviewing → build.quality.conventions.reviewing
       gtd(agent): build.quality.conventions.reviewing → build.quality.spec-challenge.reviewing
-      gtd(agent): build.quality.spec-challenge.reviewing → build.review.reviewing
+      gtd(agent): build.quality.spec-challenge.reviewing → build.quality.criteria-coverage.reviewing
+      gtd(agent): build.quality.criteria-coverage.reviewing → build.review.reviewing
       gtd(agent): build.review.reviewing → build.review.ranking
       gtd(judge): build.review.ranking → build.review.carrying
       gtd(check): build.review.carrying → build.review.await-review

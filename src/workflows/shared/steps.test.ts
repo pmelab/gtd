@@ -57,12 +57,15 @@ describe("the bundled workflow's steps declare skills — a bundled step's rende
       expect(body).toContain(point)
   })
 
-  it.each(["conventions", "spec-challenge"])("%s carries its brief", async (lens) => {
-    const request = await capture(() => steps.reviewQuality(lens), "build")
-    expect(JSON.stringify(request)).toContain(
-      steps.builtInLenses[lens]!.brief.split("\n")[0]!.slice(0, 40),
-    )
-  })
+  it.each(["conventions", "spec-challenge", "criteria-coverage"])(
+    "%s carries its brief",
+    async (lens) => {
+      const request = await capture(() => steps.reviewQuality(lens), "build")
+      expect(JSON.stringify(request)).toContain(
+        steps.builtInLenses[lens]!.brief.split("\n")[0]!.slice(0, 40),
+      )
+    },
+  )
 
   it("an unknown lens has no brief", async () => {
     const request = await capture(() => steps.reviewQuality("my-lens"), "build")

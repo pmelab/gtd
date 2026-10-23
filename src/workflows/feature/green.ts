@@ -3,7 +3,7 @@ import { coder, FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { requireCriteriaFrozen } from "./criteria.js"
 
-export const green = (guard?: () => void): Promise<void> =>
+export const green = (): Promise<void> =>
   healthy(
     () =>
       t.agentWithSkills("fix.suite.fixing", t.implementFixPrompt(), {
@@ -13,10 +13,7 @@ export const green = (guard?: () => void): Promise<void> =>
         system: t.builderSystem(),
       }),
     {
-      guard: () => {
-        requireCriteriaFrozen(REQUIREMENTS)
-        guard?.()
-      },
+      guard: () => requireCriteriaFrozen(REQUIREMENTS),
       guardRests: false,
     },
   )

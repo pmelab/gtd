@@ -5,8 +5,9 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
   On a refactor-first judgment the naive pass is never applied. `seam.note`
   reads the whole naive diff and writes `.gtd/REFACTOR-NOTE.md`; the refactor
   lands on its own with the existing suite green; the rebuild re-implements the
-  change on the refactored base and lands only once it carries the naive pass's
-  acceptance tests and the suite is green. The note reaches both turns.
+  change on the refactored base, is asked to carry over every test file the
+  naive pass added or changed, and lands once the suite is green. The note
+  reaches both turns.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -17,6 +18,10 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
     And a file "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
+      """
+    And a file "src/calc.test.ts" with:
+      """
+      it("adds", () => {})
       """
     And the working tree is committed as "feat: add calculator"
     And a file "TODO.md" with:
@@ -49,7 +54,12 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
     And step "seam.check" changes nothing
     And step "seam.naive" writes "src/acceptance.test.ts" with:
       """
-      it("[AC-1] subtracts", () => {})
+      it("subtracts", () => {})
+      """
+    And step "seam.naive" writes "src/calc.test.ts" with:
+      """
+      it("adds", () => {})
+      it("subtracts a larger number", () => {})
       """
     And step "seam.naive" writes "src/calc.ts" with:
       """
@@ -125,7 +135,8 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
     And the process is driven
     Then the process rests at "implement.building"
     And the resting step's content contains "shared `op(a, b, sign)`"
-    And the resting step's content contains "acceptance tests for AC-1"
+    And the resting step's content contains "Carry over the naive pass's acceptance tests"
+    And the resting step's content contains "'src/acceptance.test.ts' 'src/calc.test.ts'"
 
   Scenario: a note turn that changes anything but the note is refused
     Given step "seam.note" writes "src/calc.ts" with:
@@ -198,7 +209,7 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
     And "src/calc.ts" contains "op(a, b, 1)"
     And "src/calc.ts" does not contain "subtract"
 
-  Scenario: the rebuild lands only once it carries the naive pass's acceptance tests, green
+  Scenario: the rebuild lands once green, whichever tests it carried
     Given step "seam.note" writes ".gtd/REFACTOR-NOTE.md" with:
       """
       Seam: a shared `op` in src/calc.ts.
@@ -254,18 +265,11 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
       export const add = (a: number, b: number) => op(a, b, 1)
       export const subtract = (a: number, b: number) => op(a, b, -1)
       """
-    Then driving the process is refused with "rebuild-acceptance"
-
-    Given step "implement.building" writes "src/acceptance.test.ts" with:
-      """
-      it("[AC-1] subtracts", () => {})
-      """
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
     When the process is driven
     Then the process rests at "build.review.reviewing"
     And "src/calc.ts" contains "op(a, b, -1)"
-    And "src/acceptance.test.ts" contains "[AC-1]"
     And ".gtd/REFACTOR-NOTE.md" does not exist
     And the commit subjects end with:
       """

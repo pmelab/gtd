@@ -14,8 +14,6 @@ import {
   naivePass,
   acceptanceFault,
   naiveAcceptance,
-  requireAcceptance,
-  requireAcceptanceKept,
   seamBuild,
   type SeamOutcome,
 } from "./seam.js"
@@ -108,71 +106,24 @@ describe("naivePass", () => {
   })
 })
 
-describe("naiveAcceptance and requireAcceptance", () => {
-  const requirements =
-    "# R\n\n## Impact\n\n- the module\n\n## Acceptance Criteria\n\n- AC-1: adds.\n- AC-2: subtracts.\n"
-  const file = (path: string, before: string | undefined, after: string): Change => ({
-    path,
-    status: before === undefined ? "added" : "modified",
-    before,
-    after,
-  })
-  const install = (since: Change[] = []) =>
-    installContext({
-      ...fixtureContext({}),
-      matches: globMatches,
-      read: (path: string) => (path === ".gtd/REQUIREMENTS.md" ? requirements : undefined),
-      changesSince: () => since,
-      changes: () => since,
-      refuse: (message: string) => {
-        throw new Error(message)
-      },
-    } as unknown as FlowContext)
-
-  it("takes the IDs the pass's tests name on an added line, and only those test files", () => {
-    install()
+describe("naiveAcceptance", () => {
+  it("carries every test file the pass added or changed, named or not", () => {
+    installContext({ ...fixtureContext({}), matches: globMatches } as unknown as FlowContext)
     expect(
       naiveAcceptance(
         tip(
-          file("src/a.test.ts", 'it("[AC-2] old")', 'it("[AC-2] old")\nit("[AC-1] adds")'),
-          file("src/b.test.ts", undefined, 'it("helper")'),
-          file("src/calc.ts", "x", "AC-2"),
+          change("src/a.test.ts", "modified"),
+          change("tests/b.feature", "added"),
+          change("src/gone.test.ts", "deleted"),
+          change("src/calc.ts", "modified"),
+          change(".gtd/x.test.ts", "added"),
         ),
       ),
-    ).toEqual({ hash: "abc", tests: ["src/a.test.ts"], ids: ["AC-1"] })
-  })
-
-  it("refuses a rebuild whose tests leave out an ID, naming the naive tests to carry over", () => {
-    install([file("src/calc.test.ts", undefined, 'it("[AC-1] adds")')])
-    expect(() =>
-      requireAcceptance({ hash: "abc", tests: ["src/a.test.ts"], ids: ["AC-1", "AC-2"] }, "c0"),
-    ).toThrow(
-      /^gtd land: rebuild-acceptance: .*leave out AC-2 — .*git show abc -- 'src\/a\.test\.ts'/,
-    )
-  })
-
-  it("refuses a fix turn that itself drops a carried ID, never one that leaves it alone", () => {
-    const acceptance = { hash: "abc", tests: [], ids: ["AC-1"] }
-    install([file("src/calc.test.ts", 'it("[AC-1] adds")', 'it("adds")')])
-    expect(() => requireAcceptanceKept(acceptance)).toThrow(/drops AC-1/)
-    install([file("src/calc.ts", "a", "b")])
-    expect(() => requireAcceptanceKept(acceptance)).not.toThrow()
-  })
-
-  it("passes a rebuild whose tests name every ID, wherever they live", () => {
-    install([
-      file("tests/x.test.ts", undefined, 'it("[AC-1] adds")'),
-      file("tests/y.feature", "", "Scenario: [AC-2] subtracts"),
-    ])
-    expect(() =>
-      requireAcceptance({ hash: "abc", tests: ["src/a.test.ts"], ids: ["AC-1", "AC-2"] }, "c0"),
-    ).not.toThrow()
+    ).toEqual({ hash: "abc", tests: ["src/a.test.ts", "tests/b.feature"] })
   })
 })
 
 describe("acceptanceFault", () => {
-  const requirements =
-    "# R\n\n## Impact\n\n- the module\n\n## Acceptance Criteria\n\n- AC-1: adds.\n- AC-2: subtracts.\n"
   const file = (path: string, status: Change["status"], after: string): Change => ({
     path,
     status,
@@ -180,30 +131,10 @@ describe("acceptanceFault", () => {
     after,
   })
   const refusal = (...changes: Change[]): string | undefined => {
-    installContext({
-      ...fixtureContext({}),
-      matches: globMatches,
-      read: (path: string) => (path === ".gtd/REQUIREMENTS.md" ? requirements : undefined),
-    } as unknown as FlowContext)
-    return acceptanceFault(".gtd/REQUIREMENTS.md", tip(...changes))
+    installContext({ ...fixtureContext({}), matches: globMatches } as unknown as FlowContext)
+    return acceptanceFault(tip(...changes))
   }
-  const tagged = 'import { add } from "../src/calc.js"\nit("[AC-1] adds")\nit("[AC-2] subtracts")'
-
-  it("passes when every ID is named in a test the pass wrote", () => {
-    expect(
-      refusal(file("src/calc.ts", "modified", "x"), file("tests/calc.test.ts", "added", tagged)),
-    ).toBe(undefined)
-  })
-
-  it("names every ID no test of the pass mentions", () => {
-    const message = refusal(file("tests/calc.test.ts", "added", 'it("[AC-12] x")'))
-    expect(message).toMatch(/^acceptance-tests: /)
-    expect(message).toContain("AC-1, AC-2")
-  })
-
-  it("does not count an ID in a non-test file", () => {
-    expect(refusal(file("src/calc.ts", "modified", "AC-1 AC-2"))).toContain("AC-1, AC-2")
-  })
+  const tagged = 'import { add } from "../src/calc.js"\nit("adds")'
 
   it("refuses a test importing a file the pass added, resolved from the test's directory", () => {
     const message = refusal(
@@ -222,17 +153,6 @@ describe("acceptanceFault", () => {
     expect(
       refusal(added, file("tests/a.test.ts", "added", `import "../src/naive/index.js"\n${tagged}`)),
     ).toContain("acceptance-internals")
-  })
-
-  it("counts only the lines the pass added: an ID an earlier feature left does not", () => {
-    const old = 'it("[AC-1] old")\nit("[AC-2] old")'
-    const message = refusal({
-      path: "tests/calc.test.ts",
-      status: "modified",
-      before: old,
-      after: `${old}\nit("[AC-2] new")`,
-    })
-    expect(message).toContain("names AC-1 —")
   })
 
   it("refuses a bare . or .. import of an added index", () => {
@@ -424,7 +344,7 @@ describe("seamBuild", () => {
       reference: "abc",
       base: "after-refactor",
       refactored: true,
-      rebuild: { note: "Seam: a shared op", acceptance: { hash: "abc", tests: [], ids: [] } },
+      rebuild: { note: "Seam: a shared op", acceptance: { hash: "abc", tests: [] } },
     })
     expect(h.names.indexOf("seam.note")).toBe(h.names.indexOf("seam.judge") + 1)
     expect(h.names.indexOf("refactor.deriving")).toBe(h.names.indexOf("seam.note") + 1)
@@ -440,7 +360,7 @@ describe("seamBuild", () => {
     expect(h.outcome).toEqual({
       reference: "abc",
       base: "c-base",
-      rebuild: { acceptance: { hash: "abc", tests: [], ids: [] } },
+      rebuild: { acceptance: { hash: "abc", tests: ["src/a.test.ts"] } },
     })
     expect(h.names).not.toContain("seam.by-hand")
     expect(h.names.some((n) => n.startsWith("refactor"))).toBe(false)
@@ -466,7 +386,7 @@ describe("seamBuild", () => {
     expect(h.outcome).toEqual({
       reference: "abc",
       base: "c-base",
-      rebuild: { acceptance: { hash: "abc", tests: [], ids: [] } },
+      rebuild: { acceptance: { hash: "abc", tests: [] } },
     })
   })
 })
@@ -543,19 +463,17 @@ describe("implement", () => {
         reference: "abc",
         rebuild: {
           note: "# Note\n\nSeam: a shared op",
-          acceptance: { hash: "abc", tests: ["src/a.test.ts"], ids: ["AC-1"] },
+          acceptance: { hash: "abc", tests: ["src/a.test.ts"] },
         },
-        // The fixture's turn carries no test, so the acceptance guard refuses it after the prompt.
-      }).catch(() => undefined),
+      }),
     )
     expect(prompt).toContain("  > Seam: a shared op")
-    expect(prompt).toContain("acceptance tests for AC-1")
     expect(prompt).toContain("git show abc -- 'src/a.test.ts'")
   })
 
-  it("a rebuild whose naive tests named no ID asks to carry nothing over", async () => {
+  it("a rebuild whose naive pass wrote no test asks to carry nothing over", async () => {
     const prompt = await building("abc", undefined, undefined, () =>
-      implement({ reference: "abc", rebuild: { acceptance: { hash: "abc", tests: [], ids: [] } } }),
+      implement({ reference: "abc", rebuild: { acceptance: { hash: "abc", tests: [] } } }),
     )
     expect(prompt).not.toContain("Carry over")
     expect(prompt).not.toContain("refactor note")

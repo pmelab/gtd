@@ -250,12 +250,14 @@ deleted by a landing. _Avoid_: beat tip, discarded tip.
 kept as a [kept tip](#kept-tip). Applied as the implementation when the
 [seam judge](#seam-judge) rules `land`, a human overrules its `reject`, or
 [flag mode](#flag-mode) is off; otherwise only reading material for a rebuild.
-Done only when its [acceptance tests](#acceptance-test) are green.
+Done only when the suite is green with it applied; it need write no test.
 
-**Acceptance test**: A behaviour-level test a naive pass writes for one
-[acceptance criterion](#acceptance-criterion), naming its ID in the test or
-scenario name (`[AC-3] …`). It reaches only code that existed before the pass,
-so it survives a reset and refactor. _Avoid_: AC test, criterion test
+**Acceptance test**: A test file a naive pass adds or changes — one test per
+behaviour its [acceptance criteria](#acceptance-criterion) describe, never named
+after a criterion's ID. It reaches only code that existed before the pass, so it
+survives a reset and refactor. Whether every criterion is exercised is the
+`criteria-coverage` lens's finding, not a refusal. _Avoid_: AC test, criterion
+test
 
 **Stray**: A path a naive pass changed that `seamAllow` does not match (a newly
 added file never counts).
@@ -284,9 +286,8 @@ opens and the shape each takes. Read by the refactor and the
 
 **Rebuild**: The `implement.building` turn after a refactor: the change
 re-implemented on the refactored base, behind a release flag, with the naive
-pass as reference. Refused until its tests carry every criterion ID the naive
-pass's [acceptance tests](#acceptance-test) named. _Avoid_: re-implementation,
-second pass
+pass as reference, asked to carry over every one of the naive pass's
+[acceptance tests](#acceptance-test). _Avoid_: re-implementation, second pass
 
 **Flag mode**: The shipped workflows' `flagMode` process setting: whether a
 project ships changes behind release flags. On by default; off, there is no seam

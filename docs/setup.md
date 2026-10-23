@@ -31,8 +31,8 @@ nothing. A missing `qualityReviews` entry does not share that rule — see
 of the default lenses (`ponytail-review`, `test-audit`) come from sources a
 reader has no reason to already have, so the default configuration wastes turns
 per quality lap until they are installed. `correctness` needs
-`code-review-and-quality` (already in `addyosmani/agent-skills`); `conventions`
-and `spec-challenge` need no skill.
+`code-review-and-quality` (already in `addyosmani/agent-skills`); `conventions`,
+`spec-challenge` and `criteria-coverage` need no skill.
 
 ### Using a different skill set
 
@@ -88,7 +88,7 @@ Both routes share the same safety rules:
 ### Extending the quality-review lap
 
 `qualityReviews` (default
-`correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge`)
+`correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge, criteria-coverage`)
 is a skill set too, but a different shape from a scope's `skills` entry above:
 each entry is its own full turn and its own scope, not a list handed to one
 scope. Extend it for a project-specific concern — a company security checklist,
@@ -97,31 +97,31 @@ lens added here does not reach the refactor review; that takes
 `refactorQualityReviews` too:
 
 ```ts
-// gtd.config.ts — keep the bundled six, add a company checklist
+// gtd.config.ts — keep the bundled seven, add a company checklist
 export default feature({
   qualityReviews:
-    "correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge, acme-security-checklist",
+    "correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge, criteria-coverage, acme-security-checklist",
 })
 ```
 
 or, highest precedence, via the matching `GTD_<NAME>` environment variable:
 
 ```bash
-GTD_QUALITYREVIEWS="correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge, acme-security-checklist" gtd next
+GTD_QUALITYREVIEWS="correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge, criteria-coverage, acme-security-checklist" gtd next
 ```
 
 Unlike a scope's `skills` entry, gtd DOES split this one — on every comma, one
 lens per entry — because each entry is its own turn rather than one step's skill
 list. Keep entries free of commas and of characters that don't belong in a
 filename: each trimmed entry becomes part of a queued review file's name. The
-built-in names `correctness`, `conventions` and `spec-challenge` are lenses gtd
-defines itself — a brief rides in the prompt, no skill needed — and are exempt
-from the warning below; a user skill of the same name is shadowed. For any other
-name, it does NOT share `skills`'s "costs nothing" rule for a name your harness
-lacks: `reviewing` still burns its own full turn with no lens loaded, since the
-queue file exists whether or not anything can load it — a typo costs a whole
-turn, silently. Blanking the whole var, in contrast, does switch the lap off
-outright.
+built-in names `correctness`, `conventions`, `spec-challenge` and
+`criteria-coverage` are lenses gtd defines itself — a brief rides in the prompt,
+no skill needed — and are exempt from the warning below; a user skill of the
+same name is shadowed. For any other name, it does NOT share `skills`'s "costs
+nothing" rule for a name your harness lacks: `reviewing` still burns its own
+full turn with no lens loaded, since the queue file exists whether or not
+anything can load it — a typo costs a whole turn, silently. Blanking the whole
+var, in contrast, does switch the lap off outright.
 
 An entry may name the model its turn runs on, `<lens>=<model>` —
 `"correctness=smart, conventions=smart"` runs `conventions` on the planner's

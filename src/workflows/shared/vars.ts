@@ -34,7 +34,7 @@ export const defaults: Readonly<Record<string, string>> = {
   // Decides the turn count: one `build.quality.<lens>` scope per entry, each
   // keyed in `./skills.ts`.
   qualityReviews:
-    "correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge",
+    "correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge, criteria-coverage",
   refactorQualityReviews: "correctness, ponytail-review, conventions",
   // Fix-and-retest rounds of the hands-on test before a person is asked;
   // "0" skips the test.

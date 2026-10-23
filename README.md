@@ -474,24 +474,28 @@ noted in steps 3 and 4 below.
    and skip a gate unattended.**
 
    Once the change is built, the whole change goes through a qualitative review
-   lap before you see anything: six lenses, one turn each, in order —
+   lap before you see anything: seven lenses, one turn each, in order —
    `correctness`, `owasp-security`, `ponytail-review`, `test-audit`,
-   `conventions`, `spec-challenge`. `correctness`, `owasp-security` and
-   `spec-challenge` run on the planner model (`smart`), the other three on the
-   coder model (`base`); a `qualityReviews` entry `<lens>=<model>` picks a
-   lens's own. Each traces the change from its own angle and records every
-   finding, blocking or not, as its own `## ` chunk of `.gtd/QUALITY.md`. A
-   clean turn means approval only when that lens found nothing at all. The
-   lenses are the only agentic review: a judge (`build.quality.triage`) then
-   classifies each finding — `mechanical` ones are fixed by the fix turn
-   (`build.fix.quality.fixing`, up to three turns), `noise` is dropped with its
-   `p` recorded as `Gtd-Mark: noise=<id> p=<p> <title>`, and `design` ones
-   (questioning a criterion or the approach) become notes for your review. An
-   unsure verdict (below `qualityTriageMinP`, `0.7`) is `design`; mechanical
-   findings the fix turns leave become notes too. This lap is where code quality
-   is looked at, and every round pays for it. It never replaces step 4 — your
-   review stays the final gate, and nothing here skips it. The `fix` and
-   `cleanup` doors triage their lap too, and hand its notes to their own review.
+   `conventions`, `spec-challenge`, `criteria-coverage`. `correctness`,
+   `owasp-security`, `spec-challenge` and `criteria-coverage` run on the planner
+   model (`smart`), the other three on the coder model (`base`); a
+   `qualityReviews` entry `<lens>=<model>` picks a lens's own.
+   `criteria-coverage` reads the requirements and the change's tests and writes
+   one finding per acceptance criterion no test exercises; with no requirements
+   (the `review` and `fix` workflows) it runs no turn. Each traces the change
+   from its own angle and records every finding, blocking or not, as its own
+   `## ` chunk of `.gtd/QUALITY.md`. A clean turn means approval only when that
+   lens found nothing at all. The lenses are the only agentic review: a judge
+   (`build.quality.triage`) then classifies each finding — `mechanical` ones are
+   fixed by the fix turn (`build.fix.quality.fixing`, up to three turns),
+   `noise` is dropped with its `p` recorded as
+   `Gtd-Mark: noise=<id> p=<p> <title>`, and `design` ones (questioning a
+   criterion or the approach) become notes for your review. An unsure verdict
+   (below `qualityTriageMinP`, `0.7`) is `design`; mechanical findings the fix
+   turns leave become notes too. This lap is where code quality is looked at,
+   and every round pays for it. It never replaces step 4 — your review stays the
+   final gate, and nothing here skips it. The `fix` and `cleanup` doors triage
+   their lap too, and hand its notes to their own review.
 
    A red suite that keeps failing past a few fix attempts escalates instead of
    retrying forever: an agent turn reads the failing output and writes
@@ -652,39 +656,41 @@ home directory — fails every command until you delete it. See
 #### The naive pass
 
 After design the agent first implements the requirements directly,
-breadth-first, with a behaviour-level acceptance test per criterion that names
-its ID (`[AC-3] …`) and reaches only code that existed before the pass. The pass
-is sent back while a criterion's ID is missing from its tests, a test imports a
-file it added, or the suite is red on it. A judge checks whether it changed
-anything outside the expected set (tests, steering files; see `seamAllow`).
-Incidental changes land: the pass itself is the implementation, with no rebuild,
-straight through the health loop and the quality lap. A needed seam change
-resets: the pass is never applied. An agent reads its whole diff and writes a
-refactor note (`.gtd/REFACTOR-NOTE.md`: which seams, which shape); the seam is
-refactored first, flag-free with the existing suite green, on its own with its
-own quality lap (`refactorQualityReviews`) and review; then the feature is
-rebuilt on the refactored base, behind a release flag, with the note and the
-naive diff as reference. The rebuild is refused until its tests carry every
-criterion ID the naive pass's tests named, and the suite must be green with
-them. A wrong approach is retried twice, then rests for you to steer or overrule
-it. A refactor that already carried the whole feature leaves the rebuild only
-the carried-over tests, and the feature's quality lap and review cover the whole
-change. Once the implementation is green, a judge asks, per acceptance
-criterion, whether a person can observe it by using the software; an agent then
-uses the change by hand for those — the real program in a scratch directory, the
-real page, guided by a project skill or a manual testing section in `AGENTS.md`,
-`CLAUDE.md` or `README.md` — and writes `.gtd/PROTOTYPE.md`: per criterion pass,
-fail or blocked, with the steps run and what it saw. A criterion the judge finds
-no one can observe (a refactor, something left unchanged, internal shape), or
-one design tagged `(no hands-on)`, is skipped; a change with none left skips
-this step. This is the one check that a criterion is met: with `prototypeRounds`
-set to `0` nothing checks the criteria beyond the green suite. Failures are
-fixed and re-tested before the quality lap, up to `prototypeRounds` (3) fix
-rounds; past them, with only blocked items, or with no way to test found, it
-rests for you. See [The hands-on test](docs/configuration.md#the-hands-on-test).
-Feedback at the feature review re-runs design and the implementation, never the
-naive pass; feedback at the refactor review re-runs the refactor, never design;
-a refactor-review change the refactor cannot build is refused, and the only way
+breadth-first. It is asked to test the behaviour the criteria describe — one
+test per behaviour, not per criterion, with no criterion ID in a test name —
+through code that existed before the pass, but no test is required. The pass is
+sent back while a test imports a file it added, or the suite is red on it. A
+judge checks whether it changed anything outside the expected set (tests,
+steering files; see `seamAllow`). Incidental changes land: the pass itself is
+the implementation, with no rebuild, straight through the health loop and the
+quality lap. A needed seam change resets: the pass is never applied. An agent
+reads its whole diff and writes a refactor note (`.gtd/REFACTOR-NOTE.md`: which
+seams, which shape); the seam is refactored first, flag-free with the existing
+suite green, on its own with its own quality lap (`refactorQualityReviews`) and
+review; then the feature is rebuilt on the refactored base, behind a release
+flag, with the note and the naive diff as reference. The rebuild is asked to
+carry over every test file the naive pass added or changed, and the suite must
+be green; whether each criterion is still tested is the `criteria-coverage`
+lens's call in the quality lap. A wrong approach is retried twice, then rests
+for you to steer or overrule it. A refactor that already carried the whole
+feature leaves the rebuild only the carried-over tests, and the feature's
+quality lap and review cover the whole change. Once the implementation is green,
+a judge asks, per acceptance criterion, whether a person can observe it by using
+the software; an agent then uses the change by hand for those — the real program
+in a scratch directory, the real page, guided by a project skill or a manual
+testing section in `AGENTS.md`, `CLAUDE.md` or `README.md` — and writes
+`.gtd/PROTOTYPE.md`: per criterion pass, fail or blocked, with the steps run and
+what it saw. A criterion the judge finds no one can observe (a refactor,
+something left unchanged, internal shape), or one design tagged `(no hands-on)`,
+is skipped; a change with none left skips this step. This is the one check that
+a criterion is met: with `prototypeRounds` set to `0` nothing checks the
+criteria beyond the green suite. Failures are fixed and re-tested before the
+quality lap, up to `prototypeRounds` (3) fix rounds; past them, with only
+blocked items, or with no way to test found, it rests for you. See
+[The hands-on test](docs/configuration.md#the-hands-on-test). Feedback at the
+feature review re-runs design and the implementation, never the naive pass;
+feedback at the refactor review re-runs the refactor, never design; a
+refactor-review change the refactor cannot build is refused, and the only way
 out is `gtd abandon`. A process from 27.5.0 or later whose judge ruled
 `refactor-first` must `gtd abandon` too. Details in
 [the naive-pass path](docs/configuration.md#the-naive-pass-path).

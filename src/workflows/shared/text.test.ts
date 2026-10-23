@@ -898,13 +898,26 @@ describe("the seam phase's texts", () => {
     expect(prompt).toContain("solved the task the wrong way")
   })
 
-  it("asks for a breadth-first pass with ID-tagged behaviour tests, green before it ends", () => {
+  it("asks for a breadth-first pass tested through existing code, green before it ends", () => {
     const prompt = renderText(() => naivePassPrompt())
     expect(prompt).toContain("breadth-first")
-    expect(prompt).toContain("`[AC-3] …`")
     expect(prompt).toContain("never a file this pass adds")
     expect(prompt).toContain("green")
   })
+
+  it.each([
+    ["naive", () => naivePassPrompt()],
+    ["building", () => implementBuildingPrompt("abc123")],
+    ["prototype fixing", () => prototypeFixingPrompt()],
+  ])(
+    "the %s prompt asks for a test per behaviour, never a criterion ID in its name",
+    (_n, prompt) => {
+      const text = renderText(prompt)
+      expect(text).toContain("one test per behaviour, not per\n  criterion")
+      expect(text).toContain("never put criterion IDs in test or scenario names")
+      expect(text).not.toContain("[AC-3]")
+    },
+  )
 
   it("has a red retry pick up the kept attempt instead of starting over", () => {
     const prompt = renderText(() => naivePassPrompt({ red: "abc123" }))
@@ -972,16 +985,16 @@ describe("the seam phase's texts", () => {
 
   it("hands a faulty pass back with the fault and the kept attempt to pick up", () => {
     const fault = {
-      fault: "acceptance-tests: no test of the naive pass names AC-2",
+      fault: "acceptance-internals: these tests import files the naive pass added",
       hash: "abc123",
     }
     const prompt = renderText(() => naivePassPrompt(fault))
-    expect(prompt).toContain("names AC-2")
+    expect(prompt).toContain("import files the naive pass added")
     expect(prompt).toContain(
       "git diff --binary --no-color --no-ext-diff --no-textconv abc123^ abc123 | git apply",
     )
     const message = renderText(() => seamSteerMessage(fault))
-    expect(message).toContain("names AC-2")
+    expect(message).toContain("import files the naive pass added")
     expect(message).toContain("`seam.check` runs its suite")
     expect(message).toContain("Overrule")
   })
@@ -997,7 +1010,7 @@ describe("the seam phase's texts", () => {
   })
 
   it("promises no judge on an overrule with flagMode off", () => {
-    for (const retry of [{ red: "abc123" }, { fault: "acceptance-tests: x", hash: "abc123" }]) {
+    for (const retry of [{ red: "abc123" }, { fault: "acceptance-internals: x", hash: "abc123" }]) {
       const message = renderText(() => seamSteerMessage(retry, false))
       expect(message).not.toContain("seam judge")
       expect(message).toContain("it lands as the implementation")

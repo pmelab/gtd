@@ -3,7 +3,6 @@ import { HEADING, markFenced } from "../shared/fences.js"
 import { coder, PROTOTYPE, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
-import type { Guard } from "../shared/health.js"
 import { green } from "./green.js"
 import { criteriaOf, criterionIds, handsOnIds, requireCriteriaFrozen } from "./criteria.js"
 
@@ -130,7 +129,7 @@ const testing = async (
   return requireReport(ids, retest)
 }
 
-const fixing = async (guard?: Guard): Promise<void> => {
+const fixing = async (): Promise<void> => {
   await scope("fix", () =>
     t.agentWithSkills("fixing", t.prototypeFixingPrompt(), {
       label: "Fixing what the hands-on test found",
@@ -145,7 +144,6 @@ const fixing = async (guard?: Guard): Promise<void> => {
   if (changes().some((c) => c.path === PROTOTYPE))
     refuse(`gtd land: prototype-fix: leave ${PROTOTYPE} as it is — the next round re-tests from it`)
   frozen()
-  guard?.()
 }
 
 /** A person's rest; resolves `true` when they changed something to test again, `false` on a clean overrule. */
@@ -161,10 +159,9 @@ const askPerson = async (name: string, message: string, label: string): Promise<
  * Use the change by hand: a testing turn reports on every criterion a person
  * can observe, a fix turn takes each failure, and the change is tested again —
  * until the report is clean, or `prototypeRounds` fixes are spent and a person
- * decides. A change with no such criterion is not tested by hand. `guard`
- * holds every fix turn, as it holds the implementation's.
+ * decides. A change with no such criterion is not tested by hand.
  */
-export const prototypeTest = async (guard?: Guard): Promise<void> => {
+export const prototypeTest = async (): Promise<void> => {
   const cap = prototypeRounds()
   if (cap === 0) return
   await scope("prototype", async () => {
@@ -185,7 +182,7 @@ export const prototypeTest = async (guard?: Guard): Promise<void> => {
       } else if (open.length === 0) return
       else if (fixes < cap && open.some((i) => i.verdict === "fail")) {
         fixes++
-        await fixing(guard)
+        await fixing()
       } else {
         const changed = await askPerson(
           "open",
@@ -195,7 +192,7 @@ export const prototypeTest = async (guard?: Guard): Promise<void> => {
         if (!changed) return
         fixes = 0
       }
-      await green(guard)
+      await green()
     }
   })
 }

@@ -4,11 +4,12 @@ Feature: fix's quality lap is triaged, and its leftovers go to the hand-off revi
   A judge sorts the lap's findings: mechanical ones are fixed for up to three
   turns, noise is dropped, and design ones — with whatever the fix turns left —
   are added to the reviewer's `.gtd/REVIEW.md` by gtd, never to a person's
-  gate before the review.
+  gate before the review. With no requirements to check against, the
+  `criteria-coverage` lens runs no turn.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
-    And an environment variable "GTD_QUALITYREVIEWS" set to "correctness"
+    And an environment variable "GTD_QUALITYREVIEWS" set to "criteria-coverage, correctness"
     And a file "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -81,6 +82,7 @@ Feature: fix's quality lap is triaged, and its leftovers go to the hand-off revi
     Then the process rests at "build.review.await-review"
     And ".gtd/QUALITY.md" does not exist
     And no commit body contains "build.health.describe"
+    And no commit body contains "build.quality.criteria-coverage"
     And ".gtd/REVIEW.md" contains:
       """
       ## sum has no negative test

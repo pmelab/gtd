@@ -575,7 +575,7 @@ describe("review verdict routing", () => {
 })
 
 describe("the default quality lenses", () => {
-  it("are the six lenses in the settled order", () => {
+  it("are the seven lenses in the settled order", () => {
     expect(bundled.defaults.qualityReviews!.split(",").map((l) => l.trim())).toEqual([
       "correctness",
       "owasp-security",
@@ -583,6 +583,7 @@ describe("the default quality lenses", () => {
       "test-audit",
       "conventions",
       "spec-challenge",
+      "criteria-coverage",
     ])
   })
 
@@ -590,6 +591,7 @@ describe("the default quality lenses", () => {
     expect(Object.keys(bundled.builtInLenses).sort()).toEqual([
       "conventions",
       "correctness",
+      "criteria-coverage",
       "spec-challenge",
     ])
   })
