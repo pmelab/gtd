@@ -115,7 +115,7 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
     And ".gtd/QUALITY.md" does not exist
     And ".gtd/REVIEW.md" contains:
       """
-      ## AC-1 ignores floating point
+      ### AC-1 ignores floating point
 
       _critical: judge unsure_
 
@@ -125,7 +125,7 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
       """
     And ".gtd/REVIEW.md" contains:
       """
-      ## AC-1 ignores floating point (2)
+      ### AC-1 ignores floating point (2)
 
       _critical: judge unsure_
 
@@ -189,7 +189,7 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
     And no commit body contains "build.health.describe"
     And ".gtd/REVIEW.md" contains:
       """
-      ## subtract has no negative test
+      ### subtract has no negative test
 
       _critical: judge unsure_
 

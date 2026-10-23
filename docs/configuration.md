@@ -954,9 +954,9 @@ slice's notes, fixes and noise; each names its slice and lens
 (`_From slice 1, lens correctness._` on a note,
 `(<hash>, slice 1, lens correctness)` on a fix). In `fix` and `cleanup`, after
 the reviewer turn (`build.review.reviewing`), gtd appends the notes to
-`.gtd/REVIEW.md` (`build.review.carrying`): one prose `## ` chunk each, naming
-its lens, a repeated title numbered, then `## Fixed automatically` and
-`## Dropped as noise`.
+`.gtd/REVIEW.md` (`build.review.carrying`): one prose `### ` chunk each under
+`## Findings`, naming its lens, a repeated title numbered, then
+`## Fixed automatically` and `## Dropped as noise`.
 
 In `feature`, the reviewer turn (`build.review.reviewing`, and
 `refactor.build.review.reviewing` for the refactor's review) then writes
@@ -968,43 +968,50 @@ numbered), with its slice and lens; the reviewer gives each a chunk of its own
 holding the pointers to the code it cites, and no `Risk:` note. A chunk with no
 pointer (in a range that changed code; otherwise only a note's chunk needs one),
 a `## Standard conflict` chunk the reviewer wrote itself, two chunks sharing a
-title, a `Risk:` note in a note's chunk, or a note without its chunk refuses the
-turn (`review-pointers`). gtd then adds each note's text under its heading, an
+title, a `Risk:` note in a note's chunk, a `## Findings` or `## Walkthrough`
+heading the reviewer wrote itself, or a note without its chunk refuses the turn
+(`review-pointers`). gtd then adds each note's text under its heading, an
 `In the code:` line before the pointers and its answer boxes after them, and
 appends any open standard conflicts, `## Fixed automatically`,
 `## Standards added` and `## Dropped as noise` (`build.review.carrying`). Before
-that, a judge (`build.review.ranking`) rates every chunk the reviewer wrote — a
-walkthrough chunk or a note's — on the four severity questions, keyed
-`C<n>.security`, `C<n>.reversibility`, `C<n>.blastRadius` and `C<n>.newConcept`
-(`C1` the reviewer's first chunk), its evidence the chunk's text and the lines
-its pointers cover. gtd lists them `critical` first — security, then one-way
-doors, then those the judge was unsure of — then `should`, then `could`, in the
-reviewer's order within each, every chunk led by its tier and reason
-(`_critical: security, one-way door_`); the gtd-added chunks follow. A chunk
-with an unclear, cut or below-`reviewSeverityMinP` answer is `critical`. As many
-chunks go to one judgment as `judgeBudgetBytes`'s even share still holds whole;
-the rest go to the next. A pointer note the reviewer opens with `Risk:` is fixed
-by `build.review.fix.risks.fixing`, the suite is kept green, and the review is
-written once more. After a nit fix the reviewer is told the fixing commit and
-writes a fresh review without the notes already answered; after a round that
-also answered a question, it carries those answers over. The refactor's reviewer
-covers the whole refactor since it started on every round, gives any test-file
-hunk a chunk of its own, and says so when it changes a test, an assertion or an
-expected value.
+that, a judge (`build.review.ranking`) rates every chunk the reviewer wrote on
+the four severity questions, keyed `C<n>.security`, `C<n>.reversibility`,
+`C<n>.blastRadius` and `C<n>.newConcept` (`C1` the reviewer's first chunk), its
+evidence the chunk's text and the lines its pointers cover. gtd then sorts the
+review into two sections, each chunk a `### ` heading one level down:
+`## Findings` holds every chunk with answer boxes — the notes, `critical` first
+(security, then one-way doors, then those the judge was unsure of), then
+`should`, then `could`, in the reviewer's order within each, each led by its
+tier and reason (`_critical: security, one-way door_`), then the open standard
+conflicts; `## Walkthrough` holds the reviewer's other chunks in its own order,
+with no tier and nothing to decide. The other gtd-added chunks follow as `## `
+sections of their own. A note with an unclear, cut or below-`reviewSeverityMinP`
+answer is `critical`. As many chunks go to one judgment as `judgeBudgetBytes`'s
+even share still holds whole; the rest go to the next. A pointer note the
+reviewer opens with `Risk:` is fixed by `build.review.fix.risks.fixing`, the
+suite is kept green, and the review is written once more. After a nit fix the
+reviewer is told the fixing commit and writes a fresh review without the notes
+already answered; after a round that also answered a question, it carries those
+answers over. The refactor's reviewer covers the whole refactor since it started
+on every round, gives any test-file hunk a chunk of its own, and says so when it
+changes a test, an assertion or an expected value.
 
 In the `review` door, `build.review.composing` writes `.gtd/REVIEW.md` — no
 reviewer turn runs: a `## Weakened scenarios` chunk naming each `Then` line a
-`.feature` file at the review base has lost, then one prose `## ` chunk per note
-(a mechanical one the fixer left is marked so), then `## Fixed automatically`
-(one line per finding, with the fixing commit's short hash) and
-`## Dropped as noise` (one line per finding, with its `p`). Each note chunk ends
-in `Tick exactly one:` and three boxes — `fix as suggested`, `won't fix`,
-`_your answer_` — and the review gate refuses to land (`answer-completeness`)
-until every note holds exactly one tick, a ticked `_your answer_` replaced by
-the human's text; only a round with a `- H:` thread waiting on the agent may
-leave one open. The summary chunks carry no box and need no answer; disagreeing
-with one means writing a note of your own. With nothing to list, the file holds
-one `## Nothing to note` chunk. Task boxes in a finding are written as plain
+`.feature` file at the review base has lost, then `## Findings` with one prose
+`### ` chunk per note (a mechanical one the fixer left is marked so), then
+`## Fixed automatically` (one line per finding, with the fixing commit's short
+hash) and `## Dropped as noise` (one line per finding, with its `p`). Each note
+chunk ends in `Tick exactly one:` and three boxes — `fix as suggested`,
+`won't fix`, `_your answer_` — and the review gate refuses to land
+(`answer-completeness`) until every note holds exactly one tick, a ticked
+`_your answer_` replaced by the human's text; only a round with a `- H:` thread
+waiting on the agent may leave one open. Only `## Findings` is read for answers:
+boxes ticked under `## Walkthrough` decide nothing. A review written before
+these sections existed, every chunk a `## `, is still read, its boxes wherever
+they stand. The summary chunks carry no box and need no answer; disagreeing with
+one means writing a note of your own. With nothing to list, the file holds one
+`## Nothing to note` chunk. Task boxes in a finding are written as plain
 bullets. The fresh review after a nit fix adds `## Fixed from your notes` with
 the fixing commit and leaves out every note already answered; after a round that
 also answered a question, the review is restored as answered instead, ticks

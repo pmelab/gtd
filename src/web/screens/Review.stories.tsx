@@ -644,6 +644,53 @@ export const EachChunkShowsTheTierGtdRankedItWith: Story = {
   },
 }
 
+export const FindingsAndWalkthroughListSeparately: Story = {
+  args: {
+    view: reviewFormat.view(
+      [
+        "# Review: abc1234",
+        "",
+        "## Findings",
+        "",
+        "### Token check",
+        "",
+        "_critical: security_",
+        "",
+        "- [ ] ./src/auth.ts#1-1",
+        "",
+        "Tick exactly one:",
+        "",
+        "- [ ] fix as suggested",
+        "- [ ] won't fix",
+        "- [ ] _your answer_",
+        "",
+        "## Walkthrough",
+        "",
+        "### Rename",
+        "",
+        "- [ ] ./src/calc.ts#1-1",
+        "",
+        "## Fixed automatically",
+        "",
+        "- f (fedcba9)",
+        "",
+      ].join("\n"),
+    ),
+    isLoading: false,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const findings = within(canvas.getByTestId("review-section-findings"))
+    const walkthrough = within(canvas.getByTestId("review-section-walkthrough"))
+    await expect(findings.getByRole("heading")).toHaveTextContent("Findings")
+    await expect(findings.getByTestId("chunk-card-0")).toHaveTextContent("Token check")
+    await expect(findings.getByTestId("chunk-severity-0")).toHaveTextContent("critical: security")
+    await expect(walkthrough.getByTestId("chunk-card-1")).toHaveTextContent("Rename")
+    await expect(walkthrough.queryByTestId("chunk-severity-1")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("chunk-card-2")).toHaveTextContent("Fixed automatically")
+  },
+}
+
 export const ChunkWithNoFootnoteShowsNoBadgeEvenWhenFullyTicked: Story = {
   args: { view: SAMPLE_VIEW, isLoading: false },
   play: async ({ canvasElement }) => {

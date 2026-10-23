@@ -1281,7 +1281,7 @@ describe("composedReview", () => {
     })
 
     it("asks about each undecided standard in a note that blocks sign-off", () => {
-      expect(withConflict).toMatch(/^## Standard conflict [0-9a-f]{8}$/m)
+      expect(withConflict).toMatch(/^## Findings\n\n### Standard conflict [0-9a-f]{8}$/m)
       expect(withConflict).toContain("- [ ] keep the new one (drop the old)")
       expect(unansweredNotes(withConflict)).toHaveLength(1)
     })
@@ -1317,8 +1317,8 @@ describe("composedReview", () => {
     })
     expect(steeringFormatFor("review")!.validate(doc)).toEqual([])
     expect(doc).toContain("# Review: 0123456\n\n<!-- base: " + BASE + " -->")
-    expect(doc).toContain("## same\n\none")
-    expect(doc).toContain("## same (2)\n\n_The fixer left this unresolved._\n\ntwo")
+    expect(doc).toContain("## Findings\n\n### same\n\none")
+    expect(doc).toContain("### same (2)\n\n_The fixer left this unresolved._\n\ntwo")
     expect(doc).toContain("## Fixed automatically\n\n- f (fedcba9)")
     expect(doc).toContain("## Dropped as noise\n\n- n (p=0.8)")
   })
@@ -1340,12 +1340,13 @@ describe("composedReview", () => {
       fixed: [{ title: "f", commit: "fedcba9876543210" }],
       noise: [],
     })
-    const titles = doc.split("\n").filter((l) => l.startsWith("## "))
+    const titles = doc.split("\n").filter((l) => /^#{2,3} /.test(l))
     expect(titles).toEqual([
-      "## a",
-      "## a (2)",
-      "## a (3)",
-      "## Fixed automatically (2)",
+      "## Findings",
+      "### a",
+      "### a (2)",
+      "### a (3)",
+      "### Fixed automatically (2)",
       "## Fixed automatically",
     ])
   })
@@ -1376,10 +1377,10 @@ describe("composedReview", () => {
       noise: [],
     })
     expect(doc).toContain(
-      "## a\n\n- ends in a list\n\nTick exactly one:\n\n- [ ] fix as suggested\n- [ ] won't fix\n- [ ] _your answer_\n\n## Fixed automatically",
+      "### a\n\n- ends in a list\n\nTick exactly one:\n\n- [ ] fix as suggested\n- [ ] won't fix\n- [ ] _your answer_\n\n## Fixed automatically",
     )
     expect(doc.match(/fix as suggested/g)).toHaveLength(1)
-    expect(unansweredNotes(doc)).toEqual([{ title: "a", line: 5, reason: "tick exactly one box" }])
+    expect(unansweredNotes(doc)).toEqual([{ title: "a", line: 7, reason: "tick exactly one box" }])
   })
 
   it("leaves out the notes already answered", () => {
@@ -1392,7 +1393,7 @@ describe("composedReview", () => {
       noise: [],
       answered: new Set(["a"]),
     })
-    expect(doc).not.toContain("## a\n")
+    expect(doc).not.toContain("# a\n")
     expect(doc).toContain("## a (2)\n\n2")
   })
 })

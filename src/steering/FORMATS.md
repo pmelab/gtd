@@ -14,7 +14,10 @@ read them.
   `<!-- base: <sha> -->` comment, then `##` chunks with prose and `- [ ]` hunk
   pointers (`./path`, `./path#start-end`), each optionally followed by
   `— <note>`. A pointer note starting `Risk:` is a reviewer's risk. A ticked
-  pointer is a hunk the human has read.
+  pointer is a hunk the human has read. A chunk's `Tick exactly one:` list is
+  its decision. A `## Findings` or `## Walkthrough` heading groups the `###`
+  chunks under it; a walkthrough chunk takes no decision. Any other `##` is a
+  chunk of its own.
 - **Free-form**: any markdown, for a file with no mode or an unknown one. Only
   its threads are validated.
 - **Threads**, shared by all three: a footnote whose definition is a list of

@@ -93,15 +93,19 @@ Feature: the review's ranking is batched to the judge's budget
     Then the process rests at "build.review.await-review"
     And ".gtd/REVIEW.md" contains:
       """
-      ## AC-1 ignores floating point
+      ## Findings
+
+      ### AC-1 ignores floating point
 
       _critical: judge unsure_
       """
     And ".gtd/REVIEW.md" contains:
       """
-      ## Subtract
+      ## Walkthrough
 
-      _could_
+      ### Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
       """
     And the commit subjects end with:
       """
