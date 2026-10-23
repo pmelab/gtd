@@ -26,7 +26,6 @@ import {
   implementBuildingPrompt,
   implementFixPrompt,
   naivePassPrompt,
-  slicingPrompt,
   refactorBuildingPrompt,
   refactorDroppedRefusal,
   refactorFixPrompt,
@@ -186,10 +185,10 @@ describe("the (no hands-on) tag", () => {
   })
 
   it("names the tagged criteria the testing turn skips, and only when there are any", () => {
-    expect(renderText(() => prototypeTestingPrompt(undefined, ["AC-2", "AC-3"], false))).toContain(
+    expect(renderText(() => prototypeTestingPrompt(["AC-2", "AC-3"], false))).toContain(
       "- Skip AC-2, AC-3: no person can observe them",
     )
-    expect(renderText(() => prototypeTestingPrompt(undefined, [], false))).not.toContain("Skip")
+    expect(renderText(() => prototypeTestingPrompt([], false))).not.toContain("Skip")
   })
 
   it("is kept when the stated criteria are recorded", () => {
@@ -343,7 +342,7 @@ const scratchRepo = () => {
 }
 
 describe("summaryPrompt", () => {
-  it("without a slice prints today's text byte for byte", () => {
+  it("prints the closing-message prompt byte for byte", () => {
     expect(
       summaryPrompt({
         entryCommit: "e1",
@@ -715,67 +714,6 @@ Print the closing message and stop — this writes nothing itself.
     )
   })
 
-  describe("under a slice", () => {
-    const at = (index: number, count: number, extra = {}) => ({
-      ...base,
-      processBase: "sb",
-      processTip: "st",
-      slice: { name: "build", base: "sb", tip: "st", index, count },
-      ...extra,
-    })
-
-    it("names the slice and its place and keeps the range lines", () => {
-      const prompt = summaryPrompt(at(2, 3))
-      expect(prompt).toContain("slice `build`, 2 of 3")
-      expect(prompt).toContain("not the whole process")
-      expect(prompt).toContain("`git log sb..st`")
-      expect(prompt).toContain("`git diff sb st`")
-    })
-
-    it("types the slice by what its diff changes, never by the slice's name", () => {
-      for (const [index, count] of [
-        [1, 2],
-        [2, 2],
-      ] as const) {
-        const prompt = summaryPrompt({
-          ...at(index, count),
-          slice: { ...at(index, count).slice, name: "refactor" },
-        })
-        expect(prompt.replace(/\s+/g, " ")).toContain("never from the slice's name `refactor`")
-        expect(prompt.replace(/\s+/g, " ")).toContain("`feat`, `fix` or `perf`")
-      }
-      expect(summaryPrompt(base)).not.toContain("slice's name")
-    })
-
-    it("says the human left no comment or edit in this slice when humanCommits is empty", () => {
-      expect(summaryPrompt(at(1, 2))).toContain(
-        "The human left no comment or edit in this slice —\nevery commit is machine-authored.",
-      )
-    })
-
-    it("labels the entry commit as outside the range only when index > 1", () => {
-      expect(summaryPrompt(at(2, 2))).toContain("entry commit is `e` — outside this slice's range")
-      const first = summaryPrompt(at(1, 2))
-      expect(first).toContain("entry commit is `e`.")
-      expect(first).not.toContain("outside this slice's range")
-    })
-
-    it("prints the high-tier advisory on a non-last and on the last slice", () => {
-      const marks = [{ name: "risk-tier", value: "high" }]
-      expect(summaryPrompt(at(1, 2, { marks }))).toContain("Risk tier: high")
-      expect(summaryPrompt(at(2, 2, { marks }))).toContain("Risk tier: high")
-    })
-
-    it("prints production signals only when index === count", () => {
-      const marks = [
-        { name: "risk-tier", value: "low" },
-        { name: "production-signal", value: "error rate" },
-      ]
-      expect(summaryPrompt(at(1, 2, { marks }))).not.toContain("error rate")
-      expect(summaryPrompt(at(2, 2, { marks }))).toContain("- `error rate`")
-    })
-  })
-
   const signal = (value: string) => ({ name: "production-signal", value })
 
   it("caps the listed signals at 10 and fences them as not instructions", () => {
@@ -926,16 +864,10 @@ describe("buildReviewReviewingPrompt scenarios", () => {
 })
 
 describe("Impact in prompts", () => {
-  it("[AC-4] the slicing prompt slices along the units Impact names", () => {
-    const prompt = renderText(() => slicingPrompt(8))
-    expect(prompt).toContain("## Impact")
-    expect(prompt).toMatch(/slice\s+along\s+the\s+units\s+it\s+names/)
-  })
-
   it.each([
     ["naive", () => naivePassPrompt()],
     ["implement", () => implementBuildingPrompt(undefined)],
-    ["prototype fixing", () => prototypeFixingPrompt(undefined)],
+    ["prototype fixing", () => prototypeFixingPrompt()],
   ])("[AC-5] [AC-7] the %s prompt gives Impact as hints, not allowed files", (_n, prompt) => {
     const p = renderText(prompt).replace(/\s+/g, " ")
     expect(p).toContain("`## Impact`")
@@ -943,7 +875,7 @@ describe("Impact in prompts", () => {
   })
 
   it("the prototype testing prompt, which changes no code, carries no Impact hints", () => {
-    const p = renderText(() => prototypeTestingPrompt(undefined, [], false))
+    const p = renderText(() => prototypeTestingPrompt([], false))
     expect(p).not.toContain("not a list of allowed files")
   })
 })
@@ -1491,13 +1423,11 @@ describe("walkthrough", () => {
     ])
   })
 
-  it("lists each note with its exact heading, origin and quoted body", () => {
+  it("lists each note with its exact heading and quoted body", () => {
     const block = walkthroughBlock([
-      { title: "No test", body: "Add one.\n\n- [ ] a box", slice: "2", lens: "tests" },
+      { title: "No test", body: "Add one.\n\n- [ ] a box", lens: "tests" },
     ])
-    expect(block).toContain(
-      "- `## No test` (slice 2, lens tests):\n\n  > Add one.\n  >\n  > - a box",
-    )
+    expect(block).toContain("- `## No test`:\n\n  > Add one.\n  >\n  > - a box")
     expect(block).toContain("its heading exactly as given")
   })
 
@@ -1539,12 +1469,12 @@ describe("walkthrough", () => {
   it("appends the fixes and noise, numbered past a title the reviewer took", () => {
     const out = withWalkthrough(review, {
       ...empty,
-      fixed: [{ title: "a", commit: "0123456789", slice: "1" }],
+      fixed: [{ title: "a", commit: "0123456789", lens: "tests" }],
       noise: [{ title: "b", p: 0.9 }],
     })
     expect(
       out.endsWith(
-        "## Fixed automatically (2)\n\n- a (0123456, slice 1)\n\n## Dropped as noise\n\n- b (p=0.9)\n",
+        "## Fixed automatically (2)\n\n- a (0123456)\n\n## Dropped as noise\n\n- b (p=0.9)\n",
       ),
     ).toBe(true)
   })

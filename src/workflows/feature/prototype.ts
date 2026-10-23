@@ -5,14 +5,7 @@ import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
 import type { Guard } from "../shared/health.js"
 import { green } from "./green.js"
-import {
-  criteriaOf,
-  criterionIds,
-  handsOnIds,
-  requireCriteriaFrozen,
-  sliceIds,
-  type CriteriaSlice,
-} from "./criteria.js"
+import { criteriaOf, criterionIds, handsOnIds, requireCriteriaFrozen } from "./criteria.js"
 
 /** Only a `no` at this or above skips a criterion: no verdict, or an unsure one, sends it to the hands-on test. */
 const UNOBSERVABLE_MIN_P = 0.5
@@ -102,12 +95,12 @@ const requireReport = (
 }
 
 /**
- * The slice's criteria a person can observe by using the change, by the
- * judge: those tagged `(no hands-on)` are never asked about.
+ * The criteria a person can observe by using the change, by the judge: those
+ * tagged `(no hands-on)` are never asked about.
  */
-const observable = async (slice: CriteriaSlice | undefined): Promise<string[]> => {
+const observable = async (): Promise<string[]> => {
   const requirements = read(REQUIREMENTS) ?? ""
-  const own = handsOnIds(requirements, slice)
+  const own = handsOnIds(requirements)
   const criteria = (criteriaOf(requirements) ?? []).filter((c) => own.includes(c.id))
   if (criteria.length === 0) return []
   const { answers } = await judge("observable", {
@@ -122,13 +115,12 @@ const observable = async (slice: CriteriaSlice | undefined): Promise<string[]> =
 const frozen = (): void => requireCriteriaFrozen(REQUIREMENTS)
 
 const testing = async (
-  slice: CriteriaSlice | undefined,
   ids: readonly string[],
   retest: boolean,
 ): Promise<ReturnType<typeof requireReport>> => {
-  const skipped = criterionIds(read(REQUIREMENTS) ?? "", slice).filter((id) => !ids.includes(id))
-  await t.agentWithSkills("testing", t.prototypeTestingPrompt(sliceIds(slice), skipped, retest), {
-    label: retest ? "Re-testing the slice by hand" : "Testing the slice by hand",
+  const skipped = criterionIds(read(REQUIREMENTS) ?? "").filter((id) => !ids.includes(id))
+  await t.agentWithSkills("testing", t.prototypeTestingPrompt(skipped, retest), {
+    label: retest ? "Re-testing the change by hand" : "Testing the change by hand",
     file: PROTOTYPE,
     model: coder(),
     system: t.testerSystem(),
@@ -138,9 +130,9 @@ const testing = async (
   return requireReport(ids, retest)
 }
 
-const fixing = async (slice: CriteriaSlice | undefined, guard?: Guard): Promise<void> => {
+const fixing = async (guard?: Guard): Promise<void> => {
   await scope("fix", () =>
-    t.agentWithSkills("fixing", t.prototypeFixingPrompt(sliceIds(slice)), {
+    t.agentWithSkills("fixing", t.prototypeFixingPrompt(), {
       label: "Fixing what the hands-on test found",
       file: PROTOTYPE,
       model: coder(),
@@ -166,25 +158,22 @@ const askPerson = async (name: string, message: string, label: string): Promise<
 }
 
 /**
- * Use the slice by hand: a testing turn reports on every criterion a person
- * can observe, a fix turn takes each failure, and the slice is tested again —
+ * Use the change by hand: a testing turn reports on every criterion a person
+ * can observe, a fix turn takes each failure, and the change is tested again —
  * until the report is clean, or `prototypeRounds` fixes are spent and a person
- * decides. A slice with no such criterion is not tested by hand. `guard` holds
- * every fix turn, as it holds the implementation's.
+ * decides. A change with no such criterion is not tested by hand. `guard`
+ * holds every fix turn, as it holds the implementation's.
  */
-export const prototypeTest = async (
-  slice: CriteriaSlice | undefined,
-  guard?: Guard,
-): Promise<void> => {
+export const prototypeTest = async (guard?: Guard): Promise<void> => {
   const cap = prototypeRounds()
   if (cap === 0) return
   await scope("prototype", async () => {
-    const ids = await observable(slice)
+    const ids = await observable()
     if (ids.length === 0) return
     let fixes = 0
     let retest = false
     for (;;) {
-      const { unguided, open } = await testing(slice, ids, retest)
+      const { unguided, open } = await testing(ids, retest)
       retest = !unguided
       if (unguided) {
         const instructed = await askPerson(
@@ -196,7 +185,7 @@ export const prototypeTest = async (
       } else if (open.length === 0) return
       else if (fixes < cap && open.some((i) => i.verdict === "fail")) {
         fixes++
-        await fixing(slice, guard)
+        await fixing(guard)
       } else {
         const changed = await askPerson(
           "open",

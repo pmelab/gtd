@@ -17,7 +17,6 @@ vi.mock("./judges/index.js", () => {
   loaded.add("judges")
   throw new Error("missing")
 })
-vi.mock("./hook/index.js", async (importOriginal) => (loaded.add("hook"), importOriginal()))
 
 import { runCli, ToolCommands } from "./cli/index.js"
 import { CONFIG_SCAFFOLD } from "./install/index.js"
@@ -31,7 +30,7 @@ const tools = liveToolCommands.pipe(
   Layer.provide(FileSystem.layerNoop({})),
 )
 
-it("gtd next loads no ui, lsp, judge or hook module", async () => {
+it("gtd next loads no ui, lsp or judge module", async () => {
   const repo = new InMemRepo()
   repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
   repo.seedCommit("chore: init")

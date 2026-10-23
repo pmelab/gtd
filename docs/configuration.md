@@ -169,7 +169,6 @@ Every step takes an options object; all keys are optional.
 | `message`     | `human`, `judge`     | The text shown to the person at this rest.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `context`     | `agent`              | Shares of the model's context window, `{ soft, hard }`, each in (0, 1] with `soft` below `hard` — `gtd next --json`'s `context`. Past `soft` the driver asks the agent to end its turn with a handoff note; past `hard`, or when the context is about to be compacted, it stops the turn and lands nothing. A key left out takes the driver's default: 0.6 and 0.7.                                                                                                                                           |
 | `allowEmpty`  | `agent`              | An agent turn that changes nothing completes the step. Without it, such a turn is an **attempt** (see [Landing rules](#landing-rules)).                                                                                                                                                                                                                                                                                                                                                                       |
 | `keep`        | `agent`              | Cannot be combined with `allowEmpty`. Set the turn aside: it lands off the branch under `refs/gtd/kept/<entry>/<step>/<hash>` and the branch gets an empty marker commit (subject, `Gtd-Step:`, `Gtd-Kept: <hash>`) instead. See [Kept tips](#kept-tips).                                                                                                                                                                                                                                                     |
 | `acceptClean` | `human`              | A landing that changes nothing completes the gate — "accept as-is". Without it, a clean landing is a no-op and the gate keeps waiting for an edit.                                                                                                                                                                                                                                                                                                                                                            |
@@ -311,26 +310,6 @@ while (true) {
   `scope({ name, access }, fn)` declares the file access every agent turn inside
   `fn` runs with; see [File access](#file-access). `agent()` takes no `access`
   option either: narrower access for one step needs its own `scope()`.
-  `scope({ context }, fn)` gives every agent step inside `fn` a context limit
-  (see [Step options](#step-options)); a nested scope's or the step's own
-  replaces it key by key. It is no part of the scope's identity.
-- `slice(name, fn)` — marks the span `fn` covers as one named **slice** of the
-  episode. For now it only names the span: it changes nothing about how the
-  episode lands, and `gtd slices` lists the spans (`--json` is the contract a
-  driver reads; it refuses, exit 1, when HEAD neither closes nor sits inside a
-  process or today's config disagrees with history about the process). It lands
-  no commit, renames no step and opens no memory scope — it is not a `scope()`;
-  wrap one in the other when you want both. A slice's commits run from where the
-  previous slice ended: commits before the first slice fold into it, commits
-  between two slices into the next, commits after the last into the last. A
-  slice that landed no commit is dropped, its neighbours absorbing the gap. A
-  flow with no surviving slice has one implicit slice named `main` over the
-  whole episode, so `main` is reserved. Names match `/^[a-z][a-z0-9-]*$/` and
-  are unique within an episode: entering one twice, nesting a `slice()` inside
-  another (even through a `scope()`), or breaking the name rule fails the
-  episode naming the slice. A loop must sit inside its slice. `restart()` starts
-  a new episode with its own base, so the next one may reuse the names and its
-  slices never include the earlier episode's commits.
 - `refuse(message)` — refuse the pending landing: nothing lands, `gtd land`
   exits 1 with `message`, and the process stays where it rests. Call it right
   after a step whose turn left something the flow does not accept.
@@ -481,10 +460,7 @@ that workflow configured. Their options are the
 [bundled workflow's settings](#the-bundled-workflows-settings), each a string
 (`flagMode` a boolean, stored as `true`/`false`), and each becomes that
 workflow's own default of its kind — beneath `--var` and `GTD_<NAME>`, which
-still layer on top. One option is no setting: `contextLimit`, `{ soft, hard }`,
-the [context limit](#step-options) every agent step of the workflow runs under
-(`feature({ contextLimit: { hard: 0.8 } })`); without it the driver's defaults
-apply, and no variable overrides it:
+still layer on top:
 
 ```ts
 import { feature, review } from "@pmelab/gtd/workflows"
@@ -764,18 +740,18 @@ turn needs ID'd criteria.
 
 ### The hands-on test
 
-Once the health loop is green, each `feature` slice — and every feedback lap —
+Once the health loop is green, each `feature` build — and every feedback lap —
 is used by hand before it closes. First `implement.prototype.observable`, a
-judge, asks per criterion of the slice not tagged
-[`(no hands-on)`](#acceptance-criteria) whether it describes behaviour a person
-can observe by using the software (output printed, a file written, an error
-shown) — not a refactor, something left unchanged or internal shape. Each is a
-`noul` question named by the ID; only `no` at `p` ≥ 0.5 keeps it from the test,
-and an unsure judge is asked to say `yes`. Landing without a verdict, or with
-none for an ID, sends every unanswered criterion. It runs afresh at every
-slice's hands-on test, over `.gtd/REQUIREMENTS.md` as it is then. A slice with
-no such criterion — none untagged, or every one judged `no` — skips the test
-silently: `implement.closing` follows, with no rest. Otherwise
+judge, asks per criterion not tagged [`(no hands-on)`](#acceptance-criteria)
+whether it describes behaviour a person can observe by using the software
+(output printed, a file written, an error shown) — not a refactor, something
+left unchanged or internal shape. Each is a `noul` question named by the ID;
+only `no` at `p` ≥ 0.5 keeps it from the test, and an unsure judge is asked to
+say `yes`. Landing without a verdict, or with none for an ID, sends every
+unanswered criterion. It runs afresh at every hands-on test, over
+`.gtd/REQUIREMENTS.md` as it is then. A change with no such criterion — none
+untagged, or every one judged `no` — skips the test silently:
+`implement.closing` follows, with no rest. Otherwise
 `implement.prototype.testing`, an agent turn, finds how the project is exercised
 for real (a project skill that launches or drives it, a manual testing or
 running section in `AGENTS.md`, `CLAUDE.md` or `README.md`, else the project's
@@ -810,8 +786,8 @@ plus one per problem found beside them, headed `## Problem <title>: <verdict>`;
 under each, the steps run and what was seen. `gtd land` refuses the turn
 (`prototype-report`) when it changes anything but `.gtd/PROTOTYPE.md`, or the
 report lacks exactly one chunk for a criterion sent to the test, or has a
-criterion- or problem-like heading in neither shape. A chunk for a criterion
-another slice builds is never an open item; any other non-`pass` chunk is.
+criterion- or problem-like heading in neither shape. A chunk for a criterion not
+sent to the test is never an open item; any other non-`pass` chunk is.
 
 - **Every chunk `pass`**: `implement.closing` follows, removing the report, and
   the quality lap runs.
@@ -819,8 +795,8 @@ another slice builds is never an open item; any other non-`pass` chunk is.
   criteria are frozen: `criteria-frozen`; a rebuild's carried acceptance tests
   stay, as in the implementation's fix turns; editing the report is refused,
   `prototype-fix`), the health loop (`implement.prototype.health.*`) turns the
-  suite green, and the slice is tested again — failed items in full, passed ones
-  quickly. Each round's report lands with its turn.
+  suite green, and the change is tested again — failed items in full, passed
+  ones quickly. Each round's report lands with its turn.
 - **Past [`prototypeRounds`](#the-bundled-workflows-settings) fix rounds, or
   only `blocked` items open** (a criterion the tester could not exercise, or one
   whose expected behaviour looks wrong): the process rests at
@@ -836,7 +812,7 @@ another slice builds is never an open item; any other non-`pass` chunk is.
 `implement.uncovered` are gone, and so are the `Gtd-Mark: covers=` and
 `uncovered=` trailers. Finish or `gtd abandon` any `feature` process past
 `implement.health.check` (resting at `implement.coverage`, `implement.covering`,
-`implement.uncovered`, or later in a slice): replay now expects
+`implement.uncovered`, or later): replay now expects
 `implement.prototype.observable` (or, with `prototypeRounds` at `0` or every
 criterion tagged, `implement.closing`) there. A process resting earlier keeps
 replaying. Custom fixtures driving the `feature` workflow must answer
@@ -882,17 +858,16 @@ order:
    first `seam.note`, an agent turn, reads the whole naive diff and writes
    `.gtd/REFACTOR-NOTE.md` — which seams the refactor opens and the shape each
    takes. A note turn that changes any other path, or leaves the note empty, is
-   refused (`refactor-note`). Then the refactor and its review run as the
-   `refactor` slice, flag-free and behaviour-neutral, landing on their own with
-   the existing suite green: `refactor.*` (its package carries the note under
-   `## Refactor note`), then the refactor's quality lap
-   (`refactor.build.quality.<lens>`, one per
+   refused (`refactor-note`). Then the refactor and its review run, flag-free
+   and behaviour-neutral, landing on their own with the existing suite green:
+   `refactor.*` (its package carries the note under `## Refactor note`), then
+   the refactor's quality lap (`refactor.build.quality.<lens>`, one per
    [`refactorQualityReviews`](#the-bundled-workflows-settings) lens) and a human
    review (`refactor.build.review.*`). The review's sign-off is the approval; no
    `Gtd-Approved:` trailer is recorded. Strays whose content cannot be read rest
-   at `seam.by-hand`, with no refactor slice; a clean `gtd land` continues.
-   `reject` discards the pass and runs `seam.naive` again. Rejects, test faults
-   and red checks share one budget: two retries, then `seam.steer`.
+   at `seam.by-hand`, with no refactor; a clean `gtd land` continues. `reject`
+   discards the pass and runs `seam.naive` again. Rejects, test faults and red
+   checks share one budget: two retries, then `seam.steer`.
 5. `implement.*` — after a refactor (or a pass that no longer applies), one
    build turn that reads the kept pass as material only; after `land`, the
    applied pass. After a `refactor-first` verdict the build turn is the rebuild:
@@ -900,42 +875,35 @@ order:
    `seam.note` lands, so a later edit of the file reaches neither turn) and
    names the naive pass's acceptance tests (`git show <tip> -- <tests>`) to
    carry over, and `gtd land` refuses it (`rebuild-acceptance`) while the test
-   files changed since the feature slice began leave out an `AC-<n>` the naive
-   pass's tests named on an added line; an `implement.fix.suite.fixing` turn
-   that itself drops such an ID from a test file is refused the same way (a
-   person's edit at an escalation rest is not). The check reads test text — a
-   skipped test passes it; the health loop is what runs them green. Then the
-   health loop (`implement.health.*`, `implement.fix.suite.fixing`), the
+   files changed since the feature began leave out an `AC-<n>` the naive pass's
+   tests named on an added line; an `implement.fix.suite.fixing` turn that
+   itself drops such an ID from a test file is refused the same way (a person's
+   edit at an escalation rest is not). The check reads test text — a skipped
+   test passes it; the health loop is what runs them green. Then the health loop
+   (`implement.health.*`, `implement.fix.suite.fixing`), the
    [hands-on test](#the-hands-on-test) (`implement.prototype.*`) and
    `implement.closing`, which removes `.gtd/REQUIREMENTS.md` (and
    `.gtd/REFACTOR-NOTE.md`, when there is one). A build turn is asked for a new
    release flag. The feature's quality lap (`build.quality.<lens>`) follows,
    then the [feature review](#the-feature-review) (`build.review.*`); its
-   findings are [triaged](#the-triaged-quality-lap), between
-   [coarse slices](#coarse-slices) too. After a `refactor` slice the build turn
-   may change nothing but the carried-over tests — the refactor already carried
-   the whole feature — and an empty turn completes the step when the naive
-   pass's tests named no ID. A feature slice that changed no code but test files
-   has its quality lap cover the whole change from the process start (with
-   [coarse slices](#coarse-slices), from where its slice began), refactor
-   included.
+   findings are [triaged](#the-triaged-quality-lap). After a refactor the build
+   turn may change nothing but the carried-over tests — the refactor already
+   carried the whole feature — and an empty turn completes the step when the
+   naive pass's tests named no ID.
 
-Every verdict wraps step 5 and its quality lap in the `feature` slice
-(`gtd slices` lists it); `refactor-first` adds the `refactor` slice ahead of it.
-Each slice's quality lap reviews from that slice's own base: the refactor's from
-its entry commit, the feature's from the refactor's sign-off. The one exception
-is a feature slice that changed no code but tests (step 5): its quality lap
-covers the whole change from the process start (from where its slice began, with
-[coarse slices](#coarse-slices)).
+The refactor's quality lap reviews from its entry commit, the feature's from the
+refactor's sign-off (from the process start without a refactor). The one
+exception is a feature that changed no code but tests (step 5): its quality lap
+covers the whole change from the process start, refactor included.
 
 #### The triaged quality lap
 
 Every quality lap is triaged — ahead of every `feature` review (the feature's
-and the refactor's), between [coarse slices](#coarse-slices), and in `fix` and
-`cleanup` — and the quality lenses are the only agentic review. Each lens
-appends its findings to `.gtd/QUALITY.md`, one `## <title>` chunk per finding
-(prose outside every chunk counts as one more finding). A judge,
-`build.quality.triage`, classifies each one (`Q1`, `Q2`, … in file order):
+and the refactor's), and in `fix` and `cleanup` — and the quality lenses are the
+only agentic review. Each lens appends its findings to `.gtd/QUALITY.md`, one
+`## <title>` chunk per finding (prose outside every chunk counts as one more
+finding). A judge, `build.quality.triage`, classifies each one (`Q1`, `Q2`, … in
+file order):
 
 - `mechanical` — fixed by `build.fix.quality.fixing`, up to three turns, each
   deleting the chunks it resolved; the health loop then runs the suite green
@@ -949,15 +917,11 @@ mechanical findings in `.gtd/QUALITY.md` for the fix turns; mechanical findings
 still there after the third turn become notes too — never an escalation.
 
 Whatever the fix turns leave in `.gtd/QUALITY.md` is then removed
-(`build.quality.closing`). Between coarse slices nothing waits on a person for
-the findings: the next slice starts. The review after the last slice lists every
-slice's notes, fixes and noise; each names its slice and lens
-(`_From slice 1, lens correctness._` on a note,
-`(<hash>, slice 1, lens correctness)` on a fix). In `fix` and `cleanup`, after
-the reviewer turn (`build.review.reviewing`), gtd appends the notes to
-`.gtd/REVIEW.md` (`build.review.carrying`): one prose `### ` chunk each under
-`## Findings`, naming its lens, a repeated title numbered, then
-`## Fixed automatically` and `## Dropped as noise`.
+(`build.quality.closing`), and the review lists the notes, fixes and noise. In
+`fix` and `cleanup`, after the reviewer turn (`build.review.reviewing`), gtd
+appends the notes to `.gtd/REVIEW.md` (`build.review.carrying`): one prose
+`### ` chunk each under `## Findings`, naming its lens, a repeated title
+numbered, then `## Fixed automatically` and `## Dropped as noise`.
 
 In `feature`, the reviewer turn (`build.review.reviewing`, and
 `refactor.build.review.reviewing` for the refactor's review) then writes
@@ -965,18 +929,18 @@ In `feature`, the reviewer turn (`build.review.reviewing`, and
 concern, each with at least one pointer to its code (`./path#start-end`), a
 `Weakened:` note on each scenario that lost a `Then` line. The prompt lists the
 notes, each under the exact `## <title>` its chunk must carry (a repeated title
-numbered), with its slice and lens; the reviewer gives each a chunk of its own
-holding the pointers to the code it cites, and no `Risk:` note. A chunk with no
-pointer (in a range that changed code; otherwise only a note's chunk needs one),
-a `## Standard conflict` chunk the reviewer wrote itself, two chunks sharing a
-title, a `Risk:` note in a note's chunk, a `## Findings` or `## Walkthrough`
-heading the reviewer wrote itself, or a note without its chunk refuses the turn
-(`review-pointers`). gtd then adds each note's text under its heading, an
-`In the code:` line before the pointers and its answer boxes after them, and
-appends any open standard conflicts, `## Fixed automatically`,
-`## Standards added` and `## Dropped as noise` (`build.review.carrying`). Before
-that, a judge (`build.review.ranking`) rates every chunk the reviewer wrote on
-the four severity questions, keyed `C<n>.security`, `C<n>.reversibility`,
+numbered); the reviewer gives each a chunk of its own holding the pointers to
+the code it cites, and no `Risk:` note. A chunk with no pointer (in a range that
+changed code; otherwise only a note's chunk needs one), a `## Standard conflict`
+chunk the reviewer wrote itself, two chunks sharing a title, a `Risk:` note in a
+note's chunk, a `## Findings` or `## Walkthrough` heading the reviewer wrote
+itself, or a note without its chunk refuses the turn (`review-pointers`). gtd
+then adds each note's text under its heading, an `In the code:` line before the
+pointers and its answer boxes after them, and appends any open standard
+conflicts, `## Fixed automatically`, `## Standards added` and
+`## Dropped as noise` (`build.review.carrying`). Before that, a judge
+(`build.review.ranking`) rates every chunk the reviewer wrote on the four
+severity questions, keyed `C<n>.security`, `C<n>.reversibility`,
 `C<n>.blastRadius` and `C<n>.newConcept` (`C1` the reviewer's first chunk), its
 evidence the chunk's text and the lines its pointers cover. gtd then sorts the
 review into two sections, each chunk a `### ` heading one level down:
@@ -1066,20 +1030,20 @@ then asks only whether to keep, discard or reword its new standard.
 
 #### The feature review
 
-After the last slice's quality lap, the process rests at the human review
-(`build.review.*`, `.gtd/REVIEW.md`) over the slice's own base — on
+After the quality lap, the process rests at the human review (`build.review.*`,
+`.gtd/REVIEW.md`) over the whole change from the process start — on
 `refactor-first`, everything since the refactor's sign-off, unless the refactor
-carried the whole feature (step 5), when it re-covers the refactor too — or, for
-a sliced change, the whole change from the process start. A sign-off ends the
-process at `idle`. Notes are triaged as in every review (`build.review.triage`);
-an `edit` is collected into `.gtd/REQUIREMENTS.md` and starts a feedback lap:
-`re-unwind` reverts the human's code edits, design runs again (its criteria
-[stable after review](#acceptance-criteria)), then `implement.*` with a build
-turn — never `implement.applying` — and the hands-on test, then the quality lap
-and the review again. A custom workflow ending in `afterTail` runs the same lap,
-without the `criteria-ids` check. `seam.naive` and `seam.judge` never run again
-once judged, so a seam a re-plan turns up is built unjudged and unrefactored; a
-wrong or missing refactor means `gtd abandon` and a restart.
+carried the whole feature (step 5), when it re-covers the refactor too. A
+sign-off ends the process at `idle`. Notes are triaged as in every review
+(`build.review.triage`); an `edit` is collected into `.gtd/REQUIREMENTS.md` and
+starts a feedback lap: `re-unwind` reverts the human's code edits, design runs
+again (its criteria [stable after review](#acceptance-criteria)), then
+`implement.*` with a build turn — never `implement.applying` — and the hands-on
+test, then the quality lap and the review again. A custom workflow ending in
+`afterTail` runs the same lap, without the `criteria-ids` check. `seam.naive`
+and `seam.judge` never run again once judged, so a seam a re-plan turns up is
+built unjudged and unrefactored; a wrong or missing refactor means `gtd abandon`
+and a restart.
 
 **Upgrading:** a `won't fix` or own answer at a `feature` or `review` review now
 runs `build.review.standards.judge` (and
@@ -1141,14 +1105,14 @@ handed off is still read by `fix`.
 
 **Upgrading:** `feature`'s reviews are composed from the quality lap. A process
 resting at `build.review.reviewing`, `build.review.fix.risks.fixing`, a
-`build.fix.quality.fixing` turn or `build.quality-unresolved` of its last slice
-(or their `refactor.build.*` twins) no longer replays: finish or `gtd abandon`
-it before upgrading. A driver or fixture scripting `build.review.reviewing` for
-`feature` scripts `build.review.composing` (a script step) and, with lenses on,
-the `build.quality.triage` judge instead.
+`build.fix.quality.fixing` turn or `build.quality-unresolved` (or their
+`refactor.build.*` twins) no longer replays: finish or `gtd abandon` it before
+upgrading. A driver or fixture scripting `build.review.reviewing` for `feature`
+scripts `build.review.composing` (a script step) and, with lenses on, the
+`build.quality.triage` judge instead.
 
 **Upgrading:** `feature` ends at the review again. A process that ended at
-`idle` stays ended; one resting in its last slice's quality lap, or at
+`idle` stays ended; one resting in its quality lap, or at
 `build.quality-unresolved` after it, moves on to the review instead of `idle`. A
 driver or fixture expecting `feature` to land in `idle` after the quality lap
 must sign the review off.
@@ -1163,50 +1127,7 @@ judge ruled `land`, that overruled a reject at `seam.steer`, or — with
 `refactor-first`: replay now expects `seam.note` after the verdict where its
 history names `refactor.deriving`, and refuses it as divergence.
 
-### Continuations
-
-A driver asks an agent turn past its [context limit](#step-options)'s `soft`
-share to stop and end with a handoff note. In `feature`, three turns are told to
-write that note to `.gtd/HANDOFF.md`: the naive pass (`seam.naive`), the
-refactor (`refactor.building`) and the build (`implement.building`, the rebuild
-included). A turn that writes it stopped at its limit; what it left is the
-**snapshot**, broken or not:
-
-- **Naive pass** — its [kept tip](#kept-tips), off the branch. The continuation,
-  `seam.continue.naive`, applies the tip (`.gtd/HANDOFF.md` left out) and works
-  on the `AC-<n>` its tests do not name yet. The pass that finally ends without
-  a note is vetted, checked and judged as one.
-- **Refactor** — the turn's own commit, then the health loop: every sub-step
-  keeps the existing suite green before `refactor.continue.building` picks up.
-  What is still open is the refactor's paths it has not changed yet.
-- **Build** — the turn's own commit, on the branch, still behind the release
-  flag. `implement.continue.building` works on the `AC-<n>` the build's tests do
-  not name yet; the health loop runs once the build ends without a note.
-
-Each continuation is a fresh conversation (`<phase>.continue` is its memory
-scope), told the snapshot, the note and what is still open, and asked to delete
-`.gtd/HANDOFF.md` once done: in the refactor and the build, a note still in the
-tree after a turn means that turn stopped again (`implement.closing` and
-`refactor.closing` remove it). Once a phase has continued, its later turns — a
-naive retry, the next refactor lap — are fresh conversations too, under
-`<phase>.fresh` (`seam.fresh.naive`, `refactor.fresh.building`). Per phase —
-across its retries and laps — [`continuations`](#the-bundled-workflows-settings)
-continuations run (default 3); one more stop, or
-[`continuationStall`](#the-bundled-workflows-settings) continuations in a row
-that close nothing still open (default 2; a stop with nothing countable left
-open is never a stall), rests at `seam.oversized`, `refactor.oversized` or
-`implement.oversized`. Landing there, clean or — at `seam.oversized` and
-`implement.oversized` — after narrowing `.gtd/REQUIREMENTS.md` (refused unless
-its criteria stay valid, and never deleted; a rebuild then carries only the
-criteria still listed), starts a fresh round from the last snapshot;
-`gtd abandon` gives the change up. A refactor's scope is fixed, so at
-`refactor.oversized` only a raised context limit makes room. A continuation that
-forgets to delete the note is read as stopped again, so it costs another
-continuation, never a half-finished phase going on.
-
-**A turn stopped at its `hard` limit is not a snapshot**: the driver lands
-nothing, as in [Context limits](./driver.md#context-limits). Only the soft
-stop's note continues.
+#### The refactor review
 
 A review note at the refactor review is collected into `.gtd/REFACTOR.md`, and
 `refactor.deriving` runs again with the notes under `## Review feedback` — never
@@ -1232,9 +1153,9 @@ folds into `.gtd/REFACTOR.md` only when it asks for a change.
 **Upgrading:** four migrations.
 
 - The feature review was dropped (it is back since; see
-  [The feature review](#the-feature-review)): `feature` ended after the feature
-  slice's quality lap. A process resting at, or past, any `build.review.*` step
-  of the feature slice (including a feature feedback lap) no longer replayed:
+  [The feature review](#the-feature-review)): `feature` ended after the
+  feature's quality lap. A process resting at, or past, any `build.review.*`
+  step of the feature (including a feature feedback lap) no longer replayed:
   finish it with the gtd that started it, or `gtd abandon` it, before upgrading.
 
 - `GTD_FLAG_NAIVE_PASS`, its `flag_naive_pass` setting and the architecture and
@@ -1308,52 +1229,25 @@ allowlist. `GTD_FLAG_RISK_TIER` is recorded as `flag_risk_tier` when a process
 starts, so a process keeps the setting it started with whatever the environment
 does later.
 
-### Coarse slices
+### Removed: slices and continuations
 
-A change with more `AC-<n>` criteria than
-[`sliceMaxCriteria`](#the-bundled-workflows-settings) (8 by default) is built in
-slices. Once design settled the criteria (the design gate, or the skip path),
-`design.slicing`, an agent turn, writes `.gtd/SLICES.md`: one `## <title>`
-heading per slice over one `- AC-<n>` item per criterion, related criteria
-together, as few slices as the cap allows, in the order they build on each
-other:
+**Upgrading:** `feature` builds every change in one pass — one naive pass, one
+build, one quality lap, one review — however many criteria it has: split a big
+change into separate processes before you start. `design.slicing`,
+`.gtd/SLICES.md`, the numbered `feature-<n>`/`refactor-<n>` steps, continuations
+(`<phase>.continue.*`, `<phase>.fresh.*`, `<phase>.oversized`) and
+`.gtd/HANDOFF.md` are gone, and so are the `sliceMaxCriteria`, `continuations`
+and `continuationStall` settings, the `contextLimit` factory option, a step's or
+a scope's `context` option, `slice()` from `@pmelab/gtd/flows`, `gtd slices`,
+`gtd summary --slice` and `gtd context-hook`. Finish or `gtd abandon` a
+`feature` process resting in a slice past its first, or in a continuation,
+before upgrading: replay refuses its history as divergence. A config passing a
+removed setting or option fails to load: drop it. Re-run `gtd install` (and
+replace a `gtd-build` it wrote) so no Claude Code hook still calls
+`gtd context-hook`.
 
-```md
-# Slices
-
-## Parsing
-
-- AC-1
-- AC-3
-
-## Output
-
-- AC-2
-```
-
-`gtd land` refuses the turn (`slices`) while the file has no slice, a slice with
-no criterion, an item not led by an ID, a slice over the cap, an ID twice, an ID
-`.gtd/REQUIREMENTS.md` does not list, or a criterion in no slice.
-
-Each slice then runs the [naive-pass path](#the-naive-pass-path) in order, from
-where the previous one landed, held to its own IDs only: `seam.naive` and the
-build turn are told which IDs are theirs, `acceptance-tests` and
-`rebuild-acceptance` ask only for those, and the hands-on test tries only those.
-A slice's `implement.closing` keeps `.gtd/REQUIREMENTS.md` and `.gtd/SLICES.md`
-for the next one; the last removes both. The last slice also builds any
-criterion a steer at `seam.steer` added after slicing; a slice a steer left with
-no criterion is skipped. Each slice's quality lap is
-[triaged](#the-triaged-quality-lap) and carries its notes to the review after
-the last slice. Until the last slice closes, a quality-lap fix turn that changes
-the criteria is refused (`criteria-frozen`). Every turn of a slice is told its
-IDs, and to reuse a release flag an earlier slice added. Slices are named
-`feature-<n>`, with `refactor-<n>` ahead of one the seam judge sent to a
-refactor. A change within the cap runs no slicing turn and keeps the single
-`feature` (and `refactor`) slice.
-
-**Upgrading:** every slice's quality lap is triaged, and
-`build.quality-unresolved` is gone. Finish or `gtd abandon` a `feature` process
-in a slice before its last, a `fix` or `cleanup` process past its quality lens
+**Upgrading:** every quality lap is triaged, and `build.quality-unresolved` is
+gone. Finish or `gtd abandon` a `fix` or `cleanup` process past its quality lens
 turns, or any process past `build.fix.quality.fixing` whose fix turns left
 findings: replay now expects `build.quality.triage` and `build.quality.closing`
 there and refuses the history as divergence. A driver or fixture scripting such
@@ -1363,12 +1257,6 @@ script step) while `.gtd/QUALITY.md` is still there after the fix turns, and
 turn when the lap left anything. A config calling `tail()` passes no `triage`
 option — every lap triages — and its `finish` receives the report;
 `fixQualityFindings` is gone.
-
-**Upgrading:** finish or `gtd abandon` any process past design whose
-`.gtd/REQUIREMENTS.md` lists more than 8 criteria: replay now expects
-`design.slicing` there and refuses its history as divergence. To keep building
-such changes in one slice, raise the cap:
-`feature({ sliceMaxCriteria: "100" })`.
 
 ### Landing rules
 
@@ -1602,8 +1490,8 @@ exempt — it may do anything. Everything else follows
   filesystem access in flow code. Read the tree through the helpers; do IO
   inside a `run()` body. gtd cannot see this mistake up front: a flow that
   branches on something other than history shows up later as a divergence.
-- **Await only steps**: a flow may `await` a step, `scope()`, `slice()`, or a
-  function that itself awaits steps. Awaiting anything else fails the replay:
+- **Await only steps**: a flow may `await` a step, `scope()`, or a function that
+  itself awaits steps. Awaiting anything else fails the replay:
   `the flow awaited something that is not a step`.
 - **Unique names**: one step name per call site; call a shared helper from two
   places inside two different `scope()`s. Two call sites sharing a name read as
@@ -1630,24 +1518,9 @@ exempt — it may do anything. Everything else follows
 
 A `summary` export sets the prompt `gtd summary` prints: a function receiving
 `{ entryCommit, processBase, processTip, humanCommits, processCost, processCostByModel, marks, vars, env }`
-(plus `slice` under `--slice`, below) and returning a string. `humanCommits`
-lists every human-authored commit of the process as `{ hash, state }`; `marks`
-lists every `Gtd-Mark` of the process as `{ name, value }`, oldest first.
-Without `summary`, `gtd summary` refuses.
-
-`gtd summary --slice <name>` calls it once for one slice (names and order as
-`gtd slices` lists them) with an extra `slice` field,
-`{ name, base, tip, index, count }`. `index` is 1-based, so `index === count` is
-the last slice. On plain `gtd summary` the `slice` key is absent. Under
-`--slice`, `processBase`, `processTip`, `humanCommits`, `processCost` and
-`processCostByModel` narrow to the slice (`base` exclusive, `tip` inclusive; the
-per-slice costs sum to the plain cost), while `entryCommit` and `marks` stay
-whole-process. A template that says "the process" mislabels a slice unless it
-reads `slice`. `--slice` replays the process, so it also refuses a HEAD-closing
-process whose config files differ from the working tree or whose replay
-diverged; plain `gtd summary` never does. On a process still underway the last
-slice is open: its range, `count` and the production signals are provisional,
-since later commits fold into it and `count` grows as slices land.
+and returning a string. `humanCommits` lists every human-authored commit of the
+process as `{ hash, state }`; `marks` lists every `Gtd-Mark` of the process as
+`{ name, value }`, oldest first. Without `summary`, `gtd summary` refuses.
 
 Authoring a workflow with a coding agent? `skills/authoring/SKILL.md` is the
 agent-facing guide.
@@ -2061,7 +1934,7 @@ A workflow declaring one name in both `defaults` and `envDefaults` fails to
 load. All load failures exit **1** and write to **stderr**, never stdout.
 
 gtd requires a repository with **at least one commit** before any state command
-(`land`, `--workflow`, `door`, `doors`, `slices`, `next`, `abandon`, `restore`,
+(`land`, `--workflow`, `door`, `doors`, `next`, `abandon`, `restore`,
 `validate`, `summary`) will run — there is no workflow state to derive from an
 empty history. `gtd install`, `gtd lsp`, and `gtd check` are unaffected, since
 none of them needs a process history (`gtd lsp` then serves `REVIEW.md` alone).
@@ -2230,11 +2103,6 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   no brace alternation (`{a,b}` splits at the comma). A file the pass newly adds
   is allowed by its exact path, never as a glob: a new `src/a*.ts` does not
   cover a modified `src/a.ts`.
-- **`sliceMaxCriteria`** (`8`) — the most acceptance criteria one slice builds.
-  A change with more is grouped into [coarse slices](#coarse-slices) by
-  `design.slicing`; one within it runs no slicing turn. Must be a positive
-  integer; anything else refuses the landing that would start the process.
-  Pinned at process start.
 - **`flagMode`** (`true`) — whether the project ships changes behind release
   flags. Set it explicitly, as the factory option `feature({ flagMode: false })`
   (or `--var flagMode=false`, `GTD_FLAGMODE=false`); gtd never detects it. Any
@@ -2280,23 +2148,16 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   [Setup](./setup.md#extending-the-quality-review-lap).
 - **`refactorQualityReviews`** (`correctness, ponytail-review, conventions`) —
   the quality lap the refactor review runs, one turn per comma-separated lens,
-  as `qualityReviews` does for the feature slice. `qualityReviews` does not
-  reach it, and a lens left out never sees the refactor (the feature lap reviews
-  from the refactor's sign-off); blank runs no refactor quality lap. Each lens
-  is its own scope, keyed `refactor.build.quality.<lens>`. Entries take the same
+  as `qualityReviews` does for the feature. `qualityReviews` does not reach it,
+  and a lens left out never sees the refactor (the feature lap reviews from the
+  refactor's sign-off); blank runs no refactor quality lap. Each lens is its own
+  scope, keyed `refactor.build.quality.<lens>`. Entries take the same
   `<lens>=<model>` hints, read from this list alone.
-- **`continuations`** (`3`) — per phase (naive pass, refactor, build), how many
-  [continuations](#continuations) run before a turn that still stops at its
-  context limit rests at `<phase>.oversized`. A whole number, `0` or more;
-  anything else refuses the landing that reaches it.
-- **`prototypeRounds`** (`3`) — how many fix turns a slice's
+- **`prototypeRounds`** (`3`) — how many fix turns the
   [hands-on test](#the-hands-on-test) gets before open items rest at
   `implement.prototype.open`. `0` skips the test, and with it the only check
   that the criteria are met. A whole number, `0` or more; anything else refuses
   the landing that would start the process. Pinned at process start.
-- **`continuationStall`** (`2`) — how many continuations in a row may close
-  nothing still open before the phase rests at `<phase>.oversized`. A whole
-  number, `1` or more.
 - **`reviewBase`** (empty) — the commitish `--workflow review` reviews from
   (`gtd door review` sets it).
 

@@ -41,19 +41,6 @@ export interface LensReport {
 
 export const NO_FINDINGS: LensReport = { notes: [], fixed: [], noise: [] }
 
-/** `reports` as one, each finding labelled with the slice it came from, in slice order. */
-export const joinReports = (
-  reports: readonly { readonly slice: string; readonly report: LensReport }[],
-): LensReport => {
-  const tag = <F extends Origin>(slice: string, fs: readonly F[]): F[] =>
-    fs.map((f) => ({ ...f, slice }))
-  return {
-    notes: reports.flatMap((r) => tag(r.slice, r.report.notes)),
-    fixed: reports.flatMap((r) => tag(r.slice, r.report.fixed)),
-    noise: reports.flatMap((r) => tag(r.slice, r.report.noise)),
-  }
-}
-
 const UNTITLED = "Quality findings"
 
 const below = (section: string): string => section.split("\n").slice(1).join("\n").trim()

@@ -8,11 +8,10 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
   scenarios extract the fenced block VERBATIM (see
   `tests/integration/helpers/driver-doc.ts`) and run it as the driver
   under test. Only the wiring is smoke-tested here — chained turns, the
-  capture beat, the self-validation gate, cost recording and the
-  context-limit stop; the protocol's branches are
-  covered in-memory. A real `claude` CLI is never invoked: a
+  capture beat, the self-validation gate and cost recording; the
+  protocol's branches are covered in-memory. A real `claude` CLI is never invoked: a
   `claude` shim on $PATH translates the paste's own argv (-p, --session-id,
-  --resume, --model, --settings, --dangerously-skip-permissions) and the prompt piped to
+  --resume, --model, --dangerously-skip-permissions) and the prompt piped to
   it on stdin into the stub agent's env. The driver is spawned with only
   $PATH (the shim dir first) and $HOME —
   no $GTD_* var beyond the release-flag state the pass runs under, no
@@ -221,39 +220,6 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Then it succeeds
     And the last commit subject is "gtd(agent): working → idle"
     And the last commit body contains "Gtd-Cost: 0.25 opus"
-
-  Scenario: Stops without landing when gtd context-hook stops the turn at its hard limit
-    # The stub plays Claude Code: it runs the hook command the paste handed
-    # it through --settings with a PreCompact event, which always stops.
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "write NOTE.md to start a process" })
-        await agent("working", "Write DONE.md.", { context: { soft: 0.5, hard: 0.6 } })
-      }
-      """
-    And a file "NOTE.md" with:
-      """
-      Build a calculator.
-      """
-    And gtd lands "gtd(human): idle → working"
-    And a stub agent script that responds to prompts with:
-      """
-      hook="$(printf '%s' "$GTD_LOOP_SETTINGS" | sed -n 's/.*"command":"\([^"]*\)".*/\1/p')"
-      echo "HOOK: $hook"
-      echo done > DONE.md
-      echo '{"hook_event_name":"PreCompact"}' | sh -c "$hook"
-      echo '{"type":"result","is_error":false,"terminal_reason":"hook_stopped"}'
-      """
-    And the driver pasted from docs/driver.md
-    When I run the pasted script
-    Then it fails
-    And stderr contains "gtd: context limit: the context is about to be compacted"
-    And the log file contains "HOOK: gtd context-hook --soft 0.5 --hard 0.6"
-    And the last commit subject is "gtd(human): idle → working"
 
   Scenario: Lands nothing, and retries nothing, when the agent's envelope reports an error at exit 0
     # A second call would succeed: the paste must not make one, since the

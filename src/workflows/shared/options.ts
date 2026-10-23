@@ -6,7 +6,6 @@ import {
   type WorkflowDoors,
   type WorkflowFactory,
   refuse,
-  scope,
   vars,
 } from "../../flows/index.js"
 import { defaultFlagRegistry, defaults, envDefaults } from "./vars.js"
@@ -23,23 +22,13 @@ export const ShippedOptions = Schema.Struct({
   standardMinP: setting,
   refactorFlagPattern: setting,
   seamAllow: setting,
-  sliceMaxCriteria: setting,
   qualityReviews: setting,
   refactorQualityReviews: setting,
-  continuations: setting,
   prototypeRounds: setting,
-  continuationStall: setting,
   testCommand: setting,
   plannerModel: setting,
   coderModel: setting,
   flagMode: Schema.optionalWith(Schema.Boolean, { exact: true }),
-  contextLimit: Schema.optionalWith(
-    Schema.Struct({
-      soft: Schema.optionalWith(Schema.Number, { exact: true }),
-      hard: Schema.optionalWith(Schema.Number, { exact: true }),
-    }),
-    { exact: true },
-  ),
 })
 
 export type ShippedOptions = Schema.Schema.Encoded<typeof ShippedOptions>
@@ -64,12 +53,6 @@ export const flagModeOn = (): boolean => {
   return value === "true"
 }
 
-// Not a setting: a factory option is known at load, so the scope wraps the
-// whole flow without reading a setting before its first step. The engine
-// refuses limits it cannot use when it reaches an agent step.
-const limited = (flow: Flow, context: ShippedOptions["contextLimit"]): Flow =>
-  context === undefined ? flow : () => scope({ context }, flow)
-
 /** A shipped flow as a factory: its options override the settings it declares, each in its own kind. */
 export const shipped = (
   flow: Flow,
@@ -78,8 +61,8 @@ export const shipped = (
 ): WorkflowFactory<ShippedOptions> =>
   defineWorkflow(
     Schema.standardSchemaV1(ShippedOptions, { onExcessProperty: "error", errors: "all" }),
-    ({ contextLimit, ...options }) => ({
-      flow: limited(flow, contextLimit),
+    (options) => ({
+      flow,
       defaults: over(defaults, options),
       envDefaults: over(envDefaults, options),
       doors,
@@ -97,10 +80,10 @@ export const flagShipped = (
 ): WorkflowFactory<FlagOptions> =>
   defineWorkflow(
     Schema.standardSchemaV1(FlagOptions, { onExcessProperty: "error", errors: "all" }),
-    ({ contextLimit, ...options }) => {
+    (options) => {
       const flagDefaults = { ...defaults, flag: "", flagRegistry: defaultFlagRegistry }
       return {
-        flow: limited(flow, contextLimit),
+        flow,
         defaults: over(flagDefaults, options),
         envDefaults: over(envDefaults, options),
         doors: { [name]: { args: [{ name: "flag" }], vars: ({ flag }) => ({ flag: flag ?? "" }) } },

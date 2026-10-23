@@ -10,7 +10,7 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
         await human("idle", { message: "write NOTE.md to start a process" })
         await scope("seam", async () => {
           await agent("naive", "write the naive pass")
-          await scope("continue", () => agent("naive", "continue the naive pass"))
+          await scope("retry", () => agent("naive", "rewrite the naive pass"))
         })
         await scope("implement", () => agent("building", "rebuild it"))
         await scope("build", () =>
@@ -28,12 +28,12 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
       """
       export const a = 1
       """
-    And gtd lands "gtd(agent): seam.naive → seam.continue.naive" with "--cost 0.4 --model coder"
+    And gtd lands "gtd(agent): seam.naive → seam.retry.naive" with "--cost 0.4 --model coder"
     And a file "src/b.ts" with:
       """
       export const b = 2
       """
-    And gtd lands "gtd(agent): seam.continue.naive → implement.building" with "--cost 0.2 --model coder"
+    And gtd lands "gtd(agent): seam.retry.naive → implement.building" with "--cost 0.2 --model coder"
     And a file "src/c.ts" with:
       """
       export const c = 3
@@ -48,11 +48,10 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
     And gtd lands "gtd(agent): build.quality.correctness.reviewing → idle" with "--cost 0.1 --model reviewer"
 
   @inmem
-  Scenario: a rebuilt naive pass reports its refactor-first rate, continuation, double work and findings
+  Scenario: a rebuilt naive pass reports its refactor-first rate, double work and findings
     When I run gtd with args "history metrics main"
     Then it succeeds
-    And stdout contains "main: 1 slices, 1 rebuilt (refactor-first 100%), 0 refactored"
-    And stdout contains "1 continuations (seam.naive 1)"
+    And stdout contains "main: 1 builds, 1 rebuilt (refactor-first 100%), 0 refactored"
     And stdout contains "cost 1.2 (naive 0.6, refactor 0, implement 0.5, other 0.1; by model coder 1.1, reviewer 0.1), double work 1.1"
     And stdout contains "2 findings (build.quality.correctness 2)"
     And stdout contains "total (1 processes)"
@@ -95,12 +94,12 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
       """
       export const d = 4
       """
-    And gtd lands "gtd(agent): seam.naive → seam.continue.naive"
+    And gtd lands "gtd(agent): seam.naive → seam.retry.naive"
     And a file "src/e.ts" with:
       """
       export const e = 5
       """
-    And gtd lands "gtd(agent): seam.continue.naive → implement.building"
+    And gtd lands "gtd(agent): seam.retry.naive → implement.building"
     And a file "src/f.ts" with:
       """
       export const f = 6

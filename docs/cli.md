@@ -109,15 +109,6 @@ Commands:
                    gtd.config.ts governs yet, it also writes one importing each
                    shipped workflow from @pmelab/gtd/workflows/<name>; anywhere
                    else it writes nothing.
-  context-hook     A Claude Code PostToolUse and PreCompact hook that stops an
-                   agent turn at a share of its context window. Reads the
-                   hook's input on stdin and the context the transcript's
-                   latest assistant message used. Past --soft it blocks with a
-                   request to end the turn with a handoff note; past --hard,
-                   or at PreCompact, it stops the turn with a stopReason
-                   starting "gtd: context limit". Prints nothing otherwise,
-                   and for a subagent's tool call. Always exits 0 on valid
-                   input; see docs/driver.md
   summary          Print the prompt for an agent to write the process HEAD
                    closes or sits inside its own closing message — the entry
                    commit, each human-authored commit (a review round, an
@@ -126,15 +117,10 @@ Commands:
                    no state transition, no file, no session identity — the
                    driver pipes the output to a cold agent and does what it
                    wants with the result (a squash, an amend, a PR body).
-                   --slice <name> prints it for one slice instead: its own
-                   range, human commits and cost (see `gtd slices`); it also
-                   refuses an unknown slice name, and a HEAD-closing process
-                   whose config files differ from the working tree or whose
-                   replay diverged; an open last slice is provisional. Refuses
-                   (exit 1) when the workflow declares no summary: template,
-                   or when the resolved run has no commits to name — plain
-                   gtd summary is runnable any time before the next thing
-                   lands on the branch
+                   Refuses (exit 1) when the workflow declares no summary:
+                   template, or when the resolved run has no commits to name —
+                   it is runnable any time before the next thing lands on the
+                   branch
   base             Print the review anchor hash — the diff base an external
                    tool (a diff, a PR tool, another agent) should point at —
                    bare, newline-terminated, and nothing else. Writes nothing:
@@ -155,18 +141,6 @@ Commands:
                    each. --json prints one JSON array of { name, workflow,
                    args: [{ name, optional }] } instead; --json=<path> reads one
                    value off it. Writes nothing
-  slices           List the slices of the process HEAD closes or sits inside,
-                   first slice first: one `name base..tip` line each (full
-                   hashes; plain output carries no promise). --json prints
-                   { schema: 1, slices: [{ name, base, tip, closed }] };
-                   --json=<path> reads one value off it. Writes nothing: no
-                   git, no state transition, no session identity. When HEAD
-                   closes a process, every slice is listed as closed; a gtd
-                   version mismatch only warns on stderr. Refuses (exit 1)
-                   when HEAD neither closes nor sits inside a process, or when
-                   today's config disagrees with history about the process:
-                   HEAD closes it and its config files differ from the working
-                   tree, or the replay diverged
   judge            Print the resolved rest's pending judgment — the prepared
                    state, its typed questions, and their criteria — the same
                    judge field `gtd next --json` already carries. Read-only:
@@ -218,11 +192,11 @@ Commands:
                    ref's tip. A version mismatch only warns on stderr. --json
                    prints the trail as one document; writes nothing
   history metrics [ref...]
-                   Report how the kept processes went: slices whose naive pass
-                   landed or was rebuilt (the refactor-first rate), continuations
-                   per phase, Gtd-Cost by model and phase with the double work of
-                   a rebuild, quality-lap findings per lens, and red checks that
-                   passed on their re-check — per process and in total. Each <ref>
+                   Report how the kept processes went: builds whose naive pass
+                   landed or was rebuilt (the refactor-first rate), Gtd-Cost by
+                   model and phase with the double work of a rebuild, quality-lap
+                   findings per lens, and red checks that passed on their
+                   re-check — per process and in total. Each <ref>
                    is read as by history show, but a branch name means every
                    process kept from it; none means every ref.
                    Reads commit subjects and trailers, never replays, so a
@@ -247,7 +221,7 @@ Commands:
   help             Print this help and exit
 
 Options:
-  --json=<path>    (gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd slices/gtd history
+  --json=<path>    (gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd history
                    list/gtd history show/gtd history metrics/gtd history judges/gtd strays only) output structured JSON. Bare --json prints the whole document;
                    --json=<path> (a dotted key path into that document, e.g.
                    kind, content, session.id) prints just that value: a
@@ -280,15 +254,6 @@ Options:
   --model=<name>   (gtd land, with --cost) tag that cost's model
                    (gtd judge run, llm answerer) the claude model; omitted:
                    GTD_JUDGE_MODEL, then judge.json, then sonnet
-  --soft=<share>   (gtd context-hook only) the soft limit; default 0.6
-  --hard=<share>   (gtd context-hook only) the hard limit; default 0.7
-  --window=<tokens>
-                   (gtd context-hook only) the model's context window in
-                   tokens; default 200000
-  --slice=<name>   (gtd summary only) the closing-message prompt for one
-                   slice, named as `gtd slices` lists it: its own range, human
-                   commits and cost. An unknown name is refused (exit 1) with
-                   every valid slice listed
   --workflow <name>
                    (with no command at all) start a brand new process on
                    the named workflow — authenticated as human
@@ -373,13 +338,13 @@ driving a loop is a driver's job, not a bundled command (see
 **stderr**, not stdout: stdout stays byte-empty on every failure, a usage error
 included (see [Error envelope](#error-envelope) below). Any other, truly unknown
 subcommand is likewise a usage error exiting 2 without touching the repository.
-The state commands (`land`, `--workflow`, `door`, `doors`, `slices`, `abandon`,
-`restore`, `next`, `status`, `validate`, `summary`, `ui`, `judge`,
-`judge answer`, `history list`, `history show`, `history fetch`) must run from
-the **repository root** — gtd derives the workflow, pending changes, and process
-history relative to cwd, so they refuse with a clear error from a subdirectory;
-`lsp`, `check`, `uncheck` and `strays` are standalone and run from anywhere (see
-each command's own help entry).
+The state commands (`land`, `--workflow`, `door`, `doors`, `abandon`, `restore`,
+`next`, `status`, `validate`, `summary`, `ui`, `judge`, `judge answer`,
+`history list`, `history show`, `history fetch`) must run from the **repository
+root** — gtd derives the workflow, pending changes, and process history relative
+to cwd, so they refuse with a clear error from a subdirectory; `lsp`, `check`,
+`uncheck` and `strays` are standalone and run from anywhere (see each command's
+own help entry).
 
 `install` is described on its own above: it installs knowledge into the calling
 agent's context, and at a repository root no `gtd.config.ts` governs yet, the
@@ -450,9 +415,8 @@ exactly one `gtd: ` prefix: a message already authored with its own
 
 Every JSON document a driver reads carries a top-level integer `schema`,
 currently `1`: `gtd next --json` (every beat kind), `gtd land --json`,
-`gtd judge answer --json`, `gtd judge --json` (also the string a beat carries in
-`judge`), and `gtd slices --json`. `gtd doors --json` is a bare array and
-carries none.
+`gtd judge answer --json` and `gtd judge --json` (also the string a beat carries
+in `judge`). `gtd doors --json` is a bare array and carries none.
 
 - `schema` is bumped only when a field is removed or renamed.
 - Adding a field never bumps it: a driver ignores keys it does not know.
@@ -463,11 +427,10 @@ carries none.
 
 Stderr carries three things beyond the `gtd: ` message line above: NARRATION,
 gated by `--verbose`/`-v`, REMEDIATION, unconditional, and a WARNING, which
-`gtd slices`, `gtd summary --slice` and `gtd history show` print when a finished
-process was recorded by another gtd version (with `--json` too, for
-`gtd slices`). When such a command refuses because of config drift or replay
-divergence, the warning is the last line of the refusal message (and of the
-`--json` `prompt`) instead of its own line.
+`gtd history show` prints when a finished process was recorded by another gtd
+version. When it refuses because of config drift or replay divergence, the
+warning is the last line of the refusal message (and of the `--json` `prompt`)
+instead of its own line.
 
 `--verbose` (alias `-v`) turns on one line of commentary per in-process fact a
 command's dispatch already computes — which rest resolved, and which

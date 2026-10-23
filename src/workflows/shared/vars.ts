@@ -29,7 +29,6 @@ export const defaults: Readonly<Record<string, string>> = {
   refactorFlagPattern: "\\bGTD_FLAG_\\w+",
   seamAllow: [...testFileGlobs, ".gtd/**"].join(", "),
   flagMode: "true",
-  sliceMaxCriteria: "8",
   // GTD_FLAG_RISK_TIER, recorded at process start; only "1" is on.
   flag_risk_tier: "0",
   // Decides the turn count: one `build.quality.<lens>` scope per entry, each
@@ -37,14 +36,9 @@ export const defaults: Readonly<Record<string, string>> = {
   qualityReviews:
     "correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge",
   refactorQualityReviews: "correctness, ponytail-review, conventions",
-  // Per phase (naive pass, refactor, build): continuations of a turn that
-  // stopped at its context limit before a person is asked, and how many in a
-  // row may close nothing still open.
-  continuations: "3",
-  // Fix-and-retest rounds of a slice's prototype test before a person is
-  // asked; "0" skips the test.
+  // Fix-and-retest rounds of the hands-on test before a person is asked;
+  // "0" skips the test.
   prototypeRounds: "3",
-  continuationStall: "2",
 }
 
 /** Environment settings. */

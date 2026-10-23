@@ -1,7 +1,7 @@
 @inmem
 Feature: past its round cap the hands-on test rests at a person's gate
 
-  `prototypeRounds` caps the fix turns a slice's hands-on test gets. Once they
+  `prototypeRounds` caps the fix turns the hands-on test gets. Once they
   are spent and the report still has open items, the process rests at
   implement.prototype.open naming them; a person's fix there is tested again
   with a fresh budget.

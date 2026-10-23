@@ -1,9 +1,9 @@
 @inmem
-Feature: the refactor slice is reviewed on its own before the feature is implemented
+Feature: the refactor is reviewed on its own before the feature is implemented
 
   After a refactor-first judgment the refactor is built, quality-lapped and
-  reviewed in its own slice. Review edits re-run the refactor, never the design;
-  the feature slice that follows is quality-lapped from the refactor's
+  reviewed on its own. Review edits re-run the refactor, never the design;
+  the feature that follows is quality-lapped from the refactor's
   sign-off, then reviewed. The flags are pinned so the per-flag test runs never move it off
   its path.
 
@@ -614,7 +614,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       And ".gtd/REFACTOR.md" does not exist
       And ".gtd/REVIEW.md" contains "A: add and subtract differ only by sign."
 
-    Scenario: a no-change landing after the in-gate reply signs off and the feature slice follows
+    Scenario: a no-change landing after the in-gate reply signs off and the feature follows
       Given step "implement.building" writes "src/calc.ts" with:
         """
         export const op = (a: number, b: number, sign: number) => a + sign * b
@@ -697,7 +697,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       Then the process rests at "build.review.reviewing"
       And "src/calc.ts" contains "subtract"
 
-    Scenario: a praise-only one-shot footnote signs off and the feature slice follows
+    Scenario: a praise-only one-shot footnote signs off and the feature follows
       Given step "implement.building" writes "src/calc.ts" with:
         """
         export const op = (a: number, b: number, sign: number) => a + sign * b
@@ -979,7 +979,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       Then driving the process is refused with "refactor-feedback"
       And driving the process is refused with "hand-edited src/calc.ts"
 
-    Scenario: a praise note and a concluded thread on a settled round sign off and the feature slice follows
+    Scenario: a praise note and a concluded thread on a settled round sign off and the feature follows
       Given step "implement.building" writes "src/calc.ts" with:
         """
         export const op = (a: number, b: number, sign: number) => a + sign * b
@@ -1066,7 +1066,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       Then the process rests at "build.review.reviewing"
       And "src/calc.ts" contains "subtract"
 
-    Scenario: a praise-only refactor review still signs off and the feature slice follows
+    Scenario: a praise-only refactor review still signs off and the feature follows
       Given step "implement.building" writes "src/calc.ts" with:
         """
         export const op = (a: number, b: number, sign: number) => a + sign * b
@@ -1099,7 +1099,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       Then the process rests at "build.review.reviewing"
       And "src/calc.ts" contains "subtract"
 
-    Scenario: a nit fix in the refactor slice that changes a non-stray is refused, though a glob stray widens the write access
+    Scenario: a nit fix in the refactor that changes a non-stray is refused, though a glob stray widens the write access
       Given step "seam.naive" writes "src/*.ts" with:
         """
         export const literalGlobName = 2
@@ -1130,7 +1130,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       When gtd lands
       Then driving the process is refused with "refactor-scope"
 
-    Scenario: the nit-fix turn in the refactor slice may write the strays and .gtd/** only
+    Scenario: the nit-fix turn in the refactor may write the strays and .gtd/** only
       Given step "seam.naive" writes "src/*.ts" with:
         """
         export const literalGlobName = 2
@@ -1185,7 +1185,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       And no commit body contains "refactor.build.review.composing"
 
-  Rule: with a quality lens on both slices
+  Rule: with a quality lens on both the refactor and the feature
 
     Background:
       Given an environment variable "GTD_REFACTORQUALITYREVIEWS" set to "correctness"
@@ -1275,7 +1275,7 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       And step "refactor.build.review.closing" runs its script
 
-    Scenario: each slice's quality lap reviews from that slice's base
+    Scenario: the refactor's and the feature's quality laps each review from their own base
       When the process is driven
       Then the process rests at "refactor.build.quality.correctness.reviewing"
       And the resting step's content contains the hash of the commit "gtd(agent): seam.note → refactor.deriving"

@@ -79,36 +79,15 @@ export const criteriaOf = (text: string): readonly Criterion[] | undefined =>
     return id === null ? { id: "", text: item } : criterion(id)
   })
 
-/**
- * Which criteria one slice builds, resolved against the file whenever read:
- * `only` drops an ID a steer deleted, `except` (the last slice) takes one a
- * steer added.
- */
-export interface CriteriaSlice {
-  readonly only?: readonly string[]
-  readonly except?: readonly string[]
-}
+/** The ID'd criteria of `text`. */
+export const criterionIds = (text: string): string[] =>
+  (criteriaOf(text) ?? []).map((c) => c.id).filter((id) => id !== "")
 
-/** The ID'd criteria of `text`, only `slice`'s when given. */
-export const criterionIds = (text: string, slice?: CriteriaSlice): string[] =>
-  (criteriaOf(text) ?? [])
-    .map((c) => c.id)
-    .filter(
-      (id) =>
-        id !== "" &&
-        (slice?.only === undefined || slice.only.includes(id)) &&
-        !(slice?.except ?? []).includes(id),
-    )
-
-/** The ID'd criteria of `text` (`slice`'s when given) a person can try by hand: none tagged `(no hands-on)`. */
-export const handsOnIds = (text: string, slice?: CriteriaSlice): string[] => {
+/** The ID'd criteria of `text` a person can try by hand: none tagged `(no hands-on)`. */
+export const handsOnIds = (text: string): string[] => {
   const tagged = (criteriaOf(text) ?? []).filter((c) => c.noHandsOn).map((c) => c.id)
-  return criterionIds(text, slice).filter((id) => !tagged.includes(id))
+  return criterionIds(text).filter((id) => !tagged.includes(id))
 }
-
-/** `slice`'s IDs in `.gtd/REQUIREMENTS.md` as it is now; `undefined` for an unsliced change. */
-export const sliceIds = (slice: CriteriaSlice | undefined): string[] | undefined =>
-  slice === undefined ? undefined : criterionIds(read(REQUIREMENTS) ?? "", slice)
 
 /** Items numbered `AC-1`…, unless every one already carries its own distinct ID. */
 const numbered = (items: readonly string[]): Criterion[] => {
@@ -292,14 +271,3 @@ export const skipDesign = (stated: StatedCriteria | undefined): Promise<boolean>
         await impact()
         return true
       })
-
-/** After a gate that invites narrowing the requirements: an edit must leave valid criteria. */
-export const requireCriteriaIfEdited = (): void => {
-  const change = changes().get(REQUIREMENTS)
-  if (change === undefined) return
-  if (change.status === "deleted")
-    refuse(
-      `gtd land: criteria-missing: ${REQUIREMENTS} must stay — narrow its criteria, never delete it`,
-    )
-  requireCriteria(REQUIREMENTS)
-}

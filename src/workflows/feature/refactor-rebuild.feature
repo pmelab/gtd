@@ -197,7 +197,6 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
     Then the process rests at "implement.building"
     And "src/calc.ts" contains "op(a, b, 1)"
     And "src/calc.ts" does not contain "subtract"
-    And the output of gtd "slices" contains "refactor "
 
   Scenario: the rebuild lands only once it carries the naive pass's acceptance tests, green
     Given step "seam.note" writes ".gtd/REFACTOR-NOTE.md" with:
@@ -284,9 +283,4 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
       gtd(agent): implement.building → implement.health.check
       gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.review.reviewing
-      """
-    And the output lines of gtd "slices" start with:
-      """
-      refactor
-      feature
       """

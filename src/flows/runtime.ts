@@ -16,18 +16,9 @@ export interface SteeringOptions {
   readonly base?: string | undefined
 }
 
-/** Shares of the model's context window at which a driver stops the turn — `gtd next --json`'s `context`. */
-export interface ContextLimitOptions {
-  /** Ask the agent to wrap up with a handoff note. Driver default 0.6. */
-  readonly soft?: number | undefined
-  /** Stop the turn outright. Driver default 0.7. */
-  readonly hard?: number | undefined
-}
-
 export interface AgentOptions extends SteeringOptions {
   readonly model?: string | undefined
   readonly system?: string | undefined
-  readonly context?: ContextLimitOptions | undefined
   /**
    * A turn that changes nothing completes the step. Without this an empty turn
    * is an attempt: recorded, but the process stays at the step (a stall).
@@ -124,8 +115,6 @@ export interface ScopeOptions {
   readonly model?: string | undefined
   /** The system prompt every agent step inside runs with, unless it sets its own. */
   readonly system?: string | undefined
-  /** The context limit every agent step inside runs with; a nested scope's or a step's own replaces it key by key. */
-  readonly context?: ContextLimitOptions | undefined
   /** The skill names every agent step inside declares — `gtd next --json`'s `skills`. A nested scope inherits it unless it sets its own. */
   readonly skills?: readonly string[] | undefined
   /** The file access every agent step inside runs with — `gtd next --json`'s `access`. A nested scope inherits it; its own replaces it wholesale. */
@@ -161,9 +150,6 @@ export interface FlowContext {
   readonly refuse: (message: string) => never
   readonly pushScope: (scope: ScopeOptions) => void
   readonly popScope: () => void
-  /** Absent on an engine older than `slice`; FLOWS_PROTOCOL stays 1. */
-  readonly enterSlice?: (name: string) => void
-  readonly leaveSlice?: () => void
   readonly read: (path: string) => string | undefined
   readonly glob: (pattern: string) => readonly string[]
   /** The last step's changes, content read on demand. */
@@ -295,21 +281,6 @@ export const scope = async <T>(scope: string | ScopeOptions, fn: () => Promise<T
     return await fn()
   } finally {
     context.popScope()
-  }
-}
-
-/**
- * Mark the span `fn` covers as one named slice of the process. Lands no
- * commit, prefixes no step name, opens no memory scope.
- */
-export const slice = async <T>(name: string, fn: () => Promise<T>): Promise<T> => {
-  const context = ctx()
-  if (typeof context.enterSlice !== "function") return fn()
-  context.enterSlice(name)
-  try {
-    return await fn()
-  } finally {
-    context.leaveSlice?.()
   }
 }
 
@@ -501,36 +472,17 @@ export const openQuestions = (text: string): readonly OpenQuestion[] => ctx().op
 /** A workflow's one flow. */
 export type Flow = () => Promise<void>
 
-/** The slice `gtd summary --slice` writes the closing message for. */
-export interface SummarySlice {
-  readonly name: string
-  /** Exclusive, as in git's `base..tip`. */
-  readonly base: string
-  readonly tip: string
-  /** 1-based stack position: `index === count` is the last slice. */
-  readonly index: number
-  readonly count: number
-}
-
 export interface SummaryContext {
-  /** Whole process, even under a slice. */
   readonly entryCommit: string
-  /** The slice's `base` under `--slice`. */
   readonly processBase: string
-  /** The slice's `tip` under `--slice`. */
   readonly processTip: string
-  /** The slice's own under `--slice`. */
   readonly humanCommits: readonly { readonly hash: string; readonly state: string }[]
-  /** The slice's own under `--slice`. */
   readonly processCost: number
-  /** The slice's own under `--slice`. */
   readonly processCostByModel: readonly { readonly model: string; readonly cost: number }[]
-  /** Every `Gtd-Mark` of the process's commits, oldest first — whole process, even under a slice. */
+  /** Every `Gtd-Mark` of the process's commits, oldest first. */
   readonly marks: readonly Mark[]
   readonly vars: Readonly<Record<string, string>>
   readonly env: Readonly<Record<string, string>>
-  /** Present only under `gtd summary --slice`; the key is absent, not undefined, otherwise. */
-  readonly slice?: SummarySlice
 }
 
 /** `gtd summary`'s prompt — a workflow module's optional `summary` export. */

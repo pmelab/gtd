@@ -36,7 +36,7 @@ import {
 } from "./Program.js"
 import type { ToolCommands } from "./ToolCommands.js"
 import { THRESHOLDS } from "./Judges.js"
-import { EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR, parseContextWindow } from "../wire/index.js"
+import { EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 
 export type { Command, CommandRequirements } from "./Program.js"
 export { needsOf, standaloneKinds } from "./Program.js"
@@ -91,20 +91,12 @@ const nonNegativeNumber = (raw: string, flag: string): Either.Either<number, str
   return Either.right(n)
 }
 
-const share = (raw: string, flag: string): Either.Either<number, string> => {
-  const n = Number(raw)
-  return raw.trim() !== "" && n > 0 && n <= 1
-    ? Either.right(n)
-    : Either.left(`gtd: ${flag} must be a share of the context window in (0, 1] — got "${raw}"`)
-}
-
 const JSON_KINDS: ReadonlySet<Command["kind"] | undefined> = new Set<Command["kind"]>([
   "next",
   "land",
   "judge",
   "judgeAnswer",
   "doors",
-  "slices",
   "historyList",
   "historyShow",
   "historyMetrics",
@@ -120,11 +112,11 @@ const FLAGS: readonly FlagRow[] = [
     scope: (kind) => JSON_KINDS.has(kind),
     decode: ([raw]) => Either.right(raw ?? ""),
     scopeError:
-      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors`/`gtd slices`/`gtd history list`/`gtd history show`/`gtd history metrics`/`gtd history judges`/`gtd strays` — " +
+      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors`/`gtd history list`/`gtd history show`/`gtd history metrics`/`gtd history judges`/`gtd strays` — " +
       "every other command prints plain text; see `gtd install` for the driver protocol briefing",
     valueHint: "<path>",
     help: [
-      "(gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd slices/gtd history",
+      "(gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd history",
       "list/gtd history show/gtd history metrics/gtd history judges/gtd strays only) output structured JSON. Bare --json prints the whole document;",
       "--json=<path> (a dotted key path into that document, e.g.",
       "kind, content, session.id) prints just that value: a",
@@ -256,56 +248,6 @@ const FLAGS: readonly FlagRow[] = [
       "(gtd land, with --cost) tag that cost's model",
       "(gtd judge run, llm answerer) the claude model; omitted:",
       "GTD_JUDGE_MODEL, then judge.json, then sonnet",
-    ],
-  },
-  {
-    name: "--soft",
-    arity: 1,
-    repeatable: false,
-    scope: (kind) => kind === "contextHook",
-    decode: ([raw]) => share(raw ?? "", "--soft"),
-    scopeError: "gtd: --soft is only valid for `gtd context-hook`",
-    valueHint: "<share>",
-    help: ["(gtd context-hook only) the soft limit; default 0.6"],
-  },
-  {
-    name: "--hard",
-    arity: 1,
-    repeatable: false,
-    scope: (kind) => kind === "contextHook",
-    decode: ([raw]) => share(raw ?? "", "--hard"),
-    scopeError: "gtd: --hard is only valid for `gtd context-hook`",
-    valueHint: "<share>",
-    help: ["(gtd context-hook only) the hard limit; default 0.7"],
-  },
-  {
-    name: "--window",
-    arity: 1,
-    repeatable: false,
-    scope: (kind) => kind === "contextHook",
-    decode: ([raw]) => {
-      const window = parseContextWindow(raw)
-      return window !== undefined
-        ? Either.right(window)
-        : Either.left(`gtd: --window must be a positive integer — got "${raw ?? ""}"`)
-    },
-    scopeError: "gtd: --window is only valid for `gtd context-hook`",
-    valueHint: "<tokens>",
-    help: ["(gtd context-hook only) the model's context window in", "tokens; default 200000"],
-  },
-  {
-    name: "--slice",
-    arity: 1,
-    repeatable: false,
-    scope: (kind) => kind === "summary",
-    decode: ([raw]) => Either.right(raw!),
-    scopeError: "gtd: --slice is only valid for `gtd summary`",
-    valueHint: "<name>",
-    help: [
-      "(gtd summary only) the closing-message prompt for one",
-      "slice, named as `gtd slices` lists it: its own range, human",
-      "commits and cost. An unknown name is refused (exit 1) with",
-      "every valid slice listed",
     ],
   },
   {
@@ -643,22 +585,6 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     ],
   },
   {
-    token: "context-hook",
-    kind: "contextHook",
-    arity: "none",
-    details: [
-      "A Claude Code PostToolUse and PreCompact hook that stops an",
-      "agent turn at a share of its context window. Reads the",
-      "hook's input on stdin and the context the transcript's",
-      "latest assistant message used. Past --soft it blocks with a",
-      "request to end the turn with a handoff note; past --hard,",
-      "or at PreCompact, it stops the turn with a stopReason",
-      'starting "gtd: context limit". Prints nothing otherwise,',
-      "and for a subagent's tool call. Always exits 0 on valid",
-      "input; see docs/driver.md",
-    ],
-  },
-  {
     token: "summary",
     kind: "summary",
     arity: "none",
@@ -671,15 +597,10 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "no state transition, no file, no session identity — the",
       "driver pipes the output to a cold agent and does what it",
       "wants with the result (a squash, an amend, a PR body).",
-      "--slice <name> prints it for one slice instead: its own",
-      "range, human commits and cost (see `gtd slices`); it also",
-      "refuses an unknown slice name, and a HEAD-closing process",
-      "whose config files differ from the working tree or whose",
-      "replay diverged; an open last slice is provisional. Refuses",
-      "(exit 1) when the workflow declares no summary: template,",
-      "or when the resolved run has no commits to name — plain",
-      "gtd summary is runnable any time before the next thing",
-      "lands on the branch",
+      "Refuses (exit 1) when the workflow declares no summary:",
+      "template, or when the resolved run has no commits to name —",
+      "it is runnable any time before the next thing lands on the",
+      "branch",
     ],
   },
   {
@@ -720,25 +641,6 @@ const COMMAND_ROWS: readonly CommandRow[] = [
       "each. --json prints one JSON array of { name, workflow,",
       "args: [{ name, optional }] } instead; --json=<path> reads one",
       "value off it. Writes nothing",
-    ],
-  },
-  {
-    token: "slices",
-    kind: "slices",
-    arity: "none",
-    details: [
-      "List the slices of the process HEAD closes or sits inside,",
-      "first slice first: one `name base..tip` line each (full",
-      "hashes; plain output carries no promise). --json prints",
-      "{ schema: 1, slices: [{ name, base, tip, closed }] };",
-      "--json=<path> reads one value off it. Writes nothing: no",
-      "git, no state transition, no session identity. When HEAD",
-      "closes a process, every slice is listed as closed; a gtd",
-      "version mismatch only warns on stderr. Refuses (exit 1)",
-      "when HEAD neither closes nor sits inside a process, or when",
-      "today's config disagrees with history about the process:",
-      "HEAD closes it and its config files differ from the working",
-      "tree, or the replay diverged",
     ],
   },
   {
@@ -836,11 +738,11 @@ const COMMAND_ROWS: readonly CommandRow[] = [
     kind: "historyMetrics",
     arity: { name: "ref", many: true },
     details: [
-      "Report how the kept processes went: slices whose naive pass",
-      "landed or was rebuilt (the refactor-first rate), continuations",
-      "per phase, Gtd-Cost by model and phase with the double work of",
-      "a rebuild, quality-lap findings per lens, and red checks that",
-      "passed on their re-check — per process and in total. Each <ref>",
+      "Report how the kept processes went: builds whose naive pass",
+      "landed or was rebuilt (the refactor-first rate), Gtd-Cost by",
+      "model and phase with the double work of a rebuild, quality-lap",
+      "findings per lens, and red checks that passed on their",
+      "re-check — per process and in total. Each <ref>",
       "is read as by history show, but a branch name means every",
       "process kept from it; none means every ref.",
       "Reads commit subjects and trailers, never replays, so a",
@@ -1282,10 +1184,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--dev"?: boolean
     readonly "--provider"?: "fixed" | "jev" | "llm"
     readonly "--answers"?: string
-    readonly "--slice"?: string
-    readonly "--soft"?: number
-    readonly "--hard"?: number
-    readonly "--window"?: number
     readonly "--jsonl"?: boolean
   }
 
@@ -1390,27 +1288,10 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     }
   }
 
-  if (kind === "contextHook") {
-    return {
-      kind: "command",
-      command: {
-        kind: "contextHook",
-        ...(bag["--soft"] !== undefined ? { soft: bag["--soft"] } : {}),
-        ...(bag["--hard"] !== undefined ? { hard: bag["--hard"] } : {}),
-        ...(bag["--window"] !== undefined ? { window: bag["--window"] } : {}),
-      },
-      json,
-      verbose,
-    }
-  }
-
   if (kind === "summary") {
     return {
       kind: "command",
-      command: {
-        kind: "summary",
-        ...(bag["--slice"] !== undefined ? { slice: bag["--slice"] } : {}),
-      },
+      command: { kind: "summary" },
       json,
       verbose,
     }
@@ -1515,7 +1396,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "validate"
       | "install"
       | "doors"
-      | "slices"
       | "base"
       | "judge"
       | "judgeAnswer"

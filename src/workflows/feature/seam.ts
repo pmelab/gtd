@@ -17,36 +17,18 @@ import {
   removeScript,
   run,
   scope,
-  slice as sliced,
-  start,
   vars,
   wrote,
   type Change,
   type DiffShapeResult,
   type KeptTip,
 } from "../../flows/index.js"
-import { continuing, phase, type Handoff, type Phase } from "../shared/continuation.js"
-import {
-  coder,
-  FEEDBACK,
-  HANDOFF,
-  PROTOTYPE,
-  REFACTOR_NOTE,
-  REQUIREMENTS,
-  SLICES,
-} from "../shared/steps.js"
+import { coder, FEEDBACK, PROTOTYPE, REFACTOR_NOTE, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
 import { green } from "./green.js"
 import { prototypeTest } from "./prototype.js"
-import {
-  criterionIds,
-  requireCriteria,
-  requireCriteriaFrozen,
-  requireCriteriaIfEdited,
-  sliceIds,
-  type CriteriaSlice,
-} from "./criteria.js"
+import { criterionIds, requireCriteria, requireCriteriaFrozen } from "./criteria.js"
 import {
   COMMENT,
   holdsCallSites,
@@ -72,45 +54,12 @@ export const judgeSeam = (tip: KeptTip): Promise<DiffShapeResult> =>
     exempt: tip.changes.filter((c) => c.status === "added").map((c) => c.path),
   })
 
-export const naivePass = (
-  retry?: t.NaiveRetry,
-  slice?: CriteriaSlice,
-  from?: Handoff,
-): Promise<void> =>
-  t.agentWithSkills("naive", t.naivePassPrompt(retry, sliceIds(slice), from), {
-    label:
-      from !== undefined
-        ? "Continuing the naive pass"
-        : retry === undefined
-          ? "Writing the naive pass"
-          : "Rewriting the naive pass",
+export const naivePass = (retry?: t.NaiveRetry): Promise<void> =>
+  t.agentWithSkills("naive", t.naivePassPrompt(retry), {
+    label: retry === undefined ? "Writing the naive pass" : "Rewriting the naive pass",
     keep: true,
     model: coder(),
     system: t.builderSystem(),
-  })
-
-const handoffOf = (tip: KeptTip, slice: CriteriaSlice | undefined): Handoff | undefined => {
-  const note = tip.changes.find((c) => c.path === HANDOFF && c.after !== undefined)
-  if (note === undefined) return undefined
-  return {
-    snapshot: tip.hash,
-    note: note.after!.trim(),
-    open: unnamed(idsOf(REQUIREMENTS, slice), acceptanceTests(tip.changes)),
-  }
-}
-
-/** A naive pass, continued until a pass ends without a handoff note: the snapshot is its kept tip. */
-const naiveContinued = (
-  retry: t.NaiveRetry | undefined,
-  slice: CriteriaSlice | undefined,
-  naive: Phase,
-) =>
-  continuing(naive, async (from, fresh) => {
-    const tip = await fresh(async () => {
-      await naivePass(retry, slice, from)
-      return kept("naive")!
-    })
-    return { result: tip, handoff: handoffOf(tip, slice) }
   })
 
 // Only a string an import, `require` or `mock` call takes: a URL route or path-like data is not one.
@@ -158,8 +107,7 @@ const addedLines = (change: Change): string => {
 const acceptanceTests = (changes: readonly Change[]): readonly Change[] =>
   changes.filter((c) => c.after !== undefined && isCode(c.path) && isTestFile(c.path))
 
-const idsOf = (file: string, slice?: CriteriaSlice): string[] =>
-  criterionIds(read(file) ?? "", slice)
+const idsOf = (file: string): string[] => criterionIds(read(file) ?? "")
 
 // One rule for both gates, so a naive test carried over verbatim always satisfies the rebuild's.
 const unnamed = (ids: readonly string[], tests: readonly Change[]): string[] => {
@@ -172,13 +120,9 @@ const unnamed = (ids: readonly string[], tests: readonly Change[]): string[] => 
  * test line of the pass names, or a test importing a file the pass added —
  * naive structure a reset and refactor replaces, which the tests must survive.
  */
-export const acceptanceFault = (
-  file: string,
-  tip: KeptTip,
-  slice?: CriteriaSlice,
-): string | undefined => {
+export const acceptanceFault = (file: string, tip: KeptTip): string | undefined => {
   const tests = acceptanceTests(tip.changes)
-  const untested = unnamed(idsOf(file, slice), tests)
+  const untested = unnamed(idsOf(file), tests)
   if (untested.length > 0)
     return `acceptance-tests: no test of the naive pass names ${untested.join(", ")} — write a behaviour-level test for each criterion with its ID in the test or scenario name, e.g. "[${untested[0]}] …"`
   const added = tip.changes
@@ -198,8 +142,8 @@ export const acceptanceFault = (
 }
 
 /** What a rebuild carries over from the naive pass `tip`: the IDs its tests name, and those test files. */
-export const naiveAcceptance = (tip: KeptTip, slice?: CriteriaSlice): t.Acceptance => {
-  const ids = idsOf(REQUIREMENTS, slice)
+export const naiveAcceptance = (tip: KeptTip): t.Acceptance => {
+  const ids = idsOf(REQUIREMENTS)
   const perTest = acceptanceTests(tip.changes).map((c) => {
     const lines = addedLines(c)
     return { path: c.path, ids: ids.filter((id) => named(id, lines)) }
@@ -281,18 +225,14 @@ export interface ImplementOptions {
   readonly reference?: string | undefined
   readonly tier?: RiskTier | undefined
   readonly amend?: boolean | undefined
-  /** After a refactor slice, which may already carry the feature: an empty turn completes the step. */
+  /** After a refactor, which may already carry the feature: an empty turn completes the step. */
   readonly afterRefactor?: boolean | undefined
   /** A kept naive tip to apply as the implementation; built fresh only when it no longer applies. */
   readonly naive?: string | undefined
   /** A rebuild after a refactor-first judgment: the note it plugs into, the acceptance tests it must carry. */
   readonly rebuild?: t.Rebuild | undefined
-  /** The criteria this slice builds, when the change has more than one slice. */
-  readonly slice?: CriteriaSlice | undefined
   /** @deprecated Ignored since the coverage judge is gone. */
   readonly base?: string | undefined
-  /** Not the last slice: `.gtd/REQUIREMENTS.md` and `.gtd/SLICES.md` stay for the next one. */
-  readonly more?: boolean | (() => boolean) | undefined
 }
 
 /** Resolves `false` when the tip no longer applies (the failure is in `.gtd/FEEDBACK.md`) or has nothing outside `.gtd/` to apply. */
@@ -304,54 +244,31 @@ const applied = async (tip: string): Promise<boolean> => {
 }
 
 /** `carried` limited to the criteria `.gtd/REQUIREMENTS.md` lists now; a file listing none narrows nothing. */
-const settled = (
-  carried: readonly string[] | undefined,
-  slice: CriteriaSlice | undefined,
-): readonly string[] => {
-  const listed = idsOf(REQUIREMENTS, slice)
-  if (carried === undefined) return listed
+const settled = (carried: readonly string[]): readonly string[] => {
+  const listed = idsOf(REQUIREMENTS)
   return listed.length === 0 ? carried : carried.filter((id) => listed.includes(id))
 }
 
-// A snapshot lands on the branch as it is; the health loop greens the whole build after.
-// Open IDs count every test line since the process start, so an amend lap's earlier tests close theirs.
-const build = (options: ImplementOptions): Promise<void> =>
-  continuing(phase("build", requireCriteriaIfEdited), async (from, fresh) => {
-    await fresh(() =>
-      t.agentWithSkills(
-        "building",
-        t.implementBuildingPrompt(
-          options.reference,
-          options.tier,
-          options.amend,
-          options.afterRefactor,
-          flagModeOn(),
-          options.rebuild,
-          sliceIds(options.slice),
-          from,
-        ),
-        {
-          label: from === undefined ? "Implementing" : "Continuing the implementation",
-          model: coder(),
-          system: t.builderSystem(),
-          ...(options.afterRefactor === true ? { allowEmpty: true } : {}),
-        },
-      ),
-    )
-    requireCriteriaFrozen(REQUIREMENTS)
-    // Committed by the snapshot, so a turn stopped again may leave it as it was: present means stopped.
-    const note = read(HANDOFF)
-    if (note === undefined) return { result: undefined }
-    const ids = settled(options.rebuild?.acceptance?.ids, options.slice)
-    return {
-      result: undefined,
-      handoff: {
-        snapshot: head(),
-        note: note.trim(),
-        open: unnamed(ids, acceptanceTests(changesSince(start()))),
-      },
-    }
-  })
+const build = async (options: ImplementOptions): Promise<void> => {
+  await t.agentWithSkills(
+    "building",
+    t.implementBuildingPrompt(
+      options.reference,
+      options.tier,
+      options.amend,
+      options.afterRefactor,
+      flagModeOn(),
+      options.rebuild,
+    ),
+    {
+      label: "Implementing",
+      model: coder(),
+      system: t.builderSystem(),
+      ...(options.afterRefactor === true ? { allowEmpty: true } : {}),
+    },
+  )
+  requireCriteriaFrozen(REQUIREMENTS)
+}
 
 export function implement(options?: ImplementOptions): Promise<void>
 /** @deprecated Pass `implement({ reference, tier, amend })`. */
@@ -378,37 +295,20 @@ export const implementing = (options: ImplementOptions): Promise<readonly string
     const built = options.naive === undefined || !(await applied(options.naive))
     if (built) await build(options)
     else requireCriteriaFrozen(REQUIREMENTS)
-    // Only the criteria still listed: a person may narrow them at `implement.oversized`.
+    // Only the criteria the requirements still list.
     if (built && acceptance !== undefined)
-      requireAcceptance({ ...acceptance, ids: settled(acceptance.ids, options.slice) }, since)
+      requireAcceptance({ ...acceptance, ids: settled(acceptance.ids) }, since)
     // Fix turns are held to the carried tests too: deleting a red one must not buy a green suite.
     const keepsTests =
       built && acceptance !== undefined ? () => requireAcceptanceKept(acceptance) : undefined
     await green(keepsTests)
-    await prototypeTest(options.slice, keepsTests)
+    await prototypeTest(keepsTests)
     const ids = criterionIds(read(REQUIREMENTS) ?? "")
-    await closing(moreToBuild(options.more))
+    await run("closing", removeScript([REQUIREMENTS, REFACTOR_NOTE, PROTOTYPE]), {
+      label: "Closing out the implementation",
+    })
     return ids
   })
-
-// Read at closing: a narrowing at `implement.oversized` may have emptied every later slice.
-const moreToBuild = (more: ImplementOptions["more"]): boolean =>
-  typeof more === "function" ? more() : more === true
-
-/** The last slice's closing, for a last slice a steer left with no criterion to build. */
-export const closeOut = (): Promise<void> => scope("implement", () => closing(false))
-
-/** A slice with `more` after it keeps the criteria and the slicing for the next one. */
-const closing = (more: boolean): Promise<void> =>
-  run(
-    "closing",
-    removeScript(
-      more
-        ? [REFACTOR_NOTE, HANDOFF, PROTOTYPE]
-        : [REQUIREMENTS, REFACTOR_NOTE, SLICES, HANDOFF, PROTOTYPE],
-    ),
-    { label: "Closing out the implementation" },
-  )
 
 interface Decision {
   readonly reference: string
@@ -459,12 +359,8 @@ interface Vetting {
 }
 
 /** Sends a pass whose tests fall short or run red back (`undefined`: it goes on, an overruled one as it is). */
-const vetted = async (
-  tip: KeptTip,
-  vetting: Vetting,
-  slice: CriteriaSlice | undefined,
-): Promise<Verdict | undefined> => {
-  const fault = vetting.waived ? undefined : acceptanceFault(REQUIREMENTS, tip, slice)
+const vetted = async (tip: KeptTip, vetting: Vetting): Promise<Verdict | undefined> => {
+  const fault = vetting.waived ? undefined : acceptanceFault(REQUIREMENTS, tip)
   if (fault !== undefined) {
     const verdict = await vetting.again({ fault, hash: tip.hash })
     if (verdict.kind !== "overruled") return verdict
@@ -484,15 +380,15 @@ const ruled = async (tip: KeptTip, again: Vetting["again"]): Promise<Decision | 
   return next.kind === "overruled" ? { reference: tip.hash, tip } : next
 }
 
-const decide = (slice: CriteriaSlice | undefined): Promise<Decision> =>
+const decide = (): Promise<Decision> =>
   scope("seam", async () => {
     const vetting: Vetting = { again: budget(), waived: false }
-    const naive = phase("naive pass", requireCriteriaIfEdited)
     let retry: t.NaiveRetry | undefined
     for (;;) {
-      const tip = await naiveContinued(retry, slice, naive)
+      await naivePass(retry)
+      const tip = kept("naive")!
       const outcome =
-        (await vetted(tip, vetting, slice)) ??
+        (await vetted(tip, vetting)) ??
         (flagModeOn() ? await ruled(tip, vetting.again) : { reference: tip.hash, tip })
       if (!("kind" in outcome)) return outcome
       retry = outcome.kind === "retry" ? outcome.retry : undefined
@@ -504,7 +400,7 @@ export interface SeamOutcome {
   readonly reference: string
   /** The naive pass lands as it is: no build turn. */
   readonly land?: boolean
-  /** The feature slice's base: HEAD after the refactor on refactor-first, else the caller's base. */
+  /** The feature's base: HEAD after the refactor on refactor-first, else the caller's base. */
   readonly base: string
   readonly refactored?: boolean
   /** Set on refactor-first: what the rebuild carries over from the naive pass (the note only after a refactor). */
@@ -533,14 +429,8 @@ export const refactorNote = async (
   return note
 }
 
-export interface SeamSlice {
-  /** Absent for a change built in one slice. */
-  readonly criteria?: CriteriaSlice | undefined
-  readonly refactor?: string | undefined
-}
-
-export const seamBuild = async (base: string, slice: SeamSlice = {}): Promise<SeamOutcome> => {
-  const { reference, tip, shape } = await decide(slice.criteria)
+export const seamBuild = async (base: string): Promise<SeamOutcome> => {
+  const { reference, tip, shape } = await decide()
   if (shape === undefined) return { reference, base, land: true }
   if (shape.unreadable.length > 0) {
     await scope("seam", () =>
@@ -550,20 +440,17 @@ export const seamBuild = async (base: string, slice: SeamSlice = {}): Promise<Se
         acceptClean: true,
       }),
     )
-    return { reference, base, rebuild: { acceptance: naiveAcceptance(tip, slice.criteria) } }
+    return { reference, base, rebuild: { acceptance: naiveAcceptance(tip) } }
   }
   const strays = refactorStrays(shape)
-  if (strays.length === 0)
-    return { reference, base, rebuild: { acceptance: naiveAcceptance(tip, slice.criteria) } }
+  if (strays.length === 0) return { reference, base, rebuild: { acceptance: naiveAcceptance(tip) } }
   const note = await scope("seam", () => refactorNote(reference, strays))
-  const refactored = await sliced(slice.refactor ?? "refactor", () =>
-    reviewedRefactor(shape, { reference, note }),
-  )
+  const refactored = await reviewedRefactor(shape, { reference, note })
   return {
     reference,
     base: head(),
     refactored,
     // Fixed at `seam.note`, like the package's scope: a later edit of the file reaches neither turn.
-    rebuild: { note, acceptance: naiveAcceptance(tip, slice.criteria) },
+    rebuild: { note, acceptance: naiveAcceptance(tip) },
   }
 }

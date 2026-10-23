@@ -52,16 +52,3 @@ Then("no commit body contains {string}", (world: TestkitWorld, text: string) => 
     .find((m) => m.includes(text))
   assert.ok(hit === undefined, `a commit body contains "${text}":\n${hit}`)
 })
-
-Then(
-  "slice {string} begins where slice {string} ends",
-  async (world: TestkitWorld, later: string, earlier: string) => {
-    const { stdout } = await world.repo().gtd("slices")
-    const range = (name: string): string[] => {
-      const line = stdout.split("\n").find((l) => l.startsWith(`${name} `))
-      assert.ok(line !== undefined, stdout)
-      return line.slice(name.length + 1).split("..")
-    }
-    assert.strictEqual(range(later)[0], range(earlier)[1], stdout)
-  },
-)

@@ -25,7 +25,6 @@ export * from "./feature/criteria.js"
 export * from "./feature/planning.js"
 export * from "./feature/refactor.js"
 export * from "./feature/seam.js"
-export * from "./feature/slicing.js"
 export {
   buildTail,
   type BuildTailOptions,
