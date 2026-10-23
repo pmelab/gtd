@@ -5,9 +5,9 @@ Feature: the hands-on test tries only the criteria a person can observe
   wording, internal wiring — by writing `(no hands-on)` between its ID and the
   colon. At every hands-on test, implement.prototype.observable asks a judge,
   per untagged criterion, whether a person can observe it by using the
-  software; a tagged one is never asked about. Only the `yes` IDs reach
-  implement.prototype.testing, which must report each once and needs no chunk
-  for the rest. A slice with no such criterion is not tested by hand, and
+  software; a tagged one is never asked about. Every ID it does not answer
+  `no` reaches implement.prototype.testing, which must report each once and
+  needs no chunk for the rest. A slice with no such criterion is not tested by hand, and
   nothing rests to say so.
 
   Background:
@@ -108,6 +108,68 @@ Feature: the hands-on test tries only the criteria a person can observe
       gtd(agent): implement.prototype.testing → implement.closing
       gtd(check): implement.closing → build.review.reviewing
       """
+
+  Scenario: a criterion the judge gives no verdict on is tested by hand
+    Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
+      """
+      # Requirements
+
+      ## Acceptance Criteria
+
+      - AC-1: subtract(a, b) returns a - b.
+      - AC-2: add is unchanged.
+      """
+    And step "seam.naive" writes "src/calc.test.ts" with:
+      """
+      it("[AC-1] subtracts", () => {})
+      it("[AC-2] adds", () => {})
+      """
+    And judge step "implement.prototype.observable" answers:
+      """
+      [{"id":"AC-2","answer":"no","p":0.9}]
+      """
+    And step "implement.prototype.testing" is prompted with "Skip AC-2: no person can observe them"
+    And step "implement.prototype.testing" writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## AC-1: pass
+
+      Printed 2.
+      """
+    When the process is driven
+    Then the process rests at "build.review.reviewing"
+    And the commit subjects end with:
+      """
+      gtd(judge): implement.prototype.observable → implement.prototype.testing
+      gtd(agent): implement.prototype.testing → implement.closing
+      gtd(check): implement.closing → build.review.reviewing
+      """
+
+  Scenario: a judge landing without a verdict tests every untagged criterion by hand
+    Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
+      """
+      # Requirements
+
+      ## Acceptance Criteria
+
+      - AC-1: subtract(a, b) returns a - b.
+      - AC-2: add is unchanged.
+      """
+    And step "seam.naive" writes "src/calc.test.ts" with:
+      """
+      it("[AC-1] subtracts", () => {})
+      it("[AC-2] adds", () => {})
+      """
+    And judge step "implement.prototype.observable" answers:
+      """
+      []
+      """
+    And step "implement.prototype.testing" writes ".gtd/PROTOTYPE.md" with:
+      """
+      ## AC-1: pass
+
+      Printed 2.
+      """
+    Then driving the process is refused with "exactly one chunk headed `## <ID>: pass|fail|blocked` for AC-2"
 
   Scenario: a report missing a criterion the judge found observable is refused
     Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:

@@ -1972,8 +1972,8 @@ export const observableQuestion = (c: {
 export const observableMessage = (): string =>
   `Judging which acceptance criteria to test by hand. Run \`gtd judge answer\`
 and pipe a \`yes\`/\`no\` verdict per criterion ID — \`yes\` when a person
-can observe it by using the change. Landing without a verdict tests none by
-hand.
+can observe it by using the change. Landing without a verdict tests every
+one by hand.
 `
 
 export const testerSystem = (): string =>

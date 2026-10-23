@@ -14,8 +14,8 @@ import {
   type CriteriaSlice,
 } from "./criteria.js"
 
-/** Below this a `yes` does not send a criterion to the hands-on test; the question leans unsure answers to `yes`. */
-const OBSERVABLE_MIN_P = 0.5
+/** Only a `no` at this or above skips a criterion: no verdict, or an unsure one, sends it to the hands-on test. */
+const UNOBSERVABLE_MIN_P = 0.5
 
 /** The `prototypeRounds` setting. Anything but a non-negative integer fails rather than guess a cap. */
 export const prototypeRounds = (): number => {
@@ -116,7 +116,7 @@ const observable = async (slice: CriteriaSlice | undefined): Promise<string[]> =
     message: t.observableMessage(),
     label: "Judging which criteria to test by hand",
   })
-  return own.filter((id) => answered(answers[id], "yes", OBSERVABLE_MIN_P))
+  return own.filter((id) => !answered(answers[id], "no", UNOBSERVABLE_MIN_P))
 }
 
 const frozen = (): void => requireCriteriaFrozen(REQUIREMENTS)

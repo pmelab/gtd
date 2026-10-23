@@ -68,8 +68,8 @@ within the cap is one `feature` slice. See
 **Every criterion a person can observe is used by hand before the quality lap.**
 Once the suite is green, `implement.prototype.observable` judges, per criterion
 not tagged `(no hands-on)`, whether a person can observe it by using the
-software; only those it finds so are tested, and a slice with none skips the
-test. This is the one check that a criterion is met.
+software; every one it does not judge unobservable is tested, and a slice with
+none skips the test. This is the one check that a criterion is met.
 `implement.prototype.testing` runs the real program (guided by a project skill
 or a manual testing section, else the project's shape) in a disposable place and
 writes `.gtd/PROTOTYPE.md`: per criterion `pass`, `fail` or `blocked`, the steps

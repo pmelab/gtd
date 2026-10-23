@@ -764,11 +764,12 @@ judge, asks per criterion of the slice not tagged
 [`(no hands-on)`](#acceptance-criteria) whether it describes behaviour a person
 can observe by using the software (output printed, a file written, an error
 shown) — not a refactor, something left unchanged or internal shape. Each is a
-`noul` question named by the ID; `yes` at `p` ≥ 0.5 sends it to the test, and an
-unsure judge is asked to say `yes`. Landing without a verdict sends none. It
-runs afresh at every slice's hands-on test, over `.gtd/REQUIREMENTS.md` as it is
-then. A slice with no such criterion — none untagged, or none judged `yes` —
-skips the test silently: `implement.closing` follows, with no rest. Otherwise
+`noul` question named by the ID; only `no` at `p` ≥ 0.5 keeps it from the test,
+and an unsure judge is asked to say `yes`. Landing without a verdict, or with
+none for an ID, sends every unanswered criterion. It runs afresh at every
+slice's hands-on test, over `.gtd/REQUIREMENTS.md` as it is then. A slice with
+no such criterion — none untagged, or every one judged `no` — skips the test
+silently: `implement.closing` follows, with no rest. Otherwise
 `implement.prototype.testing`, an agent turn, finds how the project is exercised
 for real (a project skill that launches or drives it, a manual testing or
 running section in `AGENTS.md`, `CLAUDE.md` or `README.md`, else the project's
