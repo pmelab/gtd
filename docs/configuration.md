@@ -706,8 +706,10 @@ repair a failure outside them.
 
 `.gtd/REQUIREMENTS.md` lists the change's acceptance criteria under a level-2
 `## Acceptance Criteria`, one `- AC-<n>: <criterion>` line each, up to the next
-heading. They are the build's stop condition, so each must be checkable by a
-test or a command. Every later step re-reads them from the file.
+heading. They are the build's stop condition, so each must be behaviour a test
+can pin — the coverage judge only accepts a test. A green suite, typecheck, lint
+or build is not a criterion: the health check already enforces it. Every later
+step re-reads them from the file.
 
 - **Full path.** `design.triage` writes them; `gtd land` refuses a triage turn
   whose file has no criteria, a criterion without an ID, or two criteria sharing
