@@ -35,7 +35,7 @@ import {
   toLspPositionFromOffset,
   type HeadingBlock,
 } from "./MarkdownTree.js"
-import { FREE_TEXT_PLACEHOLDER } from "./qa.js"
+import { FREE_TEXT_PLACEHOLDER, normalizeFreeTextAnswer } from "./qa.js"
 import type {
   SteeringAnchor,
   SteeringAnnotateResult,
@@ -1135,6 +1135,16 @@ const reviewView = (content: string): SteeringView => {
       ...(chunk.severity === undefined ? {} : { status: chunk.severity.label }),
       anchor: { kind: "chunk", index: chunkIndex },
       ...(chunk.section === undefined ? {} : { group: REVIEW_SECTIONS[chunk.section] }),
+      ...(chunk.answers === undefined
+        ? {}
+        : {
+            answered: decisionOf(chunk) !== undefined,
+            decision: chunk.answers.map((option, index) => ({
+              title: option.text,
+              checked: option.checked,
+              anchor: { kind: "option" as const, questionIndex: chunkIndex, index },
+            })),
+          }),
       ...noteAt(chunk.headingLine),
       children: chunk.files.map((file, index) => ({
         title: pointerDisplay(file),
@@ -1263,8 +1273,68 @@ const setFileTickEdits = (
   return edits
 }
 
-/** A `hunk` anchor sets one tick; a `chunk` anchor sets every hunk beneath it to the SAME target state — never `toggleChunkEdits`'s majority-flip heuristic, since the caller already knows the state it wants. */
+/**
+ * A finding's answer boxes are radio: ticking one unticks the others, and
+ * `text` replaces the ticked box's label in the same edit set — the phone's
+ * free-text answer, normalized as `qa`'s is.
+ */
+const decisionEdits = (
+  content: string,
+  chunkIndex: number,
+  index: number,
+  opts: { readonly checked?: boolean; readonly text?: string },
+): SteeringAnnotateResult => {
+  const items = answerItemsOf(content, chunkIndex)
+  const target = items[index]
+  if (target === undefined) return { ok: false, reason: "anchor-not-found" }
+  const checked = opts.checked ?? true
+  const ticks = items.flatMap((item) => {
+    const want = item === target ? checked : !checked && item.checked === true
+    return (item.checked === true) === want ? [] : tickEdit(content, item, want)
+  })
+  const text = opts.text === undefined ? [] : labelEdit(content, target, opts.text)
+  return { ok: true, edits: [...ticks, ...text] }
+}
+
+/** A finding's answer boxes; none for a walkthrough chunk or a stale index. */
+const answerItemsOf = (content: string, chunkIndex: number): readonly ListItem[] => {
+  const chunk = splitChunks(parseMarkdown(content), content).chunks[chunkIndex]
+  if (chunk === undefined || chunk.section === "walkthrough") return []
+  return answerListOf(content, chunk.body)?.list.children ?? []
+}
+
+const tickEdit = (content: string, item: ListItem, checked: boolean): SteeringEdit[] => {
+  const offset = checkboxOffset(content, item)
+  if (offset === undefined) return []
+  const start = toLspPositionFromOffset(content, offset)
+  return [
+    {
+      range: { start, end: { ...start, character: start.character + 1 } },
+      newText: checked ? "x" : " ",
+    },
+  ]
+}
+
+/** Replaces a box's label, from after its marker to the end of its first paragraph. */
+const labelEdit = (content: string, item: ListItem, text: string): SteeringEdit[] => {
+  const from = firstParagraphContentOffset(item)
+  const to = item.children.find((c) => c.type === "paragraph")?.position?.end.offset
+  if (from === undefined || to === undefined) return []
+  return [
+    {
+      range: {
+        start: toLspPositionFromOffset(content, from),
+        end: toLspPositionFromOffset(content, to),
+      },
+      newText: normalizeFreeTextAnswer(text),
+    },
+  ]
+}
+
+/** A `hunk` anchor sets one tick; a `chunk` anchor sets every hunk beneath it to the SAME target state — never `toggleChunkEdits`'s majority-flip heuristic, since the caller already knows the state it wants. An `option` anchor is a finding's decision. */
 const reviewApply: SteeringFormat["apply"] = (content, anchor, opts) => {
+  if (anchor.kind === "option")
+    return decisionEdits(content, anchor.questionIndex, anchor.index, opts)
   const { changesets } = parseReviewDoc(content)
   const checked = opts.checked ?? true
   if (anchor.kind === "hunk") {

@@ -457,6 +457,52 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the file ".gtd/REVIEW.md" does not contain "a previous long answer"
     And the file ".gtd/REVIEW.md" does not contain "continuation lines from an earlier save"
 
+  @inmem
+  Scenario: answering a review finding from the phone ticks exactly one box and writes the answer over the placeholder
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("awaiting-review", {
+          file: ".gtd/REVIEW.md",
+          mode: "review",
+          message: "awaiting your review",
+        })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    When I run gtd land
+    Then it succeeds
+    And a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: abc1234def5678901234567890123456789abcd -->
+
+      ## Findings
+
+      ### Token check
+
+      - [x] ./src/auth.ts#1-2
+
+      Tick exactly one:
+
+      - [ ] fix as suggested
+      - [x] won't fix
+      - [ ] _your answer_
+      """
+    When I answer option 2 of question 0 in ".gtd/REVIEW.md" mode "review" with the text "Only for admin tokens" via a spawned gtd ui
+    Then the file ".gtd/REVIEW.md" contains "- [ ] fix as suggested"
+    And the file ".gtd/REVIEW.md" contains "- [ ] won't fix"
+    And the file ".gtd/REVIEW.md" contains "- [x] Only for admin tokens"
+    And the file ".gtd/REVIEW.md" does not contain "_your answer_"
+
   # `resolveBindHost`/`resolveCertPair` themselves (the Tailscale-scan
   # default, --self-signed, ui.cert/ui.key) are pinned deterministically at
   # the unit tier — `src/ui/Server.test.ts`'s own `describe("resolveBindHost"
