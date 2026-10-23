@@ -1,5 +1,6 @@
 import {
   answered,
+  type Change,
   changes,
   changesSince,
   human,
@@ -47,13 +48,75 @@ export const green = (guard?: () => void): Promise<void> =>
     },
   )
 
-// A budget cut keeps the end, so the files naming a criterion ID go last.
-const testsSince = (base: string): string =>
-  changesSince(base)
-    .filter((c) => c.after !== undefined && isCode(c.path) && isTestFile(c.path))
-    .sort((a, b) => Number(/\bAC-\d/.test(a.after!)) - Number(/\bAC-\d/.test(b.after!)))
-    .map((c) => `=== ${c.path} (${c.status})\n${c.after}`)
+const CONTEXT_LINES = 3
+
+// A line the base never had counts as changed: no diff, but a fixture's untouched `[AC-1]` tag stays unchanged.
+const changedLines = (c: Change, lines: readonly string[]): Set<number> => {
+  const before = new Set(c.before?.split("\n"))
+  return new Set(lines.flatMap((line, i) => (before.has(line) ? [] : [i])))
+}
+
+const windows = (changed: ReadonlySet<number>, last: number): [number, number][] => {
+  const ranges: [number, number][] = []
+  for (const n of changed) {
+    const from = Math.max(0, n - CONTEXT_LINES)
+    const to = Math.min(last, n + CONTEXT_LINES)
+    const prev = ranges.at(-1)
+    if (prev !== undefined && from <= prev[1] + 1) prev[1] = to
+    else ranges.push([from, to])
+  }
+  return ranges
+}
+
+const naming = (ids: readonly string[]): ((line: string) => boolean) => {
+  const pattern = new RegExp(`\\b(?:${ids.join("|")})(?!\\d)`)
+  return (line) => ids.length > 0 && pattern.test(line)
+}
+
+interface Hunk {
+  readonly rank: number
+  readonly text: string
+}
+
+const hunksOf = (c: Change, names: (line: string) => boolean): Hunk[] => {
+  if (c.after === undefined) return []
+  const lines = c.after.split("\n")
+  const changed = changedLines(c, lines)
+  return windows(changed, lines.length - 1).map(([from, to]) => {
+    const body = lines.slice(from, to + 1)
+    // A changed test body keeps its name in view: the closest line above naming an ID.
+    const above = body.some(names) ? -1 : lines.slice(0, from).findLastIndex(names)
+    const heading = above < 0 ? "" : `@@ line ${above + 1}\n${lines[above]}\n`
+    const rank = body.some((line, k) => changed.has(from + k) && names(line))
+      ? 2
+      : Number(above >= 0 || body.some(names))
+    return {
+      rank,
+      text: `=== ${c.path} (${c.status})\n${heading}@@ line ${from + 1}\n${body.join("\n")}`,
+    }
+  })
+}
+
+/**
+ * The changed test files' hunks, the ones naming one of `ids` on a changed
+ * line last: a budget cut keeps the end, and a fixture's unchanged `[AC-1]`
+ * tag must not crowd out the test this change added.
+ */
+export const testEvidence = (changed: readonly Change[], ids: readonly string[]): string => {
+  const names = naming(ids)
+  return changed
+    .flatMap((c) => hunksOf(c, names))
+    .map((h, i) => ({ ...h, i }))
+    .sort((x, y) => x.rank - y.rank || x.i - y.i)
+    .map((h) => h.text)
     .join("\n")
+}
+
+const testsSince = (base: string, ids: readonly string[]): string =>
+  testEvidence(
+    changesSince(base).filter((c) => isCode(c.path) && isTestFile(c.path)),
+    ids,
+  )
 
 /**
  * The criterion IDs of `.gtd/REQUIREMENTS.md` — read afresh, never carried
@@ -69,7 +132,7 @@ const uncoveredSince = async (
   if (criteria.length === 0) return { covered: [], uncovered: [] }
   const { answers } = await judge("coverage", {
     questions: criteria.map(t.coverageQuestion),
-    evidence: { tests: testsSince(base) },
+    evidence: { tests: testsSince(base, own) },
     message: t.coverageMessage(),
     label: "Judging acceptance-criteria coverage",
   })
