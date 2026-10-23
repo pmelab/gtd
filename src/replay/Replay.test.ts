@@ -940,7 +940,7 @@ describe("replay: skills resolution", () => {
     expect(await wireSkills(inScope({ name: "a" }, step), { skills: { a: [] } })).toBeUndefined()
   })
 
-  it("fails two agent steps in one memory scope with different lists", async () => {
+  it("runs two scope() calls of one memory scope with different lists as two conversations", async () => {
     const flow: Flow = async () => {
       await scope({ name: "a", skills: ["one"] }, async () => {
         await agent("first", "prompt")
@@ -959,9 +959,7 @@ describe("replay: skills resolution", () => {
       start: hashOf(0),
       budgetBytes: 1024,
     })
-    expect(outcome.kind === "failed" && outcome.message).toContain(
-      "different model, system prompt, skills or file access",
-    )
+    expect(outcome.kind).toBe("rest")
   })
 })
 
@@ -1084,7 +1082,7 @@ describe("replay: access resolution", () => {
     expect(outcome.rest.access).toEqual({ read: null, write: ["src/a.ts"] })
   })
 
-  it("fails two agent steps in one memory scope with different scope access", async () => {
+  it("runs two scope() calls of one memory scope with different access as two conversations", async () => {
     const flow: Flow = async () => {
       await scope({ name: "a", access: { write: ["one"] } }, () => agent("first", "prompt"))
       await scope({ name: "a", access: { write: ["two"] } }, () => agent("second", "prompt"))
@@ -1092,9 +1090,7 @@ describe("replay: access resolution", () => {
     const history = new History()
     history.land("agent", "a.first", 1, "a.second", { "x.txt": "x" })
     const outcome = await restOf(flow, {}, history)
-    expect(outcome.kind === "failed" && outcome.message).toContain(
-      "different model, system prompt, skills or file access",
-    )
+    expect(outcome.kind).toBe("rest")
   })
 
   it("does not conflict two steps that differ only in steering file", async () => {

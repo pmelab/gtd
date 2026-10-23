@@ -296,23 +296,24 @@ while (true) {
   so `scope("build", () => agent("fix", …))` is the step `build.fix`. Scopes
   nest. The prefix is also the step's **memory scope**: agent steps in one scope
   share one agent conversation (a driver resumes it through `gtd next --json`'s
-  `session`), and every agent step in one scope must run with the same `model`
-  and `system` — a mismatch fails the process, since one scope is one
-  conversation. Steps with no prefix share the `root` scope.
-  `scope({ name, model, system }, fn)` also gives every agent step inside `fn`
-  that `model`/`system` unless it sets its own; `name` is optional there.
-  `scope({ name, skills }, fn)` declares the skill names (`readonly string[]`)
-  every agent turn inside `fn` carries — what `gtd next --json`'s `skills` key
-  reports. A nested scope inherits its parent's list unless it sets its own,
-  which replaces it wholesale. Skills belong to the memory scope, one list per
-  scope: agent steps in one scope that resolve to different `model`, `system` or
-  `skills` fail the process. `agent()` takes no `skills` option — passing one is
-  an error. `scope({ name, access }, fn)` declares the file access every agent
-  turn inside `fn` runs with; see [File access](#file-access). `agent()` takes
-  no `access` option either: narrower access for one step needs its own
-  `scope()`. `scope({ context }, fn)` gives every agent step inside `fn` a
-  context limit (see [Step options](#step-options)); a nested scope's or the
-  step's own replaces it key by key. It is no part of the scope's identity.
+  `session`), and every agent step in one conversation must run with the same
+  `model` and `system` — a mismatch fails the process. A fresh `scope()` call of
+  the same name is a fresh conversation, free to differ. Steps with no prefix
+  share the `root` scope. `scope({ name, model, system }, fn)` also gives every
+  agent step inside `fn` that `model`/`system` unless it sets its own; `name` is
+  optional there. `scope({ name, skills }, fn)` declares the skill names
+  (`readonly string[]`) every agent turn inside `fn` carries — what
+  `gtd next --json`'s `skills` key reports. A nested scope inherits its parent's
+  list unless it sets its own, which replaces it wholesale. Skills belong to the
+  conversation, one list per conversation: agent steps in one conversation that
+  resolve to different `model`, `system` or `skills` fail the process. `agent()`
+  takes no `skills` option — passing one is an error.
+  `scope({ name, access }, fn)` declares the file access every agent turn inside
+  `fn` runs with; see [File access](#file-access). `agent()` takes no `access`
+  option either: narrower access for one step needs its own `scope()`.
+  `scope({ context }, fn)` gives every agent step inside `fn` a context limit
+  (see [Step options](#step-options)); a nested scope's or the step's own
+  replaces it key by key. It is no part of the scope's identity.
 - `slice(name, fn)` — marks the span `fn` covers as one named **slice** of the
   episode. For now it only names the span: it changes nothing about how the
   episode lands, and `gtd slices` lists the spans (`--json` is the contract a
