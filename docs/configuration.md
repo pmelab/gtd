@@ -953,13 +953,14 @@ with no tier and nothing to decide. The other gtd-added chunks follow as `## `
 sections of their own. A note with an unclear, cut or below-`reviewSeverityMinP`
 answer is `critical`. As many chunks go to one judgment as `judgeBudgetBytes`'s
 even share still holds whole; the rest go to the next. A pointer note the
-reviewer opens with `Risk:` is fixed by `build.review.fix.risks.fixing`, the
-suite is kept green, and the review is written once more. After a nit fix the
-reviewer is told the fixing commit and writes a fresh review without the notes
-already answered; after a round that also answered a question, it carries those
-answers over. The refactor's reviewer covers the whole refactor since it started
-on every round, gives any test-file hunk a chunk of its own, and says so when it
-changes a test, an assertion or an expected value.
+reviewer opens with `Risk:` is fixed by `build.review.fix.risks.fixing` straight
+after the reviewer turn, the suite is kept green, and the reviewer writes the
+review once more over its own draft; only that review is ranked and carried.
+After a nit fix the reviewer is told the fixing commit and writes a fresh review
+without the notes already answered; after a round that also answered a question,
+it carries those answers over. The refactor's reviewer covers the whole refactor
+since it started on every round, gives any test-file hunk a chunk of its own,
+and says so when it changes a test, an assertion or an expected value.
 
 In the `review` door, `build.review.composing` writes `.gtd/REVIEW.md` — no
 reviewer turn runs: a `## Weakened scenarios` chunk naming each `Then` line a
@@ -1044,6 +1045,14 @@ test, then the quality lap and the review again. A custom workflow ending in
 and `seam.judge` never run again once judged, so a seam a re-plan turns up is
 built unjudged and unrefactored; a wrong or missing refactor means `gtd abandon`
 and a restart.
+
+**Upgrading:** a `feature` review marking a `Risk:` runs
+`build.review.fix.risks.fixing` (and `refactor.build.review.fix.risks.fixing`)
+straight after the reviewer turn, with no `build.review.ranking` or
+`build.review.carrying` before it. A process resting at that fix, or at the
+re-review after it, no longer replays: finish or `gtd abandon` it before
+upgrading. A driver or fixture scripting a risk-marking review drops that first
+ranking and carrying.
 
 **Upgrading:** a `won't fix` or own answer at a `feature` or `review` review now
 runs `build.review.standards.judge` (and

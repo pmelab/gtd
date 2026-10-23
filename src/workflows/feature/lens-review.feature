@@ -161,6 +161,56 @@ Feature: the quality lap's findings are triaged before the review
       gtd(check): build.review.carrying → build.review.await-review
       """
 
+  Scenario: a risk is fixed before the human sees the review, re-reviewed in the reviewer's own draft
+    Given judge step "build.quality.triage" answers:
+      """
+      [{"id":"Q1","answer":"mechanical","p":0.9},{"id":"Q2","answer":"noise","p":0.85},{"id":"Q3","answer":"design","p":0.8}]
+      """
+    And step "build.fix.quality.fixing" writes "src/calc.test.ts" with:
+      """
+      it("[AC-1] subtracts", () => {})
+      it("subtracts a larger number", () => {})
+      """
+    And step "build.fix.quality.fixing" deletes ".gtd/QUALITY.md"
+    And step "build.health.check" changes nothing
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — Risk: overflows on large numbers
+
+      ## AC-1 ignores floating point
+
+      - [ ] ./src/calc.ts#2-2 — where it applies
+      """
+    When the process is driven
+    Then the process rests at "build.review.fix.risks.fixing"
+    Given step "build.review.reviewing" is no longer scripted
+    And step "build.review.reviewing" replaces the text "Risk: overflows on large numbers" in ".gtd/REVIEW.md" with "subtract(a, b), now guarded"
+    And step "build.review.fix.risks.fixing" changes nothing
+    When the process is driven
+    Then the process rests at "build.review.await-review"
+    And ".gtd/REVIEW.md" contains "subtract(a, b), now guarded"
+    And ".gtd/REVIEW.md" contains "## Fixed automatically" exactly once
+    And ".gtd/REVIEW.md" contains "## Dropped as noise" exactly once
+    And ".gtd/REVIEW.md" contains "## Walkthrough" exactly once
+    And ".gtd/REVIEW.md" contains "Should subtract round? The criterion does not say." exactly once
+    And ".gtd/REVIEW.md" contains "Tick exactly one:" exactly once
+    And the commit subjects end with:
+      """
+      gtd(check): build.health.check → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.fix.risks.fixing
+      gtd(agent): build.review.fix.risks.fixing → build.health.check
+      gtd(check): build.health.check → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.ranking
+      gtd(judge): build.review.ranking → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
+      """
+
   Scenario: an unsure verdict makes a finding a note, never a fix or a drop
     Given judge step "build.quality.triage" answers:
       """
