@@ -389,6 +389,8 @@ export const reviewedRefactor = async (
         fixAccess: strayAccess(p.strays),
         lensBase: entry,
         rules: t.refactorRules(p.strays, p.pattern),
+        walkthrough: true,
+        lap: "refactor",
       })
       if (outcome.verdict === "signoff") return true
       await reUnwind(outcome)

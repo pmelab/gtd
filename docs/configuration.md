@@ -952,7 +952,8 @@ the reviewer turn (`build.review.reviewing`), gtd appends the notes to
 its lens, a repeated title numbered, then `## Fixed automatically` and
 `## Dropped as noise`.
 
-In `feature`, the reviewer turn (`build.review.reviewing`) then writes
+In `feature`, the reviewer turn (`build.review.reviewing`, and
+`refactor.build.review.reviewing` for the refactor's review) then writes
 `.gtd/REVIEW.md` as a walkthrough of the change: `## ` chunks grouped by
 concern, each with at least one pointer to its code (`./path#start-end`), a
 `Weakened:` note on each scenario that lost a `Then` line. The prompt lists the
@@ -980,33 +981,35 @@ the rest go to the next. A pointer note the reviewer opens with `Risk:` is fixed
 by `build.review.fix.risks.fixing`, the suite is kept green, and the review is
 written once more. After a nit fix the reviewer is told the fixing commit and
 writes a fresh review without the notes already answered; after a round that
-also answered a question, it carries those answers over.
+also answered a question, it carries those answers over. The refactor's reviewer
+covers the whole refactor since it started on every round, gives any test-file
+hunk a chunk of its own, and says so when it changes a test, an assertion or an
+expected value.
 
-In the `review` door and the refactor's review (`refactor.build.review.*`),
-`build.review.composing` writes `.gtd/REVIEW.md` — no reviewer turn runs: a
-`## Weakened scenarios` chunk naming each `Then` line a `.feature` file at the
-review base has lost, then one prose `## ` chunk per note (a mechanical one the
-fixer left is marked so), then `## Fixed automatically` (one line per finding,
-with the fixing commit's short hash) and `## Dropped as noise` (one line per
-finding, with its `p`). Each note chunk ends in `Tick exactly one:` and three
-boxes — `fix as suggested`, `won't fix`, `_your answer_` — and the review gate
-refuses to land (`answer-completeness`) until every note holds exactly one tick,
-a ticked `_your answer_` replaced by the human's text; only a round with a
-`- H:` thread waiting on the agent may leave one open. The summary chunks carry
-no box and need no answer; disagreeing with one means writing a note of your
-own. With nothing to list, the file holds one `## Nothing to note` chunk. Task
-boxes in a finding are written as plain bullets. The fresh review after a nit
-fix adds `## Fixed from your notes` with the fixing commit and leaves out every
-note already answered; after a round that also answered a question, the review
-is restored as answered instead, ticks kept.
+In the `review` door, `build.review.composing` writes `.gtd/REVIEW.md` — no
+reviewer turn runs: a `## Weakened scenarios` chunk naming each `Then` line a
+`.feature` file at the review base has lost, then one prose `## ` chunk per note
+(a mechanical one the fixer left is marked so), then `## Fixed automatically`
+(one line per finding, with the fixing commit's short hash) and
+`## Dropped as noise` (one line per finding, with its `p`). Each note chunk ends
+in `Tick exactly one:` and three boxes — `fix as suggested`, `won't fix`,
+`_your answer_` — and the review gate refuses to land (`answer-completeness`)
+until every note holds exactly one tick, a ticked `_your answer_` replaced by
+the human's text; only a round with a `- H:` thread waiting on the agent may
+leave one open. The summary chunks carry no box and need no answer; disagreeing
+with one means writing a note of your own. With nothing to list, the file holds
+one `## Nothing to note` chunk. Task boxes in a finding are written as plain
+bullets. The fresh review after a nit fix adds `## Fixed from your notes` with
+the fixing commit and leaves out every note already answered; after a round that
+also answered a question, the review is restored as answered instead, ticks
+kept.
 
 In every one of these reviews, an answer routes without the note judge:
 `fix as suggested` joins the nit batch (`build.review.fix.nits.fixing`) with the
 note's text; `won't fix` drops the note and records `Gtd-Mark: wontfix=<title>`
 on the gate's commit; an own answer is judged like any other note, keyed
-`answer-<n>`. Nothing is written to `.gtd/TODO.md`. The `review` workflow
-composes its review as the refactor does; `fix` keeps the untriaged lap and its
-reviewer turn.
+`answer-<n>`. Nothing is written to `.gtd/TODO.md`. `fix` keeps the untriaged
+lap and its reviewer turn.
 
 #### Learned standards
 
@@ -1093,6 +1096,16 @@ longer replays: finish or `gtd abandon` it before upgrading. A driver or fixture
 scripting `feature`'s review scripts `build.review.ranking` too (landing it
 without a verdict lists every chunk as `critical`), and expects each chunk of
 `.gtd/REVIEW.md` led by its tier line and the chunks reordered.
+
+**Upgrading:** the refactor's review is written by a reviewer too. A `feature`
+process resting at `refactor.build.review.composing`, or at any later step of
+the refactor's review, no longer replays: finish or `gtd abandon` it before
+upgrading. A driver or fixture scripting `refactor.build.review.composing`
+scripts the agent turn `refactor.build.review.reviewing` instead, then the judge
+step `refactor.build.review.ranking` and the script step
+`refactor.build.review.carrying`; a sign-off keeps each chunk's tier line. A
+`Risk:` note runs `refactor.build.review.fix.risks.fixing`. Only the `review`
+door still composes its review.
 
 **Upgrading:** `feature`'s final review is written by a reviewer again. A
 `feature` process resting at `build.review.composing`, or at any later step of

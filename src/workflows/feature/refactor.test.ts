@@ -820,7 +820,7 @@ const driveReviewed = async (
     ...Object.fromEntries(lensEffects),
     deriving: () => void files.set(REFACTOR_PACKAGE, "package"),
     closing: () => void files.delete(REFACTOR_PACKAGE),
-    "review.composing": () => void files.set(REVIEW, reviewDoc("add")),
+    "review.reviewing": () => void files.set(REVIEW, reviewDoc("add")),
     "review.closing": () => void files.delete(REVIEW),
     "review.collecting": () => {
       if (!script.silentCollect)
@@ -929,7 +929,9 @@ describe("reviewedRefactor", () => {
       "refactor.build.quality.correctness.reviewing",
       "refactor.build.quality.ponytail-review.reviewing",
       "refactor.build.quality.conventions.reviewing",
-      "refactor.build.review.composing",
+      "refactor.build.review.reviewing",
+      "refactor.build.review.ranking",
+      "refactor.build.review.carrying",
       "refactor.build.review.await-review",
       "refactor.build.review.closing",
     ])
@@ -937,8 +939,16 @@ describe("reviewedRefactor", () => {
 
   it("reviews from HEAD at scope entry", async () => {
     const h = await driveReviewed(shape())
-    const composing = h.steps.find((s) => s.kind === "run" && s.name === "review.composing")
-    expect(composing?.kind === "run" ? composing.body : "").toContain("<!-- base: c0 -->")
+    const reviewing = h.steps.find((s) => s.kind === "agent" && s.name === "review.reviewing")
+    expect(reviewing?.kind === "agent" ? reviewing.prompt : "").toContain("<!-- base: c0 -->")
+  })
+
+  it("has the reviewer walk the whole refactor on every round", async () => {
+    const h = await driveReviewed(shape())
+    const reviewing = h.steps.find((s) => s.kind === "agent" && s.name === "review.reviewing")
+    expect(reviewing?.kind === "agent" ? reviewing.prompt : "").toContain(
+      "it covers the whole refactor since it started, on every round",
+    )
   })
 
   it("names the entry commit in every lens prompt, on the first lap and after a feedback lap", async () => {

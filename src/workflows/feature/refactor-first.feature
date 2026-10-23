@@ -73,7 +73,12 @@ Feature: a refactor-first judgment walks one fixed path to the review gate
       """
     And step "refactor.health.check" changes nothing
     And step "refactor.closing" runs its script
-    And step "refactor.build.review.composing" writes ".gtd/REVIEW.md" with:
+    And judge step "refactor.build.review.ranking" answers:
+      """
+      []
+      """
+    And step "refactor.build.review.carrying" runs its script
+    And step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
 
@@ -96,6 +101,8 @@ Feature: a refactor-first judgment walks one fixed path to the review gate
       <!-- base: 0000000 -->
 
       ## calc
+
+      _critical: judge unsure_
 
       - [x] ./src/calc.ts#1-2
         add built on the shared op
@@ -139,8 +146,10 @@ Feature: a refactor-first judgment walks one fixed path to the review gate
       gtd(check): refactor.deriving → refactor.building
       gtd(agent): refactor.building → refactor.health.check
       gtd(check): refactor.health.check → refactor.closing
-      gtd(check): refactor.closing → refactor.build.review.composing
-      gtd(check): refactor.build.review.composing → refactor.build.review.await-review
+      gtd(check): refactor.closing → refactor.build.review.reviewing
+      gtd(agent): refactor.build.review.reviewing → refactor.build.review.ranking
+      gtd(judge): refactor.build.review.ranking → refactor.build.review.carrying
+      gtd(check): refactor.build.review.carrying → refactor.build.review.await-review
       gtd(human): refactor.build.review.await-review → refactor.build.review.closing
       gtd(check): refactor.build.review.closing → implement.building
       gtd(agent): implement.building → implement.health.check
