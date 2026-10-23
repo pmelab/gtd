@@ -148,10 +148,6 @@ Feature: the naive pass and seam judge decide how a feature is built
     And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
-    And judge step "implement.coverage" answers:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
     When the process is driven
     Then the process rests at "build.review.reviewing"
     And "src/calc.ts" contains "subtract"
@@ -159,8 +155,7 @@ Feature: the naive pass and seam judge decide how a feature is built
       """
       gtd(judge): seam.judge → implement.applying
       gtd(check): implement.applying → implement.health.check
-      gtd(check): implement.health.check → implement.coverage
-      gtd(judge): implement.coverage → implement.closing
+      gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.review.reviewing
       """
     And ".gtd/REQUIREMENTS.md" does not exist

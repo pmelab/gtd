@@ -500,7 +500,7 @@ describe("implement", () => {
     lastOptions = undefined
     installContext(
       fixtureContext(
-        // The hands-on test after coverage has its own scenarios.
+        // The hands-on test has its own scenarios.
         { vars: { prototypeRounds: "0" } },
         {
           step: (request: StepRequest) => {

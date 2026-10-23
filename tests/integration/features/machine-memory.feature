@@ -443,8 +443,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => 1
       """
     And gtd lands "gtd(agent): implement.building → implement.health.check"
-    And gtd lands "gtd(check): implement.health.check → implement.coverage"
-    And gtd lands "gtd(judge): implement.coverage → implement.prototype.testing" judging:
+    And gtd lands "gtd(check): implement.health.check → implement.prototype.observable"
+    And gtd lands "gtd(judge): implement.prototype.observable → implement.prototype.testing" judging:
       """
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """
@@ -586,8 +586,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => 1
       """
     And gtd lands "gtd(agent): implement.building → implement.health.check"
-    And gtd lands "gtd(check): implement.health.check → implement.coverage"
-    And gtd lands "gtd(judge): implement.coverage → implement.prototype.testing" judging:
+    And gtd lands "gtd(check): implement.health.check → implement.prototype.observable"
+    And gtd lands "gtd(judge): implement.prototype.observable → implement.prototype.testing" judging:
       """
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """
@@ -821,8 +821,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => Object.freeze({})
       """
     And gtd lands "gtd(agent): implement.building → implement.health.check"
-    And gtd lands "gtd(check): implement.health.check → implement.coverage"
-    And gtd lands "gtd(judge): implement.coverage → implement.prototype.testing" judging:
+    And gtd lands "gtd(check): implement.health.check → implement.prototype.observable"
+    And gtd lands "gtd(judge): implement.prototype.observable → implement.prototype.testing" judging:
       """
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """

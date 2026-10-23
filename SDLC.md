@@ -63,20 +63,13 @@ and quality lap — in order, from where the previous one landed, as its own
 within the cap is one `feature` slice. See
 [Coarse slices](docs/configuration.md#coarse-slices).
 
-## Acceptance-criteria coverage
-
-**A feature is done only when every `AC-<n>` has a passing test.** Once the
-implementation's suite is green, `implement.coverage` judges, per criterion ID,
-whether a test file the change touched covers it; an uncovered ID sends the
-process back to a covering turn, never on to the review. The judge's landing
-records `Gtd-Mark: covers=<id>` per ID. After two covering turns
-`implement.uncovered` rests for a human, who adds tests or overrules; an
-overrule records `Gtd-Mark: uncovered=<id>`. See
-[Acceptance-criteria coverage](docs/configuration.md#acceptance-criteria-coverage).
-
 ## The hands-on test
 
-**Every criterion is used by hand before the quality lap.** After coverage,
+**Every criterion a person can observe is used by hand before the quality lap.**
+Once the suite is green, `implement.prototype.observable` judges, per criterion
+not tagged `(no hands-on)`, whether a person can observe it by using the
+software; every one it does not judge unobservable is tested, and a slice with
+none skips the test. This is the one check that a criterion is met.
 `implement.prototype.testing` runs the real program (guided by a project skill
 or a manual testing section, else the project's shape) in a disposable place and
 writes `.gtd/PROTOTYPE.md`: per criterion `pass`, `fail` or `blocked`, the steps
@@ -117,11 +110,11 @@ per design round: a review-feedback round re-runs design.
   (design, refactor review, feature review). The feature review comes once,
   after the last slice's quality lap, over the whole change. A review note that
   asks for a behaviour change runs a feedback lap — design, then implement with
-  no naive pass or seam judge, coverage over every criterion, the quality lap —
-  and the review again. Overrule at `seam.steer` passes no seam gate. **A sketch
-  whose own acceptance criteria `design.clear` judges clear and checkable passes
-  no design gate** on its first lap: one gate fewer, and the criteria's author
-  is whoever wrote the sketch.
+  no naive pass or seam judge, the hands-on test, the quality lap — and the
+  review again. Overrule at `seam.steer` passes no seam gate. **A sketch whose
+  own acceptance criteria `design.clear` judges clear and checkable passes no
+  design gate** on its first lap: one gate fewer, and the criteria's author is
+  whoever wrote the sketch.
 - `cleanup`, `fix`, `review`: review sign-off only. `review` fixes what its
   notes ask for in the same process and asks again — never a design phase.
 - `rollout`: **no human gate** — the green suite and the `rollout-only` refusal
@@ -192,8 +185,8 @@ Each path has a `.feature` file:
 - [`src/workflows/feature/naive-acceptance.feature`](src/workflows/feature/naive-acceptance.feature):
   the naive pass's acceptance tests, sent back until they name every criterion
   and pass
-- [`src/workflows/feature/coverage.feature`](src/workflows/feature/coverage.feature):
-  the coverage judge, its covering turns and the human overrule
+- [`src/workflows/feature/hands-on-skip.feature`](src/workflows/feature/hands-on-skip.feature):
+  which criteria the hands-on test tries
 - [`src/workflows/feature/slicing.feature`](src/workflows/feature/slicing.feature):
   criteria above the cap grouped into slices built in order
 - [`src/workflows/feature/fast-path.feature`](src/workflows/feature/fast-path.feature):
@@ -223,11 +216,9 @@ Paths and text are checked, **never behaviour**.
   dropped unseen by a person** but for its line under "Dropped as noise"; one
   judged `mechanical` is fixed with no check beyond the green suite and the
   fixer deleting its chunk.
-- `implement.coverage` sends uncovered criteria back, not refused. **Its judge
-  reads test text and runs nothing**: a `covers` mark means a judge found a
-  matching test in a green suite, not that the test checks the criterion well.
-  An overrule at `implement.uncovered` moves on to the review with the IDs it
-  leaves uncovered recorded as `uncovered` marks.
+- `implement.prototype.observable` reads criterion text only. **A criterion
+  judged unobservable is checked by nothing but the green suite**, and so is
+  every criterion with `prototypeRounds` at `0`.
 - A review feedback lap's design is refused when it gives a new criterion a
   number already handed out (`criteria-ids`). **It reads IDs only**: a built
   criterion reworded to mean something else keeps its ID unnoticed.

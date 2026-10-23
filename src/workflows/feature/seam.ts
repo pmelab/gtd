@@ -37,7 +37,7 @@ import {
 } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
-import { green, requireCoverage } from "./coverage.js"
+import { green } from "./green.js"
 import { prototypeTest } from "./prototype.js"
 import {
   criterionIds,
@@ -289,7 +289,7 @@ export interface ImplementOptions {
   readonly rebuild?: t.Rebuild | undefined
   /** The criteria this slice builds, when the change has more than one slice. */
   readonly slice?: CriteriaSlice | undefined
-  /** Where the slice began: the coverage judge reads only the tests changed since. */
+  /** @deprecated Ignored since the coverage judge is gone. */
   readonly base?: string | undefined
   /** Not the last slice: `.gtd/REQUIREMENTS.md` and `.gtd/SLICES.md` stay for the next one. */
   readonly more?: boolean | (() => boolean) | undefined
@@ -385,7 +385,6 @@ export const implementing = (options: ImplementOptions): Promise<readonly string
     const keepsTests =
       built && acceptance !== undefined ? () => requireAcceptanceKept(acceptance) : undefined
     await green(keepsTests)
-    await requireCoverage(options.base, options.slice)
     await prototypeTest(options.slice, keepsTests)
     const ids = criterionIds(read(REQUIREMENTS) ?? "")
     await closing(moreToBuild(options.more))
