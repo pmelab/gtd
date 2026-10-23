@@ -4,8 +4,8 @@ Feature: a feature process ends at the human review
   After the last slice's quality lap the process rests at the review gate,
   `.gtd/REVIEW.md`. A sign-off ends the process. A note asking for a change in
   behaviour starts a feedback lap — design, then implement with no new naive
-  pass or seam judge, the coverage judge over every criterion, the quality lap
-  — and the review again. Its design keeps a built criterion's ID and numbers
+  pass or seam judge, the hands-on test, the quality lap — and the review
+  again. Its design keeps a built criterion's ID and numbers
   new behaviour above every ID handed out.
 
   Background:
@@ -54,10 +54,6 @@ Feature: a feature process ends at the human review
     And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
-    And judge step "implement.coverage" answers:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
     And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -83,7 +79,7 @@ Feature: a feature process ends at the human review
     And the resting step's content contains the hash of the commit "feat: add calculator"
     And the commit subjects end with:
       """
-      gtd(judge): implement.coverage → implement.closing
+      gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.review.reviewing
       gtd(agent): build.review.reviewing → build.review.ranking
       gtd(judge): build.review.ranking → build.review.carrying
@@ -184,7 +180,7 @@ Feature: a feature process ends at the human review
           new subtract function
         """
 
-    Scenario: the lap keeps AC-1, adds AC-2, and covers both before the next review
+    Scenario: the lap keeps AC-1, adds AC-2, and builds both before the next review
       Given step "design.triage" from now on changes nothing
       And step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
         """
@@ -211,15 +207,10 @@ Feature: a feature process ends at the human review
         """
         it("[AC-2] multiplies", () => {})
         """
-      And judge step "implement.coverage" answers:
-        """
-        [{"id":"AC-1","answer":"yes","p":0.9},{"id":"AC-2","answer":"yes","p":0.9}]
-        """
       When gtd lands
       And the process is driven
       Then the process rests at "build.review.await-review"
       And ".gtd/REQUIREMENTS.md" does not exist
-      And the commit "gtd(judge): implement.coverage → implement.closing" has a body containing "Gtd-Mark: covers=AC-1"
       And the commit subjects end with:
         """
         gtd(human): build.review.await-review → build.review.closing
@@ -228,8 +219,7 @@ Feature: a feature process ends at the human review
         gtd(agent): design.triage → design.gate.answer
         gtd(human): design.gate.answer → implement.building
         gtd(agent): implement.building → implement.health.check
-        gtd(check): implement.health.check → implement.coverage
-        gtd(judge): implement.coverage → implement.closing
+        gtd(check): implement.health.check → implement.closing
         gtd(check): implement.closing → build.review.reviewing
         gtd(agent): build.review.reviewing → build.review.ranking
         gtd(judge): build.review.ranking → build.review.carrying
@@ -255,35 +245,3 @@ Feature: a feature process ends at the human review
         """
       When gtd lands
       Then driving the process is refused with "criteria-ids"
-
-    Scenario: the lap holds a new criterion to coverage
-      Given step "design.triage" from now on changes nothing
-      And step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
-        """
-        # Requirements
-
-        ## Concerns
-
-        ### Multiply
-
-        - `multiply(a, b)` returns `a * b`.
-
-        ## Acceptance Criteria
-
-        - AC-1: subtract(a, b) returns a - b.
-        - AC-2: multiply(a, b) returns a * b.
-        """
-      And step "implement.building" writes "src/calc.ts" with:
-        """
-        export const add = (a: number, b: number) => a + b
-        export const subtract = (a: number, b: number) => a - b
-        export const multiply = (a: number, b: number) => a * b
-        """
-      And judge step "implement.coverage" answers:
-        """
-        [{"id":"AC-1","answer":"yes","p":0.9},{"id":"AC-2","answer":"no","p":0.9}]
-        """
-      When gtd lands
-      And the process is driven
-      Then the process rests at "implement.covering"
-      And the resting step's content contains "AC-2"

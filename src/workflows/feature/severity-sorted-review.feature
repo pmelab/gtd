@@ -49,10 +49,6 @@ Feature: the final review lists the findings that matter most first
     And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
-    And judge step "implement.coverage" answers:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
     And step "build.quality.correctness.reviewing" writes ".gtd/QUALITY.md" with:
       """
       # Quality

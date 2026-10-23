@@ -184,7 +184,7 @@ describe("the (no hands-on) tag", () => {
 
   it("names the tagged criteria the testing turn skips, and only when there are any", () => {
     expect(renderText(() => prototypeTestingPrompt(undefined, ["AC-2", "AC-3"], false))).toContain(
-      "- Skip AC-2, AC-3: tagged `(no hands-on)`",
+      "- Skip AC-2, AC-3: no person can observe them",
     )
     expect(renderText(() => prototypeTestingPrompt(undefined, [], false))).not.toContain("Skip")
   })

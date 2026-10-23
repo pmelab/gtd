@@ -27,10 +27,6 @@ Feature: a trivial change takes the same few beats at either risk tier
     And step "design.gate.answer" changes nothing
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
-    And judge step "implement.coverage" answers:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
     And step "build.quality.correctness.reviewing" changes nothing
 
   Scenario Outline: a one-line fix runs from idle to the review gate with the same beats at either tier
@@ -78,8 +74,7 @@ Feature: a trivial change takes the same few beats at either risk tier
       gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → implement.applying
       gtd(check): implement.applying → implement.health.check
-      gtd(check): implement.health.check → implement.coverage
-      gtd(judge): implement.coverage → implement.closing
+      gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
       """

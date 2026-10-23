@@ -9,9 +9,9 @@ Feature: The bundled unified workflow — one flow, end to end
   raises PRODUCT open questions in `.gtd/REQUIREMENTS.md`; the
   `design.gate.answer` human gate refuses to pass while any remain
   unanswered. Then `seam.naive` writes a naive pass, `seam.judge` rules on
-  its shape, `implement.*` builds the change for real and `implement.coverage`
-  holds it until every acceptance criterion has a passing test, before the shared
-  build tail (`build.*`): one quality-lens review turn per lens, and the
+  its shape, `implement.*` builds the change for real and
+  `implement.prototype.*` tries every observable criterion by hand, before the
+  shared build tail (`build.*`): one quality-lens review turn per lens, and the
   human review gate's sign-off-vs-feedback arbiter — a clean sign-off lands
   an ordinary commit straight into `idle`, retaining every prior per-turn
   commit on the branch; `gtd summary` afterward prints a closing-message
@@ -139,10 +139,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): implement.health.check → implement.coverage"
+    And the last commit subject is "gtd(check): implement.health.check → implement.prototype.observable"
 
-    # implement.coverage: every acceptance-criterion ID needs a passing test.
-    Given gtd lands "gtd(judge): implement.coverage → implement.prototype.testing" judging:
+    # implement.prototype.observable: which criteria a person can observe by hand.
+    Given gtd lands "gtd(judge): implement.prototype.observable → implement.prototype.testing" judging:
       """
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """
@@ -281,8 +281,8 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.fix.suite.fixing
       gtd(agent): implement.fix.suite.fixing → implement.health.check
-      gtd(check): implement.health.check → implement.coverage
-      gtd(judge): implement.coverage → implement.prototype.testing
+      gtd(check): implement.health.check → implement.prototype.observable
+      gtd(judge): implement.prototype.observable → implement.prototype.testing
       gtd(agent): implement.prototype.testing → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.quality.owasp-security.reviewing
@@ -1354,8 +1354,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const B = 2
       """
     And gtd lands "gtd(agent): implement.building → implement.health.check"
-    And gtd lands "gtd(check): implement.health.check → implement.coverage"
-    And gtd lands "gtd(judge): implement.coverage → implement.prototype.testing" judging:
+    And gtd lands "gtd(check): implement.health.check → implement.prototype.observable"
+    And gtd lands "gtd(judge): implement.prototype.observable → implement.prototype.testing" judging:
       """
       [{"id":"AC-1","answer":"yes","p":0.9}]
       """

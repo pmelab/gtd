@@ -124,10 +124,6 @@ Feature: a refactor-first judgment walks one fixed path to the review gate
       """
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
-    And judge step "implement.coverage" answers:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
     When the process is driven
     Then the process rests at "build.review.reviewing"
     And "src/calc.ts" contains "op(a, b, 1)"
@@ -153,8 +149,7 @@ Feature: a refactor-first judgment walks one fixed path to the review gate
       gtd(human): refactor.build.review.await-review → refactor.build.review.closing
       gtd(check): refactor.build.review.closing → implement.building
       gtd(agent): implement.building → implement.health.check
-      gtd(check): implement.health.check → implement.coverage
-      gtd(judge): implement.coverage → implement.closing
+      gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.review.reviewing
       """
     And the commit "gtd(human): idle → unwind" has a body containing "Gtd-Var: flag_risk_tier=0"

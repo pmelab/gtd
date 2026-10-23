@@ -1,10 +1,11 @@
 @inmem
-Feature: every criterion is tested by hand before the quality lap
+Feature: every observable criterion is tested by hand before the quality lap
 
-  Once coverage is judged, implement.prototype.testing uses the slice the way
-  a person would and writes .gtd/PROTOTYPE.md, one chunk per criterion headed
-  `## AC-<n>: pass|fail|blocked`, plus one per problem found beside them. A
-  failure goes to implement.prototype.fix.fixing and is tested again; only a clean
+  Once the suite is green, implement.prototype.observable judges which
+  criteria a person can observe, and implement.prototype.testing uses the
+  slice the way a person would and writes .gtd/PROTOTYPE.md, one chunk per
+  such criterion headed `## AC-<n>: pass|fail|blocked`, plus one per problem
+  found beside them. A failure goes to implement.prototype.fix.fixing and is tested again; only a clean
   report closes the slice. Past `prototypeRounds` fix rounds, or with nothing a
   fixer can take, a person decides at implement.prototype.open.
 
@@ -48,7 +49,7 @@ Feature: every criterion is tested by hand before the quality lap
     And step "seam.check" changes nothing
     And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
-    And judge step "implement.coverage" answers:
+    And judge step "implement.prototype.observable" answers:
       """
       [{"id":"AC-1","answer":"yes","p":0.9},{"id":"AC-2","answer":"yes","p":0.9}]
       """
@@ -57,7 +58,7 @@ Feature: every criterion is tested by hand before the quality lap
   Scenario: the testing turn is told to use every criterion for real, in a disposable place
     When the process is driven
     Then the process rests at "implement.prototype.testing"
-    And the last commit subject is "gtd(judge): implement.coverage → implement.prototype.testing"
+    And the last commit subject is "gtd(judge): implement.prototype.observable → implement.prototype.testing"
     And the resting step's content contains "Running the test suite is not this"
     And the resting step's content contains "against the user's real data or this working tree"
     And the resting step's content contains "`## AC-<n>: pass`"
@@ -79,7 +80,7 @@ Feature: every criterion is tested by hand before the quality lap
     Then the process rests at "build.quality.correctness.reviewing"
     And the commit subjects end with:
       """
-      gtd(judge): implement.coverage → implement.prototype.testing
+      gtd(judge): implement.prototype.observable → implement.prototype.testing
       gtd(agent): implement.prototype.testing → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
       """
@@ -121,7 +122,7 @@ Feature: every criterion is tested by hand before the quality lap
     Then the process rests at "build.quality.correctness.reviewing"
     And the commit subjects end with:
       """
-      gtd(judge): implement.coverage → implement.prototype.testing
+      gtd(judge): implement.prototype.observable → implement.prototype.testing
       gtd(agent): implement.prototype.testing → implement.prototype.fix.fixing
       gtd(agent): implement.prototype.fix.fixing → implement.prototype.health.check
       gtd(check): implement.prototype.health.check → implement.prototype.testing
