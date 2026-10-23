@@ -30,10 +30,14 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
         greeting says "Helo"; make it "Hello".
         """
 
-    Scenario: triage writes ID'd criteria that reach the naive pass through the design gate
+    Scenario: [AC-6] triage writes ID'd criteria that reach the naive pass through the design gate
       Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
         """
         # Requirements
+
+        ## Impact
+
+        - the greeting module
 
         ## Acceptance Criteria
 
@@ -45,6 +49,7 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
       Then the process rests at "seam.naive"
       And ".gtd/REQUIREMENTS.md" contains "- AC-1: `greeting` reads \"Hello, world\"."
       And ".gtd/REQUIREMENTS.md" contains "- AC-2: no other export changes."
+      And the resting step's content contains "maps where the change lands"
       And the resting step's content contains "Acceptance Criteria"
       And the commit subjects end with:
         """
@@ -58,6 +63,10 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
         """
         # Requirements
 
+        ## Impact
+
+        - the greeting module
+
         ## Acceptance Criteria
 
         - `greeting` reads "Hello, world".
@@ -68,6 +77,10 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
       Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
         """
         # Requirements
+
+        ## Impact
+
+        - the greeting module
 
         ## Acceptance Criteria
 
@@ -80,6 +93,10 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
       Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
         """
         # Requirements
+
+        ## Impact
+
+        - the greeting module
 
         ## Acceptance Criteria
 
@@ -110,15 +127,114 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
         """
         # Requirements
 
+        ## Impact
+
+        - the greeting module
+
         ## Acceptance Criteria
 
         - AC-1: `greeting` reads "Hi".
         """
       Then driving the process is refused with "criteria-frozen"
 
+  Rule: impact
+
+    Scenario: [AC-1] a triage turn with no Impact section is refused, naming it
+      Given a file "TODO.md" with:
+        """
+        # Fix the typo
+
+        greeting says "Helo"; make it "Hello".
+        """
+      And step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
+        """
+        # Requirements
+
+        ## Acceptance Criteria
+
+        - AC-1: `greeting` reads "Hello, world".
+        """
+      Then driving the process is refused with "impact: .gtd/REQUIREMENTS.md has no \"## Impact\" section"
+
+    Scenario: [AC-9] a design.impact turn that changes the criteria is refused
+      Given a file "TODO.md" with:
+        """
+        # Fix the typo
+
+        ## Acceptance criteria
+
+        - `greeting` reads "Hello, world".
+        """
+      And judge step "design.clear" answers:
+        """
+        [{"id":"clear","answer":"yes","p":0.9}]
+        """
+      And step "design.normalise" runs its script
+      And step "design.impact" writes ".gtd/REQUIREMENTS.md" with:
+        """
+        # Requirements
+
+        ## Impact
+
+        - the greeting module
+
+        ## Acceptance Criteria
+
+        - AC-1: `greeting` reads "Hi".
+        """
+      Then driving the process is refused with "criteria-frozen"
+
+    Scenario: [AC-9] a design.impact turn that adds no Impact section is refused
+      Given a file "TODO.md" with:
+        """
+        # Fix the typo
+
+        ## Acceptance criteria
+
+        - `greeting` reads "Hello, world".
+        """
+      And judge step "design.clear" answers:
+        """
+        [{"id":"clear","answer":"yes","p":0.9}]
+        """
+      And step "design.normalise" runs its script
+      And step "design.impact" appends to ".gtd/REQUIREMENTS.md":
+        """
+        Touches the greeting module.
+        """
+      Then driving the process is refused with "impact: .gtd/REQUIREMENTS.md has no \"## Impact\" section"
+
+    Scenario: [AC-9] a design.impact turn that drops the sketch pointer is refused
+      Given a file "TODO.md" with:
+        """
+        # Fix the typo
+
+        ## Acceptance criteria
+
+        - `greeting` reads "Hello, world".
+        """
+      And judge step "design.clear" answers:
+        """
+        [{"id":"clear","answer":"yes","p":0.9}]
+        """
+      And step "design.normalise" runs its script
+      And step "design.impact" writes ".gtd/REQUIREMENTS.md" with:
+        """
+        # Requirements
+
+        ## Impact
+
+        - the greeting module
+
+        ## Acceptance Criteria
+
+        - AC-1: `greeting` reads "Hello, world".
+        """
+      Then driving the process is refused with "impact-only"
+
   Rule: the skip path
 
-    Scenario: clear stated criteria are normalised into ID'd requirements with no triage and no design gate
+    Scenario: [AC-9] [AC-10] clear stated criteria are normalised into ID'd requirements with no triage and no design gate
       Given a file "TODO.md" with:
         """
         # Fix the typo
@@ -133,18 +249,52 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
         [{"id":"clear","answer":"yes","p":0.9}]
         """
       And step "design.normalise" runs its script
+      And step "design.impact" appends to ".gtd/REQUIREMENTS.md":
+        """
+        ## Impact
+
+        - the greeting module
+        """
       When the process is driven
       Then the process rests at "seam.naive"
       And ".gtd/REQUIREMENTS.md" contains "- AC-1: `greeting` reads \"Hello, world\"."
       And ".gtd/REQUIREMENTS.md" contains "- AC-2: no other export changes."
+      And ".gtd/REQUIREMENTS.md" contains "Stated in `TODO.md` by the sketch"
+      And the resting step's content contains "maps where the change lands"
       And the commit subjects end with:
         """
         gtd(human): idle → unwind
         gtd(check): unwind → start-gate.check
         gtd(check): start-gate.check → design.clear
         gtd(judge): design.clear → design.normalise
-        gtd(check): design.normalise → seam.naive
+        gtd(check): design.normalise → design.impact
+        gtd(agent): design.impact → seam.naive
         """
+
+    Scenario: a fast-path process recorded before design.impact existed fails replay
+      Given a file "TODO.md" with:
+        """
+        # Fix the typo
+
+        ## Acceptance criteria
+
+        - `greeting` reads "Hello, world".
+        """
+      And judge step "design.clear" answers:
+        """
+        [{"id":"clear","answer":"yes","p":0.9}]
+        """
+      And step "design.normalise" runs its script
+      When the process is driven
+      Then the process rests at "design.impact"
+      Given the working tree is committed with the message:
+        """
+        gtd(agent): seam.naive → seam.check
+
+        Gtd-Step: seam.naive#1
+        Gtd-Format: 1
+        """
+      Then driving the process is refused with "the workflow changed under this process"
 
     Scenario: IDs the sketch already gave its criteria are kept
       Given a file "TODO.md" with:
@@ -159,6 +309,12 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
         [{"id":"clear","answer":"yes","p":0.9}]
         """
       And step "design.normalise" runs its script
+      And step "design.impact" appends to ".gtd/REQUIREMENTS.md":
+        """
+        ## Impact
+
+        - the greeting module
+        """
       When the process is driven
       Then the process rests at "seam.naive"
       And ".gtd/REQUIREMENTS.md" contains "- AC-3: `greeting` reads \"Hello, world\"."

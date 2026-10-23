@@ -38,6 +38,10 @@ Feature: a trivial change takes the same few beats at either risk tier
 
       <tier> — one-line copy fix
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.

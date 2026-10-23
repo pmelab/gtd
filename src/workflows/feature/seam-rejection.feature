@@ -35,6 +35,10 @@ Feature: rejected naive passes walk one fixed path through the steer gate to the
 
       - `subtract(a, b)` returns `a - b`.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -75,6 +79,10 @@ Feature: rejected naive passes walk one fixed path through the steer gate to the
       ### Subtract
 
       - `subtract(a, b)` returns `a - b`, in the calculator module.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 

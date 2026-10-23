@@ -36,6 +36,10 @@ Feature: a refactor-first judgment walks one fixed path to the review gate
 
       - `subtract(a, b)` returns `a - b`.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.

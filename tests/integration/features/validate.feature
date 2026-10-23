@@ -321,6 +321,10 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       - [ ] REST
       - [ ] GraphQL
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -374,6 +378,10 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       - [ ] REST
       - [ ] GraphQL
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 

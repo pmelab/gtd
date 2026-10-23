@@ -29,6 +29,10 @@ Feature: a turn stopped at its context limit is snapshotted and continued
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: `subtract(5, 3)` returns 2.

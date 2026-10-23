@@ -30,6 +30,10 @@ Feature: a continuation stays inside its coarse slice
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.

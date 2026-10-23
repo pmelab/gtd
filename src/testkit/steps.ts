@@ -149,6 +149,10 @@ Given("the working tree is committed as {string}", (world: TestkitWorld, message
   world.repo().commit(message)
 })
 
+Given("the working tree is committed with the message:", (world: TestkitWorld, message: string) => {
+  world.repo().commit(message)
+})
+
 Given("step {string} changes nothing", (world: TestkitWorld, step: string) => {
   world.act(step, () => undefined)
 })
@@ -176,6 +180,15 @@ Given(
   (world: TestkitWorld, step: string, text: string, path: string, content: string) => {
     world.act(step, (beat, repo) => {
       if (beat.content.includes(text)) repo.write(path, withNewline(content))
+    })
+  },
+)
+
+Given(
+  "step {string} appends to {string}:",
+  (world: TestkitWorld, step: string, path: string, text: string) => {
+    world.act(step, (_, repo) => {
+      repo.write(path, `${(repo.read(path) ?? "").trimEnd()}\n\n${withNewline(text)}`)
     })
   },
 )

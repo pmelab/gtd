@@ -53,6 +53,10 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
       - [ ] A `Decimal` wrapper — exact arithmetic, more code to carry
       - [ ] _your answer_
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.

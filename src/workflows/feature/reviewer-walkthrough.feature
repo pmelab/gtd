@@ -31,6 +31,10 @@ Feature: a reviewer walks the human through the feature's code
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.

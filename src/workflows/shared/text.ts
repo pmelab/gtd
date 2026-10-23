@@ -515,6 +515,20 @@ Leave the tag off whatever a person can see by running the change. A
 tag the human added or removed at the gate stays as they left it.
 `
 
+const impactBlock = `
+## Impact
+
+\`.gtd/REQUIREMENTS.md\` carries a \`## Impact\` section: explore the
+codebase (not just the start diff) and name the units and boundaries
+this change touches, the public surfaces it affects (CLI commands and
+flags, config keys, driver protocol, exported API), and anything
+surprising. Name the project's own declared units first —
+dependency-cruiser rules, workspace packages, module boundaries named
+in its docs or agent instructions (\`AGENTS.md\`, \`CLAUDE.md\`). When
+none is declared, fall back to directories and packages. Landing is
+refused while the section is missing.
+`
+
 const riskTierBlock = `
 ## Risk tier and production signals
 
@@ -556,7 +570,14 @@ ${footnoteFoldIn}${codeThreadReplies()}
   or both
 - Whichever lap this is, leave \`.gtd/REQUIREMENTS.md\`
   uncommitted and finish once it reflects this lap's own work
-${acceptanceCriteriaBlock}
+${acceptanceCriteriaBlock}${impactBlock}
+Every lap re-explores and leaves \`## Impact\` present. On a return
+lap or review loop-back the human may have edited \`## Impact\` (or
+footnoted it): read that edit from history (\`git log -1 -p --
+.gtd/REQUIREMENTS.md\`), keep the human's correction, and
+re-explore from it. A surprise the human must settle becomes an
+entry under \`## Open Questions\`.
+
 ## First lap
 
 \`.gtd/REQUIREMENTS.md\` does not exist yet (or holds whatever the
@@ -612,6 +633,23 @@ ${questionBarReturn}
   everything else — the build assumes the suite started green
 ${riskTier ? riskTierBlock : ""}`
 
+export const designImpactPrompt = (): string =>
+  `${styleBlock}
+
+${styleFormatContract}
+
+${stateFileRules}
+- The only state file this turn touches is \`.gtd/REQUIREMENTS.md\`
+  — no other files for notes or output
+- \`.gtd/REQUIREMENTS.md\` already holds the settled acceptance
+  criteria. Add a \`## Impact\` section and change nothing else — a
+  turn that touches anything outside it is refused
+- No human reviews this before the build: put any surprise in the
+  Impact prose, never as a question
+${impactBlock}
+- Leave \`.gtd/REQUIREMENTS.md\` uncommitted and finish once it holds \`## Impact\`
+`
+
 export const clearCriteriaQuestion: JudgeQuestion = {
   id: "clear",
   primitive: "noul",
@@ -665,9 +703,9 @@ export const slicingPrompt = (cap: number): string =>
 - Read \`.gtd/REQUIREMENTS.md\`: its \`## Acceptance Criteria\` are settled
   and more than ${cap}, too many to build in one slice
 - Group them into slices in \`.gtd/SLICES.md\`, one \`## <title>\` heading per
-  slice over a \`- AC-<n>\` list item per criterion it builds. Put criteria of
-  the same flow or subsystem together; every criterion in exactly one slice,
-  at most ${cap} per slice
+  slice over a \`- AC-<n>\` list item per criterion it builds. Read the
+  \`## Impact\` section of \`.gtd/REQUIREMENTS.md\` and slice along the units it
+  names; every criterion in exactly one slice, at most ${cap} per slice
 - Keep it coarse: as few slices as the cap allows, never one per criterion
 - Order the slices so each builds on the ones before: they run in that order,
   each from where the previous one landed
@@ -1620,6 +1658,11 @@ const isFault = (retry: NaiveRetry): retry is NaiveFault => "fault" in retry
 const pickUp = (hash: string, exclude?: string): string =>
   `Pick it up — \`git diff --binary --no-color --no-ext-diff --no-textconv ${hash}^ ${hash}${exclude === undefined ? "" : ` -- ${quote(":(top)")} ${quote(`:(top,exclude)${exclude}`)}`} | git apply\``
 
+// Agent-written without a gate on the stated-criteria path, so never claim a human signed it off.
+const impactHints = `- Its \`## Impact\` section maps where the change lands — reviewed at the design
+  gate when design ran. A starting point and hints, not a list of allowed files
+  — change whatever the work needs`
+
 const criteriaBinding = (refused: boolean): string =>
   `- Its \`## Acceptance Criteria\` (\`AC-<n>\`) bind this turn: re-read them from
   the file, never from memory, and stop only when each one holds. They are
@@ -1714,6 +1757,7 @@ export const naivePassPrompt = (
 ): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
+${impactHints}
 ${sliceLine(slice)}${criteriaBinding(false)}
 - Implement them the quickest way that works — the naive version. Do not
   restructure, abstract or refactor around the change; it may land exactly as
@@ -1853,6 +1897,7 @@ export const implementBuildingPrompt = (
 ): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
+${impactHints}
 ${sliceLine(slice)}${criteriaBinding(true)}
 ${afterRefactor === true ? afterRefactorLine(rebuild) : ""}${
     amend === true
@@ -2045,6 +2090,7 @@ ${
 export const prototypeFixingPrompt = (slice: readonly string[] | undefined): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
+${impactHints}
 ${sliceLine(slice)}${criteriaBinding(true)}
 - Read \`.gtd/PROTOTYPE.md\`: a hands-on test of the change. Fix every
   \`fail\` chunk of this change's criteria${slice === undefined ? "" : " (this slice's only)"} or a problem found

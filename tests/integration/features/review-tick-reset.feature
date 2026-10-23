@@ -324,6 +324,10 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.

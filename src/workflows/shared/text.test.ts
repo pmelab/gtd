@@ -4,6 +4,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
+  designImpactPrompt,
+  prototypeFixingPrompt,
   buildReviewTriageMessage,
   buildReviewReviewingPrompt,
   agentWithSkills,
@@ -24,6 +26,7 @@ import {
   implementBuildingPrompt,
   implementFixPrompt,
   naivePassPrompt,
+  slicingPrompt,
   refactorBuildingPrompt,
   refactorDroppedRefusal,
   refactorFixPrompt,
@@ -922,6 +925,29 @@ describe("buildReviewReviewingPrompt scenarios", () => {
   })
 })
 
+describe("Impact in prompts", () => {
+  it("[AC-4] the slicing prompt slices along the units Impact names", () => {
+    const prompt = renderText(() => slicingPrompt(8))
+    expect(prompt).toContain("## Impact")
+    expect(prompt).toMatch(/slice\s+along\s+the\s+units\s+it\s+names/)
+  })
+
+  it.each([
+    ["naive", () => naivePassPrompt()],
+    ["implement", () => implementBuildingPrompt(undefined)],
+    ["prototype fixing", () => prototypeFixingPrompt(undefined)],
+  ])("[AC-5] [AC-7] the %s prompt gives Impact as hints, not allowed files", (_n, prompt) => {
+    const p = renderText(prompt).replace(/\s+/g, " ")
+    expect(p).toContain("`## Impact`")
+    expect(p).toContain("not a list of allowed files")
+  })
+
+  it("the prototype testing prompt, which changes no code, carries no Impact hints", () => {
+    const p = renderText(() => prototypeTestingPrompt(undefined, [], false))
+    expect(p).not.toContain("not a list of allowed files")
+  })
+})
+
 describe("the seam phase's texts", () => {
   const rejection = { strays: ["src/flows/helpers.ts", "src/flows/runtime.ts"], p: 0.85 }
 
@@ -1639,5 +1665,19 @@ describe("rankedReview", () => {
   it("drops a stale tier, so a re-review is ranked afresh", () => {
     expect(unranked(review)).not.toContain("_could_")
     expect(unranked(unranked(review))).toBe(unranked(review))
+  })
+})
+
+describe("impact prompts", () => {
+  it.each([
+    ["triage", () => renderText(() => designTriagePrompt("abc123"))],
+    ["design.impact", () => renderText(() => designImpactPrompt())],
+  ])("[AC-2] the %s prompt asks for a `## Impact` section", (_n, prompt) => {
+    expect(prompt()).toContain("`## Impact`")
+  })
+
+  it("[AC-3] the triage prompt names where a return lap reads the human's Impact edit", () => {
+    const p = renderText(() => designTriagePrompt("abc123")).replace(/\s+/g, " ")
+    expect(p).toContain("`git log -1 -p -- .gtd/REQUIREMENTS.md`")
   })
 })

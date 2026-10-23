@@ -28,6 +28,10 @@ Feature: past its round cap the hands-on test rests at a person's gate
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.

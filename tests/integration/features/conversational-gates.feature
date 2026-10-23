@@ -29,6 +29,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       Add a `greet()` export. No open questions.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -50,6 +54,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       [^why]:
           - H: why a function?
           - A: a constant cannot take a name later.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -76,6 +84,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       - [ ] plain
       - [ ] fancy
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -96,6 +108,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       - [ ] plain
       - [ ] fancy
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -121,6 +137,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       - [ ] plain
       - [ ] fancy
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -139,6 +159,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       [^why]:
           - H: why a function?
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -155,6 +179,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       Add a `greet()` export.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -165,6 +193,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       ## Greeting export
 
       Add a `greet()` export. Keep it tiny.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -188,6 +220,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       - [ ] plain
       - [ ] fancy
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -205,6 +241,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       - [ ] plain
       - [ ] fancy
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -229,6 +269,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
           - H: why exported?
           - A: callers need it.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -248,6 +292,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       [^b]:
           - H: why exported?
           - A: callers need it.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -271,6 +319,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       - [ ] plain
       - [ ] fancy
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -298,6 +350,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       - [ ] plain
       - [ ] fancy
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -320,6 +376,10 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
 
       - [ ] plain
       - [ ] fancy
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 

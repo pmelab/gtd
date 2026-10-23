@@ -28,6 +28,10 @@ Feature: a naive pass ends only when a test names every criterion and the suite 
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: `subtract(5, 3)` returns 2.

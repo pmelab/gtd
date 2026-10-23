@@ -45,6 +45,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -66,6 +70,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       - [x] SQLite — zero-config, file-based
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -177,6 +185,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build the widget. No open questions.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -303,6 +315,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       Add a doc comment above the widget export.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -315,6 +331,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       ## Doc comment
 
       Add a doc comment above the widget export. No open questions.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -418,6 +438,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       Add a doc comment above the widget export.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -430,6 +454,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       ## Doc comment
 
       Add a doc comment above the widget export. No open questions.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -561,6 +589,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       Add a doc comment above the widget export.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -573,6 +605,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       ## Doc comment
 
       Add a doc comment above the widget export. No open questions.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -728,6 +764,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
       Build the widget. No open questions.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -786,6 +826,10 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build the widget. No open questions.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 

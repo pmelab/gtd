@@ -39,6 +39,10 @@ Feature: the hands-on test tries only the criteria a person can observe
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.
@@ -79,6 +83,10 @@ Feature: the hands-on test tries only the criteria a person can observe
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.
@@ -113,6 +121,10 @@ Feature: the hands-on test tries only the criteria a person can observe
     Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
       """
       # Requirements
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -149,6 +161,10 @@ Feature: the hands-on test tries only the criteria a person can observe
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.
@@ -175,6 +191,10 @@ Feature: the hands-on test tries only the criteria a person can observe
     Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
       """
       # Requirements
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -203,6 +223,10 @@ Feature: the hands-on test tries only the criteria a person can observe
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: add is unchanged.
@@ -229,6 +253,10 @@ Feature: the hands-on test tries only the criteria a person can observe
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1 (no hands-on): the build prompt names subtract.
@@ -251,6 +279,10 @@ Feature: the hands-on test tries only the criteria a person can observe
     Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
       """
       # Requirements
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -315,6 +347,10 @@ Feature: the hands-on test tries only the criteria a person can observe
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.
@@ -336,6 +372,10 @@ Feature: the hands-on test tries only the criteria a person can observe
     And step "implement.prototype.fix.fixing" writes ".gtd/REQUIREMENTS.md" with:
       """
       # Requirements
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 

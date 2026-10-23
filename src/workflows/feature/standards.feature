@@ -37,6 +37,10 @@ Feature: the review learns standards from the human's answers
 
       - `subtract(a, b)` returns `a - b`.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.

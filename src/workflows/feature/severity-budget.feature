@@ -28,6 +28,10 @@ Feature: the review's ranking is batched to the judge's budget
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.

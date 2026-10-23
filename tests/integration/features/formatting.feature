@@ -127,6 +127,10 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       """
       A plan, wrapped by the project's formatter.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -144,6 +148,10 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       This is a deliberately long single prose line for the requirements file that clearly exceeds the eighty character print width.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -210,6 +218,10 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       - [ ] REST
       - [ ] GraphQL
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -219,6 +231,10 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
     And ".gtd/REQUIREMENTS.md" is modified to:
       """
       A plan. This edited line is deliberately far longer than eighty characters so the formatter has to rewrap it before the turn is captured.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 

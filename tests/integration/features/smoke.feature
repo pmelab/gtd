@@ -35,6 +35,10 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
       """
       Add a feature. No open questions.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
