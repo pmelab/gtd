@@ -187,7 +187,7 @@ export const ChunkNotePressedStateDiffersFromRest: Story = {
   },
 }
 
-/** Package 02 Task 6: the chunk-open button's disabled state (zero hunks) is visually distinct — `Button`'s own `disabled:text-disabled` utility applies, not a hand-rolled opacity/cursor pair (a call-site `disabled:opacity-60` used to sit here, and composited `--color-disabled` under 3:1 against the page — removed, not just left unasserted). */
+/** Package 02 Task 6: the chunk-open button's disabled state (a finding with zero hunks) is visually distinct — `Button`'s own `disabled:text-disabled` utility applies, not a hand-rolled opacity/cursor pair (a call-site `disabled:opacity-60` used to sit here, and composited `--color-disabled` under 3:1 against the page — removed, not just left unasserted). */
 export const ChunkOpenButtonDisabledWhenNoHunks: Story = {
   args: {
     view: {
@@ -195,6 +195,11 @@ export const ChunkOpenButtonDisabledWhenNoHunks: Story = {
         {
           title: "No pointers here",
           anchor: { kind: "chunk", index: 0 },
+          decision: [
+            { title: "fix as suggested", anchor: { kind: "option", questionIndex: 0, index: 0 } },
+            { title: "won't fix", anchor: { kind: "option", questionIndex: 0, index: 1 } },
+            { title: "", anchor: { kind: "option", questionIndex: 0, index: 2 } },
+          ],
         },
       ],
     } satisfies SteeringView,
@@ -687,7 +692,100 @@ export const FindingsAndWalkthroughListSeparately: Story = {
     await expect(findings.getByTestId("chunk-severity-0")).toHaveTextContent("critical: security")
     await expect(walkthrough.getByTestId("chunk-card-1")).toHaveTextContent("Rename")
     await expect(walkthrough.queryByTestId("chunk-severity-1")).not.toBeInTheDocument()
-    await expect(canvas.getByTestId("chunk-card-2")).toHaveTextContent("Fixed automatically")
+    await expect(canvas.getByTestId("chunk-plain-note-2")).toHaveTextContent("Fixed automatically")
+  },
+}
+
+const FINDING_REVIEW = [
+  "# Review: abc1234",
+  "",
+  "<!-- base: abc1234def5678901234567890123456789abcd -->",
+  "",
+  "## Findings",
+  "",
+  "### Token check",
+  "",
+  "- [x] ./src/auth.ts#1-1",
+  "",
+  "Tick exactly one:",
+  "",
+  "- [ ] fix as suggested",
+  "- [ ] won't fix",
+  "- [ ] _your answer_",
+  "",
+  "## Walkthrough",
+  "",
+  "### Rename",
+  "",
+  "- [ ] ./src/calc.ts#1-1",
+  "",
+].join("\n")
+
+/** Ticking a finding's code pointers never decides it: Done stays disabled, and says why, until a box is chosen. */
+export const AFindingIsDoneOnlyOnceItsDecisionIsSet: Story = {
+  args: {
+    view: reviewFormat.view(FINDING_REVIEW),
+    isLoading: false,
+    onDone: () => Promise.resolve(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("chunk-decision-status-0")).toHaveAccessibleName(
+      "Needs a decision",
+    )
+    await expect(canvas.queryByTestId("chunk-check-all-0")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("review-progress")).toHaveTextContent("0 / 2 chunks approved")
+    await expect(canvas.getByTestId("review-done")).toBeDisabled()
+    await expect(canvas.getByTestId("review-done-blocked")).toHaveTextContent(
+      "1 finding needs a decision",
+    )
+
+    await fireEvent.click(canvas.getByTestId("chunk-decision-0-1"))
+    await expect(canvas.getByTestId("chunk-decision-0-1")).toBeChecked()
+    await expect(canvas.getByTestId("chunk-decision-status-0")).toHaveAccessibleName("Decided")
+    await expect(canvas.getByTestId("review-progress")).toHaveTextContent("1 / 2 chunks approved")
+    await expect(canvas.getByTestId("review-done")).toBeEnabled()
+    await expect(canvas.queryByTestId("review-done-blocked")).not.toBeInTheDocument()
+  },
+}
+
+/** The hunk deck's own Done is held back the same way while a finding is undecided. */
+export const TheHunkDecksDoneWaitsForEveryDecision: Story = {
+  args: {
+    view: reviewFormat.view(FINDING_REVIEW),
+    isLoading: false,
+    onDone: () => Promise.resolve(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("chunk-open-1"))
+    await expect(canvas.getByTestId("deck-done")).toBeDisabled()
+  },
+}
+
+/** Choosing "your answer" opens the answer sheet; an empty Save leaves the finding undecided, a filled one decides it. */
+export const YourAnswerDecidesAFindingOnlyOnceWritten: Story = {
+  args: { view: reviewFormat.view(FINDING_REVIEW), isLoading: false },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("chunk-decision-0-2"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), { target: { value: "  " } })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await expect(canvas.getByTestId("chunk-decision-0-2")).not.toBeChecked()
+    await expect(canvas.getByTestId("chunk-decision-status-0")).toHaveAccessibleName(
+      "Needs a decision",
+    )
+
+    await fireEvent.click(canvas.getByTestId("chunk-decision-answer-0"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "Only for admin tokens" },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await expect(canvas.getByTestId("chunk-decision-0-2")).toBeChecked()
+    await expect(canvas.getByTestId("chunk-decision-answer-0")).toHaveTextContent(
+      "Only for admin tokens",
+    )
+    await expect(canvas.getByTestId("chunk-decision-status-0")).toHaveAccessibleName("Decided")
   },
 }
 
@@ -769,8 +867,8 @@ export const LoadingStateRendersBeforeTheViewArrives: Story = {
   },
 }
 
-/** A `##` chunk with prose and no file pointers at all (`files: []` — a real, pinned `ReviewDoc.ts` shape) must not be a blank, unrecoverable dead-end: its open button is disabled rather than opening an empty `Deck`. */
-export const ChunkWithZeroHunksIsNotABlankDeadEnd: Story = {
+/** A chunk with no file pointers and no decision (`Fixed automatically`) is a plain note: no tick box, nothing to open. */
+export const ChunkWithZeroHunksRendersAsAPlainNote: Story = {
   args: {
     view: {
       nodes: [
@@ -785,13 +883,13 @@ export const ChunkWithZeroHunksIsNotABlankDeadEnd: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const openButton = canvas.getByTestId("chunk-open-0")
-    expect(openButton).toBeDisabled()
-    await expect(canvas.getByText("No file pointers")).toBeInTheDocument()
-    await fireEvent.click(openButton)
-    // A disabled button's click is a no-op, but assert the review screen is
-    // still the one showing regardless — never an empty/broken deck.
-    await expect(canvas.getByTestId("review-screen")).toBeInTheDocument()
+    await expect(canvas.getByTestId("chunk-plain-note-0")).toHaveTextContent(
+      "Just prose, no pointersNothing to review here.",
+    )
+    await expect(canvas.queryByTestId("chunk-check-all-0")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("chunk-open-0")).not.toBeInTheDocument()
+    await expect(canvas.queryByText("No file pointers")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("review-progress")).toHaveTextContent("0 / 0 chunks approved")
   },
 }
 
@@ -1411,6 +1509,63 @@ export const RealContainerChunkCheckAllCallsSetValueOnce: StoryObj<typeof Review
       anchor: { kind: "chunk", index: 0 },
       checked: true,
     })
+  },
+}
+
+/** A decision is ONE `setValue` at the box's own `option` anchor; an answer carries its text in that same call. */
+export const RealContainerWritesADecisionViaSetValue: StoryObj<typeof Review> = {
+  render: (args) => {
+    let record: (input: unknown) => void = () => {}
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => ({
+            ok: true,
+            content: FINDING_REVIEW,
+            headSha: "abc123",
+            contentHash: "deadbeef",
+            view: reviewFormat.view(FINDING_REVIEW),
+          }),
+          diff: () => ({ kind: "binary" }),
+          setValue: (input) => {
+            record(input)
+            return { ok: true }
+          },
+        }}
+      >
+        <SetValueCallRecorder args={args} onRegisterSetValue={(fn) => (record = fn)} />
+      </TrpcTestProvider>
+    )
+  },
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("chunk-decision-0-0")).toBeInTheDocument())
+    await fireEvent.click(canvas.getByTestId("chunk-decision-0-0"))
+    await fireEvent.click(canvas.getByTestId("chunk-decision-answer-0"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "Only for admin tokens" },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() =>
+      expect(canvas.getByTestId("set-value-calls")).toHaveTextContent("Only for admin tokens"),
+    )
+    const calls = JSON.parse(canvas.getByTestId("set-value-calls").textContent ?? "[]") as unknown[]
+    const tokens = {
+      filePath: ".gtd/REVIEW.md",
+      expectedHeadSha: "abc123",
+      expectedContentHash: "deadbeef",
+      mode: "review",
+    }
+    await expect(calls).toEqual([
+      { ...tokens, anchor: { kind: "option", questionIndex: 0, index: 0 }, checked: true },
+      {
+        ...tokens,
+        anchor: { kind: "option", questionIndex: 0, index: 2 },
+        checked: true,
+        text: "Only for admin tokens",
+      },
+    ])
   },
 }
 

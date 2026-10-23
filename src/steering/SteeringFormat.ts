@@ -64,6 +64,8 @@ export interface SteeringLink {
  * format-agnostic: `review`'s chunk/hunk and `qa`'s question/option are the
  * same two things here (a container and one of its numbered children), plus
  * `paragraph`, which a client resolves from its cursor rather than the view.
+ * A `review` finding's answer boxes are `option`s too, `questionIndex` being
+ * the chunk's index.
  */
 export type SteeringAnchor =
   | { readonly kind: "chunk"; readonly index: number }
@@ -110,7 +112,7 @@ export interface SteeringViewNode {
   readonly detail?: string
   /** A free-form status label, when the format has one (`qa`'s `"open"`/`"answered"`). */
   readonly status?: string
-  /** `true` when this node's own condition is fully satisfied (`qa`'s answered-question flag) — distinct from `checked`, which is a per-item tick. */
+  /** `true` when this node's own condition is fully satisfied (`qa`'s answered question, `review`'s decided finding) — distinct from `checked`, which is a per-item tick. */
   readonly answered?: boolean
   /** This node's own checkbox state, when it has one (a hunk's tick, an option's tick). */
   readonly checked?: boolean
@@ -140,6 +142,8 @@ export interface SteeringViewNode {
   readonly anchor: SteeringAnchor
   /** The section a top-level node sits in, when the format groups them (`review`'s `Findings` / `Walkthrough`). */
   readonly group?: string
+  /** A `review` finding's answer boxes, in order — fix as suggested, won't fix, and the free-text slot, whose `title` is the human's text (`""` while unfilled). Kept out of `children`, which are its hunks. */
+  readonly decision?: readonly SteeringViewNode[]
   readonly children?: readonly SteeringViewNode[]
   /**
    * A node's body, a SIBLING of `children` and never a reuse of it: a `qa`

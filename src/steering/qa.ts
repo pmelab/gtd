@@ -830,7 +830,7 @@ const replaceOptionTextEdit = (
  * offset for, breaking this anchor's `apply` forever. The placeholder reads
  * back as `""`, so an erase still reads as unanswered.
  */
-const normalizeFreeTextAnswer = (text: string): string => {
+export const normalizeFreeTextAnswer = (text: string): string => {
   const normalized = text.replace(/\s+/g, " ").trim()
   return normalized.length === 0 ? FREE_TEXT_PLACEHOLDER : normalized
 }

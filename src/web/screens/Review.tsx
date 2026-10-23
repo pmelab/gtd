@@ -5,6 +5,7 @@ import type {
   SteeringViewNode,
   SteeringViewThread,
 } from "../../steering/index.js"
+import { FREE_TEXT_PLACEHOLDER, isAnswered } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { cn } from "../cn.js"
 import { CardList } from "../Card.js"
@@ -32,6 +33,26 @@ const hunksOf = (node: SteeringViewNode): readonly SteeringViewNode[] =>
     ...hunksOf(child),
   ])
 
+/** A finding's decision as the screen holds it: one overlay cell for the tick and its free text together, as `Question.tsx` does. */
+interface Decision {
+  readonly selected: number | undefined
+  readonly freeText: string
+}
+
+/** The free-text slot's index among a finding's three boxes. */
+const ANSWER_SLOT = 2
+
+const defaultDecisionFor = ({ decision = [] }: SteeringViewNode): Decision => {
+  const ticked = decision.flatMap((option, i) => (option.checked === true ? [i] : []))
+  const selected = ticked.length === 1 ? ticked[0] : undefined
+  return { selected, freeText: decision[ANSWER_SLOT]?.title ?? "" }
+}
+
+const normalizeAnswerText = (text: string): string => {
+  const trimmed = text.trim()
+  return trimmed.toLowerCase() === FREE_TEXT_PLACEHOLDER.toLowerCase() ? "" : trimmed
+}
+
 export interface ReviewViewProps {
   readonly view: SteeringView | undefined
   readonly filePath: string
@@ -43,6 +64,11 @@ export interface ReviewViewProps {
   readonly onDoneNote?: (anchor: SteeringAnchor, text: string) => TokenGuardedWrite
   readonly onDone?: () => Promise<unknown>
   readonly onSetValue?: (anchor: SteeringAnchor, checked: boolean) => TokenGuardedWrite
+  /** Writes a finding's decision: one box ticked (radio), and the free-text slot's answer with it. */
+  readonly onCommitDecision?: (
+    anchor: SteeringAnchor,
+    opts: { readonly checked?: boolean; readonly text?: string },
+  ) => TokenGuardedWrite
   /** Package 03 Task 1's single `busy` boolean, threaded from the store's own pending count. */
   readonly busy?: boolean | undefined
 }
@@ -66,6 +92,7 @@ const useReviewState = (
   onSaveNote?: (anchor: SteeringAnchor, text: string) => TokenGuardedWrite,
   onDoneNote?: (anchor: SteeringAnchor, text: string) => TokenGuardedWrite,
   onSetValue?: (anchor: SteeringAnchor, checked: boolean) => TokenGuardedWrite,
+  onCommitDecision?: ReviewViewProps["onCommitDecision"],
 ) => {
   const overlay = useWriteStore((s) => s.overlay)
   const save = useWriteStore((s) => s.save)
@@ -73,11 +100,66 @@ const useReviewState = (
   const [openChunkIndex, setOpenChunkIndex] = useState<number | undefined>(undefined)
   const [deckIndex, setDeckIndex] = useState(0)
   const [noteSheet, setNoteSheet] = useState<NoteSheetState | undefined>(undefined)
+  const [answerSheet, setAnswerSheet] = useState<SteeringViewNode | undefined>(undefined)
   const scroll = useScrollRestoration()
 
   const checkedCell = (anchor: SteeringAnchor): string => cellKey(filePath, anchor, "checked")
   const noteCell = (anchor: SteeringAnchor): string => cellKey(filePath, anchor, "note")
   const doneCell = (anchor: SteeringAnchor): string => cellKey(filePath, anchor, "done")
+
+  const decisionCell = (chunk: SteeringViewNode): string =>
+    cellKey(filePath, chunk.anchor, "decision")
+
+  const decisionOf = (chunk: SteeringViewNode): Decision =>
+    (overlay[decisionCell(chunk)]?.value as Decision | undefined) ?? defaultDecisionFor(chunk)
+
+  /** The same rule the landing's `answer-completeness` check applies: three boxes, one ticked, a ticked answer filled in. */
+  const isDecided = (chunk: SteeringViewNode): boolean => {
+    const options = chunk.decision ?? []
+    const { selected, freeText } = decisionOf(chunk)
+    return (
+      options.length === 3 &&
+      isAnswered(
+        options.map((option, i) => ({
+          checked: selected === i,
+          text: i === ANSWER_SLOT ? normalizeAnswerText(freeText) : option.title,
+          freeText: i === ANSWER_SLOT,
+        })),
+      )
+    )
+  }
+
+  const writeDecision = (
+    chunk: SteeringViewNode,
+    index: number,
+    optimistic: Decision,
+    opts: { readonly checked: boolean; readonly text?: string },
+  ) => {
+    const anchor = chunk.decision?.[index]?.anchor
+    if (anchor === undefined) return
+    save({
+      cell: decisionCell(chunk),
+      optimistic,
+      write: onCommitDecision === undefined ? undefined : onCommitDecision(anchor, opts),
+    }).catch(() => {})
+  }
+
+  const chooseDecision = (chunk: SteeringViewNode, index: number) =>
+    writeDecision(chunk, index, { ...decisionOf(chunk), selected: index }, { checked: true })
+
+  /** A Save in the answer sheet: an empty answer unticks the slot rather than ticking a blank one. */
+  const commitAnswer = (chunk: SteeringViewNode, text: string) => {
+    setAnswerSheet(undefined)
+    const answer = normalizeAnswerText(text)
+    const { selected } = decisionOf(chunk)
+    const kept = selected === ANSWER_SLOT ? undefined : selected
+    writeDecision(
+      chunk,
+      ANSWER_SLOT,
+      { selected: answer === "" ? kept : ANSWER_SLOT, freeText: answer },
+      { checked: answer !== "", text: answer },
+    )
+  }
 
   const isChecked = (hunk: SteeringViewNode): boolean =>
     (overlay[checkedCell(hunk.anchor)]?.value as boolean | undefined) ?? hunk.checked === true
@@ -188,7 +270,13 @@ const useReviewState = (
     setDeckIndex,
     noteSheet,
     setNoteSheet,
+    answerSheet,
+    setAnswerSheet,
     exitToChunkList,
+    decisionOf,
+    isDecided,
+    chooseDecision,
+    commitAnswer,
     isChecked,
     hasNoteText,
     noteTextOf,
@@ -242,12 +330,14 @@ const HunkDeck = ({
   state,
   onDone,
   busy,
+  undecided,
 }: {
   readonly chunk: SteeringViewNode
   readonly live: boolean
   readonly state: ReviewState
   readonly onDone: (() => void) | undefined
   readonly busy?: boolean | undefined
+  readonly undecided: number
 }) => {
   const hunks = hunksOf(chunk)
   return (
@@ -257,7 +347,9 @@ const HunkDeck = ({
         index={state.deckIndex}
         onIndexChange={state.setDeckIndex}
         onExit={state.exitToChunkList}
-        {...(onDone !== undefined ? { onDone, doneLabel: "Done", doneDisabled: busy } : {})}
+        {...(onDone !== undefined
+          ? { onDone, doneLabel: "Done", doneDisabled: busy === true || undecided > 0 }
+          : {})}
         renderItem={(hunk, i) => {
           const props = hunkPropsFor(hunk, i, hunks, state)
           if (live) {
@@ -267,6 +359,130 @@ const HunkDeck = ({
         }}
       />
     </div>
+  )
+}
+
+const DECISION_LABELS = ["Fix as suggested", "Won't fix", "Your answer"]
+
+/** A finding's decision: three radios, the last opening the answer sheet. */
+// fallow-ignore-next-line complexity
+const DecisionControl = ({
+  chunk,
+  chunkIndex,
+  state,
+}: {
+  readonly chunk: SteeringViewNode
+  readonly chunkIndex: number
+  readonly state: ReviewState
+}) => {
+  const { selected, freeText } = state.decisionOf(chunk)
+  const choose = (i: number) =>
+    i === ANSWER_SLOT ? state.setAnswerSheet(chunk) : state.chooseDecision(chunk, i)
+  return (
+    <fieldset
+      data-testid={`chunk-decision-${chunkIndex}`}
+      className="m-0 mt-1 flex flex-col border-0 p-0 pl-13"
+    >
+      <legend className="sr-only">Decision for {chunk.title}</legend>
+      {(chunk.decision ?? []).map((option, i) => (
+        <label key={i} className="flex min-h-11 items-center gap-3">
+          <input
+            type="radio"
+            name={`decision-${chunkIndex}`}
+            data-testid={`chunk-decision-${chunkIndex}-${i}`}
+            checked={selected === i}
+            onChange={() => choose(i)}
+          />
+          <span className={selected === i ? "font-medium" : undefined}>
+            {DECISION_LABELS[i] ?? option.title}
+          </span>
+        </label>
+      ))}
+      <Button
+        variant="ghost"
+        data-testid={`chunk-decision-answer-${chunkIndex}`}
+        onClick={() => state.setAnswerSheet(chunk)}
+        className="w-full px-0 pl-7 text-left text-small font-normal text-muted"
+      >
+        {freeText.trim().length > 0 ? freeText : "Tap to write your answer"}
+      </Button>
+    </fieldset>
+  )
+}
+
+/** A chunk with neither hunks nor a decision (`Fixed automatically`, …) is a note to read, not an item to tick. */
+const isPlainNote = (chunk: SteeringViewNode): boolean =>
+  chunk.decision === undefined && hunksOf(chunk).length === 0
+
+// fallow-ignore-next-line complexity
+const ChunkSummary = ({
+  chunk,
+  chunkIndex,
+}: {
+  readonly chunk: SteeringViewNode
+  readonly chunkIndex: number
+}) => (
+  <>
+    {chunk.status !== undefined && (
+      <div
+        data-testid={`chunk-severity-${chunkIndex}`}
+        className={cn(
+          "text-small font-semibold",
+          chunk.status.startsWith("critical") ? "text-warning" : "text-muted",
+        )}
+      >
+        {chunk.status}
+      </div>
+    )}
+    <div className="font-semibold">{chunk.title}</div>
+    {chunk.detail !== undefined && chunk.detail.length > 0 && (
+      <div className="text-small text-muted">
+        <Inline inline={chunk.detailInline} fallback={chunk.detail} />
+      </div>
+    )}
+  </>
+)
+
+/** A finding's done mark, a walkthrough chunk's tick-all box, nothing for a plain note. */
+// fallow-ignore-next-line complexity
+const ChunkMark = ({
+  chunk,
+  chunkIndex,
+  state,
+}: {
+  readonly chunk: SteeringViewNode
+  readonly chunkIndex: number
+  readonly state: ReviewState
+}) => {
+  const hunks = hunksOf(chunk)
+  if (chunk.decision !== undefined) {
+    const decided = state.isDecided(chunk)
+    return (
+      <div
+        data-testid={`chunk-decision-status-${chunkIndex}`}
+        aria-label={decided ? "Decided" : "Needs a decision"}
+        className={cn(
+          "flex min-h-11 min-w-11 shrink-0 items-center justify-center font-semibold",
+          decided ? "text-heading-c" : "text-warning",
+        )}
+      >
+        {decided ? "✓" : "●"}
+      </div>
+    )
+  }
+  if (hunks.length === 0) return null
+  return (
+    <label
+      data-testid={`chunk-check-all-label-${chunkIndex}`}
+      className="flex min-h-11 min-w-11 shrink-0 items-center justify-center"
+    >
+      <input
+        type="checkbox"
+        data-testid={`chunk-check-all-${chunkIndex}`}
+        checked={hunks.every(state.isChecked)}
+        onChange={() => state.toggleChunk(chunk)}
+      />
+    </label>
   )
 }
 
@@ -281,59 +497,37 @@ const ChunkRow = ({
   readonly state: ReviewState
 }) => {
   const hunks = hunksOf(chunk)
-  const allChecked = hunks.length > 0 && hunks.every(state.isChecked)
   const footnoteKeepsRoundOpen = state.hasNoteText(chunk)
   return (
     <div data-testid={`chunk-card-${chunkIndex}`} className="border-b border-divider px-3 py-2.5">
       <div className="flex items-start gap-2">
-        <label
-          data-testid={`chunk-check-all-label-${chunkIndex}`}
-          className="flex min-h-11 min-w-11 shrink-0 items-center justify-center"
-        >
-          <input
-            type="checkbox"
-            data-testid={`chunk-check-all-${chunkIndex}`}
-            checked={allChecked}
+        <ChunkMark chunk={chunk} chunkIndex={chunkIndex} state={state} />
+        {isPlainNote(chunk) ? (
+          <div data-testid={`chunk-plain-note-${chunkIndex}`} className="flex-1 py-1">
+            <ChunkSummary chunk={chunk} chunkIndex={chunkIndex} />
+          </div>
+        ) : (
+          <Button
+            variant="ghost"
+            data-testid={`chunk-open-${chunkIndex}`}
+            onClick={() => state.openChunk(chunkIndex)}
             disabled={hunks.length === 0}
-            onChange={() => state.toggleChunk(chunk)}
-          />
-        </label>
-        <Button
-          variant="ghost"
-          data-testid={`chunk-open-${chunkIndex}`}
-          onClick={() => state.openChunk(chunkIndex)}
-          disabled={hunks.length === 0}
-          className="flex-1 text-left"
-        >
-          {chunk.status !== undefined && (
-            <div
-              data-testid={`chunk-severity-${chunkIndex}`}
-              className={cn(
-                "text-small font-semibold",
-                chunk.status.startsWith("critical") ? "text-warning" : "text-muted",
-              )}
-            >
-              {chunk.status}
-            </div>
-          )}
-          <div className="font-semibold">{chunk.title}</div>
-          {chunk.detail !== undefined && chunk.detail.length > 0 && (
-            <div className="text-small text-muted">
-              <Inline inline={chunk.detailInline} fallback={chunk.detail} />
-            </div>
-          )}
-          {hunks.length === 0 && (
-            <div className="mt-0.5 text-small text-muted">No file pointers</div>
-          )}
-          {footnoteKeepsRoundOpen && (
-            <div
-              data-testid={`chunk-footnote-badge-${chunkIndex}`}
-              className="mt-1 text-small text-warning"
-            >
-              Note keeps this round open
-            </div>
-          )}
-        </Button>
+            className="flex-1 text-left"
+          >
+            <ChunkSummary chunk={chunk} chunkIndex={chunkIndex} />
+            {hunks.length === 0 && (
+              <div className="mt-0.5 text-small text-muted">No file pointers</div>
+            )}
+            {footnoteKeepsRoundOpen && (
+              <div
+                data-testid={`chunk-footnote-badge-${chunkIndex}`}
+                className="mt-1 text-small text-warning"
+              >
+                Note keeps this round open
+              </div>
+            )}
+          </Button>
+        )}
         {!footnoteKeepsRoundOpen && (
           <Button
             variant="secondary"
@@ -344,6 +538,9 @@ const ChunkRow = ({
           </Button>
         )}
       </div>
+      {chunk.decision !== undefined && (
+        <DecisionControl chunk={chunk} chunkIndex={chunkIndex} state={state} />
+      )}
       {footnoteKeepsRoundOpen && (
         <Button
           variant="ghost"
@@ -362,11 +559,15 @@ const ChunkRow = ({
   )
 }
 
-const approvedCount = (nodes: SteeringView["nodes"], state: ReviewState): number =>
-  nodes.filter((chunk) => {
-    const hunks = hunksOf(chunk)
-    return hunks.length > 0 && hunks.every(state.isChecked)
-  }).length
+/** A finding is done once decided, any other chunk once every hunk is ticked; a plain note never counts. */
+const isChunkDone = (chunk: SteeringViewNode, state: ReviewState): boolean => {
+  if (chunk.decision !== undefined) return state.isDecided(chunk)
+  const hunks = hunksOf(chunk)
+  return hunks.length > 0 && hunks.every(state.isChecked)
+}
+
+const undecidedCount = (nodes: SteeringView["nodes"], state: ReviewState): number =>
+  nodes.filter((chunk) => chunk.decision !== undefined && !state.isDecided(chunk)).length
 
 /** Consecutive chunks sharing a `group` (the review's Findings / Walkthrough), chunk indexes kept for their anchors. */
 const groupsOf = (
@@ -384,18 +585,21 @@ const groupsOf = (
     return groups
   }, [])
 
+// fallow-ignore-next-line complexity
 const ChunkList = ({
   nodes,
   state,
   scrollRef,
   onDone,
   busy,
+  undecided,
 }: {
   readonly nodes: SteeringView["nodes"]
   readonly state: ReviewState
   readonly scrollRef: RefObject<HTMLDivElement | null>
   readonly onDone: (() => void) | undefined
   readonly busy?: boolean | undefined
+  readonly undecided: number
 }) => (
   <div data-testid="review-screen" className="flex h-full min-h-0 flex-1 flex-col">
     <div
@@ -404,7 +608,8 @@ const ChunkList = ({
     >
       <h1 className="m-0 text-body font-semibold">Review</h1>
       <span className="text-small text-muted tabular-nums">
-        {approvedCount(nodes, state)} / {nodes.length} chunks approved
+        {nodes.filter((chunk) => isChunkDone(chunk, state)).length} /{" "}
+        {nodes.filter((chunk) => !isPlainNote(chunk)).length} chunks approved
       </span>
     </div>
     <div
@@ -435,9 +640,19 @@ const ChunkList = ({
     {onDone !== undefined && (
       <div
         data-testid="review-done-row"
-        className="flex shrink-0 items-center justify-end border-t border-border p-3"
+        className="flex shrink-0 items-center justify-end gap-3 border-t border-border p-3"
       >
-        <Button variant="primary" data-testid="review-done" onClick={onDone} disabled={busy}>
+        {undecided > 0 && (
+          <span data-testid="review-done-blocked" className="text-small text-warning">
+            {undecided === 1 ? "1 finding needs" : `${undecided} findings need`} a decision
+          </span>
+        )}
+        <Button
+          variant="primary"
+          data-testid="review-done"
+          onClick={onDone}
+          disabled={busy === true || undecided > 0}
+        >
           Done
         </Button>
       </div>
@@ -460,11 +675,19 @@ export const ReviewView = ({
   onDoneNote,
   onDone,
   onSetValue,
+  onCommitDecision,
   busy,
 }: ReviewViewProps) => {
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const save = useWriteStore((s) => s.save)
-  const state = useReviewState(filePath, scrollRef, onSaveNote, onDoneNote, onSetValue)
+  const state = useReviewState(
+    filePath,
+    scrollRef,
+    onSaveNote,
+    onDoneNote,
+    onSetValue,
+    onCommitDecision,
+  )
 
   if (view === undefined) {
     const refusal = readError !== undefined ? readRefusalFrom(readError) : undefined
@@ -479,8 +702,23 @@ export const ReviewView = ({
     )
   }
 
+  const answerChunk = state.answerSheet
+  const answerAnchor = answerChunk?.decision?.[ANSWER_SLOT]?.anchor
+  const answerSheet =
+    answerChunk !== undefined && answerAnchor !== undefined ? (
+      <NoteSheet
+        anchor={answerAnchor}
+        title="Your answer"
+        label="Answer text"
+        note={state.decisionOf(answerChunk).freeText}
+        onSave={(_anchor, text) => state.commitAnswer(answerChunk, text)}
+        onDismiss={() => state.setAnswerSheet(undefined)}
+      />
+    ) : null
+  const undecided = undecidedCount(view.nodes, state)
+
   const noteSheet = ((): React.ReactElement | null => {
-    if (state.noteSheet === undefined) return null
+    if (state.noteSheet === undefined) return answerSheet
     return (
       <NoteSheet
         anchor={state.noteSheet.anchor}
@@ -512,6 +750,7 @@ export const ReviewView = ({
           state={state}
           onDone={onDone === undefined ? undefined : runDone}
           busy={busy}
+          undecided={undecided}
         />
         {noteSheet}
       </>
@@ -526,6 +765,7 @@ export const ReviewView = ({
         scrollRef={scrollRef}
         onDone={onDone === undefined ? undefined : runDone}
         busy={busy}
+        undecided={undecided}
       />
       {noteSheet}
     </>
@@ -565,6 +805,14 @@ const useReviewMutations = (
         return result
       })
 
+  const onCommitDecision =
+    (anchor: SteeringAnchor, opts: { readonly checked?: boolean; readonly text?: string }) =>
+    (cas: CasTokens): Promise<unknown> =>
+      setValue.mutateAsync({ filePath, ...cas, mode: "review", anchor, ...opts }).then((result) => {
+        onFormatNotice(result.formatNotice)
+        return result
+      })
+
   const onSaveNote =
     (anchor: SteeringAnchor, text: string) =>
     (cas: CasTokens): Promise<unknown> =>
@@ -580,7 +828,7 @@ const useReviewMutations = (
 
   const onDone = (): Promise<unknown> => done.mutateAsync({})
 
-  return { onSaveNote, onDoneNote, onDone, onSetValue, isDone: done.isSuccess }
+  return { onSaveNote, onDoneNote, onDone, onSetValue, onCommitDecision, isDone: done.isSuccess }
 }
 
 /** `Review`'s own inner render, a child of its `WriteStoreProvider`. */
@@ -597,10 +845,8 @@ const ReviewInner = ({
   const indicatorProps = useSaveIndicatorProps()
   const pending = useWriteStore((s) => s.pendingCount)
   const [formatNotice, setFormatNotice] = useState<FormatNotice | undefined>(undefined)
-  const { onSaveNote, onDoneNote, onDone, onSetValue, isDone } = useReviewMutations(
-    filePath,
-    setFormatNotice,
-  )
+  const { onSaveNote, onDoneNote, onDone, onSetValue, onCommitDecision, isDone } =
+    useReviewMutations(filePath, setFormatNotice)
 
   return (
     <>
@@ -619,6 +865,7 @@ const ReviewInner = ({
           onDoneNote={onDoneNote}
           onDone={onDone}
           onSetValue={onSetValue}
+          onCommitDecision={onCommitDecision}
           busy={pending > 0}
         />
       )}
