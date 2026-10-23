@@ -193,6 +193,21 @@ Given(
   },
 )
 
+// An agent's edit in place, keeping whatever gtd wrote around it.
+Given(
+  "step {string} replaces the text {string} in {string} with {string}",
+  (world: TestkitWorld, step: string, text: string, path: string, replacement: string) => {
+    world.act(step, (_, repo) => {
+      const content = repo.read(path) ?? ""
+      assert.ok(content.includes(text), `${path}: ${content}`)
+      repo.write(
+        path,
+        content.replace(text, () => replacement),
+      )
+    })
+  },
+)
+
 Given("step {string} deletes {string}", (world: TestkitWorld, step: string, path: string) => {
   world.act(step, (_, repo) => repo.remove(path))
 })
@@ -387,6 +402,14 @@ Then(
     const hash = repo.hashes()[repo.subjects().lastIndexOf(subject)]
     assert.ok(hash !== undefined, `no commit "${subject}"`)
     assert.ok(repo.read(path)?.includes(hash.slice(0, 7)), `${path}: ${repo.read(path)}`)
+  },
+)
+
+Then(
+  "{string} contains {string} exactly once",
+  (world: TestkitWorld, path: string, text: string) => {
+    const content = world.repo().read(path) ?? ""
+    assert.strictEqual(content.split(text).length - 1, 1, `${path}: ${content}`)
   },
 )
 

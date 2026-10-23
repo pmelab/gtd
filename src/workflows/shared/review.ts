@@ -380,6 +380,7 @@ const walkthrough = async (
   report: t.ComposedReview,
   lap: t.ReviewRange,
   carry: string | undefined,
+  afterRiskFix: boolean,
 ): Promise<void> => {
   const notes = t.titledNotes(report)
   await reviewing(base, carry, lap, t.walkthroughBlock(notes, report.nitFix))
@@ -393,7 +394,8 @@ const walkthrough = async (
     notes,
     changesSince(base).some((c) => isCode(c.path)),
   )
-  // Ranked even when it marks risks: the review written after their fix reaches the human with its own.
+  // Its risks are fixed and the review written again, so the re-reviewer edits this draft, never gtd's layout.
+  if (!afterRiskFix && reviewRisks(written).length > 0) return
   const full = sectionedReview(
     await ranked(review, t.withWalkthrough(review, report), new Set(notes.map((n) => n.title))),
     new Set(reviewChunks(review).map((c) => c.title)),
@@ -432,12 +434,16 @@ export const humanReview = (
   let nitFix: string | undefined
   // Every note the human answered in this review, left out of a fresh one.
   const answered = new Set<string>()
+  // Set by a risk fix, so the review written next reaches the human whatever it marks.
+  let riskFixed = false
   return kit.review(base, {
     file: REVIEW,
     feedback: feedback.file,
     isCode,
     reviewing: (b, carry) => {
       const fixedAt = nitFix
+      const afterRiskFix = riskFixed
+      riskFixed = false
       const report = options.report ?? NO_FINDINGS
       return options.walkthrough === true
         ? guarded(
@@ -447,12 +453,16 @@ export const humanReview = (
                 composedOf(b, report, fixedAt, answered),
                 options.lap ?? "first",
                 carry,
+                afterRiskFix,
               ),
             guard,
           )()
         : composing(b, report, carry, fixedAt, answered)
     },
-    fixRisks: guarded((notes) => fixRisks(notes, fixAccess, rules), guard),
+    fixRisks: guarded((notes) => {
+      riskFixed = true
+      return fixRisks(notes, fixAccess, rules)
+    }, guard),
     keepGreen: () => healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules }),
     // Kept until the human sees a review, so a re-review after a risk fix still names it.
     awaitReview: (b) => {

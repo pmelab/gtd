@@ -1185,6 +1185,44 @@ Feature: the refactor is reviewed on its own before the feature is implemented
         """
       And no commit body contains "refactor.build.review.composing"
 
+    Scenario: a risk the refactor's re-review marks again reaches the human unfixed
+      Given step "refactor.build.review.reviewing" writes ".gtd/REVIEW.md" with:
+        """
+        # Review: abc1234
+
+        <!-- base: 0000000 -->
+
+        ## calc
+
+        - [ ] ./src/calc.ts#1-2 — Risk: drops the sign
+        """
+      When the process is driven
+      Then the process rests at "refactor.build.review.fix.risks.fixing"
+      Given step "refactor.build.review.reviewing" is no longer scripted
+      And step "refactor.build.review.reviewing" replaces the text "Risk: drops the sign" in ".gtd/REVIEW.md" with "Risk: still drops the sign"
+      And step "refactor.build.review.fix.risks.fixing" changes nothing
+      And step "refactor.build.health.check" changes nothing
+      When the process is driven
+      Then the process rests at "refactor.build.review.await-review"
+      And ".gtd/REVIEW.md" contains:
+        """
+        ## Walkthrough
+
+        ### calc
+
+        - [ ] ./src/calc.ts#1-2 — Risk: still drops the sign
+        """
+      And ".gtd/REVIEW.md" contains "## Walkthrough" exactly once
+      And the commit subjects end with:
+        """
+        gtd(agent): refactor.build.review.reviewing → refactor.build.review.fix.risks.fixing
+        gtd(agent): refactor.build.review.fix.risks.fixing → refactor.build.health.check
+        gtd(check): refactor.build.health.check → refactor.build.review.reviewing
+        gtd(agent): refactor.build.review.reviewing → refactor.build.review.ranking
+        gtd(judge): refactor.build.review.ranking → refactor.build.review.carrying
+        gtd(check): refactor.build.review.carrying → refactor.build.review.await-review
+        """
+
   Rule: with a quality lens on both the refactor and the feature
 
     Background:

@@ -179,37 +179,6 @@ Feature: a reviewer walks the human through the feature's code
       """
     Then driving the process is refused with "AC-1 ignores floating point — no chunk of its own"
 
-  Scenario: a risk the reviewer marks is fixed before the human sees the review
-    Given step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## Subtract
-
-      - [ ] ./src/calc.ts#2-2 — Risk: overflows on large numbers
-
-      ## AC-1 ignores floating point
-
-      - [ ] ./src/calc.ts#2-2 — returns the raw difference
-      """
-    And step "build.review.fix.risks.fixing" changes nothing
-    And step "build.health.check" changes nothing
-    When the process is driven
-    Then the process rests at "build.review.await-review"
-    And the commit subjects end with:
-      """
-      gtd(agent): build.review.reviewing → build.review.ranking
-      gtd(judge): build.review.ranking → build.review.carrying
-      gtd(check): build.review.carrying → build.review.fix.risks.fixing
-      gtd(agent): build.review.fix.risks.fixing → build.health.check
-      gtd(check): build.health.check → build.review.reviewing
-      gtd(agent): build.review.reviewing → build.review.ranking
-      gtd(judge): build.review.ranking → build.review.carrying
-      gtd(check): build.review.carrying → build.review.await-review
-      """
-
   Scenario: a standard conflict the reviewer writes itself is refused
     Given step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
       """
