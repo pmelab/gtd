@@ -779,9 +779,9 @@ describe("BuildTailOptions.lensBase", () => {
   }
 
   it("reaches every quality-lens prompt", async () => {
-    const prompts = await lensPrompts({ lensBase: "SLICE-BASE" })
+    const prompts = await lensPrompts({ lensBase: "LENS-BASE" })
     expect(prompts).toHaveLength(2)
-    for (const prompt of prompts) expect(prompt).toContain("from `SLICE-BASE`")
+    for (const prompt of prompts) expect(prompt).toContain("from `LENS-BASE`")
   })
 
   it("absent, the lens prompts name start()", async () => {
@@ -791,7 +791,7 @@ describe("BuildTailOptions.lensBase", () => {
   })
 
   it("the deprecated positional form runs the same tail as the options form", async () => {
-    const options = { lensBase: "SLICE-BASE" }
+    const options = { lensBase: "LENS-BASE" }
     const modern = await lensPrompts(options)
     const legacy = await lensPrompts(options, () => buildTail(false, "base", true, options))
     expect(legacy).toEqual(modern)

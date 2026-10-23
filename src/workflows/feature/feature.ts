@@ -6,44 +6,36 @@ import {
   read,
   revertScript,
   run,
-  slice,
   start,
 } from "../../flows/index.js"
 import { gate } from "../shared/health.js"
-import { joinReports, type LensReport } from "../shared/lenses.js"
 import { flagModeOn, shipped } from "../shared/options.js"
 import { FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import { refusePendingHandOff, tail } from "../shared/tail.js"
 import * as t from "../shared/text.js"
 import {
   criterionIds,
-  requireCriteriaFrozen,
   requireStableIds,
   type StableIds,
   skipDesign,
-  sliceIds,
   statedCriteria,
-  type CriteriaSlice,
   type StatedCriteria,
 } from "./criteria.js"
 import { design } from "./planning.js"
 import { buildTail, humanReview, isCode, reUnwind, type ReviewOutcome } from "../shared/review.js"
 import { prototypeRounds } from "./prototype.js"
 import { implement, implementing, seamBuild } from "./seam.js"
-import { sliceCap, sliceCriteria, slicing } from "./slicing.js"
-import { recordRisk, riskTierOn, type RiskTier } from "./tier.js"
+import { recordRisk, riskTierOn } from "./tier.js"
 
 // The ordinary start. Any change to the tree starts a process: `idle` →
 // `unwind` reverts the sketch (its intent survives in history) → a
-// green-baseline gate → design → per slice of the criteria, a naive pass,
-// judged with `flagMode` on: it lands as the implementation, or (refactoring
-// first when the judge asks) is built fresh from → the health loop → a
-// hands-on test of every criterion, fixed and re-tested → the
-// triaged quality lap, whose leftovers are carried on → after the last slice,
-// a reviewer's walkthrough of the whole change, every slice's findings
-// among its chunks, for the human, which
-// signs off (the episode ends back at `idle`) or sends a design → implement
-// lap.
+// green-baseline gate → design → a naive pass, judged with `flagMode` on: it
+// lands as the implementation, or (refactoring first when the judge asks) is
+// built fresh from → the health loop → a hands-on test of every criterion,
+// fixed and re-tested → the triaged quality lap, whose leftovers are carried
+// on → a reviewer's walkthrough of the whole change, its findings among its
+// chunks, for the human, which signs off (the episode ends back at `idle`) or
+// sends a design → implement lap.
 
 /** Revert the sketch that started the process out of the working tree; its intent survives in history. */
 export const unwind = (): Promise<void> => {
@@ -56,36 +48,32 @@ export const unwind = (): Promise<void> => {
 export { reUnwind }
 
 /**
- * The slices `design.slicing` grouped the criteria into, each built in turn
- * from where the previous one landed; design must have run since `firstBase`.
+ * A naive pass (judged only with `flagMode` on), then implement and the
+ * quality lap, then the review; design must have run since `firstBase`.
  */
 export const buildFeature = async (firstBase: string): Promise<void> => {
   const tier = riskTierOn() ? recordRisk() : undefined
-  const slices = await slicing()
-  // Every ID handed out, gathered before a later narrowing can drop one: none is ever reused.
+  // Every ID handed out, gathered before a later edit can drop one: none is ever reused.
   const handedOut = new Set(listedIds())
-  // A single slice keeps the unnumbered names and builds against every criterion.
-  const one = slices.length === 1
-  // A steer may delete every criterion of a later slice: there is nothing to build there.
-  const built = (i: number): boolean => sliceIds(sliceCriteria(slices, i))?.length !== 0
-  const reports: { slice: string; report: LensReport }[] = []
-  for (const i of slices.keys()) {
-    if (!built(i)) continue
-    const n = one ? "" : `-${i + 1}`
-    await buildSlice(i === 0 ? firstBase : head(), {
-      number: `${i + 1}`,
-      tier,
-      criteria: sliceCriteria(slices, i),
-      refactor: `refactor${n}`,
-      feature: `feature${n}`,
-      // A steer or a narrowing may empty every later slice.
-      more: () => slices.some((_, j) => j > i && built(j)),
-      // Every slice but the one is built unreviewed, so the review covers them all.
-      reviewBase: one ? undefined : firstBase,
-      handedOut,
-      laps: reports,
-    })
-  }
+  const seam = await seamBuild(firstBase)
+  const used = gather(handedOut)
+  const closed = await implementing({
+    reference: seam.reference,
+    tier,
+    afterRefactor: seam.refactored,
+    naive: seam.land === true ? seam.reference : undefined,
+    rebuild: seam.rebuild,
+  })
+  // A feature with no code beyond the carried-over tests: the refactor carried
+  // it, so the lap covers the whole change.
+  const carried = seam.rebuild?.acceptance?.tests ?? []
+  const base =
+    seam.refactored === true &&
+    !changesSince(seam.base).some((c) => isCode(c.path) && !carried.includes(c.path))
+      ? firstBase
+      : seam.base
+  const outcome = await reviewedTail(base, base)
+  await featureFeedback(outcome, base, { closed, used })
 }
 
 const listedIds = (): readonly string[] => criterionIds(read(REQUIREMENTS) ?? "")
@@ -95,85 +83,14 @@ const gather = (handedOut: Set<string>): readonly string[] => {
   return [...handedOut]
 }
 
-interface SliceBuild {
-  /** The slice's number, from 1. */
-  readonly number: string
-  readonly tier: RiskTier | undefined
-  readonly criteria: CriteriaSlice | undefined
-  readonly refactor: string
-  readonly feature: string
-  readonly more: () => boolean
-  /** Absent: the slice's own base. */
-  readonly reviewBase?: string | undefined
-  /** Every criterion ID handed out so far; the slice adds those a steer adds. */
-  readonly handedOut: Set<string>
-  /** Each earlier slice's lap report, by slice number, for the review after the last one. */
-  readonly laps: { slice: string; report: LensReport }[]
-}
-
-/** A naive pass (judged only with `flagMode` on), then implement and the quality lap; after the last slice, the review. */
-const buildSlice = async (sliceBase: string, build: SliceBuild): Promise<void> => {
-  const seam = await seamBuild(sliceBase, { criteria: build.criteria, refactor: build.refactor })
-  const used = gather(build.handedOut)
-  await slice(build.feature, async () => {
-    const closed = await implementing({
-      reference: seam.reference,
-      tier: build.tier,
-      afterRefactor: seam.refactored,
-      naive: seam.land === true ? seam.reference : undefined,
-      rebuild: seam.rebuild,
-      slice: build.criteria,
-      more: build.more,
-    })
-    // Closing kept the criteria exactly when there is more to build, so this reads as it did.
-    const more = build.more()
-    // A feature slice with no code beyond the carried-over tests: the refactor carried the
-    // feature, so the lap covers the whole slice.
-    const carried = seam.rebuild?.acceptance?.tests ?? []
-    const base =
-      seam.refactored === true &&
-      !changesSince(seam.base).some((c) => isCode(c.path) && !carried.includes(c.path))
-        ? sliceBase
-        : seam.base
-    if (more) {
-      // The criteria stay in the tree for the next slice; no quality fix may move them.
-      const guard = () => requireCriteriaFrozen(REQUIREMENTS)
-      // No gate between slices: what the lap left waits for the review after the last one.
-      const report = await tail(async (_, report) => report, {
-        green: true,
-        lensBase: base,
-        guard,
-        guardRests: false,
-      })
-      build.laps.push({ slice: build.number, report })
-      return
-    }
-    const reviewBase = build.reviewBase ?? base
-    const outcome = await reviewedTail(reviewBase, base, { slice: build.number, laps: build.laps })
-    await featureFeedback(outcome, base, { closed, used })
-  })
-}
-
-/**
- * The quality lap of slice `last.slice`, then a reviewer's walkthrough since
- * `base` for the human, carrying what earlier slices' `laps` left too.
- */
+/** The quality lap, then a reviewer's walkthrough since `base` for the human. */
 const reviewedTail = (
   base: string,
   lensBase: string,
-  last: { readonly slice: string; readonly laps: SliceBuild["laps"] } = { slice: "", laps: [] },
   lap: "first" | "feedback" = "first",
 ): Promise<ReviewOutcome> =>
   tail(
-    (escalations, report) =>
-      humanReview(base, escalations, {
-        report:
-          last.laps.length === 0
-            ? report
-            : joinReports([...last.laps, { slice: last.slice, report }]),
-        walkthrough: true,
-        lap,
-      }),
+    (escalations, report) => humanReview(base, escalations, { report, walkthrough: true, lap }),
     { green: true, lensBase },
   )
 
@@ -197,7 +114,7 @@ const featureFeedback = async (
     })
     const tier = riskTierOn() ? recordRisk() : undefined
     closed = await implementing({ tier, amend: true })
-    outcome = await reviewedTail(outcome.base, lensBase, undefined, "feedback")
+    outcome = await reviewedTail(outcome.base, lensBase, "feedback")
   }
 }
 
@@ -209,7 +126,7 @@ export const planAndBuild = async (firstBase: string, stated?: StatedCriteria): 
 }
 
 // seam.naive / seam.judge never run here: a re-plan's seam is built unjudged and unrefactored.
-/** After a tail that skipped planning: stop on sign-off, re-plan on feedback. Opens no slice: slices cannot nest. */
+/** After a tail that skipped planning: stop on sign-off, re-plan on feedback. */
 export const afterTail = async (first: ReviewOutcome): Promise<void> => {
   let outcome = first
   while (outcome.verdict === "feedback") {
@@ -227,7 +144,6 @@ export const ordinaryStart = async (): Promise<void> => {
   refusePendingHandOff()
   // Read right after idle, so a bad value refuses the landing that would pin it.
   flagModeOn()
-  sliceCap()
   prototypeRounds()
   const stated = statedCriteria(changes(), head())
   await unwind()

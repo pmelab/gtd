@@ -160,9 +160,4 @@ Feature: a refactor-first judgment walks one fixed path to the review gate
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"
     And the commit "gtd(judge): seam.judge → seam.note" has a body containing "\"answer\":\"refactor-first\""
     And no commit body contains "Gtd-Approved:"
-    And the output lines of gtd "slices" start with:
-      """
-      refactor 
-      feature 
-      """
     And no commit body contains "Gtd-Workflow:"

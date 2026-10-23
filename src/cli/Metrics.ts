@@ -18,7 +18,8 @@ export interface MetricCommit {
 }
 
 export interface Metrics {
-  readonly slices: {
+  /** Each naive pass's decision: landed as it is, or rebuilt (after a refactor or not). */
+  readonly builds: {
     readonly decided: number
     readonly landed: number
     readonly rebuilt: number
@@ -26,8 +27,6 @@ export interface Metrics {
   }
   /** `rebuilt / decided`, to three places; null without a decision. */
   readonly refactorFirstRate: number | null
-  /** Continuation turns per phase, keyed by the step without its `continue` segment. */
-  readonly continuations: Readonly<Record<string, number>>
   readonly cost: {
     readonly total: number
     readonly byModel: Readonly<Record<string, number>>
@@ -37,7 +36,7 @@ export interface Metrics {
       readonly implement: number
       readonly other: number
     }
-    /** A rebuilt slice's naive pass and the implement turns that rebuilt it. */
+    /** A rebuilt build's naive pass and the implement turns that rebuilt it. */
     readonly doubleWork: {
       readonly naive: number
       readonly rebuild: number
@@ -54,11 +53,9 @@ type Phase = keyof Metrics["cost"]["byPhase"]
 // Keyed by the lap's path without `.reviewing`, so the refactor lap's lenses stay apart from the feature's.
 const LENS = /^((?:.*\.)?quality\.[^.]+)\.reviewing$/
 
-const CONTINUE = /(^|\.)continue\./
-
 const inSeam = (step: string): boolean => step.startsWith("seam.")
 
-// A naive retry after a continuation runs under `seam.fresh.naive`: any seam step named `naive` is the pass.
+// Any seam step named `naive` is the pass, whatever scope an older history ran it under.
 const phaseOf = (step: string): Phase => {
   const scope = step.split(".")[0]
   if (inSeam(step) && step.endsWith(".naive")) return "naive"
@@ -83,8 +80,7 @@ const roundAll = (record: Record<string, number>): Record<string, number> =>
   Object.fromEntries(Object.entries(record).map(([k, v]) => [k, round(v)]))
 
 interface Tally {
-  readonly slices: { decided: number; landed: number; rebuilt: number; refactored: number }
-  readonly continuations: Record<string, number>
+  readonly builds: { decided: number; landed: number; rebuilt: number; refactored: number }
   readonly byModel: Record<string, number>
   readonly byPhase: Record<Phase, number>
   readonly doubleWork: { naive: number; rebuild: number }
@@ -93,8 +89,7 @@ interface Tally {
 }
 
 const emptyTally = (): Tally => ({
-  slices: { decided: 0, landed: 0, rebuilt: 0, refactored: 0 },
-  continuations: record(),
+  builds: { decided: 0, landed: 0, rebuilt: 0, refactored: 0 },
   byModel: record(),
   byPhase: { naive: 0, refactor: 0, implement: 0, other: 0 },
   doubleWork: { naive: 0, rebuild: 0 },
@@ -106,9 +101,8 @@ const sum = (record: Readonly<Record<string, number>>): number =>
   Object.values(record).reduce((a, b) => a + b, 0)
 
 const finish = (t: Tally): Metrics => ({
-  slices: t.slices,
-  refactorFirstRate: t.slices.decided === 0 ? null : round(t.slices.rebuilt / t.slices.decided, 3),
-  continuations: t.continuations,
+  builds: t.builds,
+  refactorFirstRate: t.builds.decided === 0 ? null : round(t.builds.rebuilt / t.builds.decided, 3),
   cost: {
     total: round(sum(t.byModel)),
     byModel: roundAll(t.byModel),
@@ -123,8 +117,8 @@ const finish = (t: Tally): Metrics => ({
   flaky: { total: sum(t.flaky), byStep: t.flaky },
 })
 
-/** The open slice: its naive cost so far, and whether its implement turns rebuild it. */
-interface Slice {
+/** The open build: its naive cost so far, and whether its implement turns rebuild it. */
+interface Build {
   naive: number
   rebuilding: boolean
   /** Landed, not yet applied, with its naive cost: an apply that fails turns it into a rebuild. */
@@ -133,7 +127,7 @@ interface Slice {
 
 const tallyCost = (
   t: Tally,
-  open: Slice,
+  open: Build,
   costs: ReturnType<typeof parseCommitMessage>["cost"],
   phase: Phase,
 ): void => {
@@ -145,50 +139,48 @@ const tallyCost = (
   }
 }
 
-/** A slice is decided where its turns leave the seam: for `implement.applying` the naive pass landed — unless it fails to apply and is built afresh — anywhere else it is rebuilt. */
-const tallyDecision = (t: Tally, open: Slice, at: string, to: string): void => {
-  // The slice's closing ends its rebuild: later implement turns (an amend after review) are new work.
+/** A build is decided where its turns leave the seam: for `implement.applying` the naive pass landed — unless it fails to apply and is built afresh — anywhere else it is rebuilt. */
+const tallyDecision = (t: Tally, open: Build, at: string, to: string): void => {
+  // The build's closing ends its rebuild: later implement turns (an amend after review) are new work.
   if (at === "implement.closing") open.rebuilding = false
   if (open.applying !== undefined && at === "implement.applying") {
     const naive = open.applying
     open.applying = undefined
     if (to !== "implement.building") return
-    t.slices.landed--
+    t.builds.landed--
     rebuild(t, open, naive)
     return
   }
   if (!inSeam(at) || inSeam(to)) return
-  t.slices.decided++
+  t.builds.decided++
   const naive = open.naive
   open.naive = 0
   if (to === "implement.applying") {
     open.applying = naive
     open.rebuilding = false
-    t.slices.landed++
+    t.builds.landed++
     return
   }
   rebuild(t, open, naive)
-  if (at === "seam.note") t.slices.refactored++
+  if (at === "seam.note") t.builds.refactored++
 }
 
-const rebuild = (t: Tally, open: Slice, naive: number): void => {
+const rebuild = (t: Tally, open: Build, naive: number): void => {
   open.rebuilding = true
-  t.slices.rebuilt++
+  t.builds.rebuilt++
   t.doubleWork.naive += naive
 }
 
 /** Oldest first; a commit gtd did not write is skipped. */
 export const processMetrics = (commits: readonly MetricCommit[]): Metrics => {
   const t = emptyTally()
-  const open: Slice = { naive: 0, rebuilding: false, applying: undefined }
+  const open: Build = { naive: 0, rebuilding: false, applying: undefined }
   for (const commit of commits) {
     const message = parseCommitMessage(commit.message)
     const subject = message.parsed
     if (subject === undefined) continue
     const at = subject.from ?? subject.to
     tallyCost(t, open, message.cost, phaseOf(at))
-    if (subject.actor === "agent" && CONTINUE.test(at))
-      add(t.continuations, at.replace(CONTINUE, "$1"), 1)
     const lens = LENS.exec(at)?.[1]
     if (lens !== undefined && commit.findings > 0) add(t.byLens, lens, commit.findings)
     if (message.marks.some((m) => m.name === "flaky")) add(t.flaky, at, 1)
@@ -200,9 +192,8 @@ export const processMetrics = (commits: readonly MetricCommit[]): Metrics => {
 export const totalMetrics = (all: readonly Metrics[]): Metrics & { readonly processes: number } => {
   const t = emptyTally()
   for (const m of all) {
-    for (const key of Object.keys(t.slices) as (keyof Tally["slices"])[])
-      t.slices[key] += m.slices[key]
-    for (const [k, v] of Object.entries(m.continuations)) add(t.continuations, k, v)
+    for (const key of Object.keys(t.builds) as (keyof Tally["builds"])[])
+      t.builds[key] += m.builds[key]
     for (const [k, v] of Object.entries(m.cost.byModel)) add(t.byModel, k, v)
     for (const key of Object.keys(t.byPhase) as Phase[]) t.byPhase[key] += m.cost.byPhase[key]
     t.doubleWork.naive += m.cost.doubleWork.naive
@@ -256,12 +247,10 @@ const listed = (record: Readonly<Record<string, number>>): string =>
     .join(", ")
 
 const line = (label: string, m: Metrics): string => {
-  const { slices, cost } = m
+  const { builds, cost } = m
   const percent = m.refactorFirstRate === null ? "-" : `${Math.round(m.refactorFirstRate * 100)}%`
-  const continued = sum(m.continuations)
   return [
-    `${label}: ${slices.decided} slices, ${slices.rebuilt} rebuilt (refactor-first ${percent}), ${slices.refactored} refactored`,
-    `${continued} continuations${continued > 0 ? ` (${listed(m.continuations)})` : ""}`,
+    `${label}: ${builds.decided} builds, ${builds.rebuilt} rebuilt (refactor-first ${percent}), ${builds.refactored} refactored`,
     `cost ${cost.total} (${listed(cost.byPhase)}; by model ${listed(cost.byModel) || "-"}), double work ${cost.doubleWork.total}`,
     `${m.findings.total} findings${m.findings.total > 0 ? ` (${listed(m.findings.byLens)})` : ""}`,
     `${m.flaky.total} flaky${m.flaky.total > 0 ? ` (${listed(m.flaky.byStep)})` : ""}`,

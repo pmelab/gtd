@@ -3,10 +3,10 @@
 Feature: a refactor that carried the whole feature still gets a quality lap over all of it
 
   With GTD_FLAG_RISK_TIER off, a refactor-first
-  refactor can land everything the requirements ask for. The feature slice's
+  refactor can land everything the requirements ask for. The feature's
   implement turn then has only the naive pass's acceptance tests to carry
-  over, and with no code but tests changed since the refactor the feature
-  slice's quality lap covers the whole change, refactor included.
+  over, and with no code but tests changed since the refactor the feature's
+  quality lap covers the whole change, refactor included.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -131,9 +131,4 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
       gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
-      """
-    And the output lines of gtd "slices" start with:
-      """
-      refactor 
-      feature 
       """

@@ -6,7 +6,6 @@ import {
   currentRun,
   historyTrail,
   noProcessUnderway,
-  processSlices,
   renderRest,
   restAt,
   restIsIdle,
@@ -609,172 +608,15 @@ const withTipMessage = (repo: InMemRepo, edit: (message: string) => string): Git
   }
 }
 
-describe("processSlices", () => {
-  const failure = async (repo: InMemRepo): Promise<string> => {
-    const exit = await provideExit(processSlices, repo)
-    expect(Exit.isFailure(exit)).toBe(true)
-    return Exit.isFailure(exit) ? String(exit.cause) : ""
-  }
-
-  it("never reports an open slice for a closed run whose replay no longer ends", async () => {
-    const repo = repoWith(LINEAR)
-    await land(repo, { "a.txt": "a\n" })
-    await land(repo, { "b.txt": "b\n" })
-    await land(repo, { "c.txt": "c\n" })
-    repo.writeFile(
-      "gtd.config.ts",
-      LINEAR.replace(
-        'await agent("checking", "check-prompt")',
-        'await agent("checking", "check-prompt")\n  await human("idle", { message: "again" })\n  await agent("polishing", "polish-prompt")',
-      ),
-    )
-    // Stands for a flow change with no in-repo config edit (an upgraded
-    // out-of-repo import): every ref reads as the working tree, so the
-    // config-differs refusal stays quiet and only replay drift remains.
-    const git: GitOperations = {
-      ...fakeGitOperations(repo),
-      readFileAtRef: (_ref, path) => Effect.succeed(repo.readFile(path) ?? ""),
-    }
-    const exit = await Effect.runPromiseExit(
-      processSlices.pipe(
-        Effect.provideService(GitService, git),
-        Effect.provide(testLayers(repo, {})),
-      ),
-    )
-    expect(Exit.isFailure(exit)).toBe(true)
-    const message = Exit.isFailure(exit) ? String(exit.cause) : ""
-    expect(message).toContain(
-      `gtd slices: refused — ${repo.resolveRef("HEAD")!.slice(0, 7)} closes a process that does not end under today's config`,
-    )
-  })
-
-  it("never reports a closed slice for an underway run whose replay now ends", async () => {
-    const repo = repoWith(LINEAR)
-    await land(repo, { "a.txt": "a\n" })
-    await land(repo, { "b.txt": "b\n" })
-    repo.writeFile(
-      "gtd.config.ts",
-      LINEAR.replace('  await agent("checking", "check-prompt")\n', ""),
-    )
-    const message = await failure(repo)
-    expect(message).toContain("gtd slices: refused")
-    expect(message).toContain("the workflow changed under this process")
-    expect(message).toContain("gtd abandon")
-    expect(message).not.toContain("gtd slices: gtd:")
-  })
-
-  it("refuses with no process at HEAD, naming that HEAD neither closes nor sits inside one", async () => {
-    const repo = repoWith(LINEAR)
-    expect(await failure(repo)).toContain(
-      "gtd slices: refused — HEAD neither closes nor sits inside a process",
-    )
-  })
-
-  it("refuses a renamed step with replay's message, prefixed and without a gtd: lead", async () => {
-    const repo = repoWith(LINEAR)
-    await land(repo, { "a.txt": "a\n" })
-    repo.writeFile("gtd.config.ts", LINEAR.replace('agent("building"', 'agent("constructing"'))
-    const message = await failure(repo)
-    expect(message).toContain("gtd slices: refused — ")
-    expect(message).not.toContain("HEAD neither closes nor sits inside a process")
-    expect(message).not.toContain("refused — gtd: ")
-    expect(message).not.toContain("gtd slices: gtd:")
-  })
-
-  it("refuses a finished process whose config file was edited since", async () => {
-    const repo = repoWith(LINEAR)
-    await land(repo, { "a.txt": "a\n" })
-    await land(repo, { "b.txt": "b\n" })
-    await land(repo, { "c.txt": "c\n" })
-    repo.writeFile("gtd.config.ts", `${LINEAR}\n// edited\n`)
-    const message = await failure(repo)
-    expect(message).toContain(
-      `gtd slices: refused — config differs at ${repo.resolveRef("HEAD")!.slice(0, 7)}: gtd.config.ts. HEAD's process replays under today's config; revert or stash the edit to list its slices`,
-    )
-  })
-
-  const finishedProcess = async () => {
-    const repo = repoWith(LINEAR)
-    await land(repo, { "a.txt": "a\n" })
-    await land(repo, { "b.txt": "b\n" })
-    await land(repo, { "c.txt": "c\n" })
-    return repo
-  }
-  const slicesWith = (repo: InMemRepo, git: GitOperations) =>
-    Effect.runPromise(
-      processSlices.pipe(
-        Effect.provideService(GitService, git),
-        Effect.provide(testLayers(repo, {})),
-      ),
-    )
-
-  it("warns about a closed run recorded by another version, slices unchanged", async () => {
-    const repo = await finishedProcess()
-    const plain = await provide(processSlices, repo)
-    const git = withTipMessage(repo, (m) =>
-      m.replace(`Gtd-Version: ${GTD_VERSION}`, "Gtd-Version: 0.0.1"),
-    )
-    const result = await slicesWith(repo, git)
-    expect(result.versionWarning).toContain("0.0.1")
-    expect(result.versionWarning).toContain(GTD_VERSION)
-    expect(result.slices).toEqual(plain.slices)
-  })
-
-  it("warns about an unknown version when the closing commit records none", async () => {
-    const repo = await finishedProcess()
-    const git = withTipMessage(repo, (m) => m.replace(/Gtd-Version: .*\n?/, ""))
-    expect((await slicesWith(repo, git)).versionWarning).toContain("an unknown gtd version")
-  })
-
-  it("does not warn for a closed run landed at the running version", async () => {
-    const repo = await finishedProcess()
-    expect((await provide(processSlices, repo)).versionWarning).toBeUndefined()
-  })
-
-  it("does not warn for an underway process", async () => {
-    const repo = repoWith(LINEAR)
-    await land(repo, { "a.txt": "a\n" })
-    const git = withTipMessage(repo, (m) =>
-      m.replace(`Gtd-Version: ${GTD_VERSION}`, "Gtd-Version: 0.0.1"),
-    )
-    expect((await slicesWith(repo, git)).versionWarning).toBeUndefined()
-  })
-
-  it("refuses on config drift before replay-ends drift", async () => {
-    const repo = await finishedProcess()
-    repo.writeFile(
-      "gtd.config.ts",
-      LINEAR.replace(
-        'await agent("checking", "check-prompt")',
-        'await agent("checking", "check-prompt")\n  await human("idle", { message: "again" })\n  await agent("polishing", "polish-prompt")',
-      ),
-    )
-    const message = await failure(repo)
-    expect(message).toContain("config differs at")
-    expect(message).not.toContain("does not end")
-  })
-
-  it("still lists an underway process's slices after the same config edit", async () => {
-    const repo = repoWith(LINEAR)
-    await land(repo, { "a.txt": "a\n" })
-    repo.writeFile("gtd.config.ts", `${LINEAR}\n// edited\n`)
-    expect((await provide(processSlices, repo)).slices).toHaveLength(1)
-  })
-})
-
 describe("summaryFor", () => {
-  const SLICED = `import { agent, human, slice, mark } from "@pmelab/gtd/flows"
+  const SUMMARISED_FLOW = `import { agent, human, mark } from "@pmelab/gtd/flows"
 
 export default async () => {
   await human("idle", { message: "idle-message" })
   mark("risk-tier", "high")
-  await slice("build", async () => {
-    await agent("building", "build-prompt")
-  })
+  await agent("building", "build-prompt")
   await human("gate", { message: "gate-message" })
-  await slice("verify", async () => {
-    await agent("checking", "check-prompt")
-  })
+  await agent("checking", "check-prompt")
 }
 
 export const summary = (it) => JSON.stringify(it)
@@ -799,196 +641,52 @@ export const summary = (it) => JSON.stringify(it)
     processCost: number
     processCostByModel: { model: string; cost: number }[]
     marks: Mark[]
-    slice?: unknown
   }
 
-  /** Entry (human, idle→building), build agent, human gate, verify agent closing. */
+  /** Entry (human, idle→building), build agent, human gate, check agent closing. */
   const finished = async () => {
-    const repo = repoWith(SLICED)
+    const repo = repoWith(SUMMARISED_FLOW)
     const boundary = headOf(repo)
     const entry = await landCost(repo, { "NOTE.md": "n\n" }, 1, "opus")
-    const built = await landCost(repo, { "a.txt": "a\n" }, 10, "opus")
+    await landCost(repo, { "a.txt": "a\n" }, 10, "opus")
     const gate = await landCost(repo, { "b.txt": "b\n" }, 100, "haiku")
     const closing = await landCost(repo, { "c.txt": "c\n" }, 1000, "haiku")
-    return { repo, boundary, entry, built, gate, closing }
+    return { repo, boundary, entry, gate, closing }
   }
-  const render = async (repo: InMemRepo, sliceName?: string) => {
+  const render = async (repo: InMemRepo) => {
     const run = await provide(summaryRun, repo)
-    const { prompt } = await provide(summaryFor(run, sliceName), repo)
+    const { prompt } = await provide(summaryFor(run), repo)
     return JSON.parse(prompt!) as Rendered
   }
 
-  it("resolves each slice with its range, 1-based index and count", async () => {
-    const { repo, boundary, built, closing } = await finished()
-    expect((await render(repo, "build")).slice).toEqual({
-      name: "build",
-      base: boundary,
-      tip: built,
-      index: 1,
-      count: 2,
-    })
-    expect((await render(repo, "verify")).slice).toEqual({
-      name: "verify",
-      base: built,
-      tip: closing,
-      index: 2,
-      count: 2,
-    })
-  })
-
-  it("renders no slice key for the plain call", async () => {
-    const { repo } = await finished()
-    expect("slice" in (await render(repo))).toBe(false)
-  })
-
-  it("narrows range and human commits to the slice's window, base exclusive and tip inclusive", async () => {
-    const { repo, boundary, built, gate, closing } = await finished()
+  it("renders the whole process: its range, human commits, cost and marks", async () => {
+    const { repo, boundary, entry, gate, closing } = await finished()
     const whole = await render(repo)
+    expect(whole.entryCommit).toBe(entry)
+    expect([whole.processBase, whole.processTip]).toEqual([boundary, closing])
     expect(whole.humanCommits.map((c) => c.hash)).toEqual([gate])
-    const build = await render(repo, "build")
-    const verify = await render(repo, "verify")
-    // the gate commit falls in the gap between the slices and folds into the later one
-    expect([build.processBase, build.processTip]).toEqual([boundary, built])
-    expect([verify.processBase, verify.processTip]).toEqual([built, closing])
-    expect(build.humanCommits).toEqual([])
-    expect(verify.humanCommits.map((c) => c.hash)).toEqual([gate])
-  })
-
-  it("splits cost by slice so the parts sum to the whole, gap commits included", async () => {
-    const { repo } = await finished()
-    const whole = await render(repo)
-    const build = await render(repo, "build")
-    const verify = await render(repo, "verify")
     expect(whole.processCost).toBe(1111)
-    expect(build.processCost + verify.processCost).toBe(whole.processCost)
-    expect(build.processCost).toBe(11)
-    expect(verify.processCost).toBe(1100)
-    const byModel = new Map<string, number>()
-    for (const part of [build, verify])
-      for (const m of part.processCostByModel)
-        byModel.set(m.model, (byModel.get(m.model) ?? 0) + m.cost)
-    expect([...byModel.entries()].sort()).toEqual(
-      whole.processCostByModel.map((m) => [m.model, m.cost] as const).sort(),
-    )
+    expect(whole.marks.length).toBeGreaterThan(0)
   })
 
-  it("keeps entryCommit and marks whole-process under a slice", async () => {
-    const { repo, entry } = await finished()
-    const whole = await render(repo)
-    const verify = await render(repo, "verify")
-    expect(verify.entryCommit).toBe(entry)
-    expect(verify.entryCommit).toBe(whole.entryCommit)
-    expect(verify.marks).toEqual(whole.marks)
-    expect(verify.marks.length).toBeGreaterThan(0)
-  })
-
-  it("refuses a named slice on an empty trace, while the plain call has nothing to render", async () => {
-    const repo = repoWith(SLICED)
+  it("has nothing to render on an empty trace", async () => {
+    const repo = repoWith(SUMMARISED_FLOW)
     const run = await provide(summaryRun, repo)
-    const exit = await provideExit(summaryFor(run, "build"), repo)
-    expect(Exit.isFailure(exit) ? String(exit.cause) : "").toContain(
-      "gtd summary: refused — HEAD neither closes nor sits inside a process",
-    )
     expect(await provide(summaryFor(run), repo)).toEqual({ prompt: undefined })
   })
-
-  it("refuses config drift at a closing HEAD with the summary prefix", async () => {
-    const { repo } = await finished()
-    const run = await provide(summaryRun, repo)
-    repo.writeFile("gtd.config.ts", `${SLICED}\n// edited\n`)
-    const exit = await provideExit(summaryFor(run, "build"), repo)
-    const message = Exit.isFailure(exit) ? String(exit.cause) : ""
-    expect(message).toContain("gtd summary: refused — config differs at")
-    expect(message).toContain("revert or stash")
-  })
-
-  it.each([
-    { recorded: GTD_VERSION, warned: false },
-    { recorded: "0.0.1", warned: true },
-  ])(
-    "refuses a closed process that does not end under today's config (recorded $recorded)",
-    async ({ recorded, warned }) => {
-      const { repo } = await finished()
-      const tip = withTipMessage(repo, (m) =>
-        m.replace(`Gtd-Version: ${GTD_VERSION}`, `Gtd-Version: ${recorded}`),
-      )
-      const run = await Effect.runPromise(
-        summaryRun.pipe(
-          Effect.provideService(GitService, tip),
-          Effect.provide(testLayers(repo, {})),
-        ),
-      )
-      repo.writeFile(
-        "gtd.config.ts",
-        SLICED.replace(
-          'await agent("checking", "check-prompt")',
-          'await agent("checking", "check-prompt")\n    await human("idle", { message: "again" })\n    await agent("polishing", "polish-prompt")',
-        ),
-      )
-      // Every ref reads as the working tree: only replay divergence remains.
-      const git: GitOperations = {
-        ...tip,
-        readFileAtRef: (_ref, path) => Effect.succeed(repo.readFile(path) ?? ""),
-      }
-      const exit = await Effect.runPromiseExit(
-        summaryFor(run, "build").pipe(
-          Effect.provideService(GitService, git),
-          Effect.provide(testLayers(repo, {})),
-        ),
-      )
-      const message = Exit.isFailure(exit) ? String(exit.cause) : ""
-      expect(message).toContain(
-        `gtd summary: refused — ${repo.resolveRef("HEAD")!.slice(0, 7)} closes a process that does not end under today's config`,
-      )
-      if (warned) expect(message).toContain(`recorded by gtd ${recorded}`)
-      else expect(message).not.toContain("recorded by gtd")
-    },
-  )
 
   it("returns no prompt, not a failure, when an edited config no longer exports a summary", async () => {
     const { repo } = await finished()
     const run = await provide(summaryRun, repo)
-    repo.writeFile("gtd.config.ts", SLICED.replace(/export const summary.*\n/, ""))
-    expect(await provide(summaryFor(run, "build"), repo)).toEqual({ prompt: undefined })
+    repo.writeFile("gtd.config.ts", SUMMARISED_FLOW.replace(/export const summary.*\n/, ""))
+    expect(await provide(summaryFor(run), repo)).toEqual({ prompt: undefined })
   })
 
-  it("plain summaryFor still returns a prompt under a config edited since the close, never replaying", async () => {
+  it("still returns a prompt under a config edited since the close, never replaying", async () => {
     const { repo } = await finished()
     const run = await provide(summaryRun, repo)
-    repo.writeFile("gtd.config.ts", `${SLICED}\n// edited\n`)
+    repo.writeFile("gtd.config.ts", `${SUMMARISED_FLOW}\n// edited\n`)
     expect((await provide(summaryFor(run), repo)).prompt).toBeDefined()
-  })
-
-  it("returns a version warning for a closing commit by another gtd version, not a failure", async () => {
-    const { repo } = await finished()
-    const git = withTipMessage(repo, (m) =>
-      m.replace(`Gtd-Version: ${GTD_VERSION}`, "Gtd-Version: 0.0.1"),
-    )
-    const result = await Effect.runPromise(
-      Effect.flatMap(summaryRun, (run) => summaryFor(run, "build")).pipe(
-        Effect.provideService(GitService, git),
-        Effect.provide(testLayers(repo, {})),
-      ),
-    )
-    expect(result.versionWarning).toContain("0.0.1")
-    expect(result.prompt).toBeDefined()
-  })
-
-  it("an unknown slice name returns unknownSlice naming every slice, and keeps the version warning", async () => {
-    const { repo } = await finished()
-    const git = withTipMessage(repo, (m) =>
-      m.replace(`Gtd-Version: ${GTD_VERSION}`, "Gtd-Version: 0.0.1"),
-    )
-    const result = await Effect.runPromise(
-      Effect.flatMap(summaryRun, (run) => summaryFor(run, "nope")).pipe(
-        Effect.provideService(GitService, git),
-        Effect.provide(testLayers(repo, {})),
-      ),
-    )
-    expect(result.prompt).toBeUndefined()
-    expect(result.unknownSlice).toContain('no slice named "nope"')
-    expect(result.unknownSlice).toContain("build, verify")
-    expect(result.versionWarning).toContain("0.0.1")
   })
 })
 

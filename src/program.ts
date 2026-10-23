@@ -13,7 +13,7 @@ const uiConfigOf = (
 ): KeysCoveredBy<NonNullable<UiRequest["config"]>, UiConfig> | undefined => config
 
 // Each tool is imported only when its subcommand runs, so `gtd next` never
-// evaluates ui, lsp, judge or hook code (the one-file bundle still carries it).
+// evaluates ui, lsp or judge code (the one-file bundle still carries it).
 // Imports stay destructured where they are awaited: that is the shape fallow
 // traces a dynamic import's uses through. A tool that fails to load fails its
 // command as a GtdError, like any other failure, never as a defect; only the
@@ -58,11 +58,6 @@ export const liveToolCommands = Layer.effect(
         lazy("lsp", async () => {
           const { startLspServer } = await import("./lsp/index.js")
           return () => startLspServer({ gtd })
-        }),
-      contextHook: (request) =>
-        lazy("context-hook", async () => {
-          const { runContextHook, liveHookHost } = await import("./hook/index.js")
-          return () => runContextHook(request).pipe(Effect.provide(liveHookHost))
         }),
       judge: async (request) => {
         const { runJudge } = await import("./judges/index.js").catch((error: unknown) => {

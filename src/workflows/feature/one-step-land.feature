@@ -87,8 +87,4 @@ Feature: a naive pass the judge rules land is itself the implementation
     And the commit "gtd(agent): seam.naive → seam.check" has a body containing "Gtd-Kept:"
     And the commit "gtd(judge): seam.judge → implement.applying" has a body containing "\"answer\":\"land\""
     And no commit body contains "Gtd-Approved:"
-    And the output lines of gtd "slices" start with:
-      """
-      feature 
-      """
     And no commit body contains "Gtd-Workflow:"

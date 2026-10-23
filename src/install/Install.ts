@@ -81,10 +81,7 @@ while :; do
       model="$(gtd next --json=model)"
       system="$(gtd next --json=system)"
       validate="$(gtd next --json=validate)"
-      context="$(gtd next --json=context)"
       log="$(gtd next --json=log)"
-      # Absolute, since the hook runs wherever the agent last cd'ed to.
-      case "$log" in /*) ;; *) log="$(git rev-parse --show-toplevel)/$log" ;; esac
       # \`model\` is a hint, not a model name — the bundled workflow ships
       # \`smart\` and \`base\`, which \`claude --model\` rejects. Resolve them
       # from your environment; unset, the hint is dropped and the agent runs
@@ -93,18 +90,6 @@ while :; do
         smart) model="\${GTD_LOOP_MODEL_SMART:-}" ;;
         base) model="\${GTD_LOOP_MODEL_BASE:-}" ;;
       esac
-      # The step's context limit, as a Claude Code hook after every tool
-      # call and before compacting. Past \`hard\` it stops the turn and
-      # appends why to the stop file, so we land nothing and stop too.
-      soft="$(printf '%s' "$context" | sed -n 's/.*"soft":\\([0-9.]*\\).*/\\1/p')"
-      hard="$(printf '%s' "$context" | sed -n 's/.*"hard":\\([0-9.]*\\).*/\\1/p')"
-      window="\${GTD_LOOP_CONTEXT_WINDOW:-}"
-      case "$model" in *'[1m]'* | *'[1M]'*) window="\${window:-1000000}" ;; esac
-      hook="gtd context-hook\${soft:+ --soft $soft}\${hard:+ --hard $hard}\${window:+ --window $window}"
-      hooks="[{\\"hooks\\":[{\\"type\\":\\"command\\",\\"command\\":\\"$hook\\"}]}]"
-      settings="{\\"hooks\\":{\\"PostToolUse\\":$hooks,\\"PreCompact\\":$hooks}}"
-      stop="$log.context-stop"
-      rm -f "$stop"
       # One turn, its prompt on stdin. The prompt embeds a full diff, so it
       # never goes on argv — argv is capped (~1 MB on macOS, and POSIX
       # guarantees only 4 KB, ARG_MAX), and a diff crosses that far sooner
@@ -112,15 +97,15 @@ while :; do
       # whether \`claude --resume\` re-applies the original session's is a
       # harness detail gtd cannot verify from outside. Its JSON envelope
       # goes to the log, and its \`total_cost_usd\` adds up into $cost. An
-      # \`is_error\` envelope (max turns, an error mid-turn) or one another
-      # hook stopped fails the turn even at exit 0: landing it would land
-      # the failure as work. Only a turn that never ran (no envelope: the
+      # \`is_error\` envelope (max turns, an error mid-turn) or one a hook
+      # stopped fails the turn even at exit 0: landing it would land the
+      # failure as work. Only a turn that never ran (no envelope: the
       # session flag was refused) is worth retrying under the other flag.
       turn() {
-        out="$(GTD_LOOP_CONTEXT_STOP_FILE="$stop" claude -p "$@" \\
+        out="$(claude -p "$@" \\
           \${model:+--model "$model"} \\
           \${system:+--system-prompt "$system"} \\
-          --settings "$settings" --output-format json \\
+          --output-format json \\
           --dangerously-skip-permissions 2>>"$log")" && ok=0 || ok=$?
         printf '%s\\n' "$out" >>"$log"
         case "$out" in *'"type":"result"'*) ran=true ;; *) ran=false ;; esac
@@ -130,10 +115,6 @@ while :; do
         usd="$(printf '%s\\n' "$out" | sed -n 's/.*"total_cost_usd":\\([0-9.eE+-]*\\).*/\\1/p' | tail -n 1)"
         [ -z "$usd" ] || cost="$(awk -v a="\${cost:-0}" -v b="$usd" 'BEGIN { printf "%.6f", a + b }')"
         [ "\${cost:-}" != 0.000000 ] || cost=
-        if [ -s "$stop" ]; then
-          cat "$stop" >&2
-          exit 1
-        fi
         return "$ok"
       }
       # Plain \`gtd next\` (not --json=content) renders the diff once.
@@ -619,6 +600,16 @@ way — an existing \`gtd-loop\` survives untouched beside the new
 \`gtd-door review [base]\`). When either is still present beside the suite,
 name it to the user as superseded and ask before removing it — never remove
 one unasked.
+
+An older \`gtd-build\` passed a \`gtd context-hook\` hook to every turn, and
+an older setup guide had it registered in Claude Code's own settings
+(\`PostToolUse\`/\`PreCompact\`). That command no longer exists: a hook
+still calling it fails on every tool call. Replace such a \`gtd-build\` as a
+differing file above, and look for a \`gtd context-hook\` entry in the user's
+Claude Code settings files (\`~/.claude/settings.json\`, the repository's
+\`.claude/settings.json\` and \`.claude/settings.local.json\`): name each file
+to the user, then remove that entry alone, leaving every other key
+byte-identical.
 `
 
 const EDITOR_INTEGRATION = `

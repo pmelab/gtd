@@ -112,80 +112,6 @@ remembered session is gone — retention expired, `~/.claude/projects` wiped —
 `--resume` fails and the driver falls back to `--session-id`). There is no file
 to delete and nothing to restart.
 
-### Context limits
-
-An agent step may carry `context` — `{ "soft": <share>, "hard": <share> }`,
-shares of the model's context window (set with the step's or a scope's `context`
-option, or the bundled workflows' `contextLimit` option; see
-[Step options](./configuration.md#step-options)). A key left out means the
-driver's default: 0.6 and 0.7. A driver that can measure a turn's context SHOULD
-stop the turn at these limits; one that ignores `context` still drives
-correctly, only without the stop.
-
-`gtd context-hook` is that stop for Claude Code, one settings hook for both
-events:
-
-```json
-{
-  "hooks": {
-    "PostToolUse": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "gtd context-hook --soft 0.6 --hard 0.7 --window 200000"
-          }
-        ]
-      }
-    ],
-    "PreCompact": [
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "gtd context-hook --soft 0.6 --hard 0.7 --window 200000"
-          }
-        ]
-      }
-    ]
-  }
-}
-```
-
-It reads the context the transcript's latest assistant message used — its input,
-cache-read and cache-creation tokens — and compares it with the shares of
-`--window`:
-
-- **Past `soft`**, it answers `{"decision":"block","reason":…}`: the agent is
-  told to stop and end its turn with a short handoff note — what it touched and
-  what was next — written to a file too where its instructions name one. The
-  turn ends normally and lands like any other; the bundled `feature` workflow
-  continues such a turn in a fresh one (see
-  [Continuations](./configuration.md#continuations)).
-- **Past `hard`**, it answers `{"continue":false,"stopReason":…}` with a
-  `stopReason` starting `gtd: context limit` — the context-limit marker. Claude
-  Code ends the turn; its `result` envelope reads
-  `"terminal_reason":"hook_stopped"`, and the `stopReason` itself appears only
-  in the transcript. With `GTD_LOOP_CONTEXT_STOP_FILE` set in its environment,
-  the hook also appends the `stopReason` to that file — how a driver tells its
-  own stop from any other hook's `hook_stopped`.
-- **At PreCompact**, it stops the turn the same way, whatever the count:
-  compaction about to happen means the limit was missed.
-- **Otherwise, and for a subagent's tool call** (an input carrying `agent_id`,
-  whose context is its own), it prints nothing.
-
-The hook fires only after a tool call, so a turn that keeps answering without
-one runs past `hard` unstopped until compaction. A driver that wants a backstop
-can read `claude -p --output-format stream-json --verbose`, sum each top-level
-assistant message's `usage` the same way, and kill the turn itself somewhat past
-`hard` — halfway to a full window keeps the hook's cleaner stop first.
-
-A turn stopped at its hard limit is too big for one turn. The minimal driver and
-the Claude Code mod land nothing and stop with the marker. The limit counts the
-whole conversation, so a memory scope resumed across steps that has grown past
-its hard limit stops again on every run; start the process over with
-`gtd abandon`, or raise the limit.
-
 ### Terminal-multiplexer status: a herdr wrapper
 
 [herdr](https://herdr.dev) shows a per-pane status in its sidebar. This wrapper
@@ -400,130 +326,37 @@ falls back to the `gtd` on your `PATH`.
   assigns it to you, and Claude helps you through the gate it waits at; it never
   lands that gate before you have seen it. Agent conversations do not travel:
   each memory scope starts fresh for the catcher.
-- `/gtd ship` squashes the finished process, one commit per slice (the process's
-  turns are already kept under `refs/gtd/history/`, written before the squash by
-  the landing that finished it), pushes that process's history ref before the
-  squash by force, so a retry after the tip changed replaces origin's copy of
-  that one ref (another clone shipping the same process replaces it), and
-  records it as a `Gtd-History: <ref>` trailer on every slice commit (a failed
-  history push fails the ship with nothing squashed; a push that did not finish
-  says so, and retrying is safe), pushes the branch, and opens its pull request,
-  or appends to the open one's description when something changed at the level
-  of its motivation, solution or decisions. A subagent writes each slice's
-  commit message (from `gtd summary --slice=<name>`) and the pull-request text;
-  nothing reviews them before they are published. Ship refuses while the process
-  is still underway. The commit message keeps a `BREAKING CHANGE:` footer when
-  the change is breaking, and the process's last commit keeps a `Closes #N`
+- `/gtd ship` squashes the finished process into one commit (the process's turns
+  are already kept under `refs/gtd/history/`, written before the squash by the
+  landing that finished it), pushes that process's history ref before the squash
+  by force, so a retry after the tip changed replaces origin's copy of that one
+  ref (another clone shipping the same process replaces it), and records it as a
+  `Gtd-History: <ref>` trailer on the commit (a failed history push fails the
+  ship with nothing squashed; a push that did not finish says so, and retrying
+  is safe), pushes the branch, and opens its pull request, or appends to the
+  open one's description when something changed at the level of its motivation,
+  solution or decisions. A subagent writes the commit message (from
+  `gtd summary`) and the pull-request text; nothing reviews them before they are
+  published. Ship refuses while the process is still underway, and when
+  `gtd summary` names no `git log <base>..<tip>` range. A process that changed
+  only `.gtd/` lands nothing: its commits are dropped. The commit message keeps
+  a `BREAKING CHANGE:` footer when the change is breaking, and a `Closes #N`
   footer when the process was started for an issue (its capture or
   `.gtd/REQUIREMENTS.md` names it). Ship copies every `Closes`, `Fixes` or
   `Resolves #N` line of a pull request's commits into its description, new or
-  open, so the top pull request links the issue (GitHub links a stacked one once
-  it targets the default branch); in a stack the top pull request takes every
-  slice's lines and a lower one none, since it merges first. The writer may run
-  only read-only `git` commands and write only its own answer, since it reads
-  commit messages anyone on the branch wrote. `/gtd ship -n` prints each slice's
-  commit message and what would happen to its pull request, and writes nothing.
-  It needs `gh`, a clean tree, and a branch other than the default. When a
-  process finishes on such a branch, Claude offers to open the pull request. On
-  a thrown draft, ship writes the title and description properly and marks the
-  pull request ready for review. `GTD_SHIP_MODE` picks how a multi-slice process
-  ships: `commits` (the default) keeps every slice commit on `<branch>` under
-  one pull request, which needs a rebase merge to stay one commit per slice
-  (ship warns when it cannot confirm that; a squash merge still collapses it);
-  `stack` (opt-in) puts each slice's commit on its own branch,
-  `<branch>-<slice>` (the last slice keeps `<branch>`), and opens one pull
-  request per slice, each on the one below it and opening with
-  `Stacked on #N — merge that first` (the lowest targets the default branch).
-  Any other value is refused. Unset means `stack` on a branch whose recorded
-  stack still chains to HEAD, so every resume, restack and follow-up below works
-  without setting it; a dead record ships as `commits`. The record lives in the
-  clone's local git config, so another clone of a stacked branch ships as
-  `commits`. A single slice on a branch without a recorded stack ships as one
-  commit and one pull request. In `stack` mode a process on a branch whose
-  recorded stack is still live — a re-ship, or a follow-up process such as
-  review fixes — lands one commit per slice on the top branch, so they join the
-  top pull request, and keeps the stack and its pull requests;
-  `GTD_SHIP_MODE=commits` ships the branch alone. To ship a new process as a
-  separate stack instead, start it on a new branch. A slice that changed only
-  `.gtd/` lands nothing, and a slice still open refuses the ship. A pull request
-  that is merged or closed, or an existing `<branch>-<slice>` branch the stack
-  did not build, refuses before anything changes: for a lower slice's pull
-  request of a fresh multi-slice stack, use `GTD_SHIP_MODE=commits` (a resume or
-  a single-slice re-ship skips a lower slice merged into the default branch
-  instead); a merged or closed top pull request, or a branch the stack did not
-  build, needs a renamed branch. A closed pull request whose branch origin no
-  longer has is an abandoned earlier ship and is ignored: a new pull request
-  opens, and ship records its number in `branch.<branch>.gtdAbandonedPr` so a
-  retry after the push still ignores it. A record that no longer chains to HEAD
-  is dropped, and under `GTD_SHIP_MODE=stack` a multi-slice process then ships a
-  fresh stack; a hand-restacked record is live. A `gh pr view` failure other
-  than "no pull request" refuses before that step's writes. Slice commits keep
-  `commit.gpgSign` but run no `commit-msg` hook. A failure part-way keeps what
-  landed and names the slice and step; run `/gtd ship` again to resume, and once
-  a lower slice's pull request has merged, a resume skips it and targets the
-  default branch. Squash-merging or rebase-merging a lower stacked pull request
-  rewrites its commit, so run `/gtd ship` again: it fetches the default branch
-  and rebases the remaining slice branches onto `origin/<default>` in one
-  `git rebase --update-refs` (git 2.38 or newer; the local default branch is not
-  touched), pushes each moved branch with a lease on origin's own commit,
-  retargets the lowest remaining pull request to the default branch and shrinks
-  the recorded stack to the remaining slices (it ends when only the top branch
-  remains). The restacked branches keep their pull requests, and the merged
-  slice's `<branch>-<slice>` branch is left alone, locally and on origin. With
-  new work at HEAD the ship squashes it first, then restacks, in the same
-  `/gtd ship`; `-n` prints the planned rebase, pushes and retarget from the last
-  fetch of `origin/<default>` and writes nothing. A merge commit keeps the
-  slice's commit in the default branch, so that case only retargets. If origin's
-  copy of a branch the restack moves holds commits the local branch lacks, the
-  ship refuses before changing anything: pull or reconcile that branch first. A
-  conflicting rebase is aborted, leaving the tree and refs as before the ship
-  (if the abort itself fails the failure says the repository is mid-rebase and
-  to run `git rebase --abort` by hand), and the failure names the slice and the
-  step and prints the
-  `git rebase --update-refs --onto origin/<default> <commit> <branch>` line to
-  run by hand (after a squash in that same `/gtd ship` the squash is kept, and
-  the failure prints the `git reset --soft` to undo it). The restack refuses,
-  with nothing changed, when a pull request merged anywhere but the default
-  branch, unless into a lower slice branch before that one merged into it (ship
-  the branch alone with `GTD_SHIP_MODE=commits`) or when a remaining lower slice
-  branch is checked out in another worktree, where `--update-refs` would skip it
-  (`-n` shows that refusal too; free the branch with `git switch --detach`
-  there). If the rebase still leaves such a branch unmoved (a worktree
-  mid-rebase, say), the slice branches and HEAD are restored and the ship
-  refuses, with nothing pushed or recorded; if that restore itself fails, the
-  refusal prints the `git update-ref` and `git reset --keep` lines to run by
-  hand. The same rollback runs when the rebase exits non-zero after it moved
-  HEAD or a slice branch, and when a remaining slice is left with no commit of
-  its own because its change is already in `origin/<default>` (the refusal names
-  the slice; ship the branch alone with `GTD_SHIP_MODE=commits`). The restack
-  also refuses, under `-n` too and with nothing changed, when another local
-  branch points into the commits being rebased, since `--update-refs` would move
-  it as well: move or delete it. Each moved branch's lease (origin's commit
-  before the restack) is kept in `branch.<branch>.gtdLease` until a push of that
-  branch succeeds, so a push rejected because a collaborator pushed first is
-  still refused when you fetch and ship again; to overwrite origin's copy on
-  purpose run `git config --local --unset branch.<branch>.gtdLease` first. The
-  next `/gtd ship` spots a hand restack (the lowest remaining slice branch no
-  longer holds the merged slice's commit and sits on a commit of
-  `origin/<default>`; when only the top branch remains, which may span several
-  commits, its first commit above `origin/<default>` must be a copy of the
-  recorded top's first commit, same author, date and message), pushes each with
-  a lease on origin's own commit (refusing if origin holds a commit the local
-  branch has no copy of, same author, date and message), retargets the lowest
-  remaining pull request and keeps the stack; a rebase that does not fit that
-  shape drops the record and ships the branch alone. A commits-mode re-ship of a
-  stacked branch retargets its pull request to the default branch and leaves the
-  lower slices' pull requests open; close them by hand. A pull request on a base
-  that is not a slice branch keeps its base, a thrown draft in a stack is
-  retargeted like any other, and a missing slice branch is rebuilt from the
-  commits the stack was built at while the branch still contains them, otherwise
-  the ship refuses and names `GTD_SHIP_MODE=commits` to ship the branch alone.
-  To tear a shipped stack down from a worktree, `gh pr close --delete-branch`
-  fails on the pull request whose branch that worktree has checked out (the top
-  one, named after the worktree's branch): gh closes it, then tries to switch
-  the checkout to the default branch, which another worktree holds, and deletes
-  nothing. Close it with `gh pr close <n>` and delete its branch with
-  `git push origin --delete <branch>`.
+  open, so the pull request links the issue. The writer may run only read-only
+  `git` commands and write only its own answer, since it reads commit messages
+  anyone on the branch wrote. `/gtd ship -n` prints the commit message and what
+  would happen to the pull request, and writes nothing. It needs `gh`, a clean
+  tree, and a branch other than the default. When a process finishes on such a
+  branch, Claude offers to open the pull request. On a thrown draft, ship writes
+  the title and description properly and marks the pull request ready for
+  review. A merged or closed pull request refuses before anything changes and
+  needs a renamed branch. A closed pull request whose branch origin no longer
+  has is an abandoned earlier ship and is ignored: a new pull request opens, and
+  ship records its number in `branch.<branch>.gtdAbandonedPr` so a retry after
+  the push still ignores it. A `gh pr view` failure other than "no pull request"
+  refuses before that step's writes.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone. A
@@ -535,11 +368,6 @@ falls back to the `gtd` on your `PATH`.
   so.
 - A step's `system` becomes the subagent's whole system prompt, and its `model`
   the subagent's model. Each subagent sees only its scope's `skills`.
-- **Each subagent runs under its step's [context limit](#context-limits)**,
-  measured on its own transcript, with the window `GTD_LOOP_CONTEXT_WINDOW`
-  names when set. Past its hard limit, or when it is about to compact, the mod
-  stops the subagent's task and ends the run with an error whose text starts
-  `gtd: context limit`; nothing lands.
 - **The mod's subagents run with `bypassPermissions`**, the equivalent of the
   minimal driver's `--dangerously-skip-permissions`. Shell commands they run are
   kept in the foreground, with a 10-minute timeout.
@@ -637,8 +465,6 @@ script, whatever its exit code.
   itself neither creates nor truncates this file — a driver appends subprocess
   output to it, as the minimal driver below does, and may truncate it at the
   start of a run.
-- **`context`** — the step's context limit, absent when it sets none; see
-  [Context limits](#context-limits).
 - **`skills`** — the skill names of the turn's memory scope, only ever carried
   at `kind: "prompt"` (absent means none). A driver that can restrict a turn's
   skills SHOULD pass exactly this list — restricting the agent to it is the
@@ -752,14 +578,14 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 26 keys (22 of them outside `kind: "prompt"`, which is
+`gtd next --json` emits 25 keys (21 of them outside `kind: "prompt"`, which is
 the only kind that ever carries `session`/`validate`/`skills`/`access`); a real
-driver reads 9 of the 26. The minimal driver below is the reference for exactly
+driver reads 9 of the 25. The minimal driver below is the reference for exactly
 which: `kind`, `idle`, `content`, `log`, `session` (read as its two sub-paths,
 `session.id`/`session.resume`), `model`, `system`, `validate`, and `judge` —
-every `--json=<path>` selector its `case` arms touch. The remaining 17
+every `--json=<path>` selector its `case` arms touch. The remaining 16
 (`schema`, `initial`, `state`, `actor`, `workflow`, `label`, `memory`, `file`,
-`mode`, `changes`, `next`, `cost`, `costByModel`, `skills`, `access`, `context`,
+`mode`, `changes`, `next`, `cost`, `costByModel`, `skills`, `access`,
 `approvals`) are read only by a human looking at plain output, or by a driver
 author deciding what to log or preload — no `case` arm in THIS reference driver
 branches on them. This is a property of what a driver NEEDS, not a smaller wire:
@@ -876,10 +702,7 @@ while :; do
       model="$(gtd next --json=model)"
       system="$(gtd next --json=system)"
       validate="$(gtd next --json=validate)"
-      context="$(gtd next --json=context)"
       log="$(gtd next --json=log)"
-      # Absolute, since the hook runs wherever the agent last cd'ed to.
-      case "$log" in /*) ;; *) log="$(git rev-parse --show-toplevel)/$log" ;; esac
       # `model` is a hint, not a model name — the bundled workflow ships
       # `smart` and `base`, which `claude --model` rejects. Resolve them
       # from your environment; unset, the hint is dropped and the agent runs
@@ -888,18 +711,6 @@ while :; do
         smart) model="${GTD_LOOP_MODEL_SMART:-}" ;;
         base) model="${GTD_LOOP_MODEL_BASE:-}" ;;
       esac
-      # The step's context limit, as a Claude Code hook after every tool
-      # call and before compacting. Past `hard` it stops the turn and
-      # appends why to the stop file, so we land nothing and stop too.
-      soft="$(printf '%s' "$context" | sed -n 's/.*"soft":\([0-9.]*\).*/\1/p')"
-      hard="$(printf '%s' "$context" | sed -n 's/.*"hard":\([0-9.]*\).*/\1/p')"
-      window="${GTD_LOOP_CONTEXT_WINDOW:-}"
-      case "$model" in *'[1m]'* | *'[1M]'*) window="${window:-1000000}" ;; esac
-      hook="gtd context-hook${soft:+ --soft $soft}${hard:+ --hard $hard}${window:+ --window $window}"
-      hooks="[{\"hooks\":[{\"type\":\"command\",\"command\":\"$hook\"}]}]"
-      settings="{\"hooks\":{\"PostToolUse\":$hooks,\"PreCompact\":$hooks}}"
-      stop="$log.context-stop"
-      rm -f "$stop"
       # One turn, its prompt on stdin. The prompt embeds a full diff, so it
       # never goes on argv — argv is capped (~1 MB on macOS, and POSIX
       # guarantees only 4 KB, ARG_MAX), and a diff crosses that far sooner
@@ -907,15 +718,15 @@ while :; do
       # whether `claude --resume` re-applies the original session's is a
       # harness detail gtd cannot verify from outside. Its JSON envelope
       # goes to the log, and its `total_cost_usd` adds up into $cost. An
-      # `is_error` envelope (max turns, an error mid-turn) or one another
-      # hook stopped fails the turn even at exit 0: landing it would land
-      # the failure as work. Only a turn that never ran (no envelope: the
+      # `is_error` envelope (max turns, an error mid-turn) or one a hook
+      # stopped fails the turn even at exit 0: landing it would land the
+      # failure as work. Only a turn that never ran (no envelope: the
       # session flag was refused) is worth retrying under the other flag.
       turn() {
-        out="$(GTD_LOOP_CONTEXT_STOP_FILE="$stop" claude -p "$@" \
+        out="$(claude -p "$@" \
           ${model:+--model "$model"} \
           ${system:+--system-prompt "$system"} \
-          --settings "$settings" --output-format json \
+          --output-format json \
           --dangerously-skip-permissions 2>>"$log")" && ok=0 || ok=$?
         printf '%s\n' "$out" >>"$log"
         case "$out" in *'"type":"result"'*) ran=true ;; *) ran=false ;; esac
@@ -925,10 +736,6 @@ while :; do
         usd="$(printf '%s\n' "$out" | sed -n 's/.*"total_cost_usd":\([0-9.eE+-]*\).*/\1/p' | tail -n 1)"
         [ -z "$usd" ] || cost="$(awk -v a="${cost:-0}" -v b="$usd" 'BEGIN { printf "%.6f", a + b }')"
         [ "${cost:-}" != 0.000000 ] || cost=
-        if [ -s "$stop" ]; then
-          cat "$stop" >&2
-          exit 1
-        fi
         return "$ok"
       }
       # Plain `gtd next` (not --json=content) renders the diff once.
@@ -1018,16 +825,11 @@ reference driver reads once more (a plain `gtd next`) only to DISPLAY that
 gate's own message, the decision to stop already made from `settled`/`idle`
 alone.
 
-Each agent turn runs under the step's [context limit](#context-limits): the
-paste reads `--json=context`, hands `gtd context-hook` with those limits to
-`claude` through `--settings` as its PostToolUse and PreCompact hook, and points
-`GTD_LOOP_CONTEXT_STOP_FILE` at `<log>.context-stop`. A turn the hook stopped at
-its hard limit leaves a line there; the paste prints it and exits 1, landing
-nothing. Each turn's `--output-format json` envelope goes to the log, and its
+Each turn's `--output-format json` envelope goes to the log, and its
 `total_cost_usd` — failed and fix turns included — adds up into the `--cost`
 (and `--model`) the landing records. An envelope with `"is_error":true`, or one
-another hook stopped, fails the turn even at exit 0, so it never lands as work.
-A judge gate that comes straight back after the verdict the paste just landed is
+a hook stopped, fails the turn even at exit 0, so it never lands as work. A
+judge gate that comes straight back after the verdict the paste just landed is
 handed to you rather than answered again.
 
 This paste passes `$system` on argv, and POSIX guarantees only 4 KB of argv
@@ -1218,12 +1020,9 @@ do not queue it, store it, or hand it to another worktree.
   release, say), you can get version skew between the two — the command that
   validates may not be the command that decided. Keep the two in sync (one `gtd`
   on `PATH`, consistently) if you care about that gap.
-- **`sed` and `awk`** — the paste reads a prompt beat's `context` limits and
-  each turn's `total_cost_usd` out of JSON with them; both are POSIX.
+- **`sed` and `awk`** — the paste reads each turn's `total_cost_usd` out of JSON
+  with them; both are POSIX.
 - **`GTD_LOOP_MODEL_SMART` / `GTD_LOOP_MODEL_BASE`** (optional) — the real model
   names the paste passes to `claude --model` for the workflow's `smart` and
   `base` hints. Unset, the hint is dropped and `claude` runs its own default
   model.
-- **`GTD_LOOP_CONTEXT_WINDOW`** (optional) — the model's context window in
-  tokens, passed to `gtd context-hook --window`. Unset, it is 1000000 for a
-  model whose name carries `[1m]` and `gtd context-hook`'s own 200000 otherwise.

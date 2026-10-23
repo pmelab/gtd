@@ -138,25 +138,10 @@ script. The driver's whole read surface. _Avoid_: next payload, dispatch
 document
 
 **Schema**: The integer every JSON document a driver reads leads with — a beat
-document, `gtd land --json`, `gtd slices --json`, the judge documents. Bumped
-only when a field is removed or renamed, never for an added one. Not the
+document, `gtd land --json`, the judge documents. Bumped only when a field is
+removed or renamed, never for an added one. Not the
 [history format](#history-format) and not the package version. _Avoid_: wire
 version, protocol version
-
-**Context limit**: The shares of the model's context window an agent turn may
-use — `soft`, where the agent is asked to wrap up with a handoff note, and
-`hard`, where the driver stops the turn and lands nothing. A step's `context`.
-_Avoid_: token budget, context budget
-
-**Handoff note**: What an agent turn told to stop at its soft
-[context limit](#context-limit) leaves for whoever picks up — what it touched,
-what was next. The bundled `feature` asks for it in `.gtd/HANDOFF.md`.
-
-**Continuation**: A fresh agent turn (`<phase>.continue.<step>`, a new
-conversation) picking up from the snapshot a turn that wrote a handoff note left
-— its kept tip, or its own commit — with the note and what is still open. Not a
-retry: a retry redoes a pass that fell short, a continuation finishes one that
-ran out of room. _Avoid_: resume, restart
 
 **Stall**: HEAD is an empty [attempt](#attempt) at the resting agent step, the
 tree is clean, and another dispatch would just repeat it — derived from history,
@@ -235,10 +220,6 @@ is something a human or a driver may still do afterward, outside gtd, using
 persists — a step name up to its last dot, i.e. its `scope()` prefixes (`root`
 when there are none). One scope, one model, system prompt and skill list.
 _Avoid_: session, context window, conversation, history
-
-**Slice**: A named span of an episode's history, marked by `slice(name, fn)`.
-Distinct from a [memory scope](#memory-scope) (no step renaming, no agent
-conversation). _Avoid_: section, stage, package
 
 **Session id**: The agent CLI's own conversation handle — DERIVED from a memory
 scope's key (a `uuidv5` hash), never stored anywhere, so the same scope-run

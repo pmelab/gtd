@@ -39,8 +39,7 @@ turns:
    `.gtd/REFACTOR-NOTE.md`: which seams, which shape. It may change nothing
    else.
 2. **Refactor.** Flag-free, behaviour-neutral, guided by the note. **Gate: the
-   existing suite stays green.** It lands on its own, in the `refactor` slice,
-   after its review.
+   existing suite stays green.** It lands on its own, after its review.
 3. **Rebuild.** The change re-implemented on the refactored base, behind a
    release flag read at the composition point, with the note and the naive diff
    as reference. **Gate: the naive pass's `AC-<n>`-tagged acceptance tests,
@@ -52,23 +51,21 @@ turns:
 The third reject, test fault or red check rests at `seam.steer`, where a human
 steers or overrules.
 
-## Coarse slices
+## One build per process
 
-**A change with more criteria than `sliceMaxCriteria` (8) is built in slices.**
-After design, `design.slicing` groups related criteria into `.gtd/SLICES.md`, at
-most the cap per slice and as few slices as it allows. Each slice runs the whole
-path above — naive pass, then land or refactor and rebuild, then the health loop
-and quality lap — in order, from where the previous one landed, as its own
-`feature-<n>` slice (`refactor-<n>` ahead of it when refactored). A change
-within the cap is one `feature` slice. See
-[Coarse slices](docs/configuration.md#coarse-slices).
+**A change is built in one pass, however many criteria it has**: one naive pass,
+one build, one quality lap, one review. Sizing the work is the human's job
+before the sketch — a change too big for one process is split into several.
+Nothing guards a turn's context: a long turn relies on the agent harness's own
+compaction, and the acceptance-test check and the naive retries (then
+`seam.steer`) catch an incomplete pass.
 
 ## The hands-on test
 
 **Every criterion a person can observe is used by hand before the quality lap.**
 Once the suite is green, `implement.prototype.observable` judges, per criterion
 not tagged `(no hands-on)`, whether a person can observe it by using the
-software; every one it does not judge unobservable is tested, and a slice with
+software; every one it does not judge unobservable is tested, and a change with
 none skips the test. This is the one check that a criterion is met.
 `implement.prototype.testing` runs the real program (guided by a project skill
 or a manual testing section, else the project's shape) in a disposable place and
@@ -106,15 +103,14 @@ Each gate is a point where a person must act before work continues. Counts are
 per design round: a review-feedback round re-runs design.
 
 - `feature`: design and review sign-off; a refactor review sign-off only on
-  judge `refactor-first`. **2 gates, plus 1 per slice judged `refactor-first`**
+  judge `refactor-first`. **2 gates, plus 1 when judged `refactor-first`**
   (design, refactor review, feature review). The feature review comes once,
-  after the last slice's quality lap, over the whole change. A review note that
-  asks for a behaviour change runs a feedback lap — design, then implement with
-  no naive pass or seam judge, the hands-on test, the quality lap — and the
-  review again. Overrule at `seam.steer` passes no seam gate. **A sketch whose
-  own acceptance criteria `design.clear` judges clear and checkable passes no
-  design gate** on its first lap: one gate fewer, and the criteria's author is
-  whoever wrote the sketch.
+  after the quality lap. A review note that asks for a behaviour change runs a
+  feedback lap — design, then implement with no naive pass or seam judge, the
+  hands-on test, the quality lap — and the review again. Overrule at
+  `seam.steer` passes no seam gate. **A sketch whose own acceptance criteria
+  `design.clear` judges clear and checkable passes no design gate** on its first
+  lap: one gate fewer, and the criteria's author is whoever wrote the sketch.
 - `cleanup`, `fix`, `review`: review sign-off only. `review` fixes what its
   notes ask for in the same process and asks again — never a design phase.
 - `rollout`: **no human gate** — the green suite and the `rollout-only` refusal
@@ -138,9 +134,6 @@ approval:
   overrules
 - `seam.by-hand` — strays whose content cannot be read; a person reviews those
   files by hand
-- `seam.oversized`, `refactor.oversized`, `implement.oversized` — a phase whose
-  continuations hit the `continuations` cap or stalled; landing grants a fresh
-  round
 - `*.health.stop` and `*.health.exhausted` — escalation stops
 - `*.blocked`, `review.review-missing`, `unwind-failed` — a person must clear
   the cause by hand; a red suite after the `rollout` flip rests at
@@ -187,8 +180,6 @@ Each path has a `.feature` file:
   and pass
 - [`src/workflows/feature/hands-on-skip.feature`](src/workflows/feature/hands-on-skip.feature):
   which criteria the hands-on test tries
-- [`src/workflows/feature/slicing.feature`](src/workflows/feature/slicing.feature):
-  criteria above the cap grouped into slices built in order
 - [`src/workflows/feature/fast-path.feature`](src/workflows/feature/fast-path.feature):
   a trivial fix takes the same few beats at either risk tier
 
@@ -227,9 +218,8 @@ Paths and text are checked, **never behaviour**.
   acceptance tests, never re-judged or scoped, and review sign-off is the only
   human look at the full diff. New files are exempt. `gtd strays` works in any
   repository.
-- Two reviews split the diff on `refactor-first` of a single-slice change: the
-  refactor review covers only the refactor slice, and the feature review only
-  what follows its sign-off — all of it again when the refactor carried the
-  whole feature. A sliced change's feature review covers it all from the process
-  start. A refactor turn that changes a test file is refused (`gtd land`:
-  `refactor-tests`), whatever `seamAllow` says.
+- Two reviews split the diff on `refactor-first`: the refactor review covers
+  only the refactor, and the feature review only what follows its sign-off — all
+  of it again when the refactor carried the whole feature. A refactor turn that
+  changes a test file is refused (`gtd land`: `refactor-tests`), whatever
+  `seamAllow` says.

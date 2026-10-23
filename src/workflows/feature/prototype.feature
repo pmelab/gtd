@@ -3,10 +3,10 @@ Feature: every observable criterion is tested by hand before the quality lap
 
   Once the suite is green, implement.prototype.observable judges which
   criteria a person can observe, and implement.prototype.testing uses the
-  slice the way a person would and writes .gtd/PROTOTYPE.md, one chunk per
+  change the way a person would and writes .gtd/PROTOTYPE.md, one chunk per
   such criterion headed `## AC-<n>: pass|fail|blocked`, plus one per problem
   found beside them. A failure goes to implement.prototype.fix.fixing and is tested again; only a clean
-  report closes the slice. Past `prototypeRounds` fix rounds, or with nothing a
+  report closes the test. Past `prototypeRounds` fix rounds, or with nothing a
   fixer can take, a person decides at implement.prototype.open.
 
   Background:
@@ -67,7 +67,7 @@ Feature: every observable criterion is tested by hand before the quality lap
     And the resting step's content contains "against the user's real data or this working tree"
     And the resting step's content contains "`## AC-<n>: pass`"
 
-  Scenario: a clean report closes the slice and moves on to the quality lap
+  Scenario: a clean report closes the test and moves on to the quality lap
     Given step "implement.prototype.testing" writes ".gtd/PROTOTYPE.md" with:
       """
       # Prototype test

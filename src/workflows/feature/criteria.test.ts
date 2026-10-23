@@ -139,16 +139,8 @@ describe("statedCriteria", () => {
 describe("criterionIds", () => {
   const requirements = "## Acceptance Criteria\n\n- AC-1: a\n- AC-2: b\n- AC-4: added\n- unnamed\n"
 
-  it("lists every ID'd criterion of an unsliced change", () => {
+  it("lists every ID'd criterion", () => {
     expect(criterionIds(requirements)).toEqual(["AC-1", "AC-2", "AC-4"])
-  })
-
-  it("keeps `only` to the IDs the file still lists", () => {
-    expect(criterionIds(requirements, { only: ["AC-1", "AC-3"] })).toEqual(["AC-1"])
-  })
-
-  it("gives `except` every other ID, one added since included", () => {
-    expect(criterionIds(requirements, { except: ["AC-1", "AC-3"] })).toEqual(["AC-2", "AC-4"])
   })
 })
 
@@ -158,11 +150,6 @@ describe("handsOnIds", () => {
 
   it("leaves out every criterion tagged (no hands-on)", () => {
     expect(handsOnIds(requirements)).toEqual(["AC-1", "AC-3"])
-  })
-
-  it("keeps to the slice", () => {
-    expect(handsOnIds(requirements, { only: ["AC-2", "AC-3"] })).toEqual(["AC-3"])
-    expect(handsOnIds(requirements, { only: ["AC-2", "AC-4"] })).toEqual([])
   })
 })
 

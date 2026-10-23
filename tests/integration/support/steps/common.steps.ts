@@ -746,12 +746,3 @@ Then("the commit count increased by {int}", (world: GtdWorld, n: number) => {
     `Expected commit count to increase by ${n} (from ${world.savedCommitCount} to ${expected}), got ${current}`,
   )
 })
-
-// In memory only: a live run would write to an absolute path on this machine.
-Given(
-  "a file outside the repository at {string} with:",
-  (world: GtdWorld, path: string, content: string) => {
-    assert.ok(world.repo !== undefined, "a file outside the repository is an @inmem fixture")
-    world.userFiles.set(path, `${String(content)}\n`)
-  },
-)

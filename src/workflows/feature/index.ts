@@ -5,7 +5,6 @@ export * from "./criteria.js"
 export * from "./planning.js"
 export * from "./refactor.js"
 export * from "./seam.js"
-export * from "./slicing.js"
 export {
   buildTail,
   type BuildTailOptions,

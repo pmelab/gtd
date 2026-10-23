@@ -43,8 +43,6 @@ import {
   type StatusChange,
   selectPath,
   EXIT_OK,
-  renderSlicesJson,
-  slicesDocument,
 } from "../wire/index.js"
 import {
   currentRest,
@@ -53,7 +51,6 @@ import {
   renderRest,
   restAt,
   previewLanding,
-  processSlices,
   noProcessUnderway,
   restIsIdle,
   reviewBaseFor,
@@ -148,7 +145,6 @@ export type Command =
     }
   | { readonly kind: "door"; readonly name: string; readonly args: readonly string[] }
   | { readonly kind: "doors" }
-  | { readonly kind: "slices" }
   | { readonly kind: "abandon" }
   | { readonly kind: "restore" }
   | { readonly kind: "next" }
@@ -163,13 +159,7 @@ export type Command =
     }
   | { readonly kind: "uncheck"; readonly file: string }
   | { readonly kind: "install" }
-  | {
-      readonly kind: "contextHook"
-      readonly soft?: number
-      readonly hard?: number
-      readonly window?: number
-    }
-  | { readonly kind: "summary"; readonly slice?: string }
+  | { readonly kind: "summary" }
   | { readonly kind: "base" }
   | { readonly kind: "judge" }
   | { readonly kind: "judgeAnswer" }
@@ -337,21 +327,12 @@ const planLanding = (
  * closes or sits inside its own closing message. Writes nothing — no git, no
  * state transition, no file. Refuses (throws, mapped to the runtime-error
  * exit code) when the workflow declares no `summary` prompt, or the resolved
- * run has no commits to name. `--slice` also refuses an unknown slice name
- * (listing the valid slices), a config edited since the process closed, and a
- * replay that diverged. The edge never narrates: the CLI prints the
- * version warning, before the unknown-slice refusal; a replay refusal carries
- * it in its message.
+ * run has no commits to name.
  */
-const runSummaryCommand = (
-  out: ArtifactOut,
-  sliceName: string | undefined,
-): Effect.Effect<void, Error, CommandRequirements> =>
+const runSummaryCommand = (out: ArtifactOut): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const run = yield* summaryRun
-    const { prompt, versionWarning, unknownSlice } = yield* summaryFor(run, sliceName)
-    if (versionWarning !== undefined) yield* (yield* Narrator).warn(versionWarning)
-    if (unknownSlice !== undefined) return yield* Effect.fail(new Error(unknownSlice))
+    const { prompt } = yield* summaryFor(run)
     if (prompt === undefined) {
       return yield* Effect.fail(
         new Error(
@@ -443,24 +424,6 @@ const readStdin = (): Effect.Effect<string, Error> =>
       return Buffer.concat(chunks).toString("utf8")
     },
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
-
-/** Stdout is written once: a hook reads one JSON document, or none. */
-const runContextHookCommand = (
-  command: Extract<Command, { kind: "contextHook" }>,
-  out: ArtifactOut,
-): Effect.Effect<void, Error, ToolCommands> =>
-  Effect.gen(function* () {
-    const tools = yield* ToolCommands
-    const input = yield* readStdin()
-    out.write(
-      yield* tools.contextHook({
-        input,
-        ...(command.soft !== undefined ? { soft: command.soft } : {}),
-        ...(command.hard !== undefined ? { hard: command.hard } : {}),
-        ...(command.window !== undefined ? { window: command.window } : {}),
-      }),
-    )
   })
 
 /** Stdout is written once, after the answerer resolves — a rejection leaves it empty. */
@@ -698,22 +661,6 @@ const runDoorsCommand = (
       args: (d.args ?? []).map((arg) => ({ name: arg.name, optional: arg.optional === true })),
     }))
     if (json.kind === "document") out.write(`${JSON.stringify(document)}\n`)
-    else yield* writeSelection(out, document, json.path)
-  })
-
-const runSlicesCommand = (
-  json: JsonMode,
-  out: ArtifactOut,
-): Effect.Effect<void, Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    const { slices, versionWarning } = yield* processSlices
-    if (versionWarning !== undefined) yield* (yield* Narrator).warn(versionWarning)
-    if (json.kind === "off") {
-      out.write(slices.map((s) => `${s.name} ${s.base}..${s.tip}\n`).join(""))
-      return
-    }
-    const document = slicesDocument(slices)
-    if (json.kind === "document") out.write(renderSlicesJson(document))
     else yield* writeSelection(out, document, json.path)
   })
 
@@ -1217,7 +1164,6 @@ export const needsOf = (kind: Command["kind"]): Needs => {
   switch (kind) {
     case "lsp":
     case "install":
-    case "contextHook":
     case "judgeRun":
     case "strays":
       return "none"
@@ -1235,7 +1181,6 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
   "check",
   "uncheck",
   "install",
-  "contextHook",
   "judgeRun",
   "strays",
 ]
@@ -1281,8 +1226,6 @@ const dispatchVoidCommand = (
       return runDoorCommand(command.name, command.args, out)
     case "doors":
       return runDoorsCommand(json, out)
-    case "slices":
-      return runSlicesCommand(json, out)
     case "abandon":
       return runAbandonCommand(out)
     case "restore":
@@ -1305,10 +1248,8 @@ const dispatchVoidCommand = (
       return runUncheckCommand(command.file)
     case "install":
       return runInstallCommand(out)
-    case "contextHook":
-      return runContextHookCommand(command, out)
     case "summary":
-      return runSummaryCommand(out, command.slice)
+      return runSummaryCommand(out)
     case "base":
       return runBaseCommand(out)
     case "judge":

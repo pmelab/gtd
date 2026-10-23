@@ -216,7 +216,7 @@ test("ship describes a thrown draft properly and marks it ready", async () => {
       "git merge-base main HEAD": { out: "m" },
       "git merge-base --is-ancestor main origin/main": { code: 1 },
       "git rev-parse HEAD": { out: "h" },
-      "gh pr view gtd/x --json number,title,body,url,state,baseRefName,mergedAt": {
+      "gh pr view gtd/x --json number,title,body,url,state": {
         out: JSON.stringify(pr),
       },
     },

@@ -7,14 +7,13 @@ Feature: the hands-on test tries only the criteria a person can observe
   per untagged criterion, whether a person can observe it by using the
   software; a tagged one is never asked about. Every ID it does not answer
   `no` reaches implement.prototype.testing, which must report each once and
-  needs no chunk for the rest. A slice with no such criterion is not tested by hand, and
-  nothing rests to say so.
+  needs no chunk for the rest. A change with no such criterion is not tested by
+  hand, and nothing rests to say so.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And an environment variable "GTD_FLAGMODE" set to "false"
-    And an environment variable "GTD_SLICEMAXCRITERIA" set to "2"
     And a file "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -272,73 +271,6 @@ Feature: the hands-on test tries only the criteria a person can observe
     And the commit subjects end with:
       """
       gtd(check): implement.health.check → implement.closing
-      gtd(check): implement.closing → build.review.reviewing
-      """
-
-  Scenario: each slice's hands-on test judges its own criteria afresh
-    Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
-      """
-      # Requirements
-
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: subtract(a, b) returns a - b.
-      - AC-2 (no hands-on): the build prompt names subtract.
-      - AC-3: the review prompt names subtract.
-      """
-    And step "design.slicing" writes ".gtd/SLICES.md" with:
-      """
-      # Slices
-
-      ## Prompts
-
-      - AC-2
-      - AC-3
-
-      ## Subtract
-
-      - AC-1
-      """
-    And step "seam.naive", when prompted with "This slice builds AC-2, AC-3 only", writes "src/prompts.test.ts" with:
-      """
-      it("[AC-2] names subtract in the build", () => {})
-      it("[AC-3] names subtract in the review", () => {})
-      """
-    And step "seam.naive", when prompted with "This slice builds AC-1 only", writes "src/calc.test.ts" with:
-      """
-      it("[AC-1] subtracts", () => {})
-      """
-    And judge step "implement.prototype.observable", when its questions contain "criterion AC-3 describes", answers:
-      """
-      [{"id":"AC-3","answer":"no","p":0.9}]
-      """
-    And judge step "implement.prototype.observable", when its questions contain "criterion AC-1 describes", answers:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
-    And step "implement.prototype.testing" writes ".gtd/PROTOTYPE.md" with:
-      """
-      ## AC-1: pass
-
-      Printed 2.
-      """
-    When the process is driven
-    Then the process rests at "build.review.reviewing"
-    And the commit subjects end with:
-      """
-      gtd(check): implement.health.check → implement.prototype.observable
-      gtd(judge): implement.prototype.observable → implement.closing
-      gtd(check): implement.closing → seam.naive
-      gtd(agent): seam.naive → seam.check
-      gtd(check): seam.check → implement.applying
-      gtd(check): implement.applying → implement.health.check
-      gtd(check): implement.health.check → implement.prototype.observable
-      gtd(judge): implement.prototype.observable → implement.prototype.testing
-      gtd(agent): implement.prototype.testing → implement.closing
       gtd(check): implement.closing → build.review.reviewing
       """
 

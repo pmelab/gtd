@@ -8,7 +8,6 @@ import {
   type ScopeAccess,
   type AccessDef,
   type ScopeOptions,
-  type ContextLimitOptions,
   type StepRequest,
   type Flow,
   type Mark,
@@ -22,9 +21,8 @@ import {
   unansweredQuestions,
 } from "../steering/index.js"
 import { accessShapeFault, foldAccess, sameAccess } from "./Access.js"
-import { contextLimitFault, contextShapeFault, globMatches } from "../wire/index.js"
+import { globMatches } from "../wire/index.js"
 import { refNameFault } from "./RefName.js"
-import { IMPLICIT_SLICE, SLICE_NAME, type SliceSpan } from "./Slices.js"
 import { diffTrees, isEmptyDiff, type TreeView } from "./Tree.js"
 import {
   formatStepId,
@@ -119,7 +117,6 @@ export type ReplayOutcome =
       readonly landed: ReachedStep | undefined
       /** Marks the flow made after the pending turn's step resolved; [] without a pending turn. */
       readonly marks: readonly Mark[]
-      readonly slices: readonly SliceSpan[]
     }
   | {
       readonly kind: "ended"
@@ -127,8 +124,6 @@ export type ReplayOutcome =
       readonly trace: readonly ReachedStep[]
       readonly landed: ReachedStep | undefined
       readonly marks: readonly Mark[]
-      /** Spans of the episode that just ended; a restart() inside a slice leaves its leftAt undefined. */
-      readonly slices: readonly SliceSpan[]
     }
   | { readonly kind: "divergence"; readonly message: string }
   | { readonly kind: "refused"; readonly message: string }
@@ -238,28 +233,6 @@ const budgeted = (
   return { evidence: bounded, truncated }
 }
 
-// The innermost of `chain`, named by its full path.
-const scopeLabel = (chain: readonly ScopeOptions[]): string => {
-  const path = chain.flatMap((o) => (o.name === undefined ? [] : [o.name])).join(".")
-  if (chain.at(-1)?.name !== undefined) return `scope "${path}"`
-  return path === "" ? "an unnamed scope" : `an unnamed scope inside "${path}"`
-}
-
-// Key by key, innermost last: a scope or step that sets only `hard` keeps the outer `soft`.
-const inheritedContext = (
-  layers: readonly (ContextLimitOptions | undefined)[],
-): ContextLimitOptions | undefined =>
-  layers.reduce<ContextLimitOptions | undefined>(
-    (merged, layer) =>
-      layer === undefined
-        ? merged
-        : {
-            ...merged,
-            ...Object.fromEntries(Object.entries(layer).filter(([, value]) => value !== undefined)),
-          },
-    undefined,
-  )
-
 interface Identity {
   readonly model: string | undefined
   readonly system: string | undefined
@@ -296,7 +269,7 @@ const STEERING_OPTIONS = ["file", "mode", "label", "base"]
 // The option keys each step accepts. A gtd.config.ts is evaluated without a
 // type check, so a misspelt key would otherwise be silently ignored.
 const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
-  agent: new Set([...STEERING_OPTIONS, "model", "system", "context", "allowEmpty", "keep"]),
+  agent: new Set([...STEERING_OPTIONS, "model", "system", "allowEmpty", "keep"]),
   human: new Set([...STEERING_OPTIONS, "message", "acceptClean", "approve"]),
   run: new Set(STEERING_OPTIONS),
   judge: new Set([...STEERING_OPTIONS, "message"]),
@@ -354,7 +327,6 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
   >()
   let landed: ReachedStep | undefined
   const marks: Mark[] = []
-  const slices: { name: string; enteredAt: string; leftAt: string | undefined }[] = []
   let outcome: ReplayOutcome | undefined
   let signal: (() => void) | undefined
   const settled = new Promise<void>((resolve) => {
@@ -479,15 +451,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
         if (s.model !== undefined) persona.model = s.model
         if (s.system !== undefined) persona.system = s.system
       }
-      const context = inheritedContext([...scopes.map((s) => s.context), request.options.context])
-      return {
-        ...request,
-        options: {
-          ...persona,
-          ...request.options,
-          ...(context === undefined ? {} : { context }),
-        },
-      }
+      return { ...request, options: { ...persona, ...request.options } }
     }
     if (request.kind === "judge") {
       const { evidence, truncated } = budgeted(request.evidence, input.budgetBytes)
@@ -626,32 +590,9 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
         trace,
         landed,
         marks,
-        slices: slices.map((s) => ({ ...s })),
       })
     }
     return landPending(step, input.pending)
-  }
-
-  // Each layer on its own first, so a bad scope or workflow option is named as
-  // such rather than blamed on the step it reached; then the merged limit.
-  const scopeContextFault = (): string | undefined => {
-    for (const [i, s] of scopes.entries()) {
-      const fault = s.context === undefined ? undefined : contextShapeFault(s.context)
-      if (fault !== undefined)
-        return `the context of ${scopeLabel(scopes.slice(0, i + 1))}: ${fault}`
-    }
-    return undefined
-  }
-
-  const resolvedContextFault = (
-    request: Extract<StepRequest, { kind: "agent" }>,
-  ): string | undefined => {
-    const own = request.options.context
-    const layered = scopeContextFault() ?? (own === undefined ? undefined : contextShapeFault(own))
-    if (layered !== undefined) return layered
-    const resolved = resolve(request)
-    const context = resolved.kind === "agent" ? resolved.options.context : undefined
-    return context === undefined ? undefined : contextLimitFault(context)
   }
 
   // gtd.config.ts is loaded without a type check.
@@ -661,8 +602,6 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     }
     if (request.kind !== "agent") return undefined
     const name = scoped(request.name)
-    const contextFault = resolvedContextFault(request)
-    if (contextFault !== undefined) return `gtd: step "${name}": ${contextFault}`
     if (request.options.keep === true) {
       // A clean allowEmpty keep would land an ordinary commit with no Gtd-Kept: a silent skip.
       if (request.options.allowEmpty === true) {
@@ -696,7 +635,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
           kind: "divergence",
           message: `gtd: the flow ended, but commit ${short(commits[cursor]!.hash)} continues the episode — ${DIVERGED}`,
         }
-      : { kind: "ended", via, trace, landed, marks, slices: slices.map((s) => ({ ...s })) }
+      : { kind: "ended", via, trace, landed, marks }
 
   const changesSince = (hash: string): readonly Change[] => {
     const tree = treeAt(hash)
@@ -722,34 +661,6 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     popScope: () => {
       scopes.pop()
       scopeCallIds.pop()
-    },
-    enterSlice: (name) => {
-      if (outcome !== undefined) return
-      const fail = (message: string): never => {
-        void finish({ kind: "failed", message })
-        throw new Stop()
-      }
-      if (typeof name !== "string" || !SLICE_NAME.test(name)) {
-        fail(`gtd: slice "${name}": name must match ${SLICE_NAME}`)
-      }
-      if (name === IMPLICIT_SLICE) {
-        fail(`gtd: slice "${IMPLICIT_SLICE}" is reserved for the implicit slice`)
-      }
-      const open = slices.find((s) => s.leftAt === undefined)
-      if (open !== undefined) {
-        fail(`gtd: slice "${name}" is entered inside slice "${open.name}" — slices do not nest`)
-      }
-      if (slices.some((s) => s.name === name)) {
-        fail(
-          `gtd: slice "${name}" is entered twice in this episode — a loop must sit inside its slice`,
-        )
-      }
-      slices.push({ name, enteredAt: position.hash, leftAt: undefined })
-    },
-    leaveSlice: () => {
-      if (outcome !== undefined) return
-      const open = slices.find((s) => s.leftAt === undefined)
-      if (open !== undefined) open.leftAt = position.hash
     },
     read: (path) => position.tree.read(path),
     glob: (pattern) => position.tree.paths().filter((path) => globMatches(path, pattern)),

@@ -1677,7 +1677,6 @@ describe("runCommand — refuses in a repository with no commits", () => {
     start: { kind: "start", actor: "human", workflow: "feature", vars: {}, label: "" },
     door: { kind: "door", name: "fix", args: [] },
     doors: { kind: "doors" },
-    slices: { kind: "slices" },
     abandon: { kind: "abandon" },
     restore: { kind: "restore" },
     next: { kind: "next" },
@@ -1685,7 +1684,6 @@ describe("runCommand — refuses in a repository with no commits", () => {
     check: { kind: "check", mode: "qa", file: ".gtd/TODO.md" },
     uncheck: { kind: "uncheck", file: ".gtd/REVIEW.md" },
     install: { kind: "install" },
-    contextHook: { kind: "contextHook" },
     summary: { kind: "summary" },
     base: { kind: "base" },
     judge: { kind: "judge" },
@@ -1706,14 +1704,13 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
 
-  it("derives exactly the nineteen non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the eighteen non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
       [
         "abandon",
         "base",
         "door",
         "doors",
-        "slices",
         "start",
         "land",
         "next",
@@ -1853,37 +1850,6 @@ export const summary = (c) => \`entry=\${c.entryCommit} tip=\${c.processTip} hum
     const after = repo.commitHistory()
     expect(after).toHaveLength(before.length)
     expect(after.at(-1)!.hash).toBe(before.at(-1)!.hash)
-  })
-})
-
-describe("gtd summary --slice", () => {
-  const SLICED = `import { agent, human, slice } from "@pmelab/gtd/flows"
-
-export default async () => {
-  await human("idle", { message: "hi" })
-  await slice("build", async () => {
-    await agent("working", "go")
-  })
-  await slice("verify", async () => {
-    await agent("polishing", "polish")
-  })
-}
-
-export const summary = (c) => \`\${c.slice ? c.slice.name + " " + c.slice.index + "/" + c.slice.count : "plain"} \${c.processBase}..\${c.processTip}\`
-`
-
-  it("a version warning goes to stderr, stdout still carries the prompt", async () => {
-    const repo = seed(SLICED)
-    await landTurn(repo, { "NOTE.md": "a note\n" })
-    await landTurn(repo, { "WORK.md": "done\n" })
-    repo.writeFile("POLISH.md", "ok\n")
-    repo.seedCommit(
-      "gtd(agent): polishing → idle\n\nGtd-Step: polishing#1\nGtd-Version: 0.0.1\nGtd-Format: 1",
-    )
-    const { exitCode, stdout, stderr } = await run(repo, "summary", "--slice", "verify")
-    expect(exitCode).toBe(0)
-    expect(stderr).toContain("recorded by gtd 0.0.1")
-    expect(stdout).toContain("verify 2/2")
   })
 })
 

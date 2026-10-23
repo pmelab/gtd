@@ -29,8 +29,6 @@ import { setTimeout as delay } from "node:timers/promises"
 import { runCli } from "../../../src/cli/index.js"
 import { runJudge } from "../../../src/judges/index.js"
 import { inMemoryJudgeIo, type ScriptedClaude } from "./judge-io.js"
-import { inMemoryHookHost } from "./hook-host.js"
-import { runContextHook } from "../../../src/hook/index.js"
 import { EXIT_OK } from "../../../src/wire/index.js"
 import {
   makeCapturingCliIo,
@@ -1597,8 +1595,6 @@ export class GtdWorld extends QuickPickleWorld {
     })
     const { io, result } = makeCapturingCliIo(this.repo!, this.envVars, {
       judge: (request) => runJudge({ ...request, io: judgeIo }),
-      contextHook: (request) =>
-        runContextHook(request).pipe(Effect.provide(inMemoryHookHost(this.userFiles))),
       ui: this.uiTool(),
     })
     await Effect.runPromise(runCli(["node", "gtd.js", ...args], io), { signal }).catch(

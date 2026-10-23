@@ -14,5 +14,4 @@ export {
   snapshotFromRest,
   summaryFor,
   historyTrail,
-  processSlices,
 } from "./Edge.js"

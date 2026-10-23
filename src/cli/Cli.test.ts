@@ -112,7 +112,6 @@ describe("parseArgv — scope", () => {
       ["judge", "--json"],
       ["judge", "answer", "--json"],
       ["doors", "--json"],
-      ["slices", "--json"],
     ]) {
       const ok = parseArgv(["node", "gtd.js", ...args])
       expect(ok.kind).toBe("command")
@@ -929,79 +928,6 @@ describe("parseArgv — doors", () => {
   })
 })
 
-describe("parseArgv — slices", () => {
-  const parse = (...args: string[]): CliPlan => parseArgv(["node", "gtd.js", ...args])
-
-  it("`gtd slices` parses with every --json shape", () => {
-    expect(parse("slices")).toMatchObject({
-      kind: "command",
-      command: { kind: "slices" },
-      json: { kind: "off" },
-    })
-    expect(parse("slices", "--json")).toMatchObject({ json: { kind: "document" } })
-    expect(parse("slices", "--json=slices.0.name")).toMatchObject({
-      json: { kind: "select", path: "slices.0.name" },
-    })
-  })
-
-  it("`gtd slices` takes no argument", () => {
-    const plan = parse("slices", "extra")
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("too many arguments")
-  })
-
-  it("help lists the command, and --json names it", () => {
-    const help = renderHelp()
-    expect(help).toMatch(/^ {2}slices\b/m)
-    expect(help).toContain("gtd slices")
-  })
-
-  it("--json's scope error names gtd slices", () => {
-    const plan = parse("lsp", "--json")
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("`gtd slices`")
-  })
-})
-
-describe("parseArgv — summary --slice", () => {
-  const parse = (...args: string[]): CliPlan => parseArgv(["node", "gtd.js", ...args])
-  const usage = (plan: CliPlan): string => (plan.kind === "usage" ? plan.message : "")
-
-  it("`--slice build` and `--slice=build` parse to the slice name", () => {
-    for (const plan of [parse("summary", "--slice", "build"), parse("summary", "--slice=build")]) {
-      expect(plan).toMatchObject({ kind: "command", command: { kind: "summary", slice: "build" } })
-    }
-  })
-
-  it("plain `summary` carries no slice key", () => {
-    const plan = parse("summary")
-    expect(plan.kind === "command" && plan.command).toEqual({ kind: "summary" })
-  })
-
-  it("bare `--slice` is a usage error naming the value form", () => {
-    const plan = parse("summary", "--slice")
-    expect(plan.kind).toBe("usage")
-    expect(usage(plan)).toContain("--slice")
-    expect(usage(plan)).toContain("value")
-  })
-
-  it("`--slice` twice is a usage error", () => {
-    expect(parse("summary", "--slice", "a", "--slice", "b").kind).toBe("usage")
-  })
-
-  it("`--slice` on another command fails the scope check naming gtd summary", () => {
-    for (const command of ["slices", "next"]) {
-      const plan = parse(command, "--slice", "build")
-      expect(plan.kind).toBe("usage")
-      expect(usage(plan)).toContain("`gtd summary`")
-    }
-  })
-
-  it("help lists the flag", () => {
-    expect(renderHelp()).toContain("--slice=<name>")
-  })
-})
-
 describe("parseArgv — gtd history", () => {
   const parse = (...args: string[]) => parseArgv(["node", "gtd.js", ...args])
   const usage = (plan: CliPlan): string => (plan.kind === "usage" ? plan.message : "")
@@ -1142,15 +1068,7 @@ describe("parseArgv — gtd strays", () => {
 
 describe("standaloneKinds / needsOf", () => {
   it("pins the standalone kinds", () => {
-    expect(standaloneKinds()).toEqual([
-      "lsp",
-      "check",
-      "uncheck",
-      "install",
-      "contextHook",
-      "judgeRun",
-      "strays",
-    ])
+    expect(standaloneKinds()).toEqual(["lsp", "check", "uncheck", "install", "judgeRun", "strays"])
   })
 
   it("needsOf matches none/fs for the standalone kinds and state for everything else", () => {
@@ -1158,7 +1076,6 @@ describe("standaloneKinds / needsOf", () => {
     expect(needsOf("check")).toBe("fs")
     expect(needsOf("uncheck")).toBe("fs")
     expect(needsOf("install")).toBe("none")
-    expect(needsOf("contextHook")).toBe("none")
     expect(needsOf("judgeRun")).toBe("none")
     expect(needsOf("strays")).toBe("none")
     for (const kind of [
@@ -1173,7 +1090,6 @@ describe("standaloneKinds / needsOf", () => {
       "judgeAnswer",
       "door",
       "doors",
-      "slices",
       "historyList",
       "historyShow",
       "historyMetrics",
@@ -1251,7 +1167,6 @@ describe("renderHelp", () => {
       ),
     )
     expect(commands).toContain("judge answer")
-    expect(commands).toContain("context-hook")
     const listed = (file: string, list: RegExp): Set<string> => {
       const doc = readFileSync(resolve(import.meta.dirname, file), "utf8")
       const match = doc.match(list)

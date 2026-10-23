@@ -48,7 +48,7 @@ const units = {
   core: "^src/(cli|edge|emit|flags|install|platform|replay|step|workflow)/",
   kit: "^src/workflow-kit/",
   workflows: "^src/workflows/",
-  drivers: "^(src/hook|claude)/",
+  drivers: "^claude/",
   tools: "^src/(ui|web|lsp|judges)/",
   testkit: "^src/testkit/",
 }
@@ -71,7 +71,7 @@ const npmAllowList = [
       units.core,
       units.workflows,
       units.testkit,
-      "^src/(hook|lsp|ui)/",
+      "^src/(lsp|ui)/",
       ...compositionRoots,
       ...compositionRootTests,
       "^tests/",
@@ -324,9 +324,9 @@ export default {
     {
       name: "drivers-import-only-contracts",
       comment:
-        "Unit map, drivers import only contracts (tests included): src/hook/ and claude/ reach core only through the wire contract and the gtd binary they spawn.",
+        "Unit map, drivers import only contracts (tests included): claude/ reaches core only through the wire contract and the gtd binary they spawn.",
       severity: "error",
-      from: { path: "^(src/hook|claude)/", pathNot: "^claude/.+\\.test\\.tsx?$" },
+      from: { path: "^(claude)/", pathNot: "^claude/.+\\.test\\.tsx?$" },
       to: { path: local, pathNot: ["^$1/", units.contracts] },
     },
     {

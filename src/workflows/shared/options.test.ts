@@ -8,9 +8,8 @@ const { defaults, envDefaults, feature, fix, review, ShippedOptions } = workflow
 const { flagShipped } = options
 
 describe("the shipped workflow factories", () => {
-  it("take exactly the settings the shipped workflows declare as options, and contextLimit", () => {
-    const settings = Object.keys(ShippedOptions.fields).filter((name) => name !== "contextLimit")
-    expect(settings.sort()).toEqual(
+  it("take exactly the settings the shipped workflows declare as options", () => {
+    expect(Object.keys(ShippedOptions.fields).sort()).toEqual(
       [...Object.keys(defaults), ...Object.keys(envDefaults)]
         .filter((name) => !name.startsWith("flag_"))
         .sort(),
@@ -22,14 +21,6 @@ describe("the shipped workflow factories", () => {
     expect(declared.sort()).toEqual(FLAGS.map(({ name }) => `flag_${name}`).sort())
     for (const { name, defaultOn } of FLAGS as readonly FlagDeclaration[])
       expect(defaults).toHaveProperty(`flag_${name}`, defaultOn ? "1" : "0")
-  })
-
-  it("keep contextLimit out of the settings", () => {
-    const built = configure(feature({ contextLimit: { hard: 0.8 } }))
-    expect(built).toMatchObject({ ok: true })
-    const build = built?.ok === true ? built.build : undefined
-    expect(build?.defaults).not.toHaveProperty("contextLimit")
-    expect(build?.envDefaults).not.toHaveProperty("contextLimit")
   })
 
   it("declare a seamAllow default a factory option overrides", () => {

@@ -1,7 +1,7 @@
 @inmem
 Feature: a feature process ends at the human review
 
-  After the last slice's quality lap the process rests at the review gate,
+  After the quality lap the process rests at the review gate,
   `.gtd/REVIEW.md`. A sign-off ends the process. A note asking for a change in
   behaviour starts a feedback lap — design, then implement with no new naive
   pass or seam judge, the hands-on test, the quality lap — and the review

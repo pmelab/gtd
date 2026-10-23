@@ -18,4 +18,3 @@ export {
 export { accessShapeFault, foldAccess } from "./Access.js"
 export { formatFault } from "./Format.js"
 export { refNameFault } from "./RefName.js"
-export { sliceRanges } from "./Slices.js"

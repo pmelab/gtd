@@ -15,9 +15,8 @@ import {
 } from "../../flows/index.js"
 import { lensEntriesOf } from "../../workflow-kit/index.js"
 import { markFenced } from "../shared/fences.js"
-import { continuing, phase, type Phase } from "../shared/continuation.js"
 import { healthy, type Guard } from "../shared/health.js"
-import { coder, FEEDBACK, HANDOFF, REFACTOR } from "../shared/steps.js"
+import { coder, FEEDBACK, REFACTOR } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults, testFileGlobs } from "../shared/vars.js"
 import { buildTail, reUnwind, type FeedbackTarget } from "../shared/review.js"
@@ -264,12 +263,7 @@ const guardOf =
   }
 
 /** Derive, build, check and close one refactor lap; `feedback` is the collected review text of the lap before. */
-const refactorLap = async (
-  p: Plan,
-  guard: Guard,
-  refactor: Phase,
-  feedback?: string,
-): Promise<void> => {
+const refactorLap = async (p: Plan, guard: Guard, feedback?: string): Promise<void> => {
   const { pattern, strays, reference, note } = p
   await run(
     "deriving",
@@ -282,59 +276,32 @@ const refactorLap = async (
     ]),
     { label: "Deriving the refactor package", file: REFACTOR_PACKAGE },
   )
-  const reached = new Set<string>()
-  // Each snapshot is greened before its continuation: every sub-step keeps the old suite green.
-  await continuing(refactor, async (from, fresh) => {
-    await fresh(() =>
-      t.agentWithSkills(
-        "building",
-        t.refactorBuildingPrompt({
-          pkg: REFACTOR_PACKAGE,
-          strays,
-          pattern,
-          reference,
-          feedback: feedback !== undefined,
-          note: note !== undefined,
-          from,
-        }),
-        {
-          label: from === undefined ? "Refactoring" : "Continuing the refactor",
-          model: coder(),
-          system: t.builderSystem(),
-        },
-      ),
-    )
-    // Committed by the snapshot, so a turn stopped again may leave it as it was: present means stopped.
-    const left = read(HANDOFF)
-    guard()
-    const snapshot = head()
-    // The building turns' own changes only: a fix turn reaching a path is not the refactor reaching it.
-    for (const c of changes()) reached.add(c.path)
-    await healthy(
-      async () => {
-        await t.agentWithSkills("fix.suite.fixing", t.refactorFixPrompt(strays, pattern), {
-          label: "Fixing the check",
-          file: FEEDBACK,
-          model: coder(),
-          system: t.builderSystem(),
-        })
-        guard()
-      },
-      { describeGuard: guard, rules: t.refactorRules(strays, pattern) },
-    )
-    if (left === undefined) return { result: undefined }
-    return {
-      result: undefined,
-      handoff: {
-        snapshot,
-        note: left.trim(),
-        open: strays.filter((path) => !reached.has(path)),
-      },
-    }
-  })
-  await run("closing", removeScript([REFACTOR_PACKAGE, HANDOFF]), {
-    label: "Closing out the refactor",
-  })
+  await t.agentWithSkills(
+    "building",
+    t.refactorBuildingPrompt({
+      pkg: REFACTOR_PACKAGE,
+      strays,
+      pattern,
+      reference,
+      feedback: feedback !== undefined,
+      note: note !== undefined,
+    }),
+    { label: "Refactoring", model: coder(), system: t.builderSystem() },
+  )
+  guard()
+  await healthy(
+    async () => {
+      await t.agentWithSkills("fix.suite.fixing", t.refactorFixPrompt(strays, pattern), {
+        label: "Fixing the check",
+        file: FEEDBACK,
+        model: coder(),
+        system: t.builderSystem(),
+      })
+      guard()
+    },
+    { describeGuard: guard, rules: t.refactorRules(strays, pattern) },
+  )
+  await run("closing", removeScript([REFACTOR_PACKAGE]), { label: "Closing out the refactor" })
 }
 
 const strayAccess = (strays: readonly string[]) => ({
@@ -348,7 +315,7 @@ export const refactorFirst = async (
   const p = plan(shape, options)
   if (p === undefined) return false
   return scope({ name: "refactor", access: strayAccess(p.strays) }, async () => {
-    await refactorLap(p, guardOf(p, head()), phase("refactor"))
+    await refactorLap(p, guardOf(p, head()))
     return true
   })
 }
@@ -375,10 +342,9 @@ export const reviewedRefactor = async (
         "gtd land: refactor-feedback: the review feedback changed files but wrote no .gtd/REFACTOR.md — a refactor cannot act on it; revert the change, or `gtd abandon` and restart",
       dropped: t.refactorDroppedRefusal,
     }
-    const refactor = phase("refactor")
     let collected: string | undefined
     for (;;) {
-      await refactorLap(p, guard, refactor, collected)
+      await refactorLap(p, guard, collected)
       // A person's edit at an escalation rest is never refused, as in the lap.
       const outcome = await buildTail(entry, {
         green: true,

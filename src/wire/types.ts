@@ -38,12 +38,6 @@ export interface ApprovalEntry {
   readonly commit: string
 }
 
-/** The context-limit shares a step sets; a driver fills an absent one from its defaults. */
-export interface StepContextLimit {
-  readonly soft?: number
-  readonly hard?: number
-}
-
 export interface RenderedDemandSource {
   readonly state: StateName
   readonly actor: Actor
@@ -57,5 +51,4 @@ export interface RenderedDemandSource {
   readonly judge?: string
   readonly skills?: readonly string[]
   readonly access?: StepAccess
-  readonly context?: StepContextLimit
 }

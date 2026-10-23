@@ -310,18 +310,10 @@ cost on its landing, answers judge gates through `gtd judge run`, and maps the
 workflow's `smart`/`base` model hints to real model names through
 `GTD_LOOP_MODEL_SMART`/`GTD_LOOP_MODEL_BASE`.
 
-Both it and the Claude Code mod stop an agent turn that outgrows its context:
-past 60% of the model's window the agent is asked to wrap up with a handoff
-note, past 70% after a tool call (or when the context is about to be compacted)
-the turn stops and nothing lands. A step's `context` option, or the bundled
-workflows' `contextLimit` option, moves the two limits — see
-[Context limits](https://github.com/pmelab/gtd/blob/main/docs/driver.md#context-limits).
-In `feature`, a naive pass, refactor or build turn that wrapped up that way is a
-snapshot: a fresh turn picks up from it with the handoff note and the criteria
-still open, up to 3 times per phase, across its retries (`continuations`), and a
-phase whose continuations keep stopping, or close nothing twice in a row
-(`continuationStall`), rests for a person — see
-[Continuations](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#continuations).
+Neither guards an agent turn's context: a long turn relies on the agent
+harness's own compaction, and a pass that falls short is caught by its
+acceptance tests and retried. Size the work before the sketch — a change too big
+for one process is several processes.
 
 ### Or drive it from inside Claude Code
 
@@ -354,34 +346,23 @@ plan or the diff, records what you decide in the steering file the way the step
 asks, and moves the process on only when you say so; a review you leave
 untouched signs off. While a step runs you can keep asking; requests for changes
 wait for the next rest. When the process finishes, Claude offers to squash it
-and open its pull request(s) (or run `/gtd ship`; `GTD_SHIP_MODE` picks one
-commit per slice under one pull request (the default) or, set to `stack`, one
-stacked pull request per slice, see the [driver doc](docs/driver.md)); a process
-started for an issue ships with `Closes #N` on its top pull request; a closed
-pull request whose branch was deleted from origin is left behind and a new one
-opens; on a branch an earlier ship in this clone stacked (unless
-`GTD_SHIP_MODE=commits`), a later process, such as review fixes, lands one
-commit per slice on the top pull request and keeps the stack, and re-running
-`/gtd ship` after a lower stacked pull request merged restacks the rest (it
-refuses, with nothing changed, when that pull request merged anywhere but the
-default branch (unless into a lower slice branch before that one merged into
-it), a slice branch is checked out in another worktree, an unrelated local
-branch sits inside the rebased commits, or a slice's change is already upstream;
-a failed rebase is rolled back; to tear a stack down from its worktree, delete
-the top branch with `git push origin --delete`, since
-`gh pr close --delete-branch` cannot). A process can change hands at any gate:
-ask Claude to hand it off (or run `/gtd throw @dev`) and it opens a draft pull
-request assigned to them, and `/gtd catch <pr>` picks it up exactly where it
-waits, so whoever wrote the requirements can hand the build to someone else.
-`/gtd pr` brings a pull request's unresolved review threads into the review:
-each becomes a note in `.gtd/REVIEW.md` ticked "fix as suggested" (untick it for
-"won't fix" plus a reason, or your own answer), the review door fixes them in
-place, and each thread then gets a reply naming the fixing commit (or your
-reason) and is resolved. Ship, hand-off and throw answer at once and run in the
-background, with progress on the status line; they report by waking Claude, a
-toast, a transcript line and a push notification, and a failed push or `gh` call
-reports as a failure. While a ship or hand-off runs or is queued, `/gtd catch`,
-the doors, `/gtd <requirements>` and bare `/gtd` wait for its report. See
+and open its pull request (or run `/gtd ship`: one commit under one pull
+request, see the [driver doc](docs/driver.md)); a process started for an issue
+ships with `Closes #N` on its pull request; a closed pull request whose branch
+was deleted from origin is left behind and a new one opens. A process can change
+hands at any gate: ask Claude to hand it off (or run `/gtd throw @dev`) and it
+opens a draft pull request assigned to them, and `/gtd catch <pr>` picks it up
+exactly where it waits, so whoever wrote the requirements can hand the build to
+someone else. `/gtd pr` brings a pull request's unresolved review threads into
+the review: each becomes a note in `.gtd/REVIEW.md` ticked "fix as suggested"
+(untick it for "won't fix" plus a reason, or your own answer), the review door
+fixes them in place, and each thread then gets a reply naming the fixing commit
+(or your reason) and is resolved. Ship, hand-off and throw answer at once and
+run in the background, with progress on the status line; they report by waking
+Claude, a toast, a transcript line and a push notification, and a failed push or
+`gh` call reports as a failure. While a ship or hand-off runs or is queued,
+`/gtd catch`, the doors, `/gtd <requirements>` and bare `/gtd` wait for its
+report. See
 [Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
 
 ### Then let an agent build your own
@@ -509,12 +490,8 @@ noted in steps 3 and 4 below.
    unsure verdict (below `qualityTriageMinP`, `0.7`) is `design`; mechanical
    findings the fix turns leave become notes too. This lap is where code quality
    is looked at, and every round pays for it. It never replaces step 4 — your
-   review stays the final gate, and nothing here skips it. Every
-   [coarse slice](docs/configuration.md#coarse-slices) runs the same triaged lap
-   and never rests for its findings: its notes are carried to the review after
-   the last slice, each naming its slice and lens, beside every slice's fixes.
-   The `fix` and `cleanup` doors triage their lap too, and hand its notes to
-   their own review.
+   review stays the final gate, and nothing here skips it. The `fix` and
+   `cleanup` doors triage their lap too, and hand its notes to their own review.
 
    A red suite that keeps failing past a few fix attempts escalates instead of
    retrying forever: an agent turn reads the failing output and writes
@@ -529,49 +506,49 @@ noted in steps 3 and 4 below.
    `Gtd-Mark: flaky=<check>` (see
    [Re-check before a person](docs/configuration.md#re-check-before-a-person)).
 
-4. **You review.** After the last slice's quality lap a reviewer turn
+4. **You review.** After the quality lap a reviewer turn
    (`build.review.reviewing`) walks you through the whole change: `## ` chunks
    grouped by concern, **every chunk pointing at its code**
    (`./path#start-end`), so the phone shows the diff beside each one. Every
-   design note the slices' laps left gets a chunk of its own, pointing at the
-   code it cites; gtd adds the note's text and three tick boxes — **fix as
-   suggested**, **won't fix**, or **your own answer** written over
-   `_your answer_` (`build.review.carrying`) — then, for reference, no tick
-   boxes, no answer needed — what was **fixed automatically** (with the fixing
-   commit) and what was **dropped as noise**. A review with a chunk pointing at
-   no code, or a note left out, is refused (`review-pointers`). A pointer note
-   the reviewer opens with `Risk:` is fixed before you see the review
+   design note the lap left gets a chunk of its own, pointing at the code it
+   cites; gtd adds the note's text and three tick boxes — **fix as suggested**,
+   **won't fix**, or **your own answer** written over `_your answer_`
+   (`build.review.carrying`) — then, for reference, no tick boxes, no answer
+   needed — what was **fixed automatically** (with the fixing commit) and what
+   was **dropped as noise**. A review with a chunk pointing at no code, or a
+   note left out, is refused (`review-pointers`). A pointer note the reviewer
+   opens with `Risk:` is fixed before you see the review
    (`build.review.fix.risks.fixing`), then the review is written again. **What
    matters most comes first:** a judge (`build.review.ranking`) rates every
    chunk on the four severity questions below, and the review lists `critical`
    chunks first (security, then one-way doors), then `should`, then `could`,
    each led by its tier and reason (`_critical: security, one-way door_`) — the
    phone shows it on the chunk's card. A chunk the judge is unsure of, or whose
-   evidence the budget cut, is `critical`. On `refactor-first` the refactor
-   slice gets a walkthrough of its own first, covering the whole refactor on
-   every round, before the feature is built; see
-   [the naive pass](#the-naive-pass). **Every note needs exactly one tick before
-   `gtd land` accepts the review** (`answer-completeness`; an open `- H:` thread
-   waiting on the agent is the one exception). Fix as suggested joins the nit
-   batch below, unjudged; won't fix drops the note and records it as
-   `Gtd-Mark: wontfix=<title>` on the gate's commit; your own answer is judged
-   like a note. A note you answered is left out of the fresh review after a nit
-   fix. Land with every note answered and nothing else changed to approve, or
-   write what is wrong — disagreeing with a fix or a drop means writing a note
-   of your own. Approving ends the process (at the refactor review, it moves on
-   to the feature); feedback is judged note by note, each as `edit`, `question`,
-   `nit` or `praise`. An `edit` sends the process back to step 2 for re-derived
-   requirements — the built criteria keep their IDs (reworded in place when
-   their behaviour changes) and new behaviour gets new ones — then the
-   implementation is amended to meet them, with no new naive pass or seam judge,
-   the hands-on test runs again, the quality lap runs, and you review again. At
-   the refactor review an `edit` re-derives the refactor instead. A `question`
-   is answered inline under your note and the process stops at the review again
-   — no new plan. A `nit` is fixed in one batch, the suite must go green (a red
-   one gets fix turns first), then a fresh review of the change stops at the
-   review again. `praise` is dropped; a round of only praise signs off. When a
-   round mixes them, questions are answered and nits fixed first, then the edits
-   are planned — risk: the planning lap may redo nit fixes it touches.
+   evidence the budget cut, is `critical`. On `refactor-first` the refactor gets
+   a walkthrough of its own first, covering the whole refactor on every round,
+   before the feature is built; see [the naive pass](#the-naive-pass). **Every
+   note needs exactly one tick before `gtd land` accepts the review**
+   (`answer-completeness`; an open `- H:` thread waiting on the agent is the one
+   exception). Fix as suggested joins the nit batch below, unjudged; won't fix
+   drops the note and records it as `Gtd-Mark: wontfix=<title>` on the gate's
+   commit; your own answer is judged like a note. A note you answered is left
+   out of the fresh review after a nit fix. Land with every note answered and
+   nothing else changed to approve, or write what is wrong — disagreeing with a
+   fix or a drop means writing a note of your own. Approving ends the process
+   (at the refactor review, it moves on to the feature); feedback is judged note
+   by note, each as `edit`, `question`, `nit` or `praise`. An `edit` sends the
+   process back to step 2 for re-derived requirements — the built criteria keep
+   their IDs (reworded in place when their behaviour changes) and new behaviour
+   gets new ones — then the implementation is amended to meet them, with no new
+   naive pass or seam judge, the hands-on test runs again, the quality lap runs,
+   and you review again. At the refactor review an `edit` re-derives the
+   refactor instead. A `question` is answered inline under your note and the
+   process stops at the review again — no new plan. A `nit` is fixed in one
+   batch, the suite must go green (a red one gets fix turns first), then a fresh
+   review of the change stops at the review again. `praise` is dropped; a round
+   of only praise signs off. When a round mixes them, questions are answered and
+   nits fixed first, then the edits are planned — risk: the planning lap may
+   redo nit fixes it touches.
 
    Each `edit` note also gets a severity tier from four judge questions
    (security, reversibility, blast radius, new concept). Every tier is
@@ -684,45 +661,38 @@ Incidental changes land: the pass itself is the implementation, with no rebuild,
 straight through the health loop and the quality lap. A needed seam change
 resets: the pass is never applied. An agent reads its whole diff and writes a
 refactor note (`.gtd/REFACTOR-NOTE.md`: which seams, which shape); the seam is
-refactored first, flag-free with the existing suite green, in its own slice with
-its own quality lap (`refactorQualityReviews`) and review; then the feature is
+refactored first, flag-free with the existing suite green, on its own with its
+own quality lap (`refactorQualityReviews`) and review; then the feature is
 rebuilt on the refactored base, behind a release flag, with the note and the
 naive diff as reference. The rebuild is refused until its tests carry every
 criterion ID the naive pass's tests named, and the suite must be green with
 them. A wrong approach is retried twice, then rests for you to steer or overrule
-it. `gtd slices` lists the `refactor` and `feature` slices. A refactor that
-already carried the whole feature leaves the rebuild only the carried-over
-tests, and the feature's quality lap and review cover the whole change. Once the
-implementation is green, a judge asks, per acceptance criterion, whether a
-person can observe it by using the software; an agent then uses the slice by
-hand for those — the real program in a scratch directory, the real page, guided
-by a project skill or a manual testing section in `AGENTS.md`, `CLAUDE.md` or
-`README.md` — and writes `.gtd/PROTOTYPE.md`: per criterion pass, fail or
-blocked, with the steps run and what it saw. A criterion the judge finds no one
-can observe (a refactor, something left unchanged, internal shape), or one
-design tagged `(no hands-on)`, is skipped; a slice with none left skips this
-step. This is the one check that a criterion is met: with `prototypeRounds` set
-to `0` nothing checks the criteria beyond the green suite. Failures are fixed
-and re-tested before the quality lap, up to `prototypeRounds` (3) fix rounds;
-past them, with only blocked items, or with no way to test found, it rests for
-you. See [The hands-on test](docs/configuration.md#the-hands-on-test). Feedback
-at the feature review re-runs design and the implementation, never the naive
-pass; feedback at the refactor review re-runs the refactor, never design; a
-refactor-review change the refactor cannot build is refused, and the only way
+it. A refactor that already carried the whole feature leaves the rebuild only
+the carried-over tests, and the feature's quality lap and review cover the whole
+change. Once the implementation is green, a judge asks, per acceptance
+criterion, whether a person can observe it by using the software; an agent then
+uses the change by hand for those — the real program in a scratch directory, the
+real page, guided by a project skill or a manual testing section in `AGENTS.md`,
+`CLAUDE.md` or `README.md` — and writes `.gtd/PROTOTYPE.md`: per criterion pass,
+fail or blocked, with the steps run and what it saw. A criterion the judge finds
+no one can observe (a refactor, something left unchanged, internal shape), or
+one design tagged `(no hands-on)`, is skipped; a change with none left skips
+this step. This is the one check that a criterion is met: with `prototypeRounds`
+set to `0` nothing checks the criteria beyond the green suite. Failures are
+fixed and re-tested before the quality lap, up to `prototypeRounds` (3) fix
+rounds; past them, with only blocked items, or with no way to test found, it
+rests for you. See [The hands-on test](docs/configuration.md#the-hands-on-test).
+Feedback at the feature review re-runs design and the implementation, never the
+naive pass; feedback at the refactor review re-runs the refactor, never design;
+a refactor-review change the refactor cannot build is refused, and the only way
 out is `gtd abandon`. A process from 27.5.0 or later whose judge ruled
-`refactor-first` must `gtd abandon` too. Each slice's quality lap reviews only
-that slice. Details in
+`refactor-first` must `gtd abandon` too. Details in
 [the naive-pass path](docs/configuration.md#the-naive-pass-path).
 
-**Coarse slices (`sliceMaxCriteria`, default 8).** A change with more acceptance
-criteria than the cap is built in slices: after design an agent groups related
-criteria (same flow or subsystem) into `.gtd/SLICES.md`, as few slices as the
-cap allows, and each slice — naive pass, refactor and rebuild when judged so,
-health loop, quality lap — runs in order from where the previous one landed; the
-review follows the last one and covers the whole change. `gtd slices` lists them
-as `feature-1`, `feature-2`, … (`refactor-<n>` ahead of a refactored one). A
-change within the cap is one `feature` slice, as before. See
-[Coarse slices](docs/configuration.md#coarse-slices).
+**One process, one build.** A change is built in one pass — one naive pass, one
+build, one quality lap, one review — however many criteria it has. Sizing the
+work is yours: split a change too big for one process into several before the
+sketch.
 
 **Flag mode (`flagMode`, on by default).** On, the naive pass's judge runs as
 above and a rebuilt implementation is asked for a new release flag (none at a
@@ -787,8 +757,8 @@ When a process finishes, the landing that closes it also keeps the whole run
 behind a ref, `refs/gtd/history/<entry>`, so a squash or a deleted branch
 doesn't lose it. `/gtd ship` pushes this process's own ref to origin alongside
 the branch (never the others) and writes a `Gtd-History: <ref>` trailer on the
-commit of every slice. The push is forced, so it replaces origin's copy of that
-one ref. If that push fails, the ship fails and nothing is squashed. Recover the
+squashed commit. The push is forced, so it replaces origin's copy of that one
+ref. If that push fails, the ship fails and nothing is squashed. Recover the
 full trail with `gtd history fetch | sh`, then `gtd history show <ref>`.
 
 ```sh
@@ -803,12 +773,10 @@ gtd history fetch | sh           # pull every kept ref from origin
 — every ref, or the ones named. It reads commit subjects and trailers only, so
 it never replays and a config changed since is no refusal:
 
-- **refactor-first rate** — of the slices whose naive pass was decided, the
+- **refactor-first rate** — of the builds whose naive pass was decided, the
   share rebuilt rather than landed as it is; a landed pass that no longer
   applies and is built afresh counts as rebuilt (`refactored` counts the
   rebuilds a refactor came first for)
-- **continuations** — agent turns that picked up a turn stopped at its context
-  limit, per phase (`seam.naive`, `implement.building`, `refactor.building`, …)
 - **cost** — the `Gtd-Cost` a driver recorded with `gtd land --cost --model`, by
   model and by phase (`naive`, `refactor`, `implement`, `other`), and the
   **double work** of a rebuild: its naive pass plus the implement turns that
@@ -824,7 +792,7 @@ it never replays and a config changed since is no refusal:
 `--json` prints `{ processes, total }`; `--json=total.refactorFirstRate` prints
 one value. Model, phase and lens keys may hold dots a path cannot reach: select
 their record whole (`--json=total.cost.byModel`). A branch name selects every
-process kept from that branch. A rate is `null` without a decided slice. Each
+process kept from that branch. A rate is `null` without a decided build. Each
 process names its `workflow` (`null` for the default one); the total spans every
 ref measured, so name the refs to leave another workflow's processes out.
 
@@ -908,7 +876,7 @@ gtd is one package, `@pmelab/gtd`, and every entrypoint shares its version and
 
 | Import                                                                                                                                                         | What it is                                                                                                                                                                                             |
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@pmelab/gtd/flows`                                                                                                                                            | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope` and `slice` (named spans of a process), workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                |
+| `@pmelab/gtd/flows`                                                                                                                                            | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                                       |
 | `@pmelab/gtd/wire`                                                                                                                                             | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                                           |
 | `@pmelab/gtd/steering`                                                                                                                                         | The steering-file formats (`qa`, `review`) and the review-note readers.                                                                                                                                |
 | `@pmelab/gtd/workflow-kit`                                                                                                                                     | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails.                                                                                  |
@@ -921,17 +889,11 @@ install for any of these but `./testkit`: gtd resolves a `gtd.config.ts`'s
 `@pmelab/gtd/*` imports to its own copy.
 
 The `gtd` bin's commands — `next`, `land`, `abandon`, `restore`, `validate`,
-`check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `slices`,
-`version`, `help`, `history list`, `history show`, `history metrics`,
-`history judges`, `history fetch`, `strays`, and the tools `ui`, `lsp`,
-`context-hook`, `judge` (`judge answer`, `judge run`) — are listed in the
+`check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `version`,
+`help`, `history list`, `history show`, `history metrics`, `history judges`,
+`history fetch`, `strays`, and the tools `ui`, `lsp`, `judge` (`judge answer`,
+`judge run`) — are listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
-`gtd slices` lists the spans a flow's `slice()` calls mark. It refuses (exit 1)
-when HEAD neither closes nor sits inside a process, or when today's config
-disagrees with history about the process; a version mismatch only warns on
-stderr. `gtd summary --slice <name>` prints the closing-message prompt for one
-of those slices — its own range, human commits and cost — and inherits those
-refusals; an unknown name is refused with every valid slice listed.
 
 ## License
 

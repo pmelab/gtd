@@ -301,32 +301,28 @@ describe("unit map: ui imports only contracts, web sees ui types only", () => {
   })
 })
 
-describe("unit map: src/hook/ imports only contracts", () => {
-  it("flags every other src/ folder, production and test alike, but no package", () => {
+describe("unit map: claude/ imports only contracts", () => {
+  it("flags every src/ folder but the contracts, and no package", () => {
     const dir = mkdtempSync(join(tmpdir(), "boundaries-spec09-"))
-    for (const folder of ["hook", "wire", "platform"]) {
-      mkdirSync(join(dir, "src", folder), { recursive: true })
+    for (const folder of ["claude", "src/wire", "src/platform"]) {
+      mkdirSync(join(dir, folder), { recursive: true })
     }
     writeFileSync(join(dir, "tsconfig.json"), FIXTURE_TSCONFIG)
     const files: Record<string, string> = {
       "src/wire/index.ts": `export const wire = 1\n`,
       "src/platform/index.ts": `export const platform = 1\n`,
-      "src/hook/Hook.ts": `import { readFileSync } from "node:fs"\nimport { wire } from "../wire/index.js"\nimport { platform } from "../platform/index.js"\nimport { y } from "./y.js"\nvoid readFileSync\nvoid wire\nvoid platform\nvoid y\n`,
-      "src/hook/y.ts": `export const y = 1\n`,
-      "src/hook/Hook.test.ts": `import { platform } from "../platform/index.js"\nvoid platform\n`,
+      "claude/Hook.ts": `import { readFileSync } from "node:fs"\nimport { wire } from "../src/wire/index.js"\nimport { platform } from "../src/platform/index.js"\nimport { y } from "./y.js"\nvoid readFileSync\nvoid wire\nvoid platform\nvoid y\n`,
+      "claude/y.ts": `export const y = 1\n`,
     }
     for (const [path, content] of Object.entries(files)) writeFileSync(join(dir, path), content)
 
-    const violations = cruise(dir, join(REPO_ROOT, ".dependency-cruiser.mjs"))
+    const violations = cruise(dir, join(REPO_ROOT, ".dependency-cruiser.mjs"), ["claude"])
     expect(
       violations
         .filter((v) => v.rules.includes("drivers-import-only-contracts"))
         .map((v) => `${v.from} -> ${v.to}`)
         .toSorted(),
-    ).toEqual([
-      "src/hook/Hook.test.ts -> src/platform/index.ts",
-      "src/hook/Hook.ts -> src/platform/index.ts",
-    ])
+    ).toEqual(["claude/Hook.ts -> src/platform/index.ts"])
   })
 })
 

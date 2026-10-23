@@ -311,9 +311,6 @@ const reviewDoc = [
 
 interface Seamed {
   readonly names: string[]
-  readonly slices: string[]
-  /** Slice names entered, with the steps seen while inside each. */
-  readonly inside: Record<string, string[]>
   readonly outcome: SeamOutcome | Error
 }
 
@@ -327,10 +324,7 @@ const driveSeam = async (
   let red = false
   let redsLeft = reds
   const names: string[] = []
-  const slices: string[] = []
-  const inside: Record<string, string[]> = {}
   const stack: string[] = []
-  const open: string[] = []
   const files = new Map<string, string>([["src/a.ts", "a"]])
   let current = "c0"
   const effects: Record<string, () => void> = {
@@ -351,12 +345,6 @@ const driveSeam = async (
     },
     pushScope: (scope: { name?: string }) => void stack.push(scope.name ?? ""),
     popScope: () => void stack.pop(),
-    enterSlice: (name: string) => {
-      slices.push(name)
-      open.push(name)
-      inside[name] = []
-    },
-    leaveSlice: () => void open.pop(),
     read: (path: string) => files.get(path),
     head: () => current,
     kept: () => tip(stray),
@@ -372,7 +360,6 @@ const driveSeam = async (
       }
       if (full === "seam.clear") files.delete(".gtd/FEEDBACK.md")
       names.push(full)
-      for (const name of open) inside[name]!.push(full)
       effects[request.name]?.()
       if (request.kind === "judge")
         return Promise.resolve({ answers: { shape: { answer, p: 0.9 } }, truncated: [] })
@@ -385,14 +372,13 @@ const driveSeam = async (
   } catch (error) {
     outcome = error as Error
   }
-  return { names, slices, inside, outcome }
+  return { names, outcome }
 }
 
 describe("seamBuild", () => {
-  it("land resolves the kept tip to land, with the caller's base, and enters no slice", async () => {
+  it("land resolves the kept tip to land, with the caller's base", async () => {
     const h = await driveSeam("land")
     expect(h.outcome).toEqual({ reference: "abc", base: "c-base", land: true })
-    expect(h.slices).toEqual([])
     expect(h.names).toEqual(["seam.naive", "seam.check", "seam.judge"])
   })
 
@@ -432,7 +418,7 @@ describe("seamBuild", () => {
     expect(h.outcome).toEqual({ reference: "abc", base: "c-base", land: true })
   })
 
-  it("refactor-first runs the reviewed refactor in slice refactor and resolves HEAD after it", async () => {
+  it("refactor-first runs the reviewed refactor right after the note and resolves HEAD after it", async () => {
     const h = await driveSeam("refactor-first")
     expect(h.outcome).toEqual({
       reference: "abc",
@@ -440,16 +426,14 @@ describe("seamBuild", () => {
       refactored: true,
       rebuild: { note: "Seam: a shared op", acceptance: { hash: "abc", tests: [], ids: [] } },
     })
-    expect(h.slices).toEqual(["refactor"])
     expect(h.names.indexOf("seam.note")).toBe(h.names.indexOf("seam.judge") + 1)
-    expect(h.inside.refactor).not.toContain("seam.note")
-    expect(h.inside.refactor![0]).toBe("refactor.deriving")
-    expect(h.inside.refactor).toContain("refactor.build.review.closing")
+    expect(h.names.indexOf("refactor.deriving")).toBe(h.names.indexOf("seam.note") + 1)
+    expect(h.names).toContain("refactor.build.review.closing")
     expect(h.names.some((n) => n.includes("approve"))).toBe(false)
     expect(h.names.some((n) => n.startsWith("implement"))).toBe(false)
   })
 
-  it("refactor-first with only test-file strays resolves the caller's base with no slice and no by-hand", async () => {
+  it("refactor-first with only test-file strays resolves the caller's base with no refactor and no by-hand", async () => {
     const h = await driveSeam("refactor-first", change("src/a.test.ts", "modified"), {
       seamAllow: ".gtd/**",
     })
@@ -458,7 +442,6 @@ describe("seamBuild", () => {
       base: "c-base",
       rebuild: { acceptance: { hash: "abc", tests: [], ids: [] } },
     })
-    expect(h.slices).toEqual([])
     expect(h.names).not.toContain("seam.by-hand")
     expect(h.names.some((n) => n.startsWith("refactor"))).toBe(false)
   })
@@ -469,18 +452,16 @@ describe("seamBuild", () => {
       { path: "src/a.test.ts", status: "modified", before: undefined, after: "b" },
       { seamAllow: ".gtd/**" },
     )
-    expect(h.slices).toEqual([])
     expect(h.names).toContain("seam.by-hand")
   })
 
-  it("rests unreadable strays at seam.by-hand and enters no refactor slice", async () => {
+  it("rests unreadable strays at seam.by-hand and runs no refactor", async () => {
     const h = await driveSeam("refactor-first", {
       path: "src/a.ts",
       status: "modified",
       before: undefined,
       after: "b",
     })
-    expect(h.slices).toEqual([])
     expect(h.names).toContain("seam.by-hand")
     expect(h.outcome).toEqual({
       reference: "abc",
