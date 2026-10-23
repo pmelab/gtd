@@ -57,9 +57,10 @@ step declaring `system` loses not only the harness's own tool-use instructions
 but also its dynamic per-turn sections: current working directory, environment
 info, memory-path information, git status. A workflow author reaching for
 `system` for the first time is therefore writing a complete replacement system
-prompt, not a tweak on top of the harness's own. Every agent step in one memory
-scope (below) must run with the same `model` and `system` — one scope is one
-conversation, and a conversation has one identity. The bundled workflow ships
+prompt, not a tweak on top of the harness's own. Every agent step in one
+conversation — one unbroken run of a memory scope (below) — must run with the
+same `model` and `system`: a conversation has one identity. A fresh `scope()`
+call starts a fresh conversation, free to differ. The bundled workflow ships
 five such personas — design, reviewer, builder, finisher and escalation. Each
 carries only its role paragraph; a shared block of agent conduct (tool-use
 conduct, orienting with git since there is no injected status block, and

@@ -841,7 +841,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     And stdout contains "\"state\":\"build.quality.correctness.reviewing\""
     And the json field "memory" differs from the one recorded as "the implement builder's turn"
 
-  Scenario: two agent steps in one memory scope with different models refuse to land — one scope is one conversation, with one model
+  Scenario: two agent steps in one memory scope with different models refuse to land — a conversation has one model
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -865,7 +865,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
     When I run gtd land
     Then it fails
     And stderr contains "runs with a different model, system prompt, skills or file access"
-    And stderr contains "one scope is one conversation"
+    And stderr contains "a conversation has one identity"
 
   Scenario: a step-level "memory:" option is rejected at load time — the scope is computed, so there is no authored label to honour or ignore
     # An unknown step option is never silently ignored: it would read as if

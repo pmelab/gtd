@@ -139,6 +139,36 @@ const memoryScopeOf = (name: string): string => {
   return dot === -1 ? "" : name.slice(0, dot)
 }
 
+/** Is `name` inside `scope`'s subtree? The root scope `""` holds everything. */
+const inScope = (name: string, scope: string): boolean =>
+  scope === "" || name === scope || name.startsWith(`${scope}.`)
+
+/**
+ * Where the current unbroken run of rests inside `scope`'s subtree began —
+ * a dip into a descendant scope does not break it, a sibling or ancestor
+ * does, and so does a fresh `scope()` call of the same scope.
+ */
+export const scopeRunStart = (trace: readonly ReachedStep[], scope: string): number => {
+  let start = -1
+  for (let k = 0; k < trace.length; k++) {
+    if (!inScope(trace[k]!.memoryScope, scope)) continue
+    const previous = trace[k - 1]
+    const unbroken =
+      previous !== undefined &&
+      inScope(previous.memoryScope, scope) &&
+      scopeCallOf(previous, scope) === scopeCallOf(trace[k]!, scope)
+    if (!unbroken) start = k
+  }
+  return start
+}
+
+/** The innermost `scope()` call enclosing `scope` at `step` — a new call is a new conversation. */
+const scopeCallOf = (step: ReachedStep, scope: string): number | undefined => {
+  let call: number | undefined
+  for (const entry of step.scopeCalls) if (inScope(scope, entry.prefix)) call = entry.call
+  return call
+}
+
 class Stop extends Error {}
 
 const short = (hash: string): string => hash.slice(0, 7)
@@ -505,14 +535,16 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
       skills: step.skills,
       access: unfoldedAccess.get(step),
     }
-    const seen = personas.get(step.memoryScope)
+    // Keyed like the memory key: a fresh scope() call is a fresh conversation, free to differ.
+    const conversation = `${step.memoryScope}#${scopeRunStart(trace, step.memoryScope)}`
+    const seen = personas.get(conversation)
     if (seen === undefined) {
-      personas.set(step.memoryScope, identity)
+      personas.set(conversation, identity)
       return undefined
     }
     return samePersona(seen, identity)
       ? undefined
-      : `gtd: "${step.name}" runs with a different model, system prompt, skills or file access than an earlier agent step in memory scope "${step.memoryScope || "root"}" — one scope is one conversation, and a conversation has one identity`
+      : `gtd: "${step.name}" runs with a different model, system prompt, skills or file access than an earlier agent step in its conversation in memory scope "${step.memoryScope || "root"}" — a conversation has one identity`
   }
 
   const DIVERGED = "the workflow changed under this process; run `gtd abandon` to start over"

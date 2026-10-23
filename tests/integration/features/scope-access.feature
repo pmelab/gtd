@@ -150,7 +150,7 @@ Feature: file access is declared per scope
     And stdout contains "\"read\":null"
     And stdout contains "\"write\":null"
 
-  Scenario: two agent steps in one memory scope with different access fail the process
+  Scenario: two scope() calls of one memory scope with different access are two conversations and land
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -166,8 +166,7 @@ Feature: file access is declared per scope
       }
       """
     When I run gtd land
-    Then it fails
-    And stderr contains "runs with a different model, system prompt, skills or file access"
+    Then it succeeds
 
   Scenario: an agent() access option fails as an unknown agent() option
     Given a test project

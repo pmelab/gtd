@@ -117,7 +117,7 @@ Feature: skills are declared per scope
     And stdout contains "\"child-skill\""
     And stdout does not contain "rc-skill"
 
-  Scenario: two agent steps in one memory scope with different lists fail the process
+  Scenario: two scope() calls of one memory scope with different lists are two conversations and land
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -133,8 +133,7 @@ Feature: skills are declared per scope
       }
       """
     When I run gtd land
-    Then it fails
-    And stderr contains "runs with a different model, system prompt, skills or file access"
+    Then it succeeds
 
   Scenario: an agent() skills option fails as an unknown agent() option
     Given a test project
