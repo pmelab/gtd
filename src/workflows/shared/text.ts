@@ -506,6 +506,14 @@ and carry its IDs over: after a review a built criterion keeps its ID,
 reworded in place when the review changes its behaviour, and new
 behaviour gets a new ID. Landing is refused while a criterion has no ID
 or two share one.
+
+Tag a criterion no person can try by using the change — prompt or
+message wording, internal wiring, anything only a test observes — by
+writing \`(no hands-on)\` between its ID and the colon:
+\`- AC-<n> (no hands-on): <criterion>\`. The hands-on test skips it; its
+test is still required. Leave the tag off whatever a person can see
+by running the change. A tag the human added or removed at the gate
+stays as they left it.
 `
 
 const riskTierBlock = `
@@ -621,14 +629,21 @@ they are recorded as they are — or land without a verdict to run the
 ordinary design conversation.
 `
 
-export const criterionLine = (c: { readonly id: string; readonly text: string }): string =>
-  `- ${c.id}: ${c.text.replace(/\s+/g, " ")}`
+export const criterionLine = (c: {
+  readonly id: string
+  readonly text: string
+  readonly noHandsOn?: true
+}): string => `- ${c.id}${c.noHandsOn ? " (no hands-on)" : ""}: ${c.text.replace(/\s+/g, " ")}`
 
 /** Writes \`.gtd/REQUIREMENTS.md\` from criteria the sketch stated, wrapped the way oxfmt writes it. */
 export const normaliseCriteriaScript = (stated: {
   readonly path: string
   readonly commit: string
-  readonly criteria: readonly { readonly id: string; readonly text: string }[]
+  readonly criteria: readonly {
+    readonly id: string
+    readonly text: string
+    readonly noHandsOn?: true
+  }[]
 }): string => {
   const lines = [
     "# Requirements",
@@ -703,6 +718,7 @@ What each change does next (then run \`gtd land\`):
 - **Accept as-is** — change nothing and re-run; the plan stands as written. Refused while a thread is open.
 - **Revise answers** — tick exactly one option per open question (replace \`_your answer_\` for your own) to send it back for the agent to fold your answers in, or delete a question to skip it.
 - **Discuss** — start or continue a thread (\`- H:\`); the agent replies and this gate stops again.
+- **Retag a criterion** — add or remove \`(no hands-on)\` between an \`AC-<n>\` and its colon: a tagged criterion is proven by its test alone and skipped by the hands-on test.
 ${riskTier ? RISK_TIER_GATE_LINE : ""}`
 
 export const builderSystem = (): string =>
@@ -2008,13 +2024,22 @@ const PROTOTYPE_FORMAT = `- Write \`.gtd/PROTOTYPE.md\`, replacing any earlier r
   expected behaviour itself looks wrong — say which and why: a person
   decides it, never a fixer`
 
+/** The line naming the criteria tagged `(no hands-on)`; empty when none are. */
+const skippedLine = (skipped: readonly string[]): string =>
+  skipped.length === 0
+    ? ""
+    : `- Skip ${skipped.join(", ")}: tagged \`(no hands-on)\`, their tests already prove
+  them. Write no chunk for them
+`
+
 export const prototypeTestingPrompt = (
   slice: readonly string[] | undefined,
+  skipped: readonly string[],
   retest: boolean,
 ): string =>
   `${stateFileRules}
 - Read \`.gtd/REQUIREMENTS.md\`: the settled requirements for this change
-${sliceLine(slice)}- The change is built and its suite is green. Now test it by hand: use
+${sliceLine(slice)}${skippedLine(skipped)}- The change is built and its suite is green. Now test it by hand: use
   every acceptance criterion the way a person would and watch what
   happens. Running the test suite is not this — it already ran
 - Find how this project is exercised for real, in this order: a project
