@@ -60,14 +60,6 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
     And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
-    And judge step "implement.coverage", when its questions contain "AC-1", answers:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
-    And judge step "implement.coverage", when its questions contain "AC-2", answers:
-      """
-      [{"id":"AC-2","answer":"yes","p":0.9}]
-      """
     And step "build.quality.sorting" runs its script
     And step "build.quality.closing" runs its script
     And step "build.health.check" changes nothing
@@ -140,8 +132,7 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
       gtd(agent): seam.naive → seam.check
       gtd(check): seam.check → implement.applying
       gtd(check): implement.applying → implement.health.check
-      gtd(check): implement.health.check → implement.coverage
-      gtd(judge): implement.coverage → implement.closing
+      gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.quality.triage
       gtd(judge): build.quality.triage → build.quality.sorting
@@ -210,8 +201,7 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
       gtd(agent): seam.naive → seam.check
       gtd(check): seam.check → implement.applying
       gtd(check): implement.applying → implement.health.check
-      gtd(check): implement.health.check → implement.coverage
-      gtd(judge): implement.coverage → implement.closing
+      gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.quality.triage
       gtd(judge): build.quality.triage → build.fix.quality.fixing

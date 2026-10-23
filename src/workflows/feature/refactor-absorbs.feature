@@ -109,10 +109,6 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
       """
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
-    And judge step "implement.coverage" answers:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
     When gtd lands
     And the process is driven
     Then the process rests at "build.quality.correctness.reviewing"
@@ -128,8 +124,7 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
       gtd(human): refactor.build.review.await-review → refactor.build.review.closing
       gtd(check): refactor.build.review.closing → implement.building
       gtd(agent): implement.building → implement.health.check
-      gtd(check): implement.health.check → implement.coverage
-      gtd(judge): implement.coverage → implement.closing
+      gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
       """

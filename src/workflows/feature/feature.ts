@@ -123,7 +123,6 @@ const buildSlice = async (sliceBase: string, build: SliceBuild): Promise<void> =
       naive: seam.land === true ? seam.reference : undefined,
       rebuild: seam.rebuild,
       slice: build.criteria,
-      base: build.criteria === undefined ? undefined : sliceBase,
       more: build.more,
     })
     // Closing kept the criteria exactly when there is more to build, so this reads as it did.
@@ -179,7 +178,7 @@ const reviewedTail = (
   )
 
 // seam.naive / seam.judge never run on a feedback lap: its design → implement is built unjudged
-// and unrefactored, held to every criterion's coverage since the process start.
+// and unrefactored.
 const featureFeedback = async (
   first: ReviewOutcome,
   lensBase: string,

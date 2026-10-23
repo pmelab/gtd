@@ -1,17 +1,21 @@
-import { changes, human, read, refuse, scope, vars } from "../../flows/index.js"
+import { answered, changes, human, judge, read, refuse, scope, vars } from "../../flows/index.js"
 import { HEADING, markFenced } from "../shared/fences.js"
 import { coder, PROTOTYPE, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
 import type { Guard } from "../shared/health.js"
-import { green } from "./coverage.js"
+import { green } from "./green.js"
 import {
+  criteriaOf,
   criterionIds,
   handsOnIds,
   requireCriteriaFrozen,
   sliceIds,
   type CriteriaSlice,
 } from "./criteria.js"
+
+/** Below this a `yes` does not send a criterion to the hands-on test; the question leans unsure answers to `yes`. */
+const OBSERVABLE_MIN_P = 0.5
 
 /** The `prototypeRounds` setting. Anything but a non-negative integer fails rather than guess a cap. */
 export const prototypeRounds = (): number => {
@@ -61,11 +65,11 @@ export const reportOf = (text: string): Report => {
 
 /**
  * The report the testing turn left, refused unless it is the only change and
- * names every criterion to try by hand once, with its open items: another
- * slice's criteria, and one tagged `(no hands-on)`, are not this slice's to fix.
+ * names each of `ids` once, with its open items: any other criterion is not
+ * this test's to fix.
  */
 const requireReport = (
-  slice: CriteriaSlice | undefined,
+  ids: readonly string[],
   retest: boolean,
 ): { readonly unguided: boolean; readonly open: readonly Item[] } => {
   const others = changes()
@@ -85,46 +89,53 @@ const requireReport = (
   // Only a first test with nothing else in it: a chunk beside it was tested after all, and a
   // re-test's open items must reach a person, not slip past as untested.
   if (report.unguided && report.items.length === 0 && !retest) return { unguided: true, open: [] }
-  const requirements = read(REQUIREMENTS) ?? ""
-  const ids = handsOnIds(requirements, slice)
-  const elsewhere = criterionIds(requirements).filter((id) => !ids.includes(id))
+  const elsewhere = criterionIds(read(REQUIREMENTS) ?? "").filter((id) => !ids.includes(id))
   const count = (id: string): number => report.items.filter((i) => i.subject === id).length
   const wrong = ids.filter((id) => count(id) !== 1)
   if (wrong.length > 0)
     refuse(
       `gtd land: prototype-report: ${PROTOTYPE} needs exactly one chunk headed \`## <ID>: pass|fail|blocked\` for ${wrong.join(", ")}`,
     )
-  // A mistyped ID stays open: only another slice's criteria are not this one's to fix.
+  // A mistyped ID stays open: only a known criterion outside `ids` is not this test's to fix.
   const open = report.items.filter((i) => i.verdict !== "pass" && !elsewhere.includes(i.subject))
   return { unguided: false, open }
 }
 
-/** The slice's criteria tagged `(no hands-on)`. */
-const skipped = (slice: CriteriaSlice | undefined): string[] => {
+/**
+ * The slice's criteria a person can observe by using the change, by the
+ * judge: those tagged `(no hands-on)` are never asked about.
+ */
+const observable = async (slice: CriteriaSlice | undefined): Promise<string[]> => {
   const requirements = read(REQUIREMENTS) ?? ""
   const own = handsOnIds(requirements, slice)
-  return criterionIds(requirements, slice).filter((id) => !own.includes(id))
+  const criteria = (criteriaOf(requirements) ?? []).filter((c) => own.includes(c.id))
+  if (criteria.length === 0) return []
+  const { answers } = await judge("observable", {
+    questions: criteria.map(t.observableQuestion),
+    evidence: { requirements },
+    message: t.observableMessage(),
+    label: "Judging which criteria to test by hand",
+  })
+  return own.filter((id) => answered(answers[id], "yes", OBSERVABLE_MIN_P))
 }
 
 const frozen = (): void => requireCriteriaFrozen(REQUIREMENTS)
 
 const testing = async (
   slice: CriteriaSlice | undefined,
+  ids: readonly string[],
   retest: boolean,
 ): Promise<ReturnType<typeof requireReport>> => {
-  await t.agentWithSkills(
-    "testing",
-    t.prototypeTestingPrompt(sliceIds(slice), skipped(slice), retest),
-    {
-      label: retest ? "Re-testing the slice by hand" : "Testing the slice by hand",
-      file: PROTOTYPE,
-      model: coder(),
-      system: t.testerSystem(),
-      // A test that saw exactly what the last round saw leaves the report as it was.
-      allowEmpty: true,
-    },
-  )
-  return requireReport(slice, retest)
+  const skipped = criterionIds(read(REQUIREMENTS) ?? "", slice).filter((id) => !ids.includes(id))
+  await t.agentWithSkills("testing", t.prototypeTestingPrompt(sliceIds(slice), skipped, retest), {
+    label: retest ? "Re-testing the slice by hand" : "Testing the slice by hand",
+    file: PROTOTYPE,
+    model: coder(),
+    system: t.testerSystem(),
+    // A test that saw exactly what the last round saw leaves the report as it was.
+    allowEmpty: true,
+  })
+  return requireReport(ids, retest)
 }
 
 const fixing = async (slice: CriteriaSlice | undefined, guard?: Guard): Promise<void> => {
@@ -155,11 +166,11 @@ const askPerson = async (name: string, message: string, label: string): Promise<
 }
 
 /**
- * Use the slice by hand: a testing turn reports on every criterion not tagged
- * `(no hands-on)`, a fix turn takes each failure, and the slice is tested again
- * — until the report is clean, or `prototypeRounds` fixes are spent and a
- * person decides. A slice whose every criterion is tagged is not tested by
- * hand. `guard` holds every fix turn, as it holds the implementation's.
+ * Use the slice by hand: a testing turn reports on every criterion a person
+ * can observe, a fix turn takes each failure, and the slice is tested again —
+ * until the report is clean, or `prototypeRounds` fixes are spent and a person
+ * decides. A slice with no such criterion is not tested by hand. `guard` holds
+ * every fix turn, as it holds the implementation's.
  */
 export const prototypeTest = async (
   slice: CriteriaSlice | undefined,
@@ -167,14 +178,13 @@ export const prototypeTest = async (
 ): Promise<void> => {
   const cap = prototypeRounds()
   if (cap === 0) return
-  const requirements = read(REQUIREMENTS) ?? ""
-  if (criterionIds(requirements, slice).length > 0 && handsOnIds(requirements, slice).length === 0)
-    return
   await scope("prototype", async () => {
+    const ids = await observable(slice)
+    if (ids.length === 0) return
     let fixes = 0
     let retest = false
     for (;;) {
-      const { unguided, open } = await testing(slice, retest)
+      const { unguided, open } = await testing(slice, ids, retest)
       retest = !unguided
       if (unguided) {
         const instructed = await askPerson(

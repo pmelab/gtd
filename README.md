@@ -561,15 +561,14 @@ noted in steps 3 and 4 below.
    requirements — the built criteria keep their IDs (reworded in place when
    their behaviour changes) and new behaviour gets new ones — then the
    implementation is amended to meet them, with no new naive pass or seam judge,
-   every criterion's coverage is judged again, the quality lap runs, and you
-   review again. At the refactor review an `edit` re-derives the refactor
-   instead. A `question` is answered inline under your note and the process
-   stops at the review again — no new plan. A `nit` is fixed in one batch, the
-   suite must go green (a red one gets fix turns first), then a fresh review of
-   the change stops at the review again. `praise` is dropped; a round of only
-   praise signs off. When a round mixes them, questions are answered and nits
-   fixed first, then the edits are planned — risk: the planning lap may redo nit
-   fixes it touches.
+   the hands-on test runs again, the quality lap runs, and you review again. At
+   the refactor review an `edit` re-derives the refactor instead. A `question`
+   is answered inline under your note and the process stops at the review again
+   — no new plan. A `nit` is fixed in one batch, the suite must go green (a red
+   one gets fix turns first), then a fresh review of the change stops at the
+   review again. `praise` is dropped; a round of only praise signs off. When a
+   round mixes them, questions are answered and nits fixed first, then the edits
+   are planned — risk: the planning lap may redo nit fixes it touches.
 
    Each `edit` note also gets a severity tier from four judge questions
    (security, reversibility, blast radius, new concept). Every tier is
@@ -688,23 +687,21 @@ them. A wrong approach is retried twice, then rests for you to steer or overrule
 it. `gtd slices` lists the `refactor` and `feature` slices. A refactor that
 already carried the whole feature leaves the rebuild only the carried-over
 tests, and the feature's quality lap and review cover the whole change. Once the
-implementation is green, a judge checks every criterion ID has a covering test:
-an uncovered one goes back to the agent (twice, then to you) instead of ending
-the feature, and each covered ID is recorded as a `Gtd-Mark: covers=<id>`
-trailer. See
-[Acceptance-criteria coverage](docs/configuration.md#acceptance-criteria-coverage).
-Then an agent uses the slice by hand — the real program in a scratch directory,
-the real page, guided by a project skill or a manual testing section in
-`AGENTS.md`, `CLAUDE.md` or `README.md` — and writes `.gtd/PROTOTYPE.md`: per
-criterion pass, fail or blocked, with the steps run and what it saw — except a
-criterion design tagged `(no hands-on)` (prompt wording, internal wiring: only a
-test can observe it), which its test alone proves; a slice of only tagged
-criteria skips this step. Failures are fixed and re-tested before the quality
-lap, up to `prototypeRounds` (3) fix rounds; past them, with only blocked items,
-or with no way to test found, it rests for you. See
-[The hands-on test](docs/configuration.md#the-hands-on-test). Feedback at the
-feature review re-runs design and the implementation, never the naive pass;
-feedback at the refactor review re-runs the refactor, never design; a
+implementation is green, a judge asks, per acceptance criterion, whether a
+person can observe it by using the software; an agent then uses the slice by
+hand for those — the real program in a scratch directory, the real page, guided
+by a project skill or a manual testing section in `AGENTS.md`, `CLAUDE.md` or
+`README.md` — and writes `.gtd/PROTOTYPE.md`: per criterion pass, fail or
+blocked, with the steps run and what it saw. A criterion the judge finds no one
+can observe (a refactor, something left unchanged, internal shape), or one
+design tagged `(no hands-on)`, is skipped; a slice with none left skips this
+step. This is the one check that a criterion is met: with `prototypeRounds` set
+to `0` nothing checks the criteria beyond the green suite. Failures are fixed
+and re-tested before the quality lap, up to `prototypeRounds` (3) fix rounds;
+past them, with only blocked items, or with no way to test found, it rests for
+you. See [The hands-on test](docs/configuration.md#the-hands-on-test). Feedback
+at the feature review re-runs design and the implementation, never the naive
+pass; feedback at the refactor review re-runs the refactor, never design; a
 refactor-review change the refactor cannot build is refused, and the only way
 out is `gtd abandon`. A process from 27.5.0 or later whose judge ruled
 `refactor-first` must `gtd abandon` too. Each slice's quality lap reviews only

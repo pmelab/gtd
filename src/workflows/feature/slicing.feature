@@ -47,10 +47,6 @@ Feature: a change with more criteria than the cap is built in coarse slices
       it("[AC-2] multiplies", () => {})
       """
     And step "seam.naive" is prompted with "Read `.gtd/REQUIREMENTS.md`"
-    And judge step "implement.coverage" answers:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9},{"id":"AC-2","answer":"yes","p":0.9}]
-      """
     When the process is driven
     Then the process rests at "build.review.reviewing"
     And the commit subjects end with:
@@ -59,8 +55,7 @@ Feature: a change with more criteria than the cap is built in coarse slices
       gtd(agent): seam.naive → seam.check
       gtd(check): seam.check → implement.applying
       gtd(check): implement.applying → implement.health.check
-      gtd(check): implement.health.check → implement.coverage
-      gtd(judge): implement.coverage → implement.closing
+      gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.review.reviewing
       """
     And the output lines of gtd "slices" start with:
@@ -104,14 +99,6 @@ Feature: a change with more criteria than the cap is built in coarse slices
       """
       it("[AC-2] multiplies", () => {})
       """
-    And judge step "implement.coverage", when its questions contain "AC-3", answers:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9},{"id":"AC-3","answer":"yes","p":0.9}]
-      """
-    And judge step "implement.coverage", when its questions contain "AC-2", answers:
-      """
-      [{"id":"AC-2","answer":"yes","p":0.9}]
-      """
     When the process is driven
     Then the process rests at "build.review.reviewing"
     And the commit subjects end with:
@@ -122,14 +109,12 @@ Feature: a change with more criteria than the cap is built in coarse slices
       gtd(agent): seam.naive → seam.check
       gtd(check): seam.check → implement.applying
       gtd(check): implement.applying → implement.health.check
-      gtd(check): implement.health.check → implement.coverage
-      gtd(judge): implement.coverage → implement.closing
+      gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → seam.naive
       gtd(agent): seam.naive → seam.check
       gtd(check): seam.check → implement.applying
       gtd(check): implement.applying → implement.health.check
-      gtd(check): implement.health.check → implement.coverage
-      gtd(judge): implement.coverage → implement.closing
+      gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.review.reviewing
       """
     And the output lines of gtd "slices" start with:
@@ -253,10 +238,6 @@ Feature: a change with more criteria than the cap is built in coarse slices
       """
       it("[AC-1] subtracts", () => {})
       """
-    And judge step "implement.coverage" answers:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
     When the process is driven
     Then the process rests at "seam.steer"
     Given a file ".gtd/REQUIREMENTS.md" with:
@@ -276,8 +257,7 @@ Feature: a change with more criteria than the cap is built in coarse slices
       gtd(agent): seam.naive → seam.check
       gtd(check): seam.check → implement.applying
       gtd(check): implement.applying → implement.health.check
-      gtd(check): implement.health.check → implement.coverage
-      gtd(judge): implement.coverage → implement.closing
+      gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.review.reviewing
       """
     And ".gtd/REQUIREMENTS.md" does not exist

@@ -47,7 +47,7 @@ Feature: past its round cap the hands-on test rests at a person's gate
     And step "seam.check" changes nothing
     And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
-    And judge step "implement.coverage" answers:
+    And judge step "implement.prototype.observable" answers:
       """
       [{"id":"AC-1","answer":"yes","p":0.9},{"id":"AC-2","answer":"yes","p":0.9}]
       """

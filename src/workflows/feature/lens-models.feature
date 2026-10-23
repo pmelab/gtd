@@ -51,10 +51,6 @@ Feature: each quality lens runs on its own model hint
     And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
-    And judge step "implement.coverage" answers:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
 
   Scenario: a hinted lens runs on its hint, every other lens on its default
     When the process is driven

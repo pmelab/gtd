@@ -57,10 +57,6 @@ Feature: a naive pass the judge rules land is itself the implementation
     And step "implement.applying" runs its script
     And step "implement.health.check" changes nothing
     And step "implement.closing" runs its script
-    And judge step "implement.coverage" answers:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
     And step "build.quality.correctness.reviewing" changes nothing
 
   Scenario: a land judgment applies the naive pass and runs from idle to the review gate with no rebuild
@@ -79,8 +75,7 @@ Feature: a naive pass the judge rules land is itself the implementation
       gtd(check): seam.check → seam.judge
       gtd(judge): seam.judge → implement.applying
       gtd(check): implement.applying → implement.health.check
-      gtd(check): implement.health.check → implement.coverage
-      gtd(judge): implement.coverage → implement.closing
+      gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.review.reviewing
       """

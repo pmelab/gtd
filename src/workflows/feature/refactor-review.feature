@@ -615,10 +615,6 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       And step "implement.health.check" changes nothing
       And step "implement.closing" runs its script
-      And judge step "implement.coverage" answers:
-        """
-        [{"id":"AC-1","answer":"yes","p":0.9}]
-        """
       When the process is driven
       Then the process rests at "refactor.build.review.await-review"
       Given a file ".gtd/REVIEW.md" with:
@@ -702,10 +698,6 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       And step "implement.health.check" changes nothing
       And step "implement.closing" runs its script
-      And judge step "implement.coverage" answers:
-        """
-        [{"id":"AC-1","answer":"yes","p":0.9}]
-        """
       When the process is driven
       Then the process rests at "refactor.build.review.await-review"
       Given a file ".gtd/REVIEW.md" with:
@@ -988,10 +980,6 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       And step "implement.health.check" changes nothing
       And step "implement.closing" runs its script
-      And judge step "implement.coverage" answers:
-        """
-        [{"id":"AC-1","answer":"yes","p":0.9}]
-        """
       When the process is driven
       Then the process rests at "refactor.build.review.await-review"
       Given a file ".gtd/REVIEW.md" with:
@@ -1079,10 +1067,6 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       And step "implement.health.check" changes nothing
       And step "implement.closing" runs its script
-      And judge step "implement.coverage" answers:
-        """
-        [{"id":"AC-1","answer":"yes","p":0.9}]
-        """
       When the process is driven
       Then the process rests at "refactor.build.review.await-review"
       Given a file ".gtd/REVIEW.md" with:
@@ -1292,10 +1276,6 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         """
       And step "implement.health.check" changes nothing
       And step "implement.closing" runs its script
-      And judge step "implement.coverage" answers:
-        """
-        [{"id":"AC-1","answer":"yes","p":0.9}]
-        """
       When the process is driven
       Then the process rests at "refactor.build.review.await-review"
       Given a file ".gtd/REVIEW.md" with:
