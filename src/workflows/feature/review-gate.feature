@@ -99,9 +99,9 @@ Feature: a feature process ends at the human review
 
       <!-- base: 0000000 -->
 
-      ## calc
+      ## Walkthrough
 
-      _critical: judge unsure_
+      ### calc
 
       - [x] ./src/calc.ts#2-2
         new subtract function
@@ -156,9 +156,9 @@ Feature: a feature process ends at the human review
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#2-2
           new subtract function[^why]
@@ -176,9 +176,9 @@ Feature: a feature process ends at the human review
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#2-2
           new subtract function

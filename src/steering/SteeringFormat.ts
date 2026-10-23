@@ -138,6 +138,8 @@ export interface SteeringViewNode {
   readonly endLine?: number
   /** Where `annotate` attaches a NEW note to this node. */
   readonly anchor: SteeringAnchor
+  /** The section a top-level node sits in, when the format groups them (`review`'s `Findings` / `Walkthrough`). */
+  readonly group?: string
   readonly children?: readonly SteeringViewNode[]
   /**
    * A node's body, a SIBLING of `children` and never a reuse of it: a `qa`

@@ -1,0 +1,89 @@
+{
+  "header": "1a2b3c4",
+  "nodes": [
+    {
+      "title": "A lone CR is kept",
+      "detail": "The parser keeps a lone `\\r` as content. In the code:",
+      "body": [
+        {
+          "title": "The parser keeps a lone `\\r` as content.",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 10
+          }
+        },
+        {
+          "title": "In the code:",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 12
+          }
+        }
+      ],
+      "status": "should: contract",
+      "anchor": {
+        "kind": "chunk",
+        "index": 0
+      },
+      "group": "Findings",
+      "children": [
+        {
+          "title": "./src/parse.ts#30-31",
+          "path": "./src/parse.ts",
+          "line": 30,
+          "endLine": 31,
+          "checked": true,
+          "detail": "where it is kept",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 0,
+            "index": 0
+          }
+        }
+      ]
+    },
+    {
+      "title": "Parser accepts CRLF",
+      "detail": "",
+      "body": [],
+      "anchor": {
+        "kind": "chunk",
+        "index": 1
+      },
+      "group": "Walkthrough",
+      "children": [
+        {
+          "title": "./src/parse.ts#10-14",
+          "path": "./src/parse.ts",
+          "line": 10,
+          "endLine": 14,
+          "checked": false,
+          "detail": "normalizes `\\r\\n` first",
+          "anchor": {
+            "kind": "hunk",
+            "chunkIndex": 1,
+            "index": 0
+          }
+        }
+      ]
+    },
+    {
+      "title": "Fixed automatically",
+      "detail": "- a test name typo (0123456)",
+      "body": [
+        {
+          "title": "a test name typo (0123456)",
+          "anchor": {
+            "kind": "paragraph",
+            "line": 30
+          }
+        }
+      ],
+      "anchor": {
+        "kind": "chunk",
+        "index": 2
+      },
+      "children": []
+    }
+  ]
+}

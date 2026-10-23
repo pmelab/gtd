@@ -1899,7 +1899,7 @@ describe("reviewChunks", async () => {
       "",
       "<!-- base: abc1234def5678901234567890123456789abcd -->",
       "",
-      "## Walkthrough",
+      "## Changes",
       "",
       "- [ ] ./src/a.ts#1-3 — first",
       "- [ ] ./src/b.ts#4-6 — second",
@@ -1914,7 +1914,7 @@ describe("reviewChunks", async () => {
     ].join("\n")
     expect(reviewChunks(content)).toEqual([
       {
-        title: "Walkthrough",
+        title: "Changes",
         line: 4,
         pointers: 2,
         files: [
@@ -2037,5 +2037,194 @@ describe("answer boxes", async () => {
     expect(steeringFormatFor("review")!.validate(stray)).toEqual([
       expect.objectContaining({ message: 'Chunk "Chunk" has no file pointers' }),
     ])
+  })
+})
+
+describe("review — sectioned layout", async () => {
+  const { reviewChunks, reviewDecisions, reviewSections, sectionedReview, unansweredNotes } =
+    await import("./review.js")
+  const boxes = (ticked?: 0 | 1 | 2): string[] => [
+    "Tick exactly one:",
+    "",
+    `- [${ticked === 0 ? "x" : " "}] fix as suggested`,
+    `- [${ticked === 1 ? "x" : " "}] won't fix`,
+    `- [${ticked === 2 ? "x" : " "}] _your answer_`,
+  ]
+  const head = [
+    "# Review: abc1234",
+    "",
+    "<!-- base: abc1234def5678901234567890123456789abcd -->",
+    "",
+  ]
+  const sectioned = (ticked?: 0 | 1 | 2): string =>
+    [
+      ...head,
+      "## Findings",
+      "",
+      "### A finding",
+      "",
+      "_critical: security_",
+      "",
+      "Leaks a token.",
+      "",
+      "- [ ] ./src/a.ts#1-2 — here",
+      "",
+      ...boxes(ticked),
+      "",
+      "## Walkthrough",
+      "",
+      "### Wiring",
+      "",
+      "- [x] ./src/b.ts#3-4 — wires it",
+      "",
+      "## Fixed automatically",
+      "",
+      "- f (fedcba9)",
+      "",
+    ].join("\n")
+
+  it("reads `###` chunks under the sections and other `## ` chunks on their own", () => {
+    expect(review.validate(sectioned())).toEqual([])
+    expect(reviewChunks(sectioned())).toEqual([
+      expect.objectContaining({ title: "A finding", line: 6, pointers: 1, section: "findings" }),
+      expect.objectContaining({ title: "Wiring", line: 22, pointers: 1, section: "walkthrough" }),
+      { title: "Fixed automatically", line: 26, pointers: 0, files: [] },
+    ])
+    expect(reviewSections(sectioned())).toEqual([
+      { section: "findings", line: 4 },
+      { section: "walkthrough", line: 20 },
+    ])
+  })
+
+  it("reads a decision from a finding", () => {
+    expect(unansweredNotes(sectioned())).toEqual([
+      { title: "A finding", line: 7, reason: "tick exactly one box" },
+    ])
+    expect(reviewDecisions(sectioned(), sectioned(1))).toEqual([
+      expect.objectContaining({ anchor: "A finding", choice: "wontfix" }),
+    ])
+  })
+
+  it("reads no decision in the walkthrough: boxes there are a chunk gone wrong", () => {
+    const content = sectioned(0).replace(
+      "- [x] ./src/b.ts#3-4 — wires it\n",
+      ["- [x] ./src/b.ts#3-4 — wires it", "", ...boxes(1), ""].join("\n"),
+    )
+    expect(unansweredNotes(content)).toEqual([])
+    expect(reviewDecisions(sectioned(), content)).toEqual([
+      expect.objectContaining({ anchor: "A finding", choice: "fix" }),
+    ])
+  })
+
+  it("still reads the flat layout, every `## ` a chunk and its boxes a decision", () => {
+    const flat = [...head, "## A finding", "", "Leaks a token.", "", ...boxes(), ""].join("\n")
+    expect(review.validate(flat)).toEqual([])
+    expect(reviewChunks(flat)).toEqual([{ title: "A finding", line: 4, pointers: 0, files: [] }])
+    expect(unansweredNotes(flat)).toHaveLength(1)
+  })
+
+  it("outlines the sections as containers, each finding's decision a node of its own", () => {
+    const outline = viewOf(review, sectioned()).outline
+    expect(outline.map((n) => n.name)).toEqual(["Findings", "Walkthrough", "Fixed automatically"])
+    expect(outline[0]!.children!.map((n) => n.name)).toEqual(["A finding (0/1)"])
+    expect(outline[0]!.children![0]!.children!.map((n) => n.name)).toEqual(["Decision: open"])
+    expect(outline[0]!.children![0]!.children![0]!.selectionRange.start.line).toBe(14)
+    // A fully ticked walkthrough chunk is reviewed: its section is left empty.
+    expect(outline[1]!.children).toEqual([])
+  })
+
+  it("names the ticked decision, and keeps a decided finding while a hunk is unticked", () => {
+    const outline = viewOf(review, sectioned(1)).outline
+    expect(outline[0]!.children![0]!.children!.map((n) => n.name)).toEqual(["Decision: won't fix"])
+  })
+
+  it("groups the view's chunks by section, anchors unchanged", () => {
+    const { nodes } = review.view(sectioned())
+    expect(nodes.map((n) => [n.title, n.group, n.anchor])).toEqual([
+      ["A finding", "Findings", { kind: "chunk", index: 0 }],
+      ["Wiring", "Walkthrough", { kind: "chunk", index: 1 }],
+      ["Fixed automatically", undefined, { kind: "chunk", index: 2 }],
+    ])
+  })
+
+  it("offers a chunk's toggle only within its own span, never on the next section's heading", () => {
+    const titles = viewOf(review, sectioned())
+      .actionsAt({ start: { line: 20, character: 0 }, end: { line: 20, character: 0 } })
+      .map((a) => a.title)
+    expect(titles.some((t) => t.includes("A finding"))).toBe(false)
+  })
+
+  describe("sectionedReview", () => {
+    const flat = [
+      ...head,
+      "## Weakened scenarios",
+      "",
+      "- a.feature — s — Then x",
+      "",
+      "## A finding",
+      "",
+      "_should: contract_",
+      "",
+      "Leaks a token.",
+      "",
+      ...boxes(),
+      "",
+      "Wiring",
+      "------",
+      "",
+      "### Detail",
+      "",
+      "- [ ] ./src/b.ts#3-4 — wires it",
+      "",
+      "## Fixed automatically",
+      "",
+      "- f (fedcba9)",
+      "",
+    ].join("\n")
+
+    it("moves boxed chunks under Findings and the named ones under Walkthrough, a level deeper", () => {
+      expect(sectionedReview(flat, new Set(["Wiring"]))).toBe(
+        [
+          ...head,
+          "## Weakened scenarios",
+          "",
+          "- a.feature — s — Then x",
+          "",
+          "## Findings",
+          "",
+          "### A finding",
+          "",
+          "_should: contract_",
+          "",
+          "Leaks a token.",
+          "",
+          ...boxes(),
+          "",
+          "## Walkthrough",
+          "",
+          "### Wiring",
+          "",
+          "#### Detail",
+          "",
+          "- [ ] ./src/b.ts#3-4 — wires it",
+          "",
+          "## Fixed automatically",
+          "",
+          "- f (fedcba9)",
+          "",
+        ].join("\n"),
+      )
+    })
+
+    it("is valid and stable once sectioned", () => {
+      const once = sectionedReview(flat, new Set(["Wiring"]))
+      expect(review.validate(once)).toEqual([])
+      expect(sectionedReview(once, new Set(["Wiring"]))).toBe(once)
+    })
+
+    it("leaves a review with nothing to group byte for byte", () => {
+      const plain = [...head, "## Nothing to note", "", "Review the diff yourself.", ""].join("\n")
+      expect(sectionedReview(plain, new Set())).toBe(plain)
+    })
   })
 })

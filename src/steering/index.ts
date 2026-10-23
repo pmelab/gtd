@@ -16,11 +16,15 @@ export {
   reviewDecisions,
   reviewNotes,
   reviewRisks,
+  reviewSections,
+  REVIEW_SECTIONS,
+  sectionedReview,
   severityLine,
   unansweredNotes,
   type ReviewChoice,
   type ReviewDecision,
   type ReviewNote,
+  type ReviewSection,
 } from "./review.js"
 export { applySteeringEdits } from "./Edits.js"
 
