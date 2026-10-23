@@ -19,6 +19,8 @@ import {
   buildReviewCollectingPrompt,
   designGateAnswerMessage,
   designTriagePrompt,
+  normaliseCriteriaScript,
+  prototypeTestingPrompt,
   implementBuildingPrompt,
   implementFixPrompt,
   naivePassPrompt,
@@ -167,6 +169,37 @@ describe("the risk tier prompt and gate line", () => {
     expect(gate(true)).toContain("means `high`")
     expect(gate(false)).not.toContain("Risk Tier")
     expect(gate(true).startsWith(gate(false))).toBe(true)
+  })
+})
+
+describe("the (no hands-on) tag", () => {
+  it("is explained at triage and at the design gate", () => {
+    expect(renderText(() => designTriagePrompt("base"))).toContain(
+      "`- AC-<n> (no hands-on): <criterion>`",
+    )
+    expect(renderText(() => designGateAnswerMessage())).toContain(
+      "add or remove `(no hands-on)` between an `AC-<n>` and its colon",
+    )
+  })
+
+  it("names the tagged criteria the testing turn skips, and only when there are any", () => {
+    expect(renderText(() => prototypeTestingPrompt(undefined, ["AC-2", "AC-3"], false))).toContain(
+      "- Skip AC-2, AC-3: tagged `(no hands-on)`",
+    )
+    expect(renderText(() => prototypeTestingPrompt(undefined, [], false))).not.toContain("Skip")
+  })
+
+  it("is kept when the stated criteria are recorded", () => {
+    const script = normaliseCriteriaScript({
+      path: "TODO.md",
+      commit: "abc",
+      criteria: [
+        { id: "AC-1", text: "a" },
+        { id: "AC-2", text: "b", noHandsOn: true },
+      ],
+    })
+    expect(script).toContain("'- AC-1: a'")
+    expect(script).toContain("'- AC-2 (no hands-on): b'")
   })
 })
 

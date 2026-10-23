@@ -734,6 +734,14 @@ step re-reads them from the file.
   `implement.fix.suite.fixing` turn that edits them (`criteria-frozen`).
   `seam.steer` is a human gate and may, but its edit must leave ID'd criteria,
   as at triage.
+- **No hands-on.** A criterion no person can try by using the change — prompt or
+  message wording, internal wiring, anything only a test observes — carries
+  `(no hands-on)` between its ID and the colon:
+  `- AC-<n> (no hands-on): <criterion>`. Triage is asked to tag such criteria,
+  you may add or remove the tag at the design gate (or in a stated list on the
+  skip path), and it is frozen with the criteria after design.
+  [The hands-on test](#the-hands-on-test) skips a tagged criterion; coverage
+  still requires a test for it.
 - **Stable after review.** A review feedback lap's design keeps a built
   criterion's ID — reworded in place when the review changes that behaviour, or
   deleted when it drops it — and numbers new behaviour above every ID handed out
@@ -807,9 +815,14 @@ Ran `mycli sub 3 1`; printed 4. Expected 2.
 Each run printed a deprecation warning.
 ```
 
-One chunk per criterion, headed `## AC-<n>: pass|fail|blocked`, plus one per
-problem found beside them, headed `## Problem <title>: <verdict>`; under each,
-the steps run and what was seen. `gtd land` refuses the turn
+A criterion tagged [`(no hands-on)`](#acceptance-criteria) is skipped: the
+testing turn is told so and the report needs no chunk for it (one there is never
+an open item). A slice whose every criterion is tagged skips the hands-on test
+entirely: `implement.coverage` goes straight to `implement.closing`.
+
+One chunk per untagged criterion, headed `## AC-<n>: pass|fail|blocked`, plus
+one per problem found beside them, headed `## Problem <title>: <verdict>`; under
+each, the steps run and what was seen. `gtd land` refuses the turn
 (`prototype-report`) when it changes anything but `.gtd/PROTOTYPE.md`, or the
 report lacks exactly one chunk for a criterion of the slice, or has a criterion-
 or problem-like heading in neither shape. A chunk for a criterion another slice

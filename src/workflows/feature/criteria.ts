@@ -15,6 +15,8 @@ import * as t from "../shared/text.js"
 export interface Criterion {
   readonly id: string
   readonly text: string
+  /** Tagged `(no hands-on)`: its tests prove it, so the hands-on test skips it. */
+  readonly noHandsOn?: true
 }
 
 /** Acceptance criteria the human's sketch stated outright, ready to normalise. */
@@ -29,7 +31,13 @@ export interface StatedCriteria {
 /** Below this the judge's `yes` is not trusted: a wrong skip builds against criteria nobody can check. */
 const CLEAR_MIN_P = 0.8
 
-const ID = /^(AC-\d+):\s*(.*)$/
+const ID = /^(AC-\d+)(\s*\(no hands-on\))?:\s*(.*)$/
+
+const criterion = (id: RegExpExecArray, as = id[1]!): Criterion => ({
+  id: as,
+  text: id[3]!,
+  ...(id[2] === undefined ? {} : { noHandsOn: true }),
+})
 
 /** The list items under the first heading `title` matches (at `level` when given), up to the next heading; wrapped lines joined, fenced lines ignored. */
 const listUnder = (text: string, title: RegExp, level?: number): string[] | undefined => {
@@ -66,7 +74,7 @@ const listUnder = (text: string, title: RegExp, level?: number): string[] | unde
 export const criteriaOf = (text: string): readonly Criterion[] | undefined =>
   listUnder(text, /^acceptance criteria$/i, 2)?.map((item) => {
     const id = ID.exec(item)
-    return id === null ? { id: "", text: item } : { id: id[1]!, text: id[2]! }
+    return id === null ? { id: "", text: item } : criterion(id)
   })
 
 /**
@@ -90,6 +98,12 @@ export const criterionIds = (text: string, slice?: CriteriaSlice): string[] =>
         !(slice?.except ?? []).includes(id),
     )
 
+/** The ID'd criteria of `text` (`slice`'s when given) a person can try by hand: none tagged `(no hands-on)`. */
+export const handsOnIds = (text: string, slice?: CriteriaSlice): string[] => {
+  const tagged = (criteriaOf(text) ?? []).filter((c) => c.noHandsOn).map((c) => c.id)
+  return criterionIds(text, slice).filter((id) => !tagged.includes(id))
+}
+
 /** `slice`'s IDs in `.gtd/REQUIREMENTS.md` as it is now; `undefined` for an unsliced change. */
 export const sliceIds = (slice: CriteriaSlice | undefined): string[] | undefined =>
   slice === undefined ? undefined : criterionIds(read(REQUIREMENTS) ?? "", slice)
@@ -98,11 +112,11 @@ export const sliceIds = (slice: CriteriaSlice | undefined): string[] | undefined
 const numbered = (items: readonly string[]): Criterion[] => {
   const ids = items.map((item) => ID.exec(item))
   const own = ids.every((id) => id !== null) && new Set(ids.map((id) => id![1])).size === ids.length
-  return items.map((item, i) =>
-    own
-      ? { id: ids[i]![1]!, text: ids[i]![2]! }
-      : { id: `AC-${i + 1}`, text: item.replace(ID, "$2") },
-  )
+  return items.map((item, i) => {
+    const id = ids[i]
+    if (own) return criterion(id!)
+    return id === null ? { id: `AC-${i + 1}`, text: item } : criterion(id!, `AC-${i + 1}`)
+  })
 }
 
 const STATED = /^acceptance criteria:?$/i
