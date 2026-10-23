@@ -8,7 +8,7 @@ import {
   scope,
 } from "../../flows/index.js"
 import { REQUIREMENTS } from "../shared/steps.js"
-import { requireCriteria } from "./criteria.js"
+import { requireCriteria, requireImpact } from "./criteria.js"
 import { answerProductQuestions, triage } from "./steps.js"
 
 /**
@@ -33,6 +33,7 @@ export const design = (base: string, guard?: () => void): Promise<void> =>
       requireProgress(REQUIREMENTS)
       requireReplies(REQUIREMENTS)
       requireCriteria(REQUIREMENTS)
+      requireImpact(REQUIREMENTS)
       guard?.()
     } while (await noteGate(REQUIREMENTS, answerProductQuestions))
   })

@@ -248,6 +248,10 @@ The greeting is user-visible.
 
 1. PRODUCT: add `hello.sh`, printing a greeting.
 
+## Impact
+
+- the repository root: `hello.sh`
+
 ## Acceptance Criteria
 
 - AC-1: `sh hello.sh` prints the chosen greeting.

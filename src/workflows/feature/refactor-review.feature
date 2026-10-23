@@ -48,6 +48,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
       - `subtract(a, b)` returns `a - b`.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -145,6 +149,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       ### Subtract
 
       - `subtract(a, b)` returns `a - b`.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -244,6 +252,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         ### Subtract
 
         - `subtract(a, b)` returns `a - b`.
+
+        ## Impact
+
+        - the greeting module
 
         ## Acceptance Criteria
 
@@ -1210,6 +1222,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         - `subtract(a, b)` returns `a - b`.
 
+        ## Impact
+
+        - the greeting module
+
         ## Acceptance Criteria
 
         - AC-1: the change behaves as described.
@@ -1336,6 +1352,10 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
         ### Subtract
 
         - `subtract(a, b)` returns `a - b`.
+
+        ## Impact
+
+        - the greeting module
 
         ## Acceptance Criteria
 

@@ -36,6 +36,10 @@ Feature: every note in the review is answered with one tick
 
       - `subtract(a, b)` returns `a - b`.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.

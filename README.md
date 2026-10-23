@@ -441,9 +441,12 @@ noted in steps 3 and 4 below.
    entry is the agent's, moving on is refused. Leave the file untouched and
    start the loop to accept the plan as-is, unanswered questions and all. The
    file lists numbered acceptance criteria (`AC-1`, `AC-2`, …) that bind the
-   build. Sketch your own under an `Acceptance criteria` heading and, when a
+   build, and an `## Impact` section mapping the units and public surfaces the
+   change touches — correct it here and the next lap re-explores from your edit.
+   Sketch your own criteria under an `Acceptance criteria` heading and, when a
    judge finds every one clear and checkable, they are recorded as they are and
-   this moment is skipped; one vague criterion brings it back. See
+   this moment is skipped: a `design.impact` agent turn writes Impact instead,
+   unreviewed. One vague criterion brings the moment back. See
    [Acceptance criteria](docs/configuration.md#acceptance-criteria).
 
 3. **You wait.** The agent first implements the requirements the quickest way

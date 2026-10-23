@@ -45,6 +45,10 @@ Feature: the naive pass and seam judge decide how a feature is built
 
       - `subtract(a, b)` returns `a - b`.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -233,6 +237,10 @@ Feature: the naive pass and seam judge decide how a feature is built
       ### Subtract
 
       - `subtract(a, b)` returns `a - b`, in a new module.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 

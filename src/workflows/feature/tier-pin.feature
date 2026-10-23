@@ -34,6 +34,10 @@ Feature: a process keeps the risk tier setting it started with when GTD_FLAG_RIS
 
       low — a new pure function
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.

@@ -36,6 +36,10 @@ Feature: a change with more criteria than the cap is built in coarse slices
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.
@@ -69,6 +73,10 @@ Feature: a change with more criteria than the cap is built in coarse slices
     Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
       """
       # Requirements
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -133,6 +141,10 @@ Feature: a change with more criteria than the cap is built in coarse slices
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.
@@ -155,6 +167,10 @@ Feature: a change with more criteria than the cap is built in coarse slices
     Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
       """
       # Requirements
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -181,6 +197,10 @@ Feature: a change with more criteria than the cap is built in coarse slices
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.
@@ -190,6 +210,10 @@ Feature: a change with more criteria than the cap is built in coarse slices
     And step "design.slicing" writes ".gtd/REQUIREMENTS.md" with:
       """
       # Requirements
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -214,6 +238,10 @@ Feature: a change with more criteria than the cap is built in coarse slices
     Given step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
       """
       # Requirements
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -243,6 +271,10 @@ Feature: a change with more criteria than the cap is built in coarse slices
     Given a file ".gtd/REQUIREMENTS.md" with:
       """
       # Requirements
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 

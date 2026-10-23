@@ -68,6 +68,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
       `greet()` returns "hello" instead of "hi".
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -381,6 +385,10 @@ Feature: The bundled unified workflow — one flow, end to end
       `// TODO: also export a sum() alias` comment; add a `sum` export
       alongside `add`.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -474,6 +482,10 @@ Feature: The bundled unified workflow — one flow, end to end
       TECHNICAL — the review hand-edited `src/calc.ts` with a  # gtd-path-exempt: scenario fixture, not a repo file
       `// TODO: also export a sum() alias` comment; add a `sum` export
       alongside `add`.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -661,6 +673,10 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       ## Export doubled
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -741,6 +757,10 @@ Feature: The bundled unified workflow — one flow, end to end
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       ## Export doubled
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -834,6 +854,10 @@ Feature: The bundled unified workflow — one flow, end to end
       """
       ## Export doubled
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -890,6 +914,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -910,6 +938,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -929,6 +961,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [x] SQLite — zero-config, file-based
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -965,6 +1001,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] Postgres
       - [ ] _your answer_
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -974,6 +1014,10 @@ Feature: The bundled unified workflow — one flow, end to end
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a widget.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -1010,6 +1054,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] raw SQL
       - [ ] _your answer_
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -1029,6 +1077,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] raw SQL
       - [x] _your answer_
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -1047,6 +1099,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] Prisma
       - [ ] raw SQL
       - [x] Drizzle — typed, lightweight
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -1088,6 +1144,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] Postgres — for concurrent writers
       - [ ] _your answer_
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -1107,6 +1167,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ### Which storage backend?
 
       SQLite — zero-config, file-based.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -1129,6 +1193,10 @@ Feature: The bundled unified workflow — one flow, end to end
       - [ ] LRU
       - [ ] TTL
       - [ ] _your answer_
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -1164,6 +1232,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ### Which storage backend?
 
       SQLite — no concurrent writers, a confident default.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -1220,6 +1292,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
       Add a `real` export. Also expose a helper that doubles it (folded in
       from the human's scratch note).
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -1327,6 +1403,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
       Also export a `B` constant.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -1342,6 +1422,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Add B
 
       Export a `B` constant from fileB.ts.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -1428,6 +1512,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Widget factory
 
       Add a widget factory.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 
@@ -2397,6 +2485,10 @@ Feature: The bundled unified workflow — one flow, end to end
     Given a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 

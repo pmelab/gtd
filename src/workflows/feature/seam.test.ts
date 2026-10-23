@@ -109,7 +109,8 @@ describe("naivePass", () => {
 })
 
 describe("naiveAcceptance and requireAcceptance", () => {
-  const requirements = "# R\n\n## Acceptance Criteria\n\n- AC-1: adds.\n- AC-2: subtracts.\n"
+  const requirements =
+    "# R\n\n## Impact\n\n- the module\n\n## Acceptance Criteria\n\n- AC-1: adds.\n- AC-2: subtracts.\n"
   const file = (path: string, before: string | undefined, after: string): Change => ({
     path,
     status: before === undefined ? "added" : "modified",
@@ -170,7 +171,8 @@ describe("naiveAcceptance and requireAcceptance", () => {
 })
 
 describe("acceptanceFault", () => {
-  const requirements = "# R\n\n## Acceptance Criteria\n\n- AC-1: adds.\n- AC-2: subtracts.\n"
+  const requirements =
+    "# R\n\n## Impact\n\n- the module\n\n## Acceptance Criteria\n\n- AC-1: adds.\n- AC-2: subtracts.\n"
   const file = (path: string, status: Change["status"], after: string): Change => ({
     path,
     status,

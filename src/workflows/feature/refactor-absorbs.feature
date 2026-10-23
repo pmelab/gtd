@@ -37,6 +37,10 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
 
       - `subtract(a, b)` returns `a - b`.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.

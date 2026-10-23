@@ -93,7 +93,7 @@ Feature: the packed package — gtd installed from its own tarball
     And a stub agent script that responds to prompts with:
       """
       mkdir -p .gtd
-      printf '## Acceptance Criteria\n\n- AC-1: a calculator exists.\n' > .gtd/REQUIREMENTS.md
+      printf '## Impact\n\n- the calculator module\n\n## Acceptance Criteria\n\n- AC-1: a calculator exists.\n' > .gtd/REQUIREMENTS.md
       """
     And the driver pasted from docs/driver.md
     When I run the pasted script

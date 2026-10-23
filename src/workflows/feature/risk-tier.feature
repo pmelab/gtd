@@ -50,6 +50,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
 
         low — trivial copy change
 
+        ## Impact
+
+        - the greeting module
+
         ## Acceptance Criteria
 
         - AC-1: the change behaves as described.
@@ -68,6 +72,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Risk Tier
 
         high — touches payments
+
+        ## Impact
+
+        - the greeting module
 
         ## Acceptance Criteria
 
@@ -88,6 +96,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Concerns
 
         ### Subtract
+
+        ## Impact
+
+        - the greeting module
 
         ## Acceptance Criteria
 
@@ -118,6 +130,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         - error rate on /subtract stays flat
         - p95 latency
 
+        ## Impact
+
+        - the greeting module
+
         ## Acceptance Criteria
 
         - AC-1: the change behaves as described.
@@ -141,6 +157,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Risk Tier
 
         low — trivial copy change
+
+        ## Impact
+
+        - the greeting module
 
         ## Acceptance Criteria
 
@@ -186,6 +206,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Concerns
 
         ### Subtract
+
+        ## Impact
+
+        - the greeting module
 
         ## Acceptance Criteria
 
@@ -233,6 +257,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
 
         - error rate stays flat
 
+        ## Impact
+
+        - the greeting module
+
         ## Acceptance Criteria
 
         - AC-1: the change behaves as described.
@@ -257,6 +285,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Risk Tier
 
         low — trivial
+
+        ## Impact
+
+        - the greeting module
 
         ## Acceptance Criteria
 

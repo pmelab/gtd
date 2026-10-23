@@ -33,6 +33,10 @@ Feature: each quality lens runs on its own model hint
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: `subtract(a, b)` returns `a - b`.

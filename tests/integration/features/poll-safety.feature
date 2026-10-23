@@ -68,6 +68,10 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
       - [ ] Search
       - [ ] Export
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.

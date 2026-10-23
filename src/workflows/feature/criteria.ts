@@ -1,15 +1,17 @@
 import {
   answered,
   changes,
+  head,
   judge,
   read,
   refuse,
+  requireProgress,
   run,
   scope,
   type Change,
 } from "../../flows/index.js"
 import { HEADING, ITEM, markFenced } from "../shared/fences.js"
-import { REQUIREMENTS } from "../shared/steps.js"
+import { planner, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 
 export interface Criterion {
@@ -165,6 +167,54 @@ export const requireCriteria = (file: string): void => {
   )
 }
 
+const isImpactHeading = (h: RegExpExecArray | null): boolean =>
+  h !== null && h[1]!.length === 2 && /^impact$/i.test(h[2]!.trim())
+
+/** Whether `text` has an unfenced, level-2 `## Impact` heading. */
+export const hasImpact = (text: string): boolean =>
+  markFenced(text).some((l) => !l.fenced && isImpactHeading(HEADING.exec(l.line)))
+
+/** `text` without its `## Impact` section, whitespace collapsed. */
+const withoutImpact = (text: string): string => {
+  let inImpact = false
+  const kept = markFenced(text).filter((l) => {
+    const h = l.fenced ? null : HEADING.exec(l.line)
+    if (h !== null && h[1]!.length <= 2) inImpact = isImpactHeading(h)
+    return !inImpact
+  })
+  return kept
+    .map((l) => l.line)
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+}
+
+/**
+ * Refuse a turn that leaves `file` without a `## Impact` section. Only the
+ * pending turn (`head()` is `""`): a triage lap recorded before Impact existed
+ * replays without one, and refusing there would fail every in-flight process.
+ * A human's edit at a later gate is not checked — the human owns that file then.
+ */
+export const requireImpact = (file: string): void => {
+  if (head() !== "") return
+  const text = read(file)
+  if (text === undefined) return
+  if (hasImpact(text)) return
+  refuse(
+    `gtd land: impact: ${file} has no "## Impact" section — explore the codebase and add "## Impact" naming the units, public surfaces and surprises this change touches`,
+  )
+}
+
+/** Refuse a turn that changed `file` beyond its `## Impact` section. */
+export const requireImpactOnly = (file: string): void => {
+  const change = changes().get(file)
+  if (change === undefined) return
+  if (withoutImpact(change.before ?? "") === withoutImpact(change.after ?? "")) return
+  refuse(
+    `gtd land: impact-only: this turn may only add "## Impact" to ${file} — restore everything else`,
+  )
+}
+
 /** The IDs a review's feedback lap must respect. */
 export interface StableIds {
   /** Listed when the build closed: each may stay, reworded or not, or go. */
@@ -211,6 +261,20 @@ const clear = async (stated: StatedCriteria): Promise<boolean> => {
   return truncated.length === 0 && answered(answers.clear, "yes", CLEAR_MIN_P)
 }
 
+/** The fast path's impact-only turn: add `## Impact`, leave the criteria alone. */
+const impact = async (): Promise<void> => {
+  await t.agentWithSkills("impact", t.designImpactPrompt(), {
+    label: "Mapping the change's impact",
+    file: REQUIREMENTS,
+    model: planner(),
+    system: t.designSystem(),
+  })
+  requireProgress(REQUIREMENTS)
+  requireCriteriaFrozen(REQUIREMENTS)
+  requireImpact(REQUIREMENTS)
+  requireImpactOnly(REQUIREMENTS)
+}
+
 /**
  * The skip path: when the sketch stated clear, checkable criteria, write them
  * to `.gtd/REQUIREMENTS.md` as they are and resolve `true` — no triage, no
@@ -225,6 +289,7 @@ export const skipDesign = (stated: StatedCriteria | undefined): Promise<boolean>
           label: "Recording the stated acceptance criteria",
           file: REQUIREMENTS,
         })
+        await impact()
         return true
       })
 

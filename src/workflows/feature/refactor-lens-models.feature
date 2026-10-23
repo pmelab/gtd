@@ -29,6 +29,10 @@ Feature: the refactor review's lenses take their model hints from refactorQualit
 
       - `subtract(a, b)` returns `a - b`.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.

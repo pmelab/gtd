@@ -162,6 +162,10 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
       """
       a sketch
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -190,6 +194,10 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
       """
       a sketch
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -217,6 +225,10 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       a sketch
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 

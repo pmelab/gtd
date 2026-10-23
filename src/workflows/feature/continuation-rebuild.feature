@@ -31,6 +31,10 @@ Feature: a rebuild stopped at its context limit is continued on the branch
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: `subtract(5, 3)` returns 2.

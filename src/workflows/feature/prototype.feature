@@ -30,6 +30,10 @@ Feature: every observable criterion is tested by hand before the quality lap
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.
@@ -235,6 +239,10 @@ Feature: every observable criterion is tested by hand before the quality lap
     And step "implement.prototype.fix.fixing" writes ".gtd/REQUIREMENTS.md" with:
       """
       # Requirements
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 

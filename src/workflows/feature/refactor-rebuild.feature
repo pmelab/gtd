@@ -37,6 +37,10 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
 
       - `subtract(a, b)` returns `a - b`.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract returns the difference.

@@ -99,7 +99,7 @@ describe("afterTail feedback lap", () => {
       "build.review.collecting": (_, r) => {
         r.write(
           ".gtd/REQUIREMENTS.md",
-          "# Requirements\n\n- multiply\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+          "# Requirements\n\n- multiply\n\n## Impact\n\n- the module\n\n## Acceptance Criteria\n\n- AC-1: done\n",
         )
         r.write(".gtd/REVIEW.md", `${review("also export multiply")}    - A: noted.\n`)
       },
@@ -115,7 +115,7 @@ describe("afterTail feedback lap", () => {
     "design.triage": (_: unknown, r: ReturnType<typeof testRepo>) =>
       r.write(
         ".gtd/REQUIREMENTS.md",
-        "# Requirements\n\n- multiply, designed\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+        "# Requirements\n\n- multiply, designed\n\n## Impact\n\n- the module\n\n## Acceptance Criteria\n\n- AC-1: done\n",
       ),
     "design.gate.answer": () => undefined,
   }
@@ -214,7 +214,7 @@ describe("an in-flight 28.0.0 naive-pass process", () => {
       "design.triage": (_, r) =>
         r.write(
           ".gtd/REQUIREMENTS.md",
-          "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+          "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n\n## Impact\n\n- the module\n\n## Acceptance Criteria\n\n- AC-1: done\n",
         ),
       "design.gate.answer": () => undefined,
       "seam.naive": (_, r) => {
@@ -258,6 +258,7 @@ describe("an in-flight 28.0.0 naive-pass process", () => {
 })
 
 describe("an in-flight process from before the architecture path was removed", () => {
+  // No `## Impact`: no version before it wrote one, and replaying its triage must not refuse.
   const REQUIREMENTS =
     "# Requirements\n\n## Concerns\n\n### Subtract\n\n- `subtract`\n\n## Acceptance Criteria\n\n- AC-1: done\n"
 
@@ -321,7 +322,7 @@ describe("flagMode", () => {
       "design.triage": (_, r) =>
         r.write(
           ".gtd/REQUIREMENTS.md",
-          "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+          "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n\n## Impact\n\n- the module\n\n## Acceptance Criteria\n\n- AC-1: done\n",
         ),
       "design.gate.answer": () => undefined,
     })
@@ -342,7 +343,7 @@ describe("flagMode", () => {
       "design.triage": (_, r) =>
         r.write(
           ".gtd/REQUIREMENTS.md",
-          "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n\n## Acceptance Criteria\n\n- AC-1: done\n",
+          "# Requirements\n\n## Concerns\n\n### S\n\n- `s`\n\n## Impact\n\n- the module\n\n## Acceptance Criteria\n\n- AC-1: done\n",
         ),
       "design.gate.answer": () => undefined,
       "seam.naive": (_, r) => {

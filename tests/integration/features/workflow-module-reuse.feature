@@ -124,6 +124,10 @@ Feature: a gtd.config.ts builds on the shipped workflows through @pmelab/gtd/wor
 
       Export `subtract()`.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -173,6 +177,10 @@ Feature: a gtd.config.ts builds on the shipped workflows through @pmelab/gtd/wor
       # Requirements
 
       - subtract
+
+      ## Impact
+
+      - the greeting module
 
       ## Acceptance Criteria
 

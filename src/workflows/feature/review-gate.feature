@@ -36,6 +36,10 @@ Feature: a feature process ends at the human review
 
       - `subtract(a, b)` returns `a - b`.
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.
@@ -192,6 +196,10 @@ Feature: a feature process ends at the human review
 
         - `multiply(a, b)` returns `a * b`.
 
+        ## Impact
+
+        - the greeting module
+
         ## Acceptance Criteria
 
         - AC-1: subtract(a, b) returns a - b.
@@ -237,6 +245,10 @@ Feature: a feature process ends at the human review
         ### Multiply
 
         - `multiply(a, b)` returns `a * b`.
+
+        ## Impact
+
+        - the greeting module
 
         ## Acceptance Criteria
 

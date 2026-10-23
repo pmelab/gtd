@@ -30,6 +30,10 @@ Feature: every slice's quality lap is triaged, and its leftovers wait for the re
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.

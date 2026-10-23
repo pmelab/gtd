@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest"
 import type { Change } from "../../flows/index.js"
-import { criteriaOf, criterionIds, handsOnIds, statedCriteria, unstableIds } from "./criteria.js"
+import {
+  criteriaOf,
+  criterionIds,
+  handsOnIds,
+  hasImpact,
+  statedCriteria,
+  unstableIds,
+} from "./criteria.js"
 
 const added = (path: string, after: string): Change => ({
   path,
@@ -175,5 +182,19 @@ describe("unstableIds", () => {
 
   it("names every reused ID", () => {
     expect(unstableIds(["AC-0", "AC-2"], ids)).toMatch(/^numbers AC-0, AC-2 at or below AC-3/)
+  })
+})
+
+describe("hasImpact", () => {
+  it.each([
+    ["a level-2 heading", "# R\n\n## Impact\n\nx\n", true],
+    ["a mixed-case heading", "## impact\n", true],
+    ["a level-3 heading", "### Impact\n", false],
+    ["a level-1 heading", "# Impact\n", false],
+    ["a longer heading", "## Impactful\n", false],
+    ["a fenced heading", "```md\n## Impact\n```\n", false],
+    ["no heading", "# R\n\nImpact\n", false],
+  ])("%s", (_name, text, expected) => {
+    expect(hasImpact(text)).toBe(expected)
   })
 })

@@ -31,6 +31,10 @@ Feature: the final review lists the findings that matter most first
       """
       # Requirements
 
+      ## Impact
+
+      - the greeting module
+
       ## Acceptance Criteria
 
       - AC-1: subtract(a, b) returns a - b.
