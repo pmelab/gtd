@@ -110,9 +110,9 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
 
       <!-- base: 0000000 -->
 
-      ## calc
+      ## Walkthrough
 
-      _critical: judge unsure_
+      ### calc
 
       - [x] ./src/calc.ts#1-2
         add built on the shared op
@@ -181,9 +181,9 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
 
       <!-- base: 0000000 -->
 
-      ## calc
+      ## Walkthrough
 
-      _critical: judge unsure_
+      ### calc
 
       - [x] ./src/calc.ts#1-2
         add built on the shared op
@@ -234,9 +234,9 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
 
       <!-- base: 0000000 -->
 
-      ## calc
+      ## Walkthrough
 
-      _critical: judge unsure_
+      ### calc
 
       - [x] ./src/calc.ts#1-2
         add built on the shared op

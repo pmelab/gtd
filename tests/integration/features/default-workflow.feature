@@ -217,7 +217,7 @@ Feature: The bundled unified workflow — one flow, end to end
     Then it succeeds
     And the last commit subject is "gtd(agent): build.review.reviewing → build.review.ranking"
 
-    # The judge rates every chunk; gtd lists them by severity, each led by its tier.
+    # The judge rates every chunk; gtd sorts them into findings and the walkthrough.
     Given gtd lands "gtd(judge): build.review.ranking → build.review.carrying" judging:
       """
       [{"id":"C1.security","answer":"no","p":0.9},{"id":"C1.reversibility","answer":"two-way","p":0.9},{"id":"C1.blastRadius","answer":"local","p":0.9},{"id":"C1.newConcept","answer":"no","p":0.9}]
@@ -227,7 +227,8 @@ Feature: The bundled unified workflow — one flow, end to end
     And I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): build.review.carrying → build.review.await-review"
-    And ".gtd/REVIEW.md" contains "_could_"
+    And ".gtd/REVIEW.md" contains "## Walkthrough"
+    And ".gtd/REVIEW.md" contains "### Friendlier greeting"
     When I run gtd next
     Then it succeeds
     And stdout contains "State: build.review.await-review"
@@ -238,9 +239,9 @@ Feature: The bundled unified workflow — one flow, end to end
       # Review: abc1234
       <!-- base: abc1234def5678901234567890123456789abcd -->
 
-      ## Friendlier greeting
+      ## Walkthrough
 
-      _could_
+      ### Friendlier greeting
 
       - [x] ./src/greeter.ts#1
       new return value

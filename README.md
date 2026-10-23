@@ -631,19 +631,20 @@ gtd door review <commitish>
 starts a review of everything from `<commitish>` to HEAD — the same review a
 `feature` process ends with, minus planning and building. A green gate, then the
 quality lenses: mechanical findings are fixed, noise is dropped, and the rest
-become notes in `.gtd/REVIEW.md`, one tick box each. Tick `fix as suggested` or
-write your own answer and the process fixes it in place — your own answers that
-ask for a change are collected into `.gtd/REQUIREMENTS.md` and built by one
-`feedback.fixing` turn, with no design phase and no criteria — under the health
-loop, then asks for your review again. Sign off (or tick `won't fix`) and it
-closes; nothing is left behind. A note asking for new behaviour belongs in a
-`feature` process: tick `won't fix` and start one. `gtd door fix` repairs a red
-baseline as its own reviewed commit; a note at its review is left in
-`.gtd/REVIEW.md` (beside the reviewer's original, `.gtd/REVIEW.orig.md`) for the
-next `gtd door fix`, and until that runs, starting `feature` or `review` is
-refused — remove both files to abandon the hand-off. `gtd doors` lists the doors
-of the workflows your `gtd.config.ts` exports, plus any it adds.
-`gtd --workflow <name>` starts any workflow by name.
+become notes under `## Findings` in `.gtd/REVIEW.md`, one tick box each, apart
+from the walkthrough of the code under `## Walkthrough`, which you only tick as
+read. Tick `fix as suggested` or write your own answer and the process fixes it
+in place — your own answers that ask for a change are collected into
+`.gtd/REQUIREMENTS.md` and built by one `feedback.fixing` turn, with no design
+phase and no criteria — under the health loop, then asks for your review again.
+Sign off (or tick `won't fix`) and it closes; nothing is left behind. A note
+asking for new behaviour belongs in a `feature` process: tick `won't fix` and
+start one. `gtd door fix` repairs a red baseline as its own reviewed commit; a
+note at its review is left in `.gtd/REVIEW.md` (beside the reviewer's original,
+`.gtd/REVIEW.orig.md`) for the next `gtd door fix`, and until that runs,
+starting `feature` or `review` is refused — remove both files to abandon the
+hand-off. `gtd doors` lists the doors of the workflows your `gtd.config.ts`
+exports, plus any it adds. `gtd --workflow <name>` starts any workflow by name.
 
 The workflow itself is a plain async TypeScript function, and the
 `gtd.config.ts` at the repository root names it: the one `gtd install` writes

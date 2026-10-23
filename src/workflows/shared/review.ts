@@ -16,7 +16,14 @@ import {
   type Judgment,
   type ScopeAccess,
 } from "../../flows/index.js"
-import { reviewChunks, reviewRisks, type ReviewNote } from "../../steering/index.js"
+import {
+  REVIEW_SECTIONS,
+  reviewChunks,
+  reviewRisks,
+  reviewSections,
+  sectionedReview,
+  type ReviewNote,
+} from "../../steering/index.js"
 import * as kit from "../../workflow-kit/index.js"
 import { guarded, healthy, type EscalationCount } from "./health.js"
 import { NO_FINDINGS, type LensReport } from "./lenses.js"
@@ -231,11 +238,16 @@ const batched = <T extends { readonly evidence: string }>(
 }
 
 /**
- * Rates every chunk the reviewer wrote — a walkthrough chunk or a carried
- * finding — and sorts \`full\` by it, each chunk led by its tier and reason.
- * gtd's summary chunks are not rated and stay last.
+ * Rates every chunk the reviewer wrote and sorts the \`findings\` among them
+ * first in \`full\`, each led by its tier and reason; a walkthrough chunk
+ * keeps its place and carries no tier. It is still rated, so a review with no
+ * findings still reaches \`review.ranking\` and older histories replay.
  */
-const ranked = async (review: string, full: string): Promise<string> => {
+const ranked = async (
+  review: string,
+  full: string,
+  findings: ReadonlySet<string>,
+): Promise<string> => {
   const texts = t.chunkTexts(full)
   const chunks = reviewChunks(review).map((c, i) => ({
     id: `C${i + 1}`,
@@ -268,6 +280,7 @@ const ranked = async (review: string, full: string): Promise<string> => {
     full,
     chunks
       .map((c, i) => ({ c, i, s: severities.get(c.id)! }))
+      .filter(({ c }) => findings.has(c.title))
       .sort((x, y) => chunkKey(x.s) - chunkKey(y.s) || x.i - y.i)
       .map(({ c, s }) => ({ title: c.title, label: s.reason })),
   )
@@ -342,6 +355,10 @@ const requirePointers = (
     ...chunks
       .filter((c, i) => chunks.findIndex((d) => d.title === c.title) !== i)
       .map((c) => `  - ${REVIEW}:${c.line + 1}: ${c.title} — a second chunk with this title`),
+    ...reviewSections(review).map(
+      (s) =>
+        `  - ${REVIEW}:${s.line + 1}: ${REVIEW_SECTIONS[s.section]} — gtd sorts the chunks into sections; write \`## \` chunks only`,
+    ),
     // A risk is fixed before the human sees it; a note is the human's to decide.
     ...reviewRisks(review)
       .filter((r) => [...noted].some((title) => r.anchor.startsWith(`${title} ./`)))
@@ -377,7 +394,10 @@ const walkthrough = async (
     changesSince(base).some((c) => isCode(c.path)),
   )
   // Ranked even when it marks risks: the review written after their fix reaches the human with its own.
-  const full = await ranked(review, t.withWalkthrough(review, report))
+  const full = sectionedReview(
+    await ranked(review, t.withWalkthrough(review, report), new Set(notes.map((n) => n.title))),
+    new Set(reviewChunks(review).map((c) => c.title)),
+  )
   if (full !== written) {
     await run("review.carrying", writeScript(REVIEW, full), {
       label: "Ordering the review and adding the quality lap's findings",

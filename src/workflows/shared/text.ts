@@ -18,7 +18,9 @@ import {
   ANSWER_LEAD,
   ANSWER_WONT_FIX,
   FREE_TEXT_PLACEHOLDER,
+  REVIEW_SECTIONS,
   reviewChunks,
+  sectionedReview,
   severityLine,
 } from "../../steering/index.js"
 import { escapeRegExp } from "./registry.js"
@@ -149,6 +151,8 @@ export interface ComposedReview {
 }
 
 const SUMMARY_TITLES = [
+  REVIEW_SECTIONS.findings,
+  REVIEW_SECTIONS.walkthrough,
   "Weakened scenarios",
   "Fixed from your notes",
   "Fixed automatically",
@@ -448,7 +452,10 @@ export const composedReview = (base: string, report: ComposedReview): string => 
             "No quality lens raised anything for you — or none ran. Review the diff yourself.",
           ),
         ]
-  return `# Review: ${short(base)}\n\n<!-- base: ${base} -->\n\n${body.join("\n\n")}\n`
+  return sectionedReview(
+    `# Review: ${short(base)}\n\n<!-- base: ${base} -->\n\n${body.join("\n\n")}\n`,
+    new Set(),
+  )
 }
 
 export const startGateBlockedMessage = (): string =>

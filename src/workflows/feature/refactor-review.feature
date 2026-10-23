@@ -303,9 +303,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^why]
@@ -342,9 +342,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op
@@ -382,9 +382,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-1
           why a shared op?
@@ -475,9 +475,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op — this should change behaviour, not just structure
@@ -521,9 +521,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2 rename the helper
           add built on the shared op
@@ -550,9 +550,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op, lovely work
@@ -571,9 +571,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^q]
@@ -623,9 +623,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^q]
@@ -657,9 +657,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^q]
@@ -706,9 +706,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^n1]
@@ -734,9 +734,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^n1]
@@ -763,9 +763,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^q]
@@ -797,9 +797,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^n1]
@@ -825,9 +825,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op - this should change behaviour, not just structure[^q]
@@ -859,9 +859,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op - this should change behaviour, not just structure[^q]
@@ -906,9 +906,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^q]
@@ -940,9 +940,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^q]
@@ -988,9 +988,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op, lovely work[^q]
@@ -1022,9 +1022,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op, lovely work[^q]
@@ -1075,9 +1075,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [x] ./src/calc.ts#1-2
           add built on the shared op
@@ -1100,9 +1100,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op — rename `sign` to `direction`
@@ -1131,9 +1131,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op — rename `sign` to `direction`
@@ -1164,9 +1164,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
       Then the process rests at "refactor.build.review.await-review"
       And ".gtd/REVIEW.md" contains:
         """
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op
@@ -1284,9 +1284,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [x] ./src/calc.ts#1-2
           add built on the shared op
@@ -1475,9 +1475,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op[^why]
@@ -1517,9 +1517,9 @@ Feature: the refactor slice is reviewed on its own before the feature is impleme
 
         <!-- base: 0000000 -->
 
-        ## calc
+        ## Walkthrough
 
-        _critical: judge unsure_
+        ### calc
 
         - [ ] ./src/calc.ts#1-2
           add built on the shared op

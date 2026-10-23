@@ -121,7 +121,9 @@ Feature: every note in the review is answered with one tick
     Then the process rests at "build.review.await-review"
     And ".gtd/REVIEW.md" contains:
       """
-      ## AC-1 ignores floating point
+      ## Findings
+
+      ### AC-1 ignores floating point
 
       _critical: judge unsure_
 
@@ -229,3 +231,90 @@ Feature: every note in the review is answered with one tick
     And the text "- [ ] fix as suggested" in ".gtd/REVIEW.md" is replaced with ""
     And the text "Tick exactly one:" in ".gtd/REVIEW.md" is replaced with ""
     Then landing is refused with "its answer boxes were deleted"
+
+  Scenario: a review still in the flat layout, every chunk a `## `, is answered by its ticks
+    Given judge step "build.review.standards.judge" answers:
+      """
+      [{"id":"standard-1","answer":"no","p":0.9}]
+      """
+    When the process is driven
+    Then the process rests at "build.review.await-review"
+    Given a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## AC-1 ignores floating point
+
+      _critical: judge unsure_
+
+      Should subtract round? The criterion does not say.
+
+      In the code:
+
+      - [ ] ./src/calc.ts#2-2 — returns the raw difference
+
+      Tick exactly one:
+
+      - [ ] fix as suggested
+      - [x] won't fix
+      - [ ] _your answer_
+
+      ## Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+      """
+    When gtd lands
+    And the process is driven
+    Then the process rests at "idle"
+    And the commit "gtd(human): build.review.await-review → build.review.standards.judge" has a body containing "Gtd-Mark: wontfix=AC-1 ignores floating point"
+    And no commit body contains "build.review.triage"
+
+  Scenario: boxes ticked in the walkthrough answer nothing
+    Given judge step "build.review.standards.judge" answers:
+      """
+      [{"id":"standard-1","answer":"no","p":0.9}]
+      """
+    When the process is driven
+    Then the process rests at "build.review.await-review"
+    Given a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Findings
+
+      ### AC-1 ignores floating point
+
+      _critical: judge unsure_
+
+      Should subtract round? The criterion does not say.
+
+      In the code:
+
+      - [ ] ./src/calc.ts#2-2 — returns the raw difference
+
+      Tick exactly one:
+
+      - [ ] fix as suggested
+      - [x] won't fix
+      - [ ] _your answer_
+
+      ## Walkthrough
+
+      ### Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+
+      Tick exactly one:
+
+      - [x] fix as suggested
+      - [ ] won't fix
+      - [ ] _your answer_
+      """
+    When gtd lands
+    And the process is driven
+    Then the process rests at "idle"
+    And no commit body contains "build.review.fix.nits.fixing"

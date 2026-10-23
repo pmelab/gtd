@@ -1,12 +1,13 @@
 @inmem
-Feature: the final review lists what matters most first
+Feature: the final review lists the findings that matter most first
 
-  Before the review rests, the judge rates every chunk the reviewer wrote — a
-  walkthrough chunk or a carried quality finding — on the same four questions
-  as a human's note (`build.review.ranking`): critical (security, or a one-way
-  door), should (a contract, or a new concept), could. The review lists them
-  in that order, security before one-way doors, each led by its tier and
-  reason. A chunk the judge cannot rate is critical, so it is shown first.
+  Before the review rests, the judge rates every chunk the reviewer wrote on
+  the same four questions as a human's note (`build.review.ranking`): critical
+  (security, or a one-way door), should (a contract, or a new concept), could.
+  The quality findings go under `## Findings` in that order, security before
+  one-way doors, each led by its tier and reason; a finding the judge cannot
+  rate is critical. The walkthrough goes under `## Walkthrough` in the
+  reviewer's order, with no tier.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -55,16 +56,20 @@ Feature: the final review lists what matters most first
       ## AC-1 ignores floating point
 
       Should subtract round? The criterion does not say.
+
+      ## Token in logs
+
+      The caller's token reaches the log.
       """
     And judge step "build.quality.triage" answers:
       """
-      [{"id":"Q1","answer":"design","p":0.9}]
+      [{"id":"Q1","answer":"design","p":0.9},{"id":"Q2","answer":"design","p":0.9}]
       """
     And step "build.quality.sorting" runs its script
     And step "build.quality.closing" runs its script
     And step "build.review.carrying" runs its script
 
-  Scenario: security and one-way doors come first, a carried finding sorted among the rest
+  Scenario: findings are sorted by tier, the walkthrough kept in the reviewer's order
     Given step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -77,39 +82,41 @@ Feature: the final review lists what matters most first
 
       - [ ] ./src/calc.ts#2-2 — subtract(a, b)
 
-      ## Session token
-
-      - [ ] ./src/calc.ts#1-1 — reads the caller's token
-
       ## AC-1 ignores floating point
 
       - [ ] ./src/calc.ts#2-2 — returns the raw difference
 
-      ## Saved format
+      ## Session token
 
-      - [ ] ./src/calc.ts#1-2 — what callers persist
+      - [ ] ./src/calc.ts#1-1 — reads the caller's token
+
+      ## Token in logs
+
+      - [ ] ./src/calc.ts#1-1 — where it is logged
       """
     And judge step "build.review.ranking" answers:
       """
-      [{"id":"C1.security","answer":"no","p":0.9},{"id":"C1.reversibility","answer":"two-way","p":0.9},{"id":"C1.blastRadius","answer":"local","p":0.9},{"id":"C1.newConcept","answer":"no","p":0.9},{"id":"C2.security","answer":"yes","p":0.9},{"id":"C2.reversibility","answer":"two-way","p":0.9},{"id":"C2.blastRadius","answer":"module","p":0.9},{"id":"C2.newConcept","answer":"no","p":0.9},{"id":"C3.security","answer":"no","p":0.9},{"id":"C3.reversibility","answer":"two-way","p":0.9},{"id":"C3.blastRadius","answer":"contract","p":0.9},{"id":"C3.newConcept","answer":"no","p":0.9},{"id":"C4.security","answer":"no","p":0.9},{"id":"C4.reversibility","answer":"one-way","p":0.9},{"id":"C4.blastRadius","answer":"contract","p":0.9},{"id":"C4.newConcept","answer":"no","p":0.9}]
+      [{"id":"C1.security","answer":"no","p":0.9},{"id":"C1.reversibility","answer":"two-way","p":0.9},{"id":"C1.blastRadius","answer":"local","p":0.9},{"id":"C1.newConcept","answer":"no","p":0.9},{"id":"C2.security","answer":"no","p":0.9},{"id":"C2.reversibility","answer":"two-way","p":0.9},{"id":"C2.blastRadius","answer":"contract","p":0.9},{"id":"C2.newConcept","answer":"no","p":0.9},{"id":"C3.security","answer":"yes","p":0.9},{"id":"C3.reversibility","answer":"two-way","p":0.9},{"id":"C3.blastRadius","answer":"module","p":0.9},{"id":"C3.newConcept","answer":"no","p":0.9},{"id":"C4.security","answer":"no","p":0.9},{"id":"C4.reversibility","answer":"one-way","p":0.9},{"id":"C4.blastRadius","answer":"contract","p":0.9},{"id":"C4.newConcept","answer":"no","p":0.9}]
       """
     When the process is driven
     Then the process rests at "build.review.await-review"
     And ".gtd/REVIEW.md" contains:
       """
-      ## Session token
+      <!-- base: 0000000 -->
 
-      _critical: security_
+      ## Findings
 
-      - [ ] ./src/calc.ts#1-1 — reads the caller's token
-
-      ## Saved format
+      ### Token in logs
 
       _critical: one-way door_
 
-      - [ ] ./src/calc.ts#1-2 — what callers persist
+      The caller's token reaches the log.
+      """
+    And ".gtd/REVIEW.md" contains:
+      """
+      - [ ] _your answer_
 
-      ## AC-1 ignores floating point
+      ### AC-1 ignores floating point
 
       _should: contract_
 
@@ -119,12 +126,19 @@ Feature: the final review lists what matters most first
       """
       - [ ] _your answer_
 
-      ## Subtract
+      ## Walkthrough
 
-      _could_
+      ### Subtract
 
       The new export.
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+
+      ### Session token
+
+      - [ ] ./src/calc.ts#1-1 — reads the caller's token
       """
+    And ".gtd/REVIEW.md" does not contain "_critical: security_"
     And the commit "gtd(judge): build.review.ranking → build.review.carrying" has a body containing "Gtd-Judge:"
     And the commit subjects end with:
       """
@@ -133,7 +147,7 @@ Feature: the final review lists what matters most first
       gtd(check): build.review.carrying → build.review.await-review
       """
 
-  Scenario: a chunk the judge is unsure about is listed as critical
+  Scenario: a finding the judge is unsure about is listed as critical
     Given step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -146,49 +160,35 @@ Feature: the final review lists what matters most first
 
       - [ ] ./src/calc.ts#2-2 — subtract(a, b)
 
-      ## Session token
-
-      - [ ] ./src/calc.ts#1-1 — reads the caller's token
-
       ## AC-1 ignores floating point
 
       - [ ] ./src/calc.ts#2-2 — returns the raw difference
 
-      ## Saved format
+      ## Session token
 
-      - [ ] ./src/calc.ts#1-2 — what callers persist
+      - [ ] ./src/calc.ts#1-1 — reads the caller's token
+
+      ## Token in logs
+
+      - [ ] ./src/calc.ts#1-1 — where it is logged
       """
     And judge step "build.review.ranking" answers:
       """
-      [{"id":"C1.security","answer":"no","p":0.9},{"id":"C1.reversibility","answer":"two-way","p":0.9},{"id":"C1.blastRadius","answer":"local","p":0.9},{"id":"C1.newConcept","answer":"no","p":0.9},{"id":"C2.security","answer":"no","p":0.4},{"id":"C2.reversibility","answer":"two-way","p":0.9},{"id":"C2.blastRadius","answer":"local","p":0.9},{"id":"C2.newConcept","answer":"no","p":0.9},{"id":"C3.security","answer":"no","p":0.9},{"id":"C3.reversibility","answer":"two-way","p":0.9},{"id":"C3.blastRadius","answer":"contract","p":0.9},{"id":"C3.newConcept","answer":"no","p":0.9},{"id":"C4.security","answer":"no","p":0.9},{"id":"C4.reversibility","answer":"two-way","p":0.9},{"id":"C4.blastRadius","answer":"local","p":0.9},{"id":"C4.newConcept","answer":"yes","p":0.9}]
+      [{"id":"C1.security","answer":"no","p":0.9},{"id":"C1.reversibility","answer":"two-way","p":0.9},{"id":"C1.blastRadius","answer":"local","p":0.9},{"id":"C1.newConcept","answer":"no","p":0.9},{"id":"C2.security","answer":"no","p":0.4},{"id":"C2.reversibility","answer":"two-way","p":0.9},{"id":"C2.blastRadius","answer":"local","p":0.9},{"id":"C2.newConcept","answer":"no","p":0.9},{"id":"C3.security","answer":"yes","p":0.9},{"id":"C3.reversibility","answer":"two-way","p":0.9},{"id":"C3.blastRadius","answer":"local","p":0.9},{"id":"C3.newConcept","answer":"no","p":0.9},{"id":"C4.security","answer":"no","p":0.9},{"id":"C4.reversibility","answer":"two-way","p":0.9},{"id":"C4.blastRadius","answer":"local","p":0.9},{"id":"C4.newConcept","answer":"yes","p":0.9}]
       """
     When the process is driven
     Then the process rests at "build.review.await-review"
     And ".gtd/REVIEW.md" contains:
       """
-      # Review: abc1234
+      ## Findings
 
-      <!-- base: 0000000 -->
-
-      ## Session token
+      ### AC-1 ignores floating point
 
       _critical: judge unsure_
       """
     And ".gtd/REVIEW.md" contains:
       """
-      ## AC-1 ignores floating point
-
-      _should: contract_
-      """
-    And ".gtd/REVIEW.md" contains:
-      """
-      ## Saved format
+      ### Token in logs
 
       _should: new concept_
-      """
-    And ".gtd/REVIEW.md" contains:
-      """
-      ## Subtract
-
-      _could_
       """

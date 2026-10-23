@@ -96,9 +96,9 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
 
       <!-- base: 0000000 -->
 
-      ## calc
+      ## Walkthrough
 
-      _critical: judge unsure_
+      ### calc
 
       - [x] ./src/calc.ts#1-2
         subtract next to add

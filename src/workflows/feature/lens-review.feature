@@ -109,7 +109,9 @@ Feature: the quality lap's findings are triaged before the review
     And the commit "gtd(judge): build.quality.triage → build.quality.sorting" has a body containing "Gtd-Mark: noise=Q2 p=0.85 add could be a method"
     And ".gtd/REVIEW.md" contains:
       """
-      ## AC-1 ignores floating point
+      ## Findings
+
+      ### AC-1 ignores floating point
 
       _critical: judge unsure_
 
@@ -125,9 +127,9 @@ Feature: the quality lap's findings are triaged before the review
       - [ ] won't fix
       - [ ] _your answer_
 
-      ## Fixed automatically
+      ## Walkthrough
 
-      - subtract has no negative test (
+      ### Subtract
       """
     And ".gtd/REVIEW.md" contains the short hash of the commit "gtd(agent): build.fix.quality.fixing → build.health.check"
     And ".gtd/REVIEW.md" contains:
@@ -231,7 +233,7 @@ Feature: the quality lap's findings are triaged before the review
     And ".gtd/QUALITY.md" does not exist
     And ".gtd/REVIEW.md" contains:
       """
-      ## add could be a method
+      ### add could be a method
 
       _critical: judge unsure_
 

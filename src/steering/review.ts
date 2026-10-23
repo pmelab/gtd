@@ -79,6 +79,9 @@ interface Changeset {
   readonly answers?: readonly AnswerOption[]
   /** The tier and reason gtd ranked the chunk with, from its leading severity line. */
   readonly severity?: { readonly label: string; readonly line: number }
+  readonly section?: ReviewSection
+  /** 0-based line of the `Tick exactly one:` lead, when the chunk has answer boxes. */
+  readonly answerLine?: number
 }
 
 interface AnswerOption {
@@ -553,6 +556,7 @@ const parseChunkBody = (
   lines: readonly string[],
   title: string,
   body: readonly RootContent[],
+  answerable: boolean,
 ): {
   readonly description: string
   readonly descriptionNodes: readonly SteeringViewNode[]
@@ -560,11 +564,13 @@ const parseChunkBody = (
   readonly files: readonly ReviewFile[]
   readonly errors: readonly SteeringFinding[]
   readonly answers?: readonly AnswerOption[]
+  readonly answerLine?: number
   readonly severity?: { readonly label: string; readonly line: number } | undefined
   /** Whether a task box outside the answer list exists. */
   readonly boxed: boolean
 } => {
-  const answer = answerListOf(content, body)
+  // A walkthrough chunk takes no decision: boxes there are not answers.
+  const answer = answerable ? answerListOf(content, body) : undefined
   const isAnswer = (n: RootContent): boolean =>
     answer !== undefined && (n === answer.list || n === body[answer.lead])
   const firstPointerIndex = body.findIndex(
@@ -596,40 +602,81 @@ const parseChunkBody = (
     descriptionInline,
     files,
     errors,
-    ...(answer === undefined ? {} : { answers: answer.options }),
+    ...(answer === undefined
+      ? {}
+      : {
+          answers: answer.options,
+          answerLine: toLspPosition(body[answer.lead]!.position!.start).line,
+        }),
     ...(severity === undefined ? {} : { severity }),
     boxed: body.some((n) => !isAnswer(n) && taskItems(n).length > 0),
   }
 }
 
-/** One `##` chunk heading node with its raw body block nodes (up to the next `##`-or-shallower heading). */
-interface ChunkBlock extends HeadingBlock {
-  readonly headingLine: number
+export type ReviewSection = "findings" | "walkthrough"
+
+/** The `## ` headings gtd groups the review's chunks under; any other `## ` is a chunk of its own. */
+export const REVIEW_SECTIONS: Readonly<Record<ReviewSection, string>> = {
+  findings: "Findings",
+  walkthrough: "Walkthrough",
 }
 
-/** Splits the tree's top-level nodes into consecutive `##` chunk blocks — a `## ` line found only inside a fence never becomes a heading node at all, so it's never mistaken for a chunk. */
-const splitChunks = (tree: Root): readonly ChunkBlock[] => {
-  const blocks: ChunkBlock[] = []
-  let i = 0
-  while (i < tree.children.length) {
-    const node = tree.children[i]!
-    if (node.type !== "heading" || node.depth !== 2) {
-      i += 1
-      continue
+const sectionOf = (content: string, node: RootContent): ReviewSection | undefined => {
+  if (node.type !== "heading" || node.depth !== 2) return undefined
+  const text = headingText(content, node)
+  return (Object.keys(REVIEW_SECTIONS) as ReviewSection[]).find((s) => REVIEW_SECTIONS[s] === text)
+}
+
+/** One chunk heading node with its raw body block nodes (up to the next heading as deep or shallower). */
+interface ChunkBlock extends HeadingBlock {
+  readonly headingLine: number
+  readonly section?: ReviewSection
+}
+
+interface SectionBlock extends HeadingBlock {
+  readonly section: ReviewSection
+  readonly headingLine: number
+  readonly body: RootContent[]
+}
+
+/** The nodes after `from` up to the next heading at `depth` or shallower. */
+const bodyFrom = (children: readonly RootContent[], from: number, depth: number): RootContent[] => {
+  const end = children.findIndex((n, i) => i >= from && n.type === "heading" && n.depth <= depth)
+  return children.slice(from, end === -1 ? undefined : end)
+}
+
+/**
+ * Splits the tree's top-level nodes into chunk blocks — a `## ` line found only
+ * inside a fence never becomes a heading node at all. A document with a
+ * `## Findings` or `## Walkthrough` heading nests `### ` chunks under them;
+ * one without is the flat layout, every `## ` a chunk.
+ */
+const splitChunks = (
+  tree: Root,
+  content: string,
+): { readonly chunks: readonly ChunkBlock[]; readonly sections: readonly SectionBlock[] } => {
+  const sectioned = tree.children.some((n) => sectionOf(content, n) !== undefined)
+  const chunks: ChunkBlock[] = []
+  const sections: SectionBlock[] = []
+  let section: SectionBlock | undefined
+  tree.children.forEach((node, i) => {
+    if (node.type !== "heading") return
+    const headingLine = toLspPosition(node.position!.start).line
+    if (sectioned && node.depth <= 2) {
+      const s = sectionOf(content, node)
+      section = s === undefined ? undefined : { heading: node, headingLine, section: s, body: [] }
+      if (section !== undefined) {
+        sections.push(section)
+        return
+      }
     }
-    const heading = node
-    const headingLine = toLspPosition(heading.position!.start).line
-    i += 1
-    const body: RootContent[] = []
-    while (i < tree.children.length) {
-      const next = tree.children[i]!
-      if (next.type === "heading" && next.depth <= 2) break
-      body.push(next)
-      i += 1
-    }
-    blocks.push({ heading, headingLine, body })
-  }
-  return blocks
+    const depth = section === undefined ? 2 : 3
+    if (node.depth !== depth) return
+    const body = bodyFrom(tree.children, i + 1, depth)
+    chunks.push({ heading: node, headingLine, body, ...(section && { section: section.section }) })
+    section?.body.push(node, ...body)
+  })
+  return { chunks, sections }
 }
 
 const parseChangesets = (
@@ -639,7 +686,7 @@ const parseChangesets = (
 ): { readonly changesets: readonly Changeset[]; readonly errors: readonly SteeringFinding[] } => {
   const changesets: Changeset[] = []
   const errors: SteeringFinding[] = []
-  for (const { heading, headingLine, body } of splitChunks(tree)) {
+  for (const { heading, headingLine, body, section } of splitChunks(tree, content).chunks) {
     const title = headingText(content, heading)
     const {
       description,
@@ -647,10 +694,11 @@ const parseChangesets = (
       descriptionInline,
       files,
       answers,
+      answerLine,
       severity,
       boxed,
       errors: bodyErrors,
-    } = parseChunkBody(content, lines, title, body)
+    } = parseChunkBody(content, lines, title, body, section !== "walkthrough")
     errors.push(...bodyErrors)
     // A prose-only chunk is a note gtd composed; a box with no pointer is a pointer gone wrong.
     if (files.length === 0 && boxed) {
@@ -667,8 +715,9 @@ const parseChangesets = (
       descriptionInline,
       files,
       headingLine,
-      ...(answers === undefined ? {} : { answers }),
+      ...(answers === undefined ? {} : { answers, answerLine: answerLine! }),
       ...(severity === undefined ? {} : { severity }),
+      ...(section === undefined ? {} : { section }),
     })
   }
   if (changesets.length === 0) errors.push({ message: "REVIEW.md has no '##' chunks" })
@@ -754,7 +803,9 @@ const isHunkPointerItem = (content: string, item: ListItem): boolean => {
 const reviewClearTicks = (content: string): string => {
   const tree = parseMarkdown(content)
   const answers = new Set(
-    splitChunks(tree).flatMap(({ body }) => answerListOf(content, body)?.list.children ?? []),
+    splitChunks(tree, content).chunks.flatMap(
+      ({ body }) => answerListOf(content, body)?.list.children ?? [],
+    ),
   )
   const offsets = taskItems(tree)
     .filter(
@@ -798,51 +849,102 @@ const toggleFilePointer = (content: string, line: number): SteeringEdit | undefi
 const chunkEndLines = (content: string): ReadonlyMap<number, number> => {
   const tree = parseMarkdown(content)
   const map = new Map<number, number>()
-  for (const block of splitChunks(tree)) map.set(block.headingLine, blockEndLine(block))
+  for (const block of splitChunks(tree, content).chunks)
+    map.set(block.headingLine, blockEndLine(block))
   return map
 }
 
+const CHOICE_NAMES: Readonly<Record<ReviewChoice, string>> = {
+  fix: ANSWER_FIX,
+  wontfix: ANSWER_WONT_FIX,
+  answer: "",
+}
+
+/** A finding's decision as an outline node of its own; none for a chunk with no answer boxes. */
+const decisionNodes = (
+  lines: readonly string[],
+  chunk: Changeset,
+  end: number,
+): SteeringOutlineNode[] => {
+  if (chunk.answerLine === undefined) return []
+  const d = decisionOf(chunk)
+  return [
+    {
+      name: `Decision: ${d === undefined ? "open" : CHOICE_NAMES[d.choice] || d.text}`,
+      range: spanRange(lines, chunk.answerLine, Math.max(chunk.answerLine, end)),
+      selectionRange: lineRange(lines, chunk.answerLine),
+    },
+  ]
+}
+
+const isOpenChunk = (chunk: Changeset, markers: number): boolean =>
+  chunk.files.some((file) => !file.checked) ||
+  markers > 0 ||
+  (chunk.answers !== undefined && decisionOf(chunk) === undefined)
+
 /**
- * Document outline for `.gtd/REVIEW.md`: the headlines of chunks (the
- * user-facing "work packages") that still carry at least one unchecked hunk
- * — the outline is the list of packages left to review — PLUS any chunk
- * that carries at least one footnote, even when every hunk in it is ticked:
- * `reviewOutline` otherwise drops a fully-checked chunk, which would make a
- * human's own comment vanish the moment they tick the last box. A chunk's
- * footnotes are `leaf: true` children; a chunk with none has no children.
+ * Document outline for `.gtd/REVIEW.md`: the chunks still left to review — an
+ * unchecked hunk, a footnote (so a human's comment never vanishes with the
+ * last tick) or an open decision. A finding's decision is a node of its own.
+ * In the sectioned layout `Findings` and `Walkthrough` are containers, and
+ * every other `## ` (`Fixed automatically`, …) stays listed.
  */
 const reviewOutline = (content: string): readonly SteeringOutlineNode[] => {
   const { changesets } = parseReviewDoc(content)
+  const { sections } = splitChunks(parseMarkdown(content), content)
   const { markers, definitions } = parseFootnotes(content)
   const definitionByName = new Map(definitions.map((d) => [d.name, d.body]))
   const lines = content.split(/\r?\n/)
   const endLines = chunkEndLines(content)
   const threads = threadOutlineNodes(content)
   const nested = new Set<SteeringOutlineNode>()
-  const nodes = changesets
-    .map((chunk) => {
-      const start = chunk.headingLine
-      const end = Math.max(start, endLines.get(start) ?? start)
-      const checkedCount = chunk.files.filter((file) => file.checked).length
-      const chunkMarkers = markers.filter((m) => m.line >= start && m.line <= end)
-      const chunkThreads = threads
-        .filter((t) => t.markerLine !== undefined && t.markerLine >= start && t.markerLine <= end)
-        .map((t) => t.node)
-      chunkThreads.forEach((n) => nested.add(n))
-      const children = [
-        ...chunkMarkers.map((m) => footnoteLeaf(lines, definitionByName, m)),
-        ...chunkThreads,
-      ]
-      return {
-        name: `${chunk.title} (${checkedCount}/${chunk.files.length})`,
-        range: spanRange(lines, start, end),
-        selectionRange: lineRange(lines, start),
-        ...(children.length > 0 ? { children } : {}),
-        unchecked: checkedCount < chunk.files.length || chunkMarkers.length > 0,
-      }
-    })
-    .filter((node) => node.unchecked)
-    .map(({ unchecked: _unchecked, ...node }) => node)
+  const chunkNodes = changesets.flatMap((chunk) => {
+    const start = chunk.headingLine
+    const end = Math.max(start, endLines.get(start) ?? start)
+    const checkedCount = chunk.files.filter((file) => file.checked).length
+    const chunkMarkers = markers.filter((m) => m.line >= start && m.line <= end)
+    const chunkThreads = threads
+      .filter((t) => t.markerLine !== undefined && t.markerLine >= start && t.markerLine <= end)
+      .map((t) => t.node)
+    chunkThreads.forEach((n) => nested.add(n))
+    const children = [
+      ...decisionNodes(lines, chunk, end),
+      ...chunkMarkers.map((m) => footnoteLeaf(lines, definitionByName, m)),
+      ...chunkThreads,
+    ]
+    // In the sectioned layout every other `## ` is a section of its own, always listed.
+    const listed = sections.length > 0 && chunk.section === undefined
+    if (!listed && !isOpenChunk(chunk, chunkMarkers.length)) return []
+    const node: SteeringOutlineNode = {
+      name:
+        chunk.files.length === 0
+          ? chunk.title
+          : `${chunk.title} (${checkedCount}/${chunk.files.length})`,
+      range: spanRange(lines, start, end),
+      selectionRange: lineRange(lines, start),
+      ...(children.length > 0 ? { children } : {}),
+    }
+    return [{ line: start, section: chunk.section, node }]
+  })
+  const containers = sections.map((section) => ({
+    line: section.headingLine,
+    section: undefined,
+    node: {
+      name: REVIEW_SECTIONS[section.section],
+      range: spanRange(lines, section.headingLine, blockEndLine(section)),
+      selectionRange: lineRange(lines, section.headingLine),
+      children: chunkNodes
+        .filter((c) => c.section === section.section && c.line > section.headingLine)
+        .filter((c) => {
+          const next = sections.find((o) => o.headingLine > section.headingLine)
+          return next === undefined || c.line < next.headingLine
+        })
+        .map((c) => c.node),
+    } satisfies SteeringOutlineNode,
+  }))
+  const nodes = [...chunkNodes.filter((c) => c.section === undefined), ...containers]
+    .sort((a, b) => a.line - b.line)
+    .map((c) => c.node)
   return [...nodes, ...threads.map((t) => t.node).filter((n) => !nested.has(n))]
 }
 
@@ -902,6 +1004,7 @@ const reviewActions: SteeringFormat["actions"] = (content, range) => {
   const tree = parseMarkdown(content)
   const lines = content.split(/\r?\n/)
   const cursorLine = range.start.line
+  const endLines = chunkEndLines(content)
   const actions: Array<{ readonly title: string; readonly edits: readonly SteeringEdit[] }> = [
     ...threadReplyActions(content, range.start),
   ]
@@ -921,10 +1024,11 @@ const reviewActions: SteeringFormat["actions"] = (content, range) => {
       }
     }
 
-    const chunkEnd = Math.max(
-      chunk.headingLine,
-      (changesets[i + 1]?.headingLine ?? lines.length) - 1,
-    )
+    // A sectioned chunk ends at its own last block, never at the next section's heading.
+    const chunkEnd =
+      chunk.section === undefined
+        ? Math.max(chunk.headingLine, (changesets[i + 1]?.headingLine ?? lines.length) - 1)
+        : (endLines.get(chunk.headingLine) ?? chunk.headingLine)
     if (chunk.files.length > 0 && cursorLine >= chunk.headingLine && cursorLine <= chunkEnd) {
       const edits = toggleChunkEdits(content, chunk.headingLine)
       if (edits.length > 0) {
@@ -1008,7 +1112,7 @@ const hunkLinkFor = (content: string, item: ListItem): SteeringLink | undefined 
 const reviewDocumentLinks = (content: string): readonly SteeringLink[] => {
   const tree = parseMarkdown(content)
   const links: SteeringLink[] = []
-  for (const block of splitChunks(tree)) {
+  for (const block of splitChunks(tree, content).chunks) {
     for (const item of block.body.flatMap((n) => taskItems(n))) {
       const link = hunkLinkFor(content, item)
       if (link) links.push(link)
@@ -1030,6 +1134,7 @@ const reviewView = (content: string): SteeringView => {
       body: chunk.descriptionNodes,
       ...(chunk.severity === undefined ? {} : { status: chunk.severity.label }),
       anchor: { kind: "chunk", index: chunkIndex },
+      ...(chunk.section === undefined ? {} : { group: REVIEW_SECTIONS[chunk.section] }),
       ...noteAt(chunk.headingLine),
       children: chunk.files.map((file, index) => ({
         title: pointerDisplay(file),
@@ -1383,7 +1488,7 @@ export const reviewDecisions = (before: string, after: string): readonly ReviewD
   })
 }
 
-/** Each `##` chunk in document order: its title, 0-based heading line and how many hunk pointers it holds. */
+/** Each chunk in document order: its title, 0-based heading line and how many hunk pointers it holds. */
 export const reviewChunks = (
   content: string,
 ): readonly {
@@ -1392,12 +1497,14 @@ export const reviewChunks = (
   pointers: number
   /** 0-based line of the chunk's severity line, when it has one. */
   severityLine?: number
+  section?: ReviewSection
   files: readonly { path: string; line?: number; rangeEnd?: number }[]
 }[] =>
   parseReviewDoc(content).changesets.map((c) => ({
     title: c.title,
     line: c.headingLine,
     pointers: c.files.length,
+    ...(c.section === undefined ? {} : { section: c.section }),
     ...(c.severity === undefined ? {} : { severityLine: c.severity.line }),
     files: c.files.map((f) => ({
       path: f.path,
@@ -1405,3 +1512,85 @@ export const reviewChunks = (
       ...(f.rangeEnd === undefined ? {} : { rangeEnd: f.rangeEnd }),
     })),
   }))
+
+/** The `## Findings` / `## Walkthrough` headings in `content`, with their 0-based lines. */
+export const reviewSections = (
+  content: string,
+): readonly { readonly section: ReviewSection; readonly line: number }[] =>
+  splitChunks(parseMarkdown(content), content).sections.map((s) => ({
+    section: s.section,
+    line: s.headingLine,
+  }))
+
+const isBlankLine = (line: string | undefined): boolean => line !== undefined && line.trim() === ""
+
+/** How many lines a chunk's heading takes: two for a setext heading and its underline. */
+const headingSize = ({ heading, headingLine }: ChunkBlock): number =>
+  toLspPosition(heading.position!.end).line - headingLine + 1
+
+/** \`block\` with its heading an ATX \`### \` on one line, and every heading in its body one level deeper. */
+const demoted = (chunk: ChunkBlock, block: readonly string[]): string[] => {
+  const out = [...block]
+  for (const node of chunk.body) {
+    if (node.type !== "heading" || node.depth < 3 || node.depth > 5) continue
+    const at = toLspPosition(node.position!.start).line - chunk.headingLine
+    out[at] = out[at]!.replace(/^( {0,3})#/, "$1##")
+  }
+  const size = headingSize(chunk)
+  const title = size > 1 ? `### ${out[0]!.trim()}` : out[0]!.replace(/^ {0,3}##/, "###")
+  return [title, ...out.slice(size)]
+}
+
+/** A chunk's \`size\` heading lines, then its body with the blank lines around it trimmed. */
+const chunkText = (block: readonly string[], size: number): string => {
+  const rest = block.slice(size)
+  while (rest.length > 0 && isBlankLine(rest[0])) rest.shift()
+  while (rest.length > 0 && isBlankLine(rest.at(-1))) rest.pop()
+  const heading = block.slice(0, size).join("\n")
+  return rest.length === 0 ? heading : `${heading}\n\n${rest.join("\n")}`
+}
+
+/**
+ * A flat review regrouped: every chunk with answer boxes under `## Findings`
+ * and every chunk titled in `walkthrough` under `## Walkthrough`, each in its
+ * current order and one heading level deeper. Any other chunk stays a `## ` of
+ * its own, before the sections when it came before them, after otherwise. An
+ * already sectioned review comes back unchanged.
+ */
+export const sectionedReview = (content: string, walkthrough: ReadonlySet<string>): string => {
+  const tree = parseMarkdown(content)
+  const { chunks, sections } = splitChunks(tree, content)
+  if (sections.length > 0 || chunks.length === 0) return content
+  const { changesets } = parseReviewDoc(content)
+  const lines = content.split("\n")
+  const sectionOfChunk = (i: number): ReviewSection | undefined =>
+    changesets[i]!.answers !== undefined
+      ? "findings"
+      : walkthrough.has(changesets[i]!.title)
+        ? "walkthrough"
+        : undefined
+  const text = (i: number, demote: boolean): string => {
+    const chunk = chunks[i]!
+    const block = lines.slice(chunk.headingLine, chunks[i + 1]?.headingLine ?? lines.length)
+    return chunkText(demote ? demoted(chunk, block) : block, demote ? 1 : headingSize(chunk))
+  }
+  const grouped = chunks.map((_, i) => sectionOfChunk(i))
+  const first = grouped.findIndex((g) => g !== undefined)
+  if (first === -1) return content
+  const others = (keep: (i: number) => boolean): string[] =>
+    chunks.flatMap((_, i) => (grouped[i] === undefined && keep(i) ? [text(i, false)] : []))
+  const section = (s: ReviewSection): string[] => {
+    const members = chunks.flatMap((_, i) => (grouped[i] === s ? [text(i, true)] : []))
+    return members.length === 0 ? [] : [`## ${REVIEW_SECTIONS[s]}`, ...members]
+  }
+  const head = lines.slice(0, chunks[0]!.headingLine).join("\n").trim()
+  return `${[
+    head,
+    ...others((i) => i < first),
+    ...section("findings"),
+    ...section("walkthrough"),
+    ...others((i) => i > first),
+  ]
+    .filter((p) => p !== "")
+    .join("\n\n")}\n`
+}

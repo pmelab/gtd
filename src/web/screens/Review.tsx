@@ -368,6 +368,22 @@ const approvedCount = (nodes: SteeringView["nodes"], state: ReviewState): number
     return hunks.length > 0 && hunks.every(state.isChecked)
   }).length
 
+/** Consecutive chunks sharing a `group` (the review's Findings / Walkthrough), chunk indexes kept for their anchors. */
+const groupsOf = (
+  nodes: SteeringView["nodes"],
+): readonly {
+  readonly title: string | undefined
+  readonly chunks: readonly { readonly chunk: SteeringViewNode; readonly chunkIndex: number }[]
+}[] =>
+  nodes.reduce<
+    { title: string | undefined; chunks: { chunk: SteeringViewNode; chunkIndex: number }[] }[]
+  >((groups, chunk, chunkIndex) => {
+    const last = groups.at(-1)
+    if (last !== undefined && last.title === chunk.group) last.chunks.push({ chunk, chunkIndex })
+    else groups.push({ title: chunk.group, chunks: [{ chunk, chunkIndex }] })
+    return groups
+  }, [])
+
 const ChunkList = ({
   nodes,
   state,
@@ -396,11 +412,25 @@ const ChunkList = ({
       data-testid="review-scroll-container"
       className="min-h-0 flex-1 overflow-auto"
     >
-      <CardList>
-        {nodes.map((chunk, chunkIndex) => (
-          <ChunkRow key={chunkIndex} chunk={chunk} chunkIndex={chunkIndex} state={state} />
-        ))}
-      </CardList>
+      {groupsOf(nodes).map((group) => (
+        <section
+          key={group.chunks[0]!.chunkIndex}
+          {...(group.title === undefined
+            ? {}
+            : { "data-testid": `review-section-${group.title.toLowerCase()}` })}
+        >
+          {group.title !== undefined && (
+            <h2 className="m-0 border-b border-divider bg-surface px-3 py-1.5 text-small font-semibold text-muted">
+              {group.title}
+            </h2>
+          )}
+          <CardList>
+            {group.chunks.map(({ chunk, chunkIndex }) => (
+              <ChunkRow key={chunkIndex} chunk={chunk} chunkIndex={chunkIndex} state={state} />
+            ))}
+          </CardList>
+        </section>
+      ))}
     </div>
     {onDone !== undefined && (
       <div

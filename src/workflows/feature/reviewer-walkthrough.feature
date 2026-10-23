@@ -92,15 +92,9 @@ Feature: a reviewer walks the human through the feature's code
     Then the process rests at "build.review.await-review"
     And ".gtd/REVIEW.md" contains:
       """
-      ## Subtract
+      ## Findings
 
-      _critical: judge unsure_
-
-      The new export.
-
-      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
-
-      ## AC-1 ignores floating point
+      ### AC-1 ignores floating point
 
       _critical: judge unsure_
 
@@ -115,6 +109,14 @@ Feature: a reviewer walks the human through the feature's code
       - [ ] fix as suggested
       - [ ] won't fix
       - [ ] _your answer_
+
+      ## Walkthrough
+
+      ### Subtract
+
+      The new export.
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
       """
     And no commit body contains "build.review.composing"
     And the commit subjects end with:
@@ -140,6 +142,25 @@ Feature: a reviewer walks the human through the feature's code
       - [ ] ./src/calc.ts#2-2 — returns the raw difference
       """
     Then driving the process is refused with "Subtract — points at no code"
+
+  Scenario: a review the reviewer sorts into sections itself is refused
+    Given step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Walkthrough
+
+      ### Subtract
+
+      - [ ] ./src/calc.ts#2-2 — subtract(a, b)
+
+      ### AC-1 ignores floating point
+
+      - [ ] ./src/calc.ts#2-2 — returns the raw difference
+      """
+    Then driving the process is refused with "Walkthrough — gtd sorts the chunks into sections; write `## ` chunks only"
 
   Scenario: a finding the reviewer left out is refused
     Given step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
