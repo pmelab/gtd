@@ -8,6 +8,7 @@ import {
   vars,
   writeScript,
 } from "../../flows/index.js"
+import { reviewRisks } from "../../steering/index.js"
 import * as kit from "../../workflow-kit/index.js"
 import { guarded, healthy, type EscalationCount, type Guard } from "./health.js"
 import {
@@ -108,8 +109,8 @@ export interface TailOptions {
 
 /**
  * The build tail: fix (when entered red), keep green, the quality lap — a
- * judge sorts its findings, the mechanical ones are fixed, noise dropped —
- * then `finish` with the rest as notes: a human review, or carrying them on.
+ * judge sorts its findings and the mechanical ones are fixed — then the
+ * finding gate over the rest, then `finish` with what became of them all.
  */
 export function tail<T>(
   finish: (escalations: EscalationCount, report: LensReport) => Promise<T>,
@@ -214,22 +215,29 @@ export const handOffReview = (
   escalations: EscalationCount,
   guard?: Guard,
   report: LensReport = NO_FINDINGS,
-): Promise<void> =>
-  kit.reviewToHandOff(base, {
+): Promise<void> => {
+  // Set by a risk fix, so the re-review written next is summarised whatever it marks.
+  let riskFixed = false
+  return kit.reviewToHandOff(base, {
     file: REVIEW,
     reviewing: guarded(async (b, carry) => {
+      const afterRiskFix = riskFixed
+      riskFixed = false
       await reviewing(b, carry)
-      // gtd adds the lap's chunks itself: .gtd/QUALITY.md is gone, so a reviewer leaving one out would lose it.
       const review = read(REVIEW)
-      if (review === undefined) return
-      const full = t.withLapFindings(review, report)
+      // A risk-marked draft is fixed and written again first: the re-reviewer edits it, never gtd's summary.
+      if (review === undefined || (!afterRiskFix && reviewRisks(review).length > 0)) return
+      const full = t.withSummary(review, { report })
       if (full !== review) {
         await run("review.carrying", writeScript(REVIEW, full), {
-          label: "Adding the quality lap's findings",
+          label: "Adding the quality lap's summary",
         })
       }
     }, guard),
-    fixRisks: guarded(fixRisks, guard),
+    fixRisks: guarded((risks) => {
+      riskFixed = true
+      return fixRisks(risks)
+    }, guard),
     keepGreen: () => healthy(fixCheck, { escalations, guard }),
     awaitReview: (b) => awaitReview(b, t.handOffAwaitReviewMessage(b)),
     reviewMissing,
@@ -246,6 +254,7 @@ export const handOffReview = (
     deleted:
       "gtd land: review-doc: .gtd/REVIEW.md was deleted — restore it, or leave a note to hand to fix.",
   })
+}
 
 /** The tail the fix workflow runs: ends at the hand-off review since `base`, which gets what the lap left. */
 export const handOffTail = (fixFirst: boolean, base: string, guard?: Guard): Promise<void> =>

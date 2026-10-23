@@ -11,8 +11,8 @@ const QA_FORMAT = steeringFormatFor("qa")!
 const REVIEW_FORMAT = steeringFormatFor("review")!
 
 describe("BUILT_IN_MODE_NAMES", () => {
-  it("lists the two built-in format names", () => {
-    expect(BUILT_IN_MODE_NAMES).toEqual(["qa", "review"])
+  it("lists the built-in format names", () => {
+    expect(BUILT_IN_MODE_NAMES).toEqual(["qa", "review", "findings"])
   })
 })
 

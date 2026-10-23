@@ -930,8 +930,6 @@ describe("reviewedRefactor", () => {
       "refactor.build.quality.ponytail-review.reviewing",
       "refactor.build.quality.conventions.reviewing",
       "refactor.build.review.reviewing",
-      "refactor.build.review.ranking",
-      "refactor.build.review.carrying",
       "refactor.build.review.await-review",
       "refactor.build.review.closing",
     ])

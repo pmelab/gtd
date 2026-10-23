@@ -165,10 +165,15 @@ straight back to the same step, so re-running it cannot change anything.
 Reported as `settled: true` by `gtd land --json` so a loop exits rather than
 spins. _Avoid_: done, finished, idle
 
-**Lens finding**: One `## ` chunk a quality lens writes to `.gtd/QUALITY.md`. In
-`feature` a judge calls each `mechanical` (the fixer fixes it), `noise`
-(dropped) or `design` (a note for the human review); unsure is `design`.
+**Lens finding**: One `## ` chunk a quality lens writes to `.gtd/QUALITY.md`. A
+judge calls each `mechanical` (the fixer fixes it), `noise` (set aside) or
+`design` (a note for the [finding gate](#finding-gate)); unsure is `design`.
 _Avoid_: issue, comment, review item
+
+**Finding gate**: The human gate after the quality lap (`build.quality.gate`)
+where each open lens finding, and each one the judge called noise, is ticked
+`fix` or left to drop. A ticked finding is fixed, never re-planned. _Avoid_:
+triage (taken by `design.triage`; `quality.triage`/`review.triage` are judges)
 
 **Gate**: A human step — the process rests there until a person acts. _Avoid_:
 checkpoint, approval, the bare "the gate"
@@ -189,16 +194,16 @@ state file, gate file, doc
 
 **Mode**: A named pair of shell commands over one steering file — `format:` to
 normalize it in place, `validate:` to report findings. Zero findings means
-valid. Declared in the [config export](#config-export)'s `modes` (`qa`/`review`
-are seeded automatically); a step naming an undeclared mode is a load-time
-error, never a silent fallback.
+valid. Declared in the [config export](#config-export)'s `modes`
+(`qa`/`review`/`findings` are seeded automatically); a step naming an undeclared
+mode is a load-time error, never a silent fallback.
 
 **Steering format**: What a steering file's CONTENT is — the shape a mode's NAME
-identifies (`qa`'s open-questions checkboxes, `review`'s hunk pointers),
-independent of who validates it. A format is what the LSP outlines/offers
-actions over; a mode is that format plus the specific `format:`/`validate:`
-commands one repository plugs in for it. Overriding a built-in mode's
-`validate:` changes who validates, not what the file is.
+identifies (`qa`'s open-questions checkboxes, `review`'s hunk pointers,
+`findings`' fix boxes), independent of who validates it. A format is what the
+LSP outlines/offers actions over; a mode is that format plus the specific
+`format:`/`validate:` commands one repository plugs in for it. Overriding a
+built-in mode's `validate:` changes who validates, not what the file is.
 
 **Thread**: A footnote whose definition holds an alternating `H:`/`A:` exchange.
 _Avoid_: conversation, comment chain
@@ -268,10 +273,11 @@ the strays show it.
 **Seam judge**: The `seam.judge` step: rules `land`, `refactor-first` or
 `reject` on a naive pass's strays.
 
-**Answer**: The one box a human ticks under a review note gtd wrote —
+**Answer**: The one box a human ticks under a review chunk that carries
+`Tick exactly one:` boxes — a standard conflict, or a note added with its own —
 `fix as suggested`, `won't fix`, or their own text over `_your answer_`. The
-review gate lands only when every note holds exactly one. _Avoid_: verdict (the
-judge's word), defer (gone)
+review gate lands only when every such chunk holds exactly one. _Avoid_: verdict
+(the judge's word), defer (gone)
 
 **Standard**: One bullet in `.gtd/STANDARDS.md` — a rule the human set by
 answering a review note (`won't fix` or their own words), kept once a judge

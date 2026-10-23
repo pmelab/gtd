@@ -96,7 +96,7 @@ export const ANSWER_WONT_FIX = "won't fix"
 
 /** A chunk's leading `_critical: security_` paragraph: the tier gtd ranked it with, and why. */
 const SEVERITY_LINE_RE = /^_((?:critical|should|could)(?::[^_\n]*)?)_$/
-export const severityLine = (label: string): string => `_${label}_`
+const severityLine = (label: string): string => `_${label}_`
 
 interface ReviewDoc {
   readonly shortHash?: string
@@ -1591,76 +1591,3 @@ export const reviewSections = (
     section: s.section,
     line: s.headingLine,
   }))
-
-const isBlankLine = (line: string | undefined): boolean => line !== undefined && line.trim() === ""
-
-/** How many lines a chunk's heading takes: two for a setext heading and its underline. */
-const headingSize = ({ heading, headingLine }: ChunkBlock): number =>
-  toLspPosition(heading.position!.end).line - headingLine + 1
-
-/** \`block\` with its heading an ATX \`### \` on one line, and every heading in its body one level deeper. */
-const demoted = (chunk: ChunkBlock, block: readonly string[]): string[] => {
-  const out = [...block]
-  for (const node of chunk.body) {
-    if (node.type !== "heading" || node.depth < 3 || node.depth > 5) continue
-    const at = toLspPosition(node.position!.start).line - chunk.headingLine
-    out[at] = out[at]!.replace(/^( {0,3})#/, "$1##")
-  }
-  const size = headingSize(chunk)
-  const title = size > 1 ? `### ${out[0]!.trim()}` : out[0]!.replace(/^ {0,3}##/, "###")
-  return [title, ...out.slice(size)]
-}
-
-/** A chunk's \`size\` heading lines, then its body with the blank lines around it trimmed. */
-const chunkText = (block: readonly string[], size: number): string => {
-  const rest = block.slice(size)
-  while (rest.length > 0 && isBlankLine(rest[0])) rest.shift()
-  while (rest.length > 0 && isBlankLine(rest.at(-1))) rest.pop()
-  const heading = block.slice(0, size).join("\n")
-  return rest.length === 0 ? heading : `${heading}\n\n${rest.join("\n")}`
-}
-
-/**
- * A flat review regrouped: every chunk with answer boxes under `## Findings`
- * and every chunk titled in `walkthrough` under `## Walkthrough`, each in its
- * current order and one heading level deeper. Any other chunk stays a `## ` of
- * its own, before the sections when it came before them, after otherwise. An
- * already sectioned review comes back unchanged.
- */
-export const sectionedReview = (content: string, walkthrough: ReadonlySet<string>): string => {
-  const tree = parseMarkdown(content)
-  const { chunks, sections } = splitChunks(tree, content)
-  if (sections.length > 0 || chunks.length === 0) return content
-  const { changesets } = parseReviewDoc(content)
-  const lines = content.split("\n")
-  const sectionOfChunk = (i: number): ReviewSection | undefined =>
-    changesets[i]!.answers !== undefined
-      ? "findings"
-      : walkthrough.has(changesets[i]!.title)
-        ? "walkthrough"
-        : undefined
-  const text = (i: number, demote: boolean): string => {
-    const chunk = chunks[i]!
-    const block = lines.slice(chunk.headingLine, chunks[i + 1]?.headingLine ?? lines.length)
-    return chunkText(demote ? demoted(chunk, block) : block, demote ? 1 : headingSize(chunk))
-  }
-  const grouped = chunks.map((_, i) => sectionOfChunk(i))
-  const first = grouped.findIndex((g) => g !== undefined)
-  if (first === -1) return content
-  const others = (keep: (i: number) => boolean): string[] =>
-    chunks.flatMap((_, i) => (grouped[i] === undefined && keep(i) ? [text(i, false)] : []))
-  const section = (s: ReviewSection): string[] => {
-    const members = chunks.flatMap((_, i) => (grouped[i] === s ? [text(i, true)] : []))
-    return members.length === 0 ? [] : [`## ${REVIEW_SECTIONS[s]}`, ...members]
-  }
-  const head = lines.slice(0, chunks[0]!.headingLine).join("\n").trim()
-  return `${[
-    head,
-    ...others((i) => i < first),
-    ...section("findings"),
-    ...section("walkthrough"),
-    ...others((i) => i > first),
-  ]
-    .filter((p) => p !== "")
-    .join("\n\n")}\n`
-}

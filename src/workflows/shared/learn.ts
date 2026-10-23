@@ -32,13 +32,8 @@ interface Candidate {
 
 const SUMMARY_MAX = 200
 
-// The banners composedReview opens a note with say nothing about the finding; the
-// parsed body has its paragraphs joined, so they are matched by their own text.
-const BANNER =
-  /^_(?:The fixer left this unresolved\.|A fix turn removed this while renaming another finding — check whether it was fixed\.|No detail given\.)_\s*/
-
 const summary = (body: string): string => {
-  const text = oneLine(body).replace(BANNER, "")
+  const text = oneLine(body)
   return text.length > SUMMARY_MAX ? `${text.slice(0, SUMMARY_MAX - 1)}…` : text
 }
 

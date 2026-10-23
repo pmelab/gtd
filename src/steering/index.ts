@@ -8,6 +8,8 @@ import type {
 export { formatFinding } from "./SteeringFormat.js"
 import { qaDescriptor } from "./qa.js"
 import { reviewDescriptor } from "./review.js"
+import { findingsDescriptor } from "./findings.js"
+export { findingEntries, FIX_BOX, NOISE_HEADING, type FindingEntry } from "./findings.js"
 export {
   ANSWER_FIX,
   ANSWER_LEAD,
@@ -18,8 +20,6 @@ export {
   reviewRisks,
   reviewSections,
   REVIEW_SECTIONS,
-  sectionedReview,
-  severityLine,
   unansweredNotes,
   type ReviewChoice,
   type ReviewDecision,
@@ -50,10 +50,11 @@ export type {
   SteeringViewThread,
 } from "./SteeringFormat.js"
 
-/** The built-in registry: mode name → its format, in registry order. The single place `qa` and `review` are wired into names — everything else in this module dispatches over a resolved `SteeringFormat`, never a mode-name string. */
+/** The built-in registry: mode name → its format, in registry order. The single place the built-in formats are wired into names — everything else in this module dispatches over a resolved `SteeringFormat`, never a mode-name string. */
 const REGISTRY: ReadonlyMap<string, SteeringFormat> = new Map([
   ["qa", qaDescriptor],
   ["review", reviewDescriptor],
+  ["findings", findingsDescriptor],
 ])
 
 /** Every built-in format name, in registry order. */

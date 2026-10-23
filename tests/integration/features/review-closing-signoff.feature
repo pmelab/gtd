@@ -173,7 +173,7 @@ Feature: A tick with no comment signs off — build.review.closing reaches idle
       """
     And gtd starts workflow "review" with "--var reviewBase=base"
     And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.composing"
+    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -184,7 +184,7 @@ Feature: A tick with no comment signs off — build.review.closing reaches idle
       - [ ] ./src/calc.ts#1
       new add function
       """
-    And gtd lands "gtd(check): build.review.composing → build.review.await-review"
+    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"

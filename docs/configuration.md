@@ -893,102 +893,82 @@ covers the whole change from the process start, refactor included.
 #### The triaged quality lap
 
 Every quality lap is triaged — ahead of every `feature` review (the feature's
-and the refactor's), and in `fix` and `cleanup` — and the quality lenses are the
-only agentic review. Each lens appends its findings to `.gtd/QUALITY.md`, one
-`## <title>` chunk per finding (prose outside every chunk counts as one more
-finding). A judge, `build.quality.triage`, classifies each one (`Q1`, `Q2`, … in
-file order):
+and the refactor's), in the `review` door, and in `fix` and `cleanup` — and the
+quality lenses are the only agentic review. Each lens appends its findings to
+`.gtd/QUALITY.md`, one `## <title>` chunk per finding (prose outside every chunk
+counts as one more finding). A judge, `build.quality.triage`, classifies each
+one (`Q1`, `Q2`, … in file order):
 
 - `mechanical` — fixed by `build.fix.quality.fixing`, up to three turns, each
   deleting the chunks it resolved; the health loop then runs the suite green
-- `noise` — dropped, recorded on the judge's landing as
+- `noise` — set aside, recorded on the judge's landing as
   `Gtd-Mark: noise=<id> p=<p> <title>`
-- `design` — it questions a criterion or the approach: a note for the review
+- `design` — it questions a criterion or the approach: a note
 
 A verdict below `qualityTriageMinP` (`0.7`), a missing one, or a finding the
 judge's budget cut is `design`. `build.quality.sorting` leaves only the
 mechanical findings in `.gtd/QUALITY.md` for the fix turns; mechanical findings
-still there after the third turn become notes too — never an escalation.
+still there after the third turn become notes too (marked unresolved, or, when a
+turn renamed another chunk, unclear) — never an escalation.
 
-Whatever the fix turns leave in `.gtd/QUALITY.md` is then removed
-(`build.quality.closing`), and the review lists the notes, fixes and noise. In
-`fix` and `cleanup`, after the reviewer turn (`build.review.reviewing`), gtd
-appends the notes to `.gtd/REVIEW.md` (`build.review.carrying`): one prose
-`### ` chunk each under `## Findings`, naming its lens, a repeated title
-numbered, then `## Fixed automatically` and `## Dropped as noise`.
+#### The finding gate
 
-In `feature`, the reviewer turn (`build.review.reviewing`, and
-`refactor.build.review.reviewing` for the refactor's review) then writes
-`.gtd/REVIEW.md` as a walkthrough of the change: `## ` chunks grouped by
-concern, each with at least one pointer to its code (`./path#start-end`), a
-`Weakened:` note on each scenario that lost a `Then` line. The prompt lists the
-notes, each under the exact `## <title>` its chunk must carry (a repeated title
-numbered); the reviewer gives each a chunk of its own holding the pointers to
-the code it cites, and no `Risk:` note. A chunk with no pointer (in a range that
-changed code; otherwise only a note's chunk needs one), a `## Standard conflict`
-chunk the reviewer wrote itself, two chunks sharing a title, a `Risk:` note in a
-note's chunk, a `## Findings` or `## Walkthrough` heading the reviewer wrote
-itself, or a note without its chunk refuses the turn (`review-pointers`). gtd
-then adds each note's text under its heading, an `In the code:` line before the
-pointers and its answer boxes after them, and appends any open standard
-conflicts, `## Fixed automatically`, `## Standards added` and
-`## Dropped as noise` (`build.review.carrying`). Before that, a judge
-(`build.review.ranking`) rates every chunk the reviewer wrote on the four
-severity questions, keyed `C<n>.security`, `C<n>.reversibility`,
-`C<n>.blastRadius` and `C<n>.newConcept` (`C1` the reviewer's first chunk), its
-evidence the chunk's text and the lines its pointers cover. gtd then sorts the
-review into two sections, each chunk a `### ` heading one level down:
-`## Findings` holds every chunk with answer boxes — the notes, `critical` first
-(security, then one-way doors, then those the judge was unsure of), then
-`should`, then `could`, in the reviewer's order within each, each led by its
-tier and reason (`_critical: security, one-way door_`), then the open standard
-conflicts; `## Walkthrough` holds the reviewer's other chunks in its own order,
-with no tier and nothing to decide. The other gtd-added chunks follow as `## `
-sections of their own. A note with an unclear, cut or below-`reviewSeverityMinP`
-answer is `critical`. As many chunks go to one judgment as `judgeBudgetBytes`'s
-even share still holds whole; the rest go to the next. A pointer note the
-reviewer opens with `Risk:` is fixed by `build.review.fix.risks.fixing` straight
-after the reviewer turn, the suite is kept green, and the reviewer writes the
-review once more over its own draft; only that review is ranked and carried.
-After a nit fix the reviewer is told the fixing commit and writes a fresh review
-without the notes already answered; after a round that also answered a question,
-it carries those answers over. The refactor's reviewer covers the whole refactor
-since it started on every round, gives any test-file hunk a chunk of its own,
-and says so when it changes a test, an assertion or an expected value.
+With any note or noise left, `build.quality.gating` rewrites `.gtd/QUALITY.md`
+in the `findings` mode and the process rests at the human gate
+`build.quality.gate`: the notes as `## <title>` entries, then the noise under
+`# Dropped as noise`, each naming its lens, its status and the judge's `p`, and
+each ending in one `- [ ] fix` box. Tick a box to have that finding fixed, and
+optionally write guidance on the lines below it; leave it unticked to drop it.
+Landing the file untouched (or deleting it) drops every finding. The landing is
+refused (`finding-gate`) while an entry holds no box, more than one, or guidance
+under an unticked box. `gtd check findings <file>` runs the same check. A lap
+with no notes and no noise has no gate.
 
-In the `review` door, `build.review.composing` writes `.gtd/REVIEW.md` — no
-reviewer turn runs: a `## Weakened scenarios` chunk naming each `Then` line a
-`.feature` file at the review base has lost, then `## Findings` with one prose
-`### ` chunk per note (a mechanical one the fixer left is marked so), then
-`## Fixed automatically` (one line per finding, with the fixing commit's short
-hash) and `## Dropped as noise` (one line per finding, with its `p`). Each note
-chunk ends in `Tick exactly one:` and three boxes — `fix as suggested`,
-`won't fix`, `_your answer_` — and the review gate refuses to land
-(`answer-completeness`) until every note holds exactly one tick, a ticked
-`_your answer_` replaced by the human's text; only a round with a `- H:` thread
-waiting on the agent may leave one open. Only `## Findings` is read for answers:
-boxes ticked under `## Walkthrough` decide nothing. A review written before
-these sections existed, every chunk a `## `, is still read, its boxes wherever
-they stand. The summary chunks carry no box and need no answer; disagreeing with
-one means writing a note of your own. With nothing to list, the file holds one
-`## Nothing to note` chunk. Task boxes in a finding are written as plain
-bullets. The fresh review after a nit fix adds `## Fixed from your notes` with
-the fixing commit and leaves out every note already answered; after a round that
-also answered a question, the review is restored as answered instead, ticks
-kept.
+The ticked findings are fixed, never re-planned: `build.quality.picking`
+rewrites `.gtd/QUALITY.md` to just those, each with your guidance, the same fix
+turns run (up to three), and the health loop runs the suite green. There is no
+second lap and no second gate: what the turns leave is reported unresolved.
+`build.quality.closing` then removes whatever is left of `.gtd/QUALITY.md`.
 
-In every one of these reviews, an answer routes without the note judge:
-`fix as suggested` joins the nit batch (`build.review.fix.nits.fixing`) with the
-note's text; `won't fix` drops the note and records `Gtd-Mark: wontfix=<title>`
-on the gate's commit; an own answer is judged like any other note, keyed
-`answer-<n>`. Nothing is written to `.gtd/TODO.md`. `fix` keeps the untriaged
-lap and its reviewer turn.
+#### The final review
+
+Every final review — `feature`'s and the refactor's, the `review` door's, and
+the hand-off review of `fix` and `cleanup` — is a reviewer turn
+(`build.review.reviewing`, `refactor.build.review.reviewing`) walking the human
+through everything since the review base: `## ` chunks grouped by concern, each
+with at least one pointer to its code (`./path#start-end`), a `Weakened:` note
+on each scenario that lost a `Then` line. A chunk with no pointer (in a range
+that changed code), a `## Standard conflict` chunk the reviewer wrote itself,
+two chunks sharing a title, or a `## Findings` or `## Walkthrough` heading
+refuses the turn (`review-pointers`). gtd then appends (`build.review.carrying`)
+any open standard conflicts, one `## Quality lap` chunk — what was fixed
+automatically and fixed at the finding gate (each with its fixing commit),
+dropped at the finding gate, dropped as noise, and unresolved after the finding
+gate — and `## Standards added`. None of it takes an answer: to reopen a
+finding, write a note under its line, judged like any other note. A pointer note
+the reviewer opens with `Risk:` is fixed by `build.review.fix.risks.fixing`
+straight after the reviewer turn, the suite is kept green, and the reviewer
+writes the review once more over its own draft; only that review gets gtd's
+chunks. After a nit fix the reviewer is told the fixing commit; after a round
+that also answered a question, it carries those answers over. The refactor's
+reviewer covers the whole refactor since it started on every round, gives any
+test-file hunk a chunk of its own, and says so when it changes a test, an
+assertion or an expected value.
+
+A chunk added with its own `Tick exactly one:` boxes — as `/gtd pr` imports a
+pull request thread — is answered by its tick: `fix as suggested` joins the nit
+batch (`build.review.fix.nits.fixing`) with the chunk's text; `won't fix` drops
+it and records `Gtd-Mark: wontfix=<title>` on the gate's commit; an own answer
+over `_your answer_` is judged like any other note, keyed `answer-<n>`. The
+review gate refuses to land (`answer-completeness`) until each such chunk holds
+exactly one tick. Nothing is written to `.gtd/TODO.md`.
 
 #### Learned standards
 
-`feature`'s review and the `review` door learn alike. Once a review round's
-answers are recorded, and before any is routed, each won't-fix and each own
-answer becomes a candidate standard — `Won't fix:
+`feature`'s review and the `review` door learn alike, from the answers to chunks
+that carry their own boxes. Once a review round's answers are recorded, and
+before any is routed, each won't-fix and each own answer becomes a candidate
+standard — `Won't fix:
 <title> — <the note's first paragraph>`, or `<your answer> (re: <title>)` —
 unless `.gtd/STANDARDS.md` already holds it. `build.review.standards.judge`
 asks one yes/no per candidate (`standard-<n>`: is it reusable beyond this
@@ -1039,6 +1019,23 @@ test, then the quality lap and the review again. A custom workflow ending in
 and `seam.judge` never run again once judged, so a seam a re-plan turns up is
 built unjudged and unrefactored; a wrong or missing refactor means `gtd abandon`
 and a restart.
+
+**Upgrading:** the quality lap's notes are decided at the finding gate
+(`build.quality.gate`, `mode: "findings"`), and every final review is a
+reviewer's walkthrough with one `## Quality lap` summary chunk — no answer boxes
+for the lap's notes, no ranking. `build.review.composing` and
+`build.review.ranking` (and their `refactor.build.*` twins) are gone, and
+`BuildTailOptions` loses `walkthrough`; a config still passing it is ignored. A
+`LensReport` no longer carries `notes`: `finish` gets `fixed`, `gateFixed`,
+`dropped`, `noise` and `unresolved`. A process past its quality lap — resting at
+a review, or anywhere after `build.quality.triage` — no longer replays: finish
+or `gtd abandon` open reviews before upgrading. A driver or fixture scripting
+the lap scripts `build.quality.gating` (a script step) and the human gate
+`build.quality.gate` whenever a note or noise is left, then
+`build.review.reviewing` (an agent turn) where it scripted
+`build.review.composing`, and `build.review.carrying` when the lap left anything
+to list. A repository that formats its steering files declares a `findings` mode
+beside `qa` and `review`.
 
 **Upgrading:** a `feature` review marking a `Risk:` runs
 `build.review.fix.risks.fixing` (and `refactor.build.review.fix.risks.fixing`)
@@ -1551,8 +1548,8 @@ export const config = defineConfig({
 It has exactly these keys, all optional:
 
 - **`modes`** — steering-file modes (`format`/`validate` shell commands) a
-  step's `mode` may name, layered over gtd's built-in `qa` and `review` modes.
-  See [Modes](#modes).
+  step's `mode` may name, layered over gtd's built-in `qa`, `review` and
+  `findings` modes. See [Modes](#modes).
 - **`ui`** — `gtd ui`'s own settings. See [`ui`](#ui).
 - **`skills`** — a flat scope full-name -> skill-name array map, one entry per
   scope whose skill list you want to change. See [Skills](#skills).
@@ -1599,13 +1596,13 @@ may use it, and the file is neither formatted nor validated.
 
 #### Built-in steering formats are ordinary modes
 
-`qa` and `review` are gtd's two built-in steering-file formats (parsed and
-validated in-process, because `gtd lsp` needs the same parsers for live
+`qa`, `review` and `findings` are gtd's built-in steering-file formats (parsed
+and validated in-process, because `gtd lsp` needs the same parsers for live
 diagnostics), but their `validate:` is not hidden: every workflow's modes are
-seeded with `qa`/`review` entries whose `validate:` is the command
+seeded with `qa`/`review`/`findings` entries whose `validate:` is the command
 `gtd check <mode> '<file>'`. That seeded command is overridable the same way —
 declare `modes: { qa: { validate: "your-own-command" } }` and your command
-displaces the seed; declaring only a `format:` for `qa`/`review` composes with
+displaces the seed; declaring only a `format:` for a built-in mode composes with
 the seeded `validate:` rather than replacing it.
 
 The `qa` format also checks section order: `## Open Questions` must come before
@@ -1921,7 +1918,7 @@ A step naming a mode nothing declares fails the same way, as soon as the process
 rests at it:
 
 ```
-gtd config: step "idle": mode "adrs" is not a mode this workflow knows (qa, review)
+gtd config: step "idle": mode "adrs" is not a mode this workflow knows (qa, review, findings)
 ```
 
 A `config.skills` key that is not a scope running a turn fails the same way,
@@ -2080,8 +2077,7 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   `security`, `reversibility`, `blastRadius`, `newConcept`. An unclear, cut or
   below-floor answer makes the note `critical`, never `could`. Blank makes every
   tiered note `critical`. A leading `! ` (bang, space) on any human review note
-  forces `critical` and skips every judge question. The same floor rates
-  `feature`'s review chunks (`build.review.ranking`), keyed `C<n>.<question>`.
+  forces `critical` and skips every judge question.
 - **`standardMinP`** (`0.8`) — the floor a `yes` on "is this answer a reusable
   standard?" must clear at `build.review.standards.judge` (and
   `refactor.build.review.standards.judge`) before the answer is kept in
@@ -2091,8 +2087,9 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
 - **`qualityTriageMinP`** (`0.7`) — the floor a `mechanical` or `noise` verdict
   on a quality finding must clear at `build.quality.triage` (and
   `refactor.build.quality.triage`). Below it, the finding is `design` and
-  reaches the review as a note. Blank makes every finding `design`. Answers are
-  keyed `Q<n>`. See [the triaged quality lap](#the-triaged-quality-lap).
+  reaches the finding gate as a note. Blank makes every finding `design`.
+  Answers are keyed `Q<n>`. See
+  [the triaged quality lap](#the-triaged-quality-lap).
 - **`refactorFlagPattern`** (`\bGTD_FLAG_\w+`) — the regular expression whose
   matches `refactorFirst` counts as flag reads (see
   [`refactorFirst`](#refactorfirst)). Blank or an invalid expression fails
@@ -2126,8 +2123,6 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
 - **`judgeBudgetBytes`** (`32768`) — the total byte budget split across one
   judge step's evidence keys. Must be a positive integer; blank, zero, negative
   or fractional values fail the step rather than disabling the bound.
-  `build.review.ranking` splits its chunks into as many judgments as it takes
-  for each to fit its share whole.
 - **`qualityReviews`**
   (`correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge, criteria-coverage`)
   — sets the quality lap `build.quality` runs ahead of the human review: one

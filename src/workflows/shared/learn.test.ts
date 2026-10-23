@@ -117,20 +117,6 @@ describe("learnStandards", () => {
 })
 
 describe("learnStandards, from a won't-fix", () => {
-  it("states the finding, not gtd's banner", async () => {
-    state.answers = { "standard-1": yes }
-    await learnStandards([
-      {
-        anchor: "Slow loop",
-        // As the review parser hands it over: paragraphs joined by a space.
-        body: "_The fixer left this unresolved._ The loop is quadratic.",
-        choice: "wontfix",
-        text: "",
-      },
-    ])
-    expect(kept()).toBe(file("- Won't fix: Slow loop — The loop is quadratic."))
-  })
-
   it("replaces an old standard hand-edited in case only", async () => {
     state.files[STANDARDS] = file(
       "- use classes.",

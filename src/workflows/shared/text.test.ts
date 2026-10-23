@@ -33,14 +33,16 @@ import {
   seamSteerMessage,
   summaryPrompt,
   withSkills,
-  composedReview,
-  titledNotes,
-  walkthroughBlock,
-  withWalkthrough,
-  rankedReview,
-  unranked,
+  findingGateFile,
+  nitFixBlock,
+  withSummary,
 } from "./text.js"
-import { reviewDecisions, steeringFormatFor, unansweredNotes } from "../../steering/index.js"
+import {
+  findingEntries,
+  reviewDecisions,
+  steeringFormatFor,
+  unansweredNotes,
+} from "../../steering/index.js"
 import { captureStep, renderText } from "./text.fixture.js"
 
 describe("withSkills", () => {
@@ -1272,138 +1274,8 @@ describe("buildReviewCollectingPrompt answer boxes", () => {
   })
 })
 
-describe("composedReview", () => {
-  const BASE = "0123456789abcdef0123456789abcdef01234567"
-
-  describe("standards", () => {
-    const conflict = { text: "Calculators are functions.", olds: ["Calculators are classes."] }
-    const withConflict = composedReview(BASE, {
-      notes: [],
-      fixed: [],
-      noise: [],
-      standards: { added: [], undecided: [conflict] },
-    })
-
-    it("asks about each undecided standard in a note that blocks sign-off", () => {
-      expect(withConflict).toMatch(/^## Findings\n\n### Standard conflict [0-9a-f]{8}$/m)
-      expect(withConflict).toContain("- [ ] keep the new one (drop the old)")
-      expect(unansweredNotes(withConflict)).toHaveLength(1)
-    })
-
-    it("reads its boxes by position, like a note's", () => {
-      const ticked = withConflict.replace("- [ ] keep the old one", "- [x] keep the old one")
-      expect(unansweredNotes(ticked)).toEqual([])
-      expect(reviewDecisions(withConflict, ticked)).toEqual([
-        expect.objectContaining({ choice: "wontfix" }),
-      ])
-    })
-
-    it("lists the standards added", () => {
-      const doc = composedReview(BASE, {
-        notes: [],
-        fixed: [],
-        noise: [],
-        standards: { added: ["Prefer early returns."], undecided: [] },
-      })
-      expect(doc).toContain("## Standards added")
-      expect(doc).toContain("- Prefer early returns.")
-    })
-  })
-
-  it("is a valid review with unique chunk titles, so every note matches its own chunk", () => {
-    const doc = composedReview(BASE, {
-      notes: [
-        { title: "same", body: "one" },
-        { title: "same", body: "two", unresolved: true },
-      ],
-      fixed: [{ title: "f", commit: "fedcba9876543210" }],
-      noise: [{ title: "n", p: 0.8 }],
-    })
-    expect(steeringFormatFor("review")!.validate(doc)).toEqual([])
-    expect(doc).toContain("# Review: 0123456\n\n<!-- base: " + BASE + " -->")
-    expect(doc).toContain("## Findings\n\n### same\n\none")
-    expect(doc).toContain("### same (2)\n\n_The fixer left this unresolved._\n\ntwo")
-    expect(doc).toContain("## Fixed automatically\n\n- f (fedcba9)")
-    expect(doc).toContain("## Dropped as noise\n\n- n (p=0.8)")
-  })
-
-  it("holds one chunk when the lap left nothing", () => {
-    const doc = composedReview(BASE, { notes: [], fixed: [], noise: [] })
-    expect(steeringFormatFor("review")!.validate(doc)).toEqual([])
-    expect(doc).toContain("## Nothing to note")
-  })
-
-  it("never reuses a title, a summary's included", () => {
-    const doc = composedReview(BASE, {
-      notes: [
-        { title: "a", body: "1" },
-        { title: "a (2)", body: "2" },
-        { title: "a", body: "3" },
-        { title: "Fixed automatically", body: "4" },
-      ],
-      fixed: [{ title: "f", commit: "fedcba9876543210" }],
-      noise: [],
-    })
-    const titles = doc.split("\n").filter((l) => /^#{2,3} /.test(l))
-    expect(titles).toEqual([
-      "## Findings",
-      "### a",
-      "### a (2)",
-      "### a (3)",
-      "### Fixed automatically (2)",
-      "## Fixed automatically",
-    ])
-  })
-
-  it("turns a lens's task boxes into plain bullets, so no pointer or risk is read", () => {
-    const doc = composedReview(BASE, {
-      notes: [
-        { title: "a", body: "- [ ] ./src/a.ts#1-1 Risk: x\n- [x] done\n1. [ ] one\n> - [ ] q" },
-      ],
-      fixed: [],
-      noise: [],
-    })
-    expect(steeringFormatFor("review")!.validate(doc)).toEqual([])
-    expect(doc).toContain("- ./src/a.ts#1-1 Risk: x\n- done\n1. one\n> - q")
-  })
-
-  it("names the nit fix on the review after it", () => {
-    const doc = composedReview(BASE, { notes: [], fixed: [], noise: [], nitFix: "abcdef0123" })
-    expect(doc).toContain(
-      "## Fixed from your notes\n\nYour nits and fix-as-suggested notes were worked on in abcdef0;",
-    )
-  })
-
-  it("ends every note, and only a note, in its three answer boxes", () => {
-    const doc = composedReview(BASE, {
-      notes: [{ title: "a", body: "- ends in a list" }],
-      fixed: [{ title: "f", commit: "fedcba9876543210" }],
-      noise: [],
-    })
-    expect(doc).toContain(
-      "### a\n\n- ends in a list\n\nTick exactly one:\n\n- [ ] fix as suggested\n- [ ] won't fix\n- [ ] _your answer_\n\n## Fixed automatically",
-    )
-    expect(doc.match(/fix as suggested/g)).toHaveLength(1)
-    expect(unansweredNotes(doc)).toEqual([{ title: "a", line: 7, reason: "tick exactly one box" }])
-  })
-
-  it("leaves out the notes already answered", () => {
-    const doc = composedReview(BASE, {
-      notes: [
-        { title: "a", body: "1" },
-        { title: "a", body: "2" },
-      ],
-      fixed: [],
-      noise: [],
-      answered: new Set(["a"]),
-    })
-    expect(doc).not.toContain("# a\n")
-    expect(doc).toContain("## a (2)\n\n2")
-  })
-})
-
-describe("walkthrough", () => {
-  const empty = { notes: [], fixed: [], noise: [] }
+describe("withSummary", () => {
+  const empty = { fixed: [], gateFixed: [], dropped: [], noise: [], unresolved: [] }
   const review = [
     "# Review: abc1234",
     "",
@@ -1413,201 +1285,144 @@ describe("walkthrough", () => {
     "",
     "- [ ] ./src/calc.ts#2-2 — subtract(a, b)",
     "",
-    "## Fixed automatically",
+    "## Quality lap",
     "",
     "- [ ] ./src/calc.ts#2-2 — the reviewer's own chunk",
     "",
   ].join("\n")
 
-  it("titles notes uniquely, never a summary's, and leaves out answered ones", () => {
-    const notes = [
-      { title: "Fixed automatically", body: "a" },
-      { title: "x", body: "b" },
-      { title: "x", body: "c" },
-    ]
-    expect(titledNotes({ ...empty, notes }).map((n) => n.title)).toEqual([
-      "Fixed automatically (2)",
-      "x",
-      "x (2)",
-    ])
-    expect(titledNotes({ ...empty, notes, answered: new Set(["x"]) }).map((n) => n.title)).toEqual([
-      "Fixed automatically (2)",
-      "x (2)",
-    ])
-  })
-
-  it("lists each note with its exact heading and quoted body", () => {
-    const block = walkthroughBlock([
-      { title: "No test", body: "Add one.\n\n- [ ] a box", lens: "tests" },
-    ])
-    expect(block).toContain("- `## No test`:\n\n  > Add one.\n  >\n  > - a box")
-    expect(block).toContain("its heading exactly as given")
-  })
-
-  it("names the nit fix's commit, and says nothing with nothing to tell", () => {
-    expect(walkthroughBlock([], "0123456789")).toContain(
-      "Commit `0123456` worked on the human's nits",
-    )
-    expect(walkthroughBlock([])).toBe("")
-  })
-
-  it("puts a note's text under its heading and its boxes after the reviewer's pointers", () => {
-    const out = withWalkthrough(review, {
-      ...empty,
-      notes: [{ title: "Subtract", body: "It may overflow.", unresolved: true }],
+  it("lists what the lap did in one chunk, numbered past a title the reviewer took", () => {
+    const out = withSummary(review, {
+      report: {
+        fixed: [{ title: "f", commit: "fedcba9876543210", lens: "tests" }],
+        gateFixed: [{ title: "g", commit: "0123456789abcdef" }],
+        dropped: [{ title: "d" }],
+        noise: [{ title: "n", p: 0.8 }],
+        unresolved: [{ title: "u" }, { title: "v", unclear: true }],
+      },
     })
+    expect(steeringFormatFor("review")!.validate(out)).toEqual([])
     expect(out).toContain(
       [
-        "## Subtract",
+        "## Quality lap (2)",
         "",
-        "_The fixer left this unresolved._",
+        "What the quality lenses found, and what became of it. Write a note under",
+        "a line to reopen it.",
         "",
-        "It may overflow.",
+        "Fixed automatically:",
         "",
-        "In the code:",
+        "- f (fedcba9, lens tests)",
         "",
-        "- [ ] ./src/calc.ts#2-2 — subtract(a, b)",
+        "Fixed at the finding gate:",
         "",
-        "Tick exactly one:",
+        "- g (0123456)",
         "",
-        "- [ ] fix as suggested",
-        "- [ ] won't fix",
-        "- [ ] _your answer_",
+        "Dropped at the finding gate:",
         "",
-        "## Fixed automatically",
+        "- d",
+        "",
+        "Dropped as noise:",
+        "",
+        "- n (p=0.8)",
+        "",
+        "Unresolved after the finding gate:",
+        "",
+        "- u",
+        "- v (removed while renaming another)",
+        "",
       ].join("\n"),
     )
   })
 
-  it("appends the fixes and noise, numbered past a title the reviewer took", () => {
-    const out = withWalkthrough(review, {
-      ...empty,
-      fixed: [{ title: "a", commit: "0123456789", lens: "tests" }],
-      noise: [{ title: "b", p: 0.9 }],
+  it("asks about each undecided standard in a note that blocks sign-off, read by position", () => {
+    const conflict = { text: "Calculators are functions.", olds: ["Calculators are classes."] }
+    const out = withSummary(review, {
+      report: empty,
+      standards: { added: [], undecided: [conflict] },
     })
-    expect(
-      out.endsWith(
-        "## Fixed automatically (2)\n\n- a (0123456)\n\n## Dropped as noise\n\n- b (p=0.9)\n",
-      ),
-    ).toBe(true)
+    expect(out).toMatch(/^## Standard conflict [0-9a-f]{8}$/m)
+    expect(unansweredNotes(out)).toHaveLength(1)
+    const ticked = out.replace("- [ ] keep the old one", "- [x] keep the old one")
+    expect(unansweredNotes(ticked)).toEqual([])
+    expect(reviewDecisions(out, ticked)).toEqual([expect.objectContaining({ choice: "wontfix" })])
+  })
+
+  it("lists the standards added", () => {
+    const out = withSummary(review, {
+      report: empty,
+      standards: { added: ["Prefer early returns."], undecided: [] },
+    })
+    expect(out).toContain("## Standards added")
+    expect(out).toContain("- Prefer early returns.")
   })
 
   it("leaves a review with nothing to add byte for byte, trailing newlines and all", () => {
-    expect(withWalkthrough(review, empty)).toBe(review)
-    expect(withWalkthrough(review.trimEnd(), empty)).toBe(review.trimEnd())
-    expect(withWalkthrough(review, { ...empty, notes: [{ title: "absent", body: "x" }] })).toBe(
-      review,
-    )
-  })
-
-  it("keeps a note ending in a list apart from the pointers, so its answer carries the list", () => {
-    const out = withWalkthrough(review, {
-      ...empty,
-      notes: [{ title: "Subtract", body: "Do this:\n\n- step one\n- step two" }],
-    }).replace("- [ ] fix as suggested", "- [x] fix as suggested")
-    const [decision] = reviewDecisions("", out)
-    expect(decision?.body).toContain("step two")
-    expect(decision?.body).not.toContain("./src/calc.ts")
-  })
-
-  it("shows a title holding backticks as one unbroken code span", () => {
-    expect(walkthroughBlock([{ title: "`sub` drifts", body: "x" }])).toContain(
-      "- `` ## `sub` drifts ``:",
-    )
-  })
-
-  it("keeps Risk: out of a finding's chunk", () => {
-    expect(walkthroughBlock([{ title: "x", body: "y" }])).toContain(
-      "never open a note in a finding's chunk with `Risk:`",
-    )
+    expect(withSummary(`${review}\n\n`, { report: empty })).toBe(`${review}\n\n`)
   })
 })
 
-describe("rankedReview", () => {
-  const review = [
-    "# Review: abc1234",
-    "",
-    "<!-- base: abc1234 -->",
-    "",
-    "## Rename",
-    "",
-    "- [ ] ./a.ts#1-1",
-    "",
-    "## Token",
-    "",
-    "_could_",
-    "",
-    "Reads the token.",
-    "",
-    "- [ ] ./a.ts#2-2",
-    "",
-    "## Fixed automatically",
-    "",
-    "- x (abc1234)",
-    "",
-  ].join("\n")
+describe("findingGateFile", () => {
+  const gate = steeringFormatFor("findings")!
 
-  it("puts the ranked chunks first, each led by its tier, and leaves the rest in place", () => {
-    expect(
-      rankedReview(unranked(review), [
-        { title: "Token", label: "critical: security" },
-        { title: "Rename", label: "could" },
-      ]),
-    ).toBe(
+  it("lists the open notes, then the noise, each with an unticked box, and reads back clean", () => {
+    const file = findingGateFile(
       [
-        "# Review: abc1234",
+        { title: "a", body: "Design.", lens: "tests" },
+        { title: "b", body: "Left over.", unresolved: true },
+      ],
+      [{ title: "n", body: "Meh.", p: 0.8 }],
+    )
+    expect(file).toBe(
+      [
+        "# Quality",
         "",
-        "<!-- base: abc1234 -->",
+        "## a",
         "",
-        "## Token",
+        "_From lens tests._",
         "",
-        "_critical: security_",
+        "Design.",
         "",
-        "Reads the token.",
+        "- [ ] fix",
         "",
-        "- [ ] ./a.ts#2-2",
+        "## b",
         "",
-        "## Rename",
+        "_The fixer left it unresolved._",
         "",
-        "_could_",
+        "Left over.",
         "",
-        "- [ ] ./a.ts#1-1",
+        "- [ ] fix",
         "",
-        "## Fixed automatically",
+        "# Dropped as noise",
         "",
-        "- x (abc1234)",
+        "## n",
+        "",
+        "_The judge called it noise (p=0.8)._",
+        "",
+        "Meh.",
+        "",
+        "- [ ] fix",
         "",
       ].join("\n"),
     )
+    expect(gate.validate(file)).toEqual([])
+    expect(findingEntries(file).map((e) => [e.title, e.noise, e.fix])).toEqual([
+      ["a", false, false],
+      ["b", false, false],
+      ["n", true, false],
+    ])
   })
 
-  it("keeps a setext heading whole", () => {
-    expect(
-      rankedReview("# Review: a\n\nToken\n-----\n\n- [ ] ./a.ts#1\n", [
-        { title: "Token", label: "could" },
-      ]),
-    ).toBe("# Review: a\n\nToken\n-----\n\n_could_\n\n- [ ] ./a.ts#1\n")
+  it("turns a lens's task boxes into plain bullets, so no box is read but its own", () => {
+    const file = findingGateFile([{ title: "a", body: "- [ ] fix\n- [x] done" }], [])
+    expect(file).toContain("- fix\n- done")
+    expect(findingEntries(file)[0]!.boxes).toBe(1)
   })
+})
 
-  it("keeps a chunk's leading indented code block indented", () => {
-    const code = "# Review: abc1234\n\n## Code\n\n    const x = 1\n\n- [ ] ./a.ts#1-1\n"
-    expect(rankedReview(code, [{ title: "Code", label: "could" }])).toContain(
-      "_could_\n\n    const x = 1",
-    )
-  })
-
-  it("drops a stale tier with no blank line under the heading, never a longer paragraph", () => {
-    expect(unranked("## A\n_could_\n\nbody\n")).toBe("## A\nbody\n")
-    expect(unranked("## A\n\n_could_\n- [ ] ./a.ts#1\n")).toBe("## A\n\n- [ ] ./a.ts#1\n")
-    const code = "## A\n\n    _could_\n"
-    expect(unranked(code)).toBe(code)
-    const prose = "## A\n\n_should: x_\nruns on\n"
-    expect(unranked(prose)).toBe(prose)
-  })
-
-  it("drops a stale tier, so a re-review is ranked afresh", () => {
-    expect(unranked(review)).not.toContain("_could_")
-    expect(unranked(unranked(review))).toBe(unranked(review))
+describe("nitFixBlock", () => {
+  it("names the nit fix's commit, and says nothing with nothing to tell", () => {
+    expect(nitFixBlock("0123456789")).toContain("Commit `0123456` worked on the human's nits")
+    expect(nitFixBlock()).toBe("")
   })
 })
 

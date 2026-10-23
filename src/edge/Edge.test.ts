@@ -754,7 +754,7 @@ export default async () => {
 `)
     const exit = await provideExit(currentRest, repo)
     expect(Exit.isFailure(exit) && String(exit.cause)).toContain(
-      'step "idle": mode "adr" is not a mode this workflow knows (qa, review)',
+      'step "idle": mode "adr" is not a mode this workflow knows (qa, review, findings)',
     )
   })
 

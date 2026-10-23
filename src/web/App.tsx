@@ -1,5 +1,6 @@
 import type { StepRead } from "../ui/index.js"
 import { Notice } from "./Notice.js"
+import { Findings } from "./screens/Findings.js"
 import { FreeForm } from "./screens/FreeForm.js"
 import { Plan } from "./screens/Plan.js"
 import { Review } from "./screens/Review.js"
@@ -16,7 +17,7 @@ const openable = (step: StepRead | undefined): step is StepRead & { status: "ok"
  * and no route back to one. `trpc.step`'s own `mode` picks the screen —
  * `"review"` always means `Review` (that screen's own `readSteeringFile` call
  * is hardcoded to `mode: "review"`, matching `.gtd/REVIEW.md`'s one format);
- * `"qa"` means `Plan`; anything else (absent, or an unregistered mode name)
+ * `"qa"` means `Plan`; `"findings"` means `Findings`; anything else (absent, or an unregistered mode name)
  * falls through to `FreeForm`, which reads the file as plain markdown and
  * offers only a note per block, plus a textfield when it's empty. Neither
  * screen offers a way back to a list — `done` is the only
@@ -81,6 +82,8 @@ export const App = () => {
         <Review filePath={step.file} />
       ) : step.mode === "qa" ? (
         <Plan filePath={step.file} mode="qa" />
+      ) : step.mode === "findings" ? (
+        <Findings filePath={step.file} />
       ) : (
         <FreeForm filePath={step.file} mode={step.mode} />
       )}

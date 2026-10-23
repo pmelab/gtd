@@ -490,12 +490,21 @@ noted in steps 3 and 4 below.
    fixed by the fix turn (`build.fix.quality.fixing`, up to three turns),
    `noise` is dropped with its `p` recorded as
    `Gtd-Mark: noise=<id> p=<p> <title>`, and `design` ones (questioning a
-   criterion or the approach) become notes for your review. An unsure verdict
-   (below `qualityTriageMinP`, `0.7`) is `design`; mechanical findings the fix
-   turns leave become notes too. This lap is where code quality is looked at,
-   and every round pays for it. It never replaces step 4 — your review stays the
-   final gate, and nothing here skips it. The `fix` and `cleanup` doors triage
-   their lap too, and hand its notes to their own review.
+   criterion or the approach) become notes. An unsure verdict (below
+   `qualityTriageMinP`, `0.7`) is `design`; mechanical findings the fix turns
+   leave become notes too. **The finding gate** (`build.quality.gate`) then
+   stops for you: `.gtd/QUALITY.md` lists the notes, then the noise under
+   `# Dropped as noise` so you can overrule the judge, each with one `- [ ] fix`
+   box. Tick a finding to have it fixed, optionally with a line of guidance
+   below its box; leave it unticked to drop it — landing the file untouched
+   drops them all, and guidance under an unticked box is refused. The ticked
+   ones go to the same fix turns (up to three), then the suite is kept green;
+   what they leave is listed as unresolved, with no second gate. A ticked
+   finding is fixed, never re-planned: raise anything bigger in your review. A
+   lap with no notes and no noise has no gate. This lap is where code quality is
+   looked at, and every round pays for it. It never replaces step 4 — your
+   review stays the final gate, and nothing here skips it. The `fix` and
+   `cleanup` doors run the same lap and gate before their own review.
 
    A red suite that keeps failing past a few fix attempts escalates instead of
    retrying forever: an agent turn reads the failing output and writes
@@ -513,46 +522,37 @@ noted in steps 3 and 4 below.
 4. **You review.** After the quality lap a reviewer turn
    (`build.review.reviewing`) walks you through the whole change: `## ` chunks
    grouped by concern, **every chunk pointing at its code**
-   (`./path#start-end`), so the phone shows the diff beside each one. Every
-   design note the lap left gets a chunk of its own, pointing at the code it
-   cites; gtd adds the note's text and three tick boxes — **fix as suggested**,
-   **won't fix**, or **your own answer** written over `_your answer_`
-   (`build.review.carrying`) — then, for reference, no tick boxes, no answer
-   needed — what was **fixed automatically** (with the fixing commit) and what
-   was **dropped as noise**. A review with a chunk pointing at no code, or a
-   note left out, is refused (`review-pointers`). A pointer note the reviewer
-   opens with `Risk:` is fixed before you see the review
-   (`build.review.fix.risks.fixing`), then the review is written again. **What
-   matters most comes first:** a judge (`build.review.ranking`) rates every
-   chunk on the four severity questions below, and the review lists `critical`
-   chunks first (security, then one-way doors), then `should`, then `could`,
-   each led by its tier and reason (`_critical: security, one-way door_`) — the
-   phone shows it on the chunk's card. A chunk the judge is unsure of, or whose
-   evidence the budget cut, is `critical`. On `refactor-first` the refactor gets
-   a walkthrough of its own first, covering the whole refactor on every round,
-   before the feature is built; see [the naive pass](#the-naive-pass). **Every
-   note needs exactly one tick before `gtd land` accepts the review**
-   (`answer-completeness`; an open `- H:` thread waiting on the agent is the one
-   exception). Fix as suggested joins the nit batch below, unjudged; won't fix
-   drops the note and records it as `Gtd-Mark: wontfix=<title>` on the gate's
-   commit; your own answer is judged like a note. A note you answered is left
-   out of the fresh review after a nit fix. Land with every note answered and
-   nothing else changed to approve, or write what is wrong — disagreeing with a
-   fix or a drop means writing a note of your own. Approving ends the process
-   (at the refactor review, it moves on to the feature); feedback is judged note
-   by note, each as `edit`, `question`, `nit` or `praise`. An `edit` sends the
-   process back to step 2 for re-derived requirements — the built criteria keep
-   their IDs (reworded in place when their behaviour changes) and new behaviour
-   gets new ones — then the implementation is amended to meet them, with no new
-   naive pass or seam judge, the hands-on test runs again, the quality lap runs,
-   and you review again. At the refactor review an `edit` re-derives the
-   refactor instead. A `question` is answered inline under your note and the
-   process stops at the review again — no new plan. A `nit` is fixed in one
-   batch, the suite must go green (a red one gets fix turns first), then a fresh
-   review of the change stops at the review again. `praise` is dropped; a round
-   of only praise signs off. When a round mixes them, questions are answered and
-   nits fixed first, then the edits are planned — risk: the planning lap may
-   redo nit fixes it touches.
+   (`./path#start-end`), so the phone shows the diff beside each one. gtd
+   appends one `## Quality lap` chunk (`build.review.carrying`) listing, for
+   reference, what the quality lap did with every finding: **fixed
+   automatically** and **fixed at the finding gate** (each with its fixing
+   commit), **dropped at the finding gate**, **dropped as noise**, and
+   **unresolved after the finding gate**. To reopen one, write a note under its
+   line. A review with a chunk pointing at no code is refused
+   (`review-pointers`). A pointer note the reviewer opens with `Risk:` is fixed
+   before you see the review (`build.review.fix.risks.fixing`), then the review
+   is written again over the reviewer's own draft. On `refactor-first` the
+   refactor gets a walkthrough of its own first, covering the whole refactor on
+   every round, before the feature is built; see
+   [the naive pass](#the-naive-pass). Land with nothing changed to approve, or
+   write what is wrong. A note added with its own `Tick exactly one:` boxes (as
+   `/gtd pr` imports a thread) is answered by its tick instead of judged: fix as
+   suggested joins the nit batch below, won't fix drops it and records
+   `Gtd-Mark: wontfix=<title>`, your own answer is judged like a note. Approving
+   ends the process (at the refactor review, it moves on to the feature);
+   feedback is judged note by note, each as `edit`, `question`, `nit` or
+   `praise`. An `edit` sends the process back to step 2 for re-derived
+   requirements — the built criteria keep their IDs (reworded in place when
+   their behaviour changes) and new behaviour gets new ones — then the
+   implementation is amended to meet them, with no new naive pass or seam judge,
+   the hands-on test runs again, the quality lap runs, and you review again. At
+   the refactor review an `edit` re-derives the refactor instead. A `question`
+   is answered inline under your note and the process stops at the review again
+   — no new plan. A `nit` is fixed in one batch, the suite must go green (a red
+   one gets fix turns first), then a fresh review of the change stops at the
+   review again. `praise` is dropped; a round of only praise signs off. When a
+   round mixes them, questions are answered and nits fixed first, then the edits
+   are planned — risk: the planning lap may redo nit fixes it touches.
 
    Each `edit` note also gets a severity tier from four judge questions
    (security, reversibility, blast radius, new concept). Every tier is
@@ -600,9 +600,10 @@ conversation under their block, question, chunk, or hunk, and one the agent
 answered last carries a "waiting on you" badge. Tap it to reply — your reply is
 added as a new `H:` entry; while the agent has yet to answer, reopening it edits
 your last entry instead. Tap an already-answered question to leave a note on it;
-the agent may overturn the answer. On a review, each finding takes its decision
-on the phone too — fix as suggested, won't fix, or your own answer — and Done
-stays disabled, saying how many are left, until every finding has one. See
+the agent may overturn the answer. At the finding gate the phone lists the open
+findings, then those dropped as noise, each with a fix checkbox and, once
+ticked, an optional line of guidance; Done stays disabled while the file holds
+anything the gate would refuse. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 
@@ -616,17 +617,15 @@ gtd door review <commitish>
 
 starts a review of everything from `<commitish>` to HEAD — the same review a
 `feature` process ends with, minus planning and building. A green gate, then the
-quality lenses: mechanical findings are fixed, noise is dropped, and the rest
-become notes under `## Findings` in `.gtd/REVIEW.md`, one tick box each, apart
-from the walkthrough of the code under `## Walkthrough`, which you only tick as
-read. Tick `fix as suggested` or write your own answer and the process fixes it
-in place — your own answers that ask for a change are collected into
-`.gtd/REQUIREMENTS.md` and built by one `feedback.fixing` turn, with no design
-phase and no criteria — under the health loop, then asks for your review again.
-Sign off (or tick `won't fix`) and it closes; nothing is left behind. A note
-asking for new behaviour belongs in a `feature` process: tick `won't fix` and
-start one. `gtd door fix` repairs a red baseline as its own reviewed commit; a
-note at its review is left in `.gtd/REVIEW.md` (beside the reviewer's original,
+quality lenses: mechanical findings are fixed, the rest wait at the finding
+gate, then a reviewer walks you through the change in `.gtd/REVIEW.md`, with the
+lap's summary. A nit note is fixed in place; a note asking for a change is
+collected into `.gtd/REQUIREMENTS.md` and built by one `feedback.fixing` turn,
+with no design phase and no criteria — under the health loop, then it asks for
+your review again. Sign off and it closes; nothing is left behind. A note asking
+for new behaviour belongs in a `feature` process: sign off and start one.
+`gtd door fix` repairs a red baseline as its own reviewed commit; a note at its
+review is left in `.gtd/REVIEW.md` (beside the reviewer's original,
 `.gtd/REVIEW.orig.md`) for the next `gtd door fix`, and until that runs,
 starting `feature` or `review` is refused — remove both files to abandon the
 hand-off. `gtd doors` lists the doors of the workflows your `gtd.config.ts`
@@ -884,7 +883,7 @@ gtd is one package, `@pmelab/gtd`, and every entrypoint shares its version and
 | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `@pmelab/gtd/flows`                                                                                                                                            | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                                       |
 | `@pmelab/gtd/wire`                                                                                                                                             | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                                           |
-| `@pmelab/gtd/steering`                                                                                                                                         | The steering-file formats (`qa`, `review`) and the review-note readers.                                                                                                                                |
+| `@pmelab/gtd/steering`                                                                                                                                         | The steering-file formats (`qa`, `review`, `findings`) and the review-note readers.                                                                                                                    |
 | `@pmelab/gtd/workflow-kit`                                                                                                                                     | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails.                                                                                  |
 | `@pmelab/gtd/workflows`                                                                                                                                        | Every shipped workflow and all its parts in one module; also resolvable as `@pmelab/gtd/workflow`.                                                                                                     |
 | `@pmelab/gtd/workflows/feature`, `@pmelab/gtd/workflows/review`, `@pmelab/gtd/workflows/fix`, `@pmelab/gtd/workflows/rollout`, `@pmelab/gtd/workflows/cleanup` | One shipped workflow each: its factory as the default export, its parts, and the reserved exports (`defaults`, `envDefaults`, `summary`, `steering`, `skills`, `access`). `gtd install` imports these. |

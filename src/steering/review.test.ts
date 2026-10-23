@@ -2118,7 +2118,7 @@ describe("answer boxes", async () => {
 })
 
 describe("review — sectioned layout", async () => {
-  const { reviewChunks, reviewDecisions, reviewSections, sectionedReview, unansweredNotes } =
+  const { reviewChunks, reviewDecisions, reviewSections, unansweredNotes } =
     await import("./review.js")
   const boxes = (ticked?: 0 | 1 | 2): string[] => [
     "Tick exactly one:",
@@ -2229,79 +2229,5 @@ describe("review — sectioned layout", async () => {
       .actionsAt({ start: { line: 20, character: 0 }, end: { line: 20, character: 0 } })
       .map((a) => a.title)
     expect(titles.some((t) => t.includes("A finding"))).toBe(false)
-  })
-
-  describe("sectionedReview", () => {
-    const flat = [
-      ...head,
-      "## Weakened scenarios",
-      "",
-      "- a.feature — s — Then x",
-      "",
-      "## A finding",
-      "",
-      "_should: contract_",
-      "",
-      "Leaks a token.",
-      "",
-      ...boxes(),
-      "",
-      "Wiring",
-      "------",
-      "",
-      "### Detail",
-      "",
-      "- [ ] ./src/b.ts#3-4 — wires it",
-      "",
-      "## Fixed automatically",
-      "",
-      "- f (fedcba9)",
-      "",
-    ].join("\n")
-
-    it("moves boxed chunks under Findings and the named ones under Walkthrough, a level deeper", () => {
-      expect(sectionedReview(flat, new Set(["Wiring"]))).toBe(
-        [
-          ...head,
-          "## Weakened scenarios",
-          "",
-          "- a.feature — s — Then x",
-          "",
-          "## Findings",
-          "",
-          "### A finding",
-          "",
-          "_should: contract_",
-          "",
-          "Leaks a token.",
-          "",
-          ...boxes(),
-          "",
-          "## Walkthrough",
-          "",
-          "### Wiring",
-          "",
-          "#### Detail",
-          "",
-          "- [ ] ./src/b.ts#3-4 — wires it",
-          "",
-          "## Fixed automatically",
-          "",
-          "- f (fedcba9)",
-          "",
-        ].join("\n"),
-      )
-    })
-
-    it("is valid and stable once sectioned", () => {
-      const once = sectionedReview(flat, new Set(["Wiring"]))
-      expect(review.validate(once)).toEqual([])
-      expect(sectionedReview(once, new Set(["Wiring"]))).toBe(once)
-    })
-
-    it("leaves a review with nothing to group byte for byte", () => {
-      const plain = [...head, "## Nothing to note", "", "Review the diff yourself.", ""].join("\n")
-      expect(sectionedReview(plain, new Set())).toBe(plain)
-    })
   })
 })

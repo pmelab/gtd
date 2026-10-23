@@ -2,9 +2,10 @@
 Feature: the review door fixes its notes in the same process
 
   `gtd door review` runs the feature's review over everything since its base:
-  the triaged quality lap writes `.gtd/REVIEW.md`, the human answers each note,
-  and what they ask for is fixed in place under the health loop before the
-  review comes back. A sign-off ends the process; nothing is left for `fix`.
+  the triaged quality lap and its finding gate, then a reviewer's walkthrough
+  of the change with the lap's summary, where the human's notes are fixed in
+  place under the health loop before the review comes back. A sign-off ends
+  the process; nothing is left for `fix`.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
@@ -24,15 +25,27 @@ Feature: the review door fixes its notes in the same process
 
       Add a test for add.
       """
-    And step "build.quality.sorting" runs its script
     And judge step "build.quality.triage" answers:
       """
       [{"id":"Q1","answer":"design","p":0.9}]
       """
-    And step "build.review.composing" runs its script
+    And step "build.quality.gating" runs its script
+    And step "build.quality.gate" changes nothing
+    And step "build.quality.closing" runs its script
+    And step "build.review.reviewing" writes ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## Calculator
+
+      - [ ] ./src/calc.ts#1-1 — add(a, b)
+      """
+    And step "build.review.carrying" runs its script
     And step "build.review.closing" runs its script
 
-  Scenario: the review is composed from the lap's notes, with answer boxes
+  Scenario: the review is a walkthrough, its summary listing what the finding gate dropped
     When gtd opens door "review" with "HEAD~1"
     And the process is driven
     Then the process rests at "build.review.await-review"
@@ -41,72 +54,65 @@ Feature: the review door fixes its notes in the same process
       gtd(human): review-gate.check
       gtd(check): review-gate.check → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.quality.triage
-      gtd(judge): build.quality.triage → build.quality.sorting
-      gtd(check): build.quality.sorting → build.review.composing
-      gtd(check): build.review.composing → build.review.await-review
+      gtd(judge): build.quality.triage → build.quality.gating
+      gtd(check): build.quality.gating → build.quality.gate
+      gtd(human): build.quality.gate → build.quality.closing
+      gtd(check): build.quality.closing → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
       """
     And ".gtd/REVIEW.md" contains:
       """
-      ## add has no test
+      ## Calculator
 
-      Add a test for add.
+      - [ ] ./src/calc.ts#1-1 — add(a, b)
 
-      Tick exactly one:
+      ## Quality lap
+      """
+    And ".gtd/REVIEW.md" contains:
+      """
+      Dropped at the finding gate:
 
-      - [ ] fix as suggested
-      - [ ] won't fix
-      - [ ] _your answer_
+      - add has no test (lens correctness)
       """
-
-  Scenario: a won't-fix signs off, and no review is left for fix
-    Given judge step "build.review.standards.judge" answers:
-      """
-      [{"id":"standard-1","answer":"no","p":0.9}]
-      """
-    When gtd opens door "review" with "HEAD~1"
-    And the process is driven
-    And the text "- [ ] won't fix" in ".gtd/REVIEW.md" is replaced with "- [x] won't fix"
-    And gtd lands
-    And the process is driven
-    Then the process rests at "idle"
-    And ".gtd/REVIEW.md" does not exist
-    And ".gtd/REVIEW.orig.md" does not exist
-
-  Scenario: a note ticked fix as suggested is fixed in place, then reviewed again
-    Given step "build.review.fix.nits.fixing" writes "src/calc.test.ts" with:
-      """
-      it("adds", () => {})
-      """
-    When gtd opens door "review" with "HEAD~1"
-    And the process is driven
-    And the text "- [ ] fix as suggested" in ".gtd/REVIEW.md" is replaced with "- [x] fix as suggested"
-    And gtd lands
-    And the process is driven
-    Then the process rests at "build.review.await-review"
-    And the commit subjects end with:
-      """
-      gtd(human): build.review.await-review → build.review.fix.nits.fixing
-      gtd(agent): build.review.fix.nits.fixing → build.health.check
-      gtd(check): build.health.check → build.review.closing
-      gtd(check): build.review.closing → build.review.composing
-      gtd(check): build.review.composing → build.review.await-review
-      """
-    And ".gtd/REVIEW.md" contains "## Fixed from your notes"
-    And "src/calc.test.ts" contains "adds"
+    And ".gtd/REVIEW.md" does not contain "Tick exactly one:"
     When gtd lands
     And the process is driven
     Then the process rests at "idle"
     And ".gtd/REVIEW.md" does not exist
     And ".gtd/REVIEW.orig.md" does not exist
 
-  Scenario: an own answer asking for a change is fixed in place, then reviewed again
-    Given judge step "build.review.standards.judge" answers:
+  Scenario: a nit note is fixed in place, then reviewed again
+    Given judge step "build.review.triage" answers:
       """
-      [{"id":"standard-1","answer":"no","p":0.9}]
+      [{"id":"note-1","answer":"nit","p":0.9}]
       """
-    And judge step "build.review.triage" answers:
+    And step "build.review.fix.nits.fixing" writes "src/calc.test.ts" with:
       """
-      [{"id":"answer-1","answer":"edit","p":0.9}]
+      it("adds", () => {})
+      """
+    When gtd opens door "review" with "HEAD~1"
+    And the process is driven
+    And the text "— add(a, b)" in ".gtd/REVIEW.md" is replaced with "— add(a, b) — add a test for it"
+    And gtd lands
+    And the process is driven
+    Then the process rests at "build.review.await-review"
+    And the commit subjects end with:
+      """
+      gtd(human): build.review.await-review → build.review.triage
+      gtd(judge): build.review.triage → build.review.fix.nits.fixing
+      gtd(agent): build.review.fix.nits.fixing → build.health.check
+      gtd(check): build.health.check → build.review.closing
+      gtd(check): build.review.closing → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
+      """
+    And "src/calc.test.ts" contains "adds"
+
+  Scenario: a note asking for a change is fixed in place, then reviewed again
+    Given judge step "build.review.triage" answers:
+      """
+      [{"id":"note-1","answer":"edit","p":0.9}]
       """
     And step "build.review.collecting" writes ".gtd/REQUIREMENTS.md" with:
       """
@@ -125,14 +131,13 @@ Feature: the review door fixes its notes in the same process
     And step "feedback.closing" runs its script
     When gtd opens door "review" with "HEAD~1"
     And the process is driven
-    And the text "- [ ] _your answer_" in ".gtd/REVIEW.md" is replaced with "- [x] test negatives too"
+    And the text "— add(a, b)" in ".gtd/REVIEW.md" is replaced with "— add(a, b) — test negatives too"
     And gtd lands
     And the process is driven
     Then the process rests at "build.review.await-review"
     And the commit subjects end with:
       """
-      gtd(human): build.review.await-review → build.review.standards.judge
-      gtd(judge): build.review.standards.judge → build.review.triage
+      gtd(human): build.review.await-review → build.review.triage
       gtd(judge): build.review.triage → build.review.closing
       gtd(check): build.review.closing → build.review.collecting
       gtd(agent): build.review.collecting → re-unwind
@@ -141,9 +146,12 @@ Feature: the review door fixes its notes in the same process
       gtd(check): feedback.closing → build.health.check
       gtd(check): build.health.check → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.quality.triage
-      gtd(judge): build.quality.triage → build.quality.sorting
-      gtd(check): build.quality.sorting → build.review.composing
-      gtd(check): build.review.composing → build.review.await-review
+      gtd(judge): build.quality.triage → build.quality.gating
+      gtd(check): build.quality.gating → build.quality.gate
+      gtd(human): build.quality.gate → build.quality.closing
+      gtd(check): build.quality.closing → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
       """
     And ".gtd/REQUIREMENTS.md" does not exist
     And "src/calc.test.ts" contains "adds negatives"
@@ -158,17 +166,12 @@ Feature: the review door fixes its notes in the same process
     Then opening door "review" is refused with ".gtd/REQUIREMENTS.md is left over"
 
   Scenario: a note added with its own boxes is fixed as ticked, never judged
-    Given judge step "build.review.standards.judge" answers:
-      """
-      [{"id":"standard-1","answer":"no","p":0.9}]
-      """
-    And step "build.review.fix.nits.fixing" writes "src/calc.ts" with:
+    Given step "build.review.fix.nits.fixing" writes "src/calc.ts" with:
       """
       export const add = (a: number, b: number): number => a + b
       """
     When gtd opens door "review" with "HEAD~1"
     And the process is driven
-    And the text "- [ ] won't fix" in ".gtd/REVIEW.md" is replaced with "- [x] won't fix"
     And ".gtd/REVIEW.md" gets appended:
       """
       ## src/calc.ts:1 (thread PRRT_1)
@@ -186,11 +189,11 @@ Feature: the review door fixes its notes in the same process
     Then the process rests at "build.review.await-review"
     And the commit subjects end with:
       """
-      gtd(human): build.review.await-review → build.review.standards.judge
-      gtd(judge): build.review.standards.judge → build.review.fix.nits.fixing
+      gtd(human): build.review.await-review → build.review.fix.nits.fixing
       gtd(agent): build.review.fix.nits.fixing → build.health.check
       gtd(check): build.health.check → build.review.closing
-      gtd(check): build.review.closing → build.review.composing
-      gtd(check): build.review.composing → build.review.await-review
+      gtd(check): build.review.closing → build.review.reviewing
+      gtd(agent): build.review.reviewing → build.review.carrying
+      gtd(check): build.review.carrying → build.review.await-review
       """
     And "src/calc.ts" contains "): number =>"

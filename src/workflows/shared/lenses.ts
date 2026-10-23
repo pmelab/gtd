@@ -1,17 +1,24 @@
 import {
   answered,
   head,
+  human,
   judge,
   mark,
   numeric,
   read,
-  removeScript,
+  refuse,
   run,
   sectionBodies,
   vars,
   writeScript,
   type JudgeQuestion,
 } from "../../flows/index.js"
+import {
+  findingEntries,
+  formatFinding,
+  steeringFormatFor,
+  type FindingEntry,
+} from "../../steering/index.js"
 import { FIX_CAP, guarded, healthy, type EscalationCount, type Guard } from "./health.js"
 import { fixCheck, fixQuality, QUALITY } from "./steps.js"
 import * as t from "./text.js"
@@ -27,19 +34,27 @@ export interface Finding {
 
 type FindingKind = "mechanical" | "noise" | "design"
 
-/** What the triaged quality lap did with its findings, for the review to list. */
+/** What the triaged quality lap and its finding gate did with the findings, for the review to list. */
 export interface LensReport {
-  /** Design findings, then the mechanical ones the fix cap left. */
-  readonly notes: readonly (Finding &
-    Origin & {
-      readonly unresolved?: true
-      readonly unclear?: true
-    })[]
+  /** Fixed by the fix turns the judge sent them to, with the fixing commit. */
   readonly fixed: readonly (Finding & Origin & { readonly commit: string })[]
-  readonly noise: readonly (Finding & Origin & { readonly p: number })[]
+  /** Ticked at the finding gate and fixed, with the fixing commit. */
+  readonly gateFixed: readonly (Finding & Origin & { readonly commit: string })[]
+  /** Left unticked at the finding gate. */
+  readonly dropped: readonly (Finding & Origin)[]
+  /** Called noise by the judge and left unticked at the finding gate; `p` absent on one the human added there. */
+  readonly noise: readonly (Finding & Origin & { readonly p?: number })[]
+  /** Ticked at the finding gate, still open after the fix turns. */
+  readonly unresolved: readonly (Finding & Origin & { readonly unclear?: true })[]
 }
 
-export const NO_FINDINGS: LensReport = { notes: [], fixed: [], noise: [] }
+export const NO_FINDINGS: LensReport = {
+  fixed: [],
+  gateFixed: [],
+  dropped: [],
+  noise: [],
+  unresolved: [],
+}
 
 const UNTITLED = "Quality findings"
 
@@ -138,14 +153,117 @@ export interface TriageOptions {
   readonly lensOf?: ((f: Finding) => string | undefined) | undefined
 }
 
+type Note = Finding & Origin & { readonly unresolved?: true; readonly unclear?: true }
+
+interface Fixing {
+  readonly fixed: readonly (Finding & Origin & { readonly commit: string })[]
+  readonly open: readonly (Finding & Origin)[]
+  readonly unclear: readonly (Finding & Origin)[]
+}
+
+const NOTHING_FIXED: Fixing = { fixed: [], open: [], unclear: [] }
+
+/** Up to `FIX_CAP` fix turns over `.gtd/QUALITY.md`, which holds one chunk per finding in `findings`. */
+const fixTurns = async (
+  findings: readonly (Finding & Origin)[],
+  options: TriageOptions,
+): Promise<Fixing> => {
+  const fixed: (Finding & Origin & { commit: string })[] = []
+  const unclear: (Finding & Origin)[] = []
+  let open: readonly (Finding & Origin)[] = findings
+  for (let turns = 0; turns < FIX_CAP && open.length > 0; turns++) {
+    await guarded(() => fixQuality(options.rules), options.guard)()
+    const turn = afterFix(open, findingsOf(read(QUALITY) ?? ""))
+    const commit = head()
+    fixed.push(...turn.fixed.map((f) => ({ ...f, commit })))
+    unclear.push(...turn.unclear)
+    // A turn that renamed a chunk hands back fresh parses: keep the lens a same-titled finding had.
+    open = turn.open.map((f) => ({ ...findings.find((m) => m.title === f.title), ...f }))
+  }
+  const { escalations, guard, guardRests, rules } = options
+  await healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules })
+  return { fixed, open, unclear }
+}
+
+/** Matches each entry the human left to the finding it was written from, by title, first unused first; `left` is what no entry claimed. */
+const matcher = <F extends Finding>(findings: readonly F[]) => {
+  const left = [...findings]
+  const of = (e: FindingEntry): F | undefined => {
+    const at = left.findIndex((f) => f.title === e.title)
+    return at < 0 ? undefined : left.splice(at, 1)[0]
+  }
+  return { of, left }
+}
+
+const gateProblems = (text: string): readonly string[] =>
+  steeringFormatFor("findings")!
+    .validate(text)
+    .map((f) => `  - ${formatFinding(QUALITY, f)}`)
+
 /**
- * Judge each finding in `.gtd/QUALITY.md`, set the noise and design ones
- * aside, and fix the mechanical ones for up to `FIX_CAP` turns. Leaves
- * `.gtd/QUALITY.md` holding only what the fixer left: the caller must remove
- * it, or the next lap appends to stale findings.
+ * The human gate over the open notes and the noise: a ticked finding is
+ * fixed — never re-planned — and the rest dropped. No notes and no noise, no gate.
+ */
+const findingGate = async (
+  notes: readonly Note[],
+  noise: readonly (Finding & Origin & { readonly p: number })[],
+  options: TriageOptions,
+): Promise<Omit<LensReport, "fixed">> => {
+  if (notes.length + noise.length === 0) return NO_FINDINGS
+  const written = t.findingGateFile(notes, noise)
+  await run("quality.gating", writeScript(QUALITY, written), {
+    label: "Listing the findings for you",
+  })
+  await human("quality.gate", {
+    message: t.findingGateMessage(),
+    label: "Deciding on the quality findings",
+    file: QUALITY,
+    mode: "findings",
+    acceptClean: true,
+  })
+  // A deleted file decides nothing: every finding is dropped, as if untouched.
+  const answered = read(QUALITY) ?? written
+  const problems = gateProblems(answered)
+  if (problems.length > 0)
+    refuse(
+      `gtd land: finding-gate: ${problems.length} problem(s) in ${QUALITY} — keep one \`- [ ] fix\` box per finding, ticked to fix it or unticked to drop it, and write guidance only under a ticked one:\n${problems.join("\n")}`,
+    )
+  const noteOf = matcher(notes)
+  const noiseOf = matcher(noise)
+  // An entry the human added is a finding of its own.
+  const decided = findingEntries(answered).map((e) => ({
+    e,
+    finding: (e.noise ? noiseOf.of(e) : noteOf.of(e)) ?? { id: "", title: e.title, body: e.body },
+  }))
+  // The finding as gtd wrote it: a human steers with guidance, not by editing its text.
+  const ticked = decided
+    .filter(({ e }) => e.fix)
+    .map(({ e, finding }) => ({ ...finding, body: t.withGuidance(finding.body, e.guidance) }))
+  let fixing = NOTHING_FIXED
+  if (ticked.length > 0) {
+    await run("quality.picking", writeScript(QUALITY, t.qualityFindingsFile(ticked)), {
+      label: "Keeping the findings you ticked",
+    })
+    fixing = await fixTurns(ticked, options)
+  }
+  const unticked = (noisy: boolean) =>
+    decided.filter(({ e }) => !e.fix && e.noise === noisy).map(({ finding }) => finding)
+  // A finding whose entry the human deleted is dropped too.
+  return {
+    gateFixed: fixing.fixed,
+    dropped: [...unticked(false), ...noteOf.left],
+    noise: [...unticked(true), ...noiseOf.left],
+    unresolved: [...fixing.open, ...fixing.unclear.map((f) => ({ ...f, unclear: true as const }))],
+  }
+}
+
+/**
+ * Judge each finding in `.gtd/QUALITY.md` and fix the mechanical ones for up
+ * to `FIX_CAP` turns; the rest — design, unresolved and noise — go to the
+ * finding gate. Leaves `.gtd/QUALITY.md` holding only what the last fixer
+ * left: the caller must remove it, or the next lap appends to stale findings.
  */
 export const triageFindings = async (options: TriageOptions): Promise<LensReport> => {
-  const { escalations, guard, guardRests, rules } = options
   const withLens = (f: Finding): Finding & Origin => {
     const lens = options.lensOf?.(f)
     return lens === undefined ? f : { ...f, lens }
@@ -153,36 +271,24 @@ export const triageFindings = async (options: TriageOptions): Promise<LensReport
   const findings = findingsOf(read(QUALITY) ?? "").map(withLens)
   if (findings.length === 0) return NO_FINDINGS
   const { mechanical, noise, design } = await classify(findings)
-  // Rewritten whenever it is not one chunk per mechanical finding: the fixer deletes chunks.
-  const sorted = t.qualityFindingsFile(mechanical)
-  if (read(QUALITY) !== sorted) {
-    await run(
-      "quality.sorting",
-      mechanical.length === 0 ? removeScript([QUALITY]) : writeScript(QUALITY, sorted),
-      { label: "Setting findings aside for the review" },
-    )
+  let auto = NOTHING_FIXED
+  if (mechanical.length > 0) {
+    // Rewritten whenever it is not one chunk per mechanical finding: the fixer deletes chunks.
+    const sorted = t.qualityFindingsFile(mechanical)
+    if (read(QUALITY) !== sorted)
+      await run("quality.sorting", writeScript(QUALITY, sorted), {
+        label: "Setting findings aside for the finding gate",
+      })
+    auto = await fixTurns(mechanical, options)
   }
-  const fixed: (Finding & { commit: string })[] = []
-  const unclear: Finding[] = []
-  let open: readonly Finding[] = mechanical
-  for (let turns = 0; turns < FIX_CAP && open.length > 0; turns++) {
-    await guarded(() => fixQuality(rules), guard)()
-    const turn = afterFix(open, findingsOf(read(QUALITY) ?? ""))
-    const commit = head()
-    fixed.push(...turn.fixed.map((f) => ({ ...f, commit })))
-    unclear.push(...turn.unclear)
-    // A turn that renamed a chunk hands back fresh parses: keep the lens a same-titled finding had.
-    open = turn.open.map((f) => ({ ...mechanical.find((m) => m.title === f.title), ...f }))
-  }
-  if (mechanical.length > 0)
-    await healthy(() => fixCheck(rules), { escalations, guard, guardRests, rules })
-  return {
-    notes: [
+  const gated = await findingGate(
+    [
       ...design,
-      ...open.map((f) => ({ ...f, unresolved: true as const })),
-      ...unclear.map((f) => ({ ...f, unclear: true as const })),
+      ...auto.open.map((f) => ({ ...f, unresolved: true as const })),
+      ...auto.unclear.map((f) => ({ ...f, unclear: true as const })),
     ],
-    fixed,
     noise,
-  }
+    options,
+  )
+  return { ...gated, fixed: auto.fixed }
 }
