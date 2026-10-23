@@ -486,8 +486,11 @@ const acceptanceCriteriaBlock = `
 Whichever lap this is, \`.gtd/REQUIREMENTS.md\` carries a
 \`## Acceptance Criteria\` section: one \`- AC-<n>: <criterion>\` line
 per criterion, numbered from \`AC-1\`. They bind every later step —
-the build is done when each one holds — so each must be checkable: a
-test or a command shows it holds or not. A later lap keeps every ID:
+the build is done when each one holds — so each must be behaviour a
+test can pin: one that fails when it does not hold. A green suite, a
+passing typecheck or lint, a generator or build that runs — the health
+check enforces those on every lap, so none is a criterion; fold what it
+must produce into a behaviour a test can observe. A later lap keeps every ID:
 reword a criterion in place, append a new one with the next unused
 number, delete a dropped one — never renumber, never reuse an ID. When
 the file holds no list (a review loop-back rewrites it), recover the
@@ -601,7 +604,7 @@ export const clearCriteriaQuestion: JudgeQuestion = {
   instructions:
     "state.criteria lists the acceptance criteria the human's sketch (state.sketch) stated, as gtd numbered them. Decide whether they can stand as the binding definition of done, with no design conversation.",
   criteria:
-    "yes: every criterion is clear and checkable — a test or a command can show it holds or not — and together they say what to build. no: any one criterion is vague, subjective or untestable, or the sketch leaves an open product question. Unsure means no.",
+    "yes: every criterion is clear behaviour a test can pin — a test would fail if it did not hold — and together they say what to build. no: any one criterion is vague, subjective or untestable, only a command can check it (a suite, typecheck, lint, build or generator run that passes), or the sketch leaves an open product question. Unsure means no.",
 }
 
 export const clearCriteriaMessage = (): string =>
