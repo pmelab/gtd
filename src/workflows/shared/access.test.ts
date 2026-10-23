@@ -19,6 +19,7 @@ describe("the bundled workflow's access export", () => {
       "build.quality.test-audit": { write: [] },
       "build.quality.conventions": { write: [] },
       "build.quality.spec-challenge": { write: [] },
+      "build.quality.criteria-coverage": { write: [] },
       "refactor.build.review": { write: [".gtd/REVIEW.md"] },
       "refactor.build.quality.correctness": { write: [] },
       "refactor.build.quality.ponytail-review": { write: [] },

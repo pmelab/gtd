@@ -792,8 +792,7 @@ sent to the test is never an open item; any other non-`pass` chunk is.
 - **Every chunk `pass`**: `implement.closing` follows, removing the report, and
   the quality lap runs.
 - **A `fail`**: `implement.prototype.fix.fixing` fixes every failed chunk (the
-  criteria are frozen: `criteria-frozen`; a rebuild's carried acceptance tests
-  stay, as in the implementation's fix turns; editing the report is refused,
+  criteria are frozen: `criteria-frozen`; editing the report is refused,
   `prototype-fix`), the health loop (`implement.prototype.health.*`) turns the
   suite green, and the change is tested again — failed items in full, passed
   ones quickly. Each round's report lands with its turn.
@@ -826,20 +825,18 @@ and 2 run, no judge, and the pass lands as on `land`. After design it runs, in
 order:
 
 1. `seam.naive` — an agent implements `.gtd/REQUIREMENTS.md` directly,
-   breadth-first, with behaviour-level acceptance tests; the turn is a
-   [kept tip](#kept-tips), not landed on the branch until a `land` applies it. A
-   pass whose added or changed test files (the fixed list `**/*.test.*`,
+   breadth-first; the turn is a [kept tip](#kept-tips), not landed on the branch
+   until a `land` applies it. It is asked for one test per behaviour the
+   criteria describe, never a criterion ID in a test name, but needs no test at
+   all. A pass whose added or changed test files (the fixed list `**/*.test.*`,
    `**/*.spec.*`, `**/*.feature`, `**/tests/**`, `**/test/**`,
-   `**/__tests__/**`) leave an `AC-<n>` of `.gtd/REQUIREMENTS.md` unnamed
-   (`acceptance-tests`; any mention on a line the pass added counts, `[AC-3] …`
-   in the test name is the convention), or that import a non-test file the pass
-   added (`acceptance-internals`: the string a `from`, `import`, `require(` or
-   `mock(` takes, outside comments; relative ones resolved from the test's
-   directory, `@/`-, `~/`- or `#`-aliased ones matching the path's end, others
-   only as the exact path; a computed import goes unseen, and `.feature` and
-   `.snap` files are not read for imports) runs `seam.naive` again, told why and
-   to pick the attempt up. Tests outside those globs never count: such a project
-   reaches `seam.steer` and overrules there.
+   `**/__tests__/**`) import a non-test file the pass added
+   (`acceptance-internals`: the string a `from`, `import`, `require(` or `mock(`
+   takes, outside comments; relative ones resolved from the test's directory,
+   `@/`-, `~/`- or `#`-aliased ones matching the path's end, others only as the
+   exact path; a computed import goes unseen, and `.feature` and `.snap` files
+   are not read for imports) runs `seam.naive` again, told why and to pick the
+   attempt up.
 2. `seam.check` — runs [`testCommand`](#the-bundled-workflows-settings) with the
    kept pass applied to the tree, then puts the pass's paths, and every other
    path the run changed or added that was not already dirty or untracked, back
@@ -873,13 +870,10 @@ order:
    applied pass. After a `refactor-first` verdict the build turn is the rebuild:
    its prompt quotes the refactor note (after a refactor; the note is fixed when
    `seam.note` lands, so a later edit of the file reaches neither turn) and
-   names the naive pass's acceptance tests (`git show <tip> -- <tests>`) to
-   carry over, and `gtd land` refuses it (`rebuild-acceptance`) while the test
-   files changed since the feature began leave out an `AC-<n>` the naive pass's
-   tests named on an added line; an `implement.fix.suite.fixing` turn that
-   itself drops such an ID from a test file is refused the same way (a person's
-   edit at an escalation rest is not). The check reads test text — a skipped
-   test passes it; the health loop is what runs them green. Then the health loop
+   names every test file the naive pass added or changed
+   (`git show <tip> -- <tests>`) to carry over. Nothing refuses a rebuild or a
+   fix turn that drops one: a criterion left untested surfaces as a
+   `criteria-coverage` finding in the quality lap. Then the health loop
    (`implement.health.*`, `implement.fix.suite.fixing`), the
    [hands-on test](#the-hands-on-test) (`implement.prototype.*`) and
    `implement.closing`, which removes `.gtd/REQUIREMENTS.md` (and
@@ -1201,7 +1195,7 @@ folds into `.gtd/REFACTOR.md` only when it asks for a change.
   `implement.applying`. Without `naive`, `implement` builds fresh as before.
 - On `refactor-first`, `seamBuild(base)` also resolves `rebuild` (the refactor
   note and the naive pass's acceptance tests); pass it on as
-  `implement({ rebuild })` to quote the note and enforce `rebuild-acceptance`.
+  `implement({ rebuild })` to quote the note and name the tests to carry over.
 
 With `GTD_FLAG_RISK_TIER` on, `design.triage` proposes a risk tier (`low` or
 `high`, with a one-line reason) under `## Risk Tier` and the signals to watch
@@ -1218,13 +1212,13 @@ at `seam.steer`. Two ways forward, then `gtd land`:
   retry budget. An edit together with an approval counts as steer.
 - **Overrule** — land a clean tree. After a test fault the last attempt goes on
   to `seam.check` as it is, with a fresh retry budget, and later passes of this
-  seam are not checked for test faults again: **a criterion may have no test
-  that survives a refactor**. After a `reject` the implementation is built
-  against the last attempt with no refactor: **overrule ships the seam the judge
-  objected to**, unaddressed. After a red check the last attempt goes on to
-  `seam.judge` as it is, with a fresh retry budget: **its acceptance tests never
-  passed**, and only the implementation's health loop makes the suite green. The
-  choice is recorded in history.
+  seam are not checked for test faults again: **its tests may not survive a
+  refactor**. After a `reject` the implementation is built against the last
+  attempt with no refactor: **overrule ships the seam the judge objected to**,
+  unaddressed. After a red check the last attempt goes on to `seam.judge` as it
+  is, with a fresh retry budget: **its acceptance tests never passed**, and only
+  the implementation's health loop makes the suite green. The choice is recorded
+  in history.
 
 After either, `seam.clear` removes a red check's `.gtd/FEEDBACK.md`.
 
@@ -2061,12 +2055,12 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   it sh-compatible.
 - **`plannerModel`** (`smart`) / **`coderModel`** (`base`) — the `model` hints
   of the planning/reviewing steps (design triage, the review, the `correctness`,
-  `owasp-security` and `spec-challenge` lenses) and of the building/fixing steps
-  (the naive pass, implementation, refactor, every fix loop, the `conventions`,
-  `ponytail-review` and `test-audit` lenses). A lens hint in `qualityReviews` or
-  `refactorQualityReviews` wins over either. Judge steps such as `seam.judge`
-  carry no hint: their model is the judge provider's (see
-  [Judge settings](#judge-settings)).
+  `owasp-security`, `spec-challenge` and `criteria-coverage` lenses) and of the
+  building/fixing steps (the naive pass, implementation, refactor, every fix
+  loop, the `conventions`, `ponytail-review` and `test-audit` lenses). A lens
+  hint in `qualityReviews` or `refactorQualityReviews` wins over either. Judge
+  steps such as `seam.judge` carry no hint: their model is the judge provider's
+  (see [Judge settings](#judge-settings)).
 
 **Process settings:**
 
@@ -2135,7 +2129,7 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   `build.review.ranking` splits its chunks into as many judgments as it takes
   for each to fit its share whole.
 - **`qualityReviews`**
-  (`correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge`)
+  (`correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge, criteria-coverage`)
   — sets the quality lap `build.quality` runs ahead of the human review: one
   turn per comma-separated lens, in order. It is the one skill control that is a
   process setting rather than a `skills` entry — it decides the turn COUNT. Each
@@ -2145,8 +2139,11 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   Every round pays for it, so extend the list only as far as that is worth
   paying for — each lens adds about 1–1.5 min and about $0.5 per run; blanking
   it disables the lap. `correctness` (loads `code-review-and-quality`),
-  `conventions` and `spec-challenge` are built-in lenses whose brief rides in
-  the prompt; in `feature` each finding is then
+  `conventions`, `spec-challenge` and `criteria-coverage` are built-in lenses
+  whose brief rides in the prompt. `criteria-coverage` gets the requirements the
+  change was built to, quoted in its prompt, and writes one finding per
+  acceptance criterion no test exercises; where there are none (the `review` and
+  `fix` workflows) it runs no turn; in `feature` each finding is then
   [triaged](#the-triaged-quality-lap), elsewhere every finding any lens writes,
   blocking or not, is fixed by the one fix turn. An entry may carry a model
   hint, `<lens>=<model>` (split at the first `=`, both sides trimmed; a blank

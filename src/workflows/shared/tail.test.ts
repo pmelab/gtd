@@ -211,13 +211,17 @@ const prompts: string[] = []
 const models: (string | undefined)[] = []
 
 describe("the quality lap's lenses", () => {
-  const lap = async (run: () => Promise<unknown>, vars: Record<string, string> = {}) => {
+  const lap = async (
+    run: () => Promise<unknown>,
+    vars: Record<string, string> = {},
+    files: Record<string, string> = {},
+  ) => {
     const log: string[] = []
     prompts.length = 0
     models.length = 0
     installContext(
       fixtureContext(
-        { vars },
+        { vars, read: (path) => files[path] },
         {
           step: (request: StepRequest) => {
             if (request.kind !== "restart") log.push(request.name)
@@ -307,6 +311,20 @@ describe("the quality lap's lenses", () => {
     )
     expect(log).toEqual(["quality.correctness.reviewing", "quality.conventions.reviewing"])
     expect(models).toEqual(["smart", "opus"])
+  })
+
+  it("criteria-coverage runs only with requirements, passed or in .gtd/REQUIREMENTS.md, and quotes them", async () => {
+    const lenses = ["criteria-coverage", "conventions"]
+    expect(await lap(() => qualityLap(undefined, lenses))).toEqual([
+      "quality.conventions.reviewing",
+    ])
+    await lap(() => qualityLap(undefined, lenses), {}, { ".gtd/REQUIREMENTS.md": "- AC-1: file" })
+    expect(prompts[0]).toContain("  > - AC-1: file")
+    expect(prompts[1]).not.toContain("AC-1")
+    await lap(() =>
+      tail(() => Promise.resolve(), { green: true, lenses, requirements: "- AC-1: passed" }),
+    )
+    expect(prompts[0]).toContain("  > - AC-1: passed")
   })
 
   it("tail passes lenses to its lap and a guard after each lens turn", async () => {

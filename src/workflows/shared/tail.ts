@@ -15,6 +15,7 @@ import {
   fixCheck,
   fixRisks,
   QUALITY,
+  REQUIREMENTS,
   REVIEW,
   reviewing,
   reviewMissing,
@@ -35,24 +36,31 @@ export const qualityLap = (
   guard?: Guard,
   lenses?: readonly string[],
   base?: string,
-): Promise<"clean" | "findings"> => lensLap(guard, lenses, base, () => {})
+): Promise<"clean" | "findings"> => lensLap(guard, lenses, base, undefined, () => {})
+
+const COVERAGE = "criteria-coverage"
 
 // `seen` gets each lens and every finding in the file once its turn is done.
 const lensLap = (
   guard: Guard | undefined,
   lenses: readonly string[] | undefined,
   base: string | undefined,
+  given: string | undefined,
   seen: (lens: string, findings: readonly Finding[]) => void,
-): Promise<"clean" | "findings"> =>
-  kit.qualityLap(
-    lenses ?? kit.lensEntriesOf(vars.qualityReviews ?? ""),
+): Promise<"clean" | "findings"> => {
+  const requirements = given ?? read(REQUIREMENTS)
+  return kit.qualityLap(
+    (lenses ?? kit.lensEntriesOf(vars.qualityReviews ?? "")).filter(
+      (entry) => requirements !== undefined || kit.lensOf(entry).lens !== COVERAGE,
+    ),
     guarded(async (entry: string) => {
       const { lens, model } = kit.lensOf(entry)
-      await reviewQuality(lens, base, model)
+      await reviewQuality(lens, base, model, lens === COVERAGE ? requirements : undefined)
       seen(lens, findingsOf(read(QUALITY) ?? ""))
     }, guard),
     QUALITY,
   )
+}
 
 // What the fixer left is in the lap's report by now; the next lap must not append to it.
 const closeQuality = async (): Promise<void> => {
@@ -91,6 +99,11 @@ export interface TailOptions {
   readonly lensBase?: string | undefined
   /** Appended to every fix and describe prompt of the tail. */
   readonly rules?: string | undefined
+  /**
+   * The requirements the change was built to, for the `criteria-coverage`
+   * lens; absent: `.gtd/REQUIREMENTS.md`, and with neither the lens is skipped.
+   */
+  readonly requirements?: string | undefined
 }
 
 /**
@@ -156,7 +169,7 @@ const tailForm = <T>(
 
 const runTail = <T>(finish: Finish<T>, options: TailOptions): Promise<T> =>
   scope("build", async () => {
-    const { guard, lenses, lensBase, rules } = options
+    const { guard, lenses, lensBase, rules, requirements } = options
     // Only undefined defaults: a null reaches every escalation as falsy, as it reaches review's.
     const guardRests = options.guardRests === undefined ? true : options.guardRests
     const escalations: EscalationCount = { rounds: 0 }
@@ -170,7 +183,7 @@ const runTail = <T>(finish: Finish<T>, options: TailOptions): Promise<T> =>
     // The lap runs once a tail: after its findings are fixed, `finish` follows.
     // Lenses append, so a title the file did not hold before a lens's turn is that lens's.
     const byTitle: { title: string; lens: string }[] = []
-    const lap = await lensLap(guard, lenses, lensBase, (lens, findings) => {
+    const lap = await lensLap(guard, lenses, lensBase, requirements, (lens, findings) => {
       const before = byTitle.map((f) => f.title)
       for (const { title } of findings) {
         const at = before.indexOf(title)

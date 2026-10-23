@@ -57,6 +57,8 @@ export const buildFeature = async (firstBase: string): Promise<void> => {
   const handedOut = new Set(listedIds())
   const seam = await seamBuild(firstBase)
   const used = gather(handedOut)
+  // Read before the implementation closes the file: the quality lap's coverage lens checks them.
+  const requirements = read(REQUIREMENTS)
   const closed = await implementing({
     reference: seam.reference,
     tier,
@@ -72,7 +74,7 @@ export const buildFeature = async (firstBase: string): Promise<void> => {
     !changesSince(seam.base).some((c) => isCode(c.path) && !carried.includes(c.path))
       ? firstBase
       : seam.base
-  const outcome = await reviewedTail(base, base)
+  const outcome = await reviewedTail(base, base, requirements)
   await featureFeedback(outcome, base, { closed, used })
 }
 
@@ -87,11 +89,12 @@ const gather = (handedOut: Set<string>): readonly string[] => {
 const reviewedTail = (
   base: string,
   lensBase: string,
+  requirements: string | undefined,
   lap: "first" | "feedback" = "first",
 ): Promise<ReviewOutcome> =>
   tail(
     (escalations, report) => humanReview(base, escalations, { report, walkthrough: true, lap }),
-    { green: true, lensBase },
+    { green: true, lensBase, requirements },
   )
 
 // seam.naive / seam.judge never run on a feedback lap: its design → implement is built unjudged
@@ -113,8 +116,9 @@ const featureFeedback = async (
       gather(handedOut)
     })
     const tier = riskTierOn() ? recordRisk() : undefined
+    const requirements = read(REQUIREMENTS)
     closed = await implementing({ tier, amend: true })
-    outcome = await reviewedTail(outcome.base, lensBase, "feedback")
+    outcome = await reviewedTail(outcome.base, lensBase, requirements, "feedback")
   }
 }
 
@@ -133,8 +137,9 @@ export const afterTail = async (first: ReviewOutcome): Promise<void> => {
     await reUnwind(outcome)
     await design(outcome.base)
     const tier = riskTierOn() ? recordRisk() : undefined
+    const requirements = read(REQUIREMENTS)
     await implement({ tier, amend: true })
-    outcome = await buildTail(outcome.base, { green: true })
+    outcome = await buildTail(outcome.base, { green: true, requirements })
   }
 }
 

@@ -3,7 +3,6 @@ import {
   agent,
   applyScript,
   changes,
-  changesSince,
   check,
   codeChanges,
   env,
@@ -92,43 +91,19 @@ const reaches = (imports: ReturnType<typeof importsOf>, added: string): boolean 
     imports.some(({ path, tail }) => name === path || (tail && name.endsWith(`/${path}`))),
   )
 
-const named = (id: string, text: string): boolean =>
-  new RegExp(`(?<![\\w-])${id}(?!\\d)`).test(text)
-
-/** The lines `change` added: an ID an earlier change left in the file does not count. */
-const addedLines = (change: Change): string => {
-  const before = new Set((change.before ?? "").split("\n"))
-  return change
-    .after!.split("\n")
-    .filter((line) => !before.has(line))
-    .join("\n")
-}
-
 const acceptanceTests = (changes: readonly Change[]): readonly Change[] =>
   changes.filter((c) => c.after !== undefined && isCode(c.path) && isTestFile(c.path))
 
-const idsOf = (file: string): string[] => criterionIds(read(file) ?? "")
-
-// One rule for both gates, so a naive test carried over verbatim always satisfies the rebuild's.
-const unnamed = (ids: readonly string[], tests: readonly Change[]): string[] => {
-  const lines = tests.map(addedLines)
-  return ids.filter((id) => !lines.some((text) => named(id, text)))
-}
-
 /**
- * Why `tip`'s tests fall short, or `undefined`: a criterion ID of `file` no
- * test line of the pass names, or a test importing a file the pass added —
- * naive structure a reset and refactor replaces, which the tests must survive.
+ * Why `tip`'s tests fall short, or `undefined`: a test importing a file the
+ * pass added — naive structure a reset and refactor replaces, which the tests
+ * must survive.
  */
-export const acceptanceFault = (file: string, tip: KeptTip): string | undefined => {
-  const tests = acceptanceTests(tip.changes)
-  const untested = unnamed(idsOf(file), tests)
-  if (untested.length > 0)
-    return `acceptance-tests: no test of the naive pass names ${untested.join(", ")} — write a behaviour-level test for each criterion with its ID in the test or scenario name, e.g. "[${untested[0]}] …"`
+export const acceptanceFault = (tip: KeptTip): string | undefined => {
   const added = tip.changes
     .filter((c) => c.status === "added" && isCode(c.path) && !isTestFile(c.path))
     .map((c) => c.path)
-  const reaching = tests
+  const reaching = acceptanceTests(tip.changes)
     .filter((test) => holdsCallSites(test.path))
     .flatMap((test) => {
       const imports = importsOf(test)
@@ -141,48 +116,11 @@ export const acceptanceFault = (file: string, tip: KeptTip): string | undefined 
   return undefined
 }
 
-/** What a rebuild carries over from the naive pass `tip`: the IDs its tests name, and those test files. */
-export const naiveAcceptance = (tip: KeptTip): t.Acceptance => {
-  const ids = idsOf(REQUIREMENTS)
-  const perTest = acceptanceTests(tip.changes).map((c) => {
-    const lines = addedLines(c)
-    return { path: c.path, ids: ids.filter((id) => named(id, lines)) }
-  })
-  return {
-    hash: tip.hash,
-    tests: perTest.filter((c) => c.ids.length > 0).map((c) => c.path),
-    ids: ids.filter((id) => perTest.some((c) => c.ids.includes(id))),
-  }
-}
-
-/**
- * Refuse a rebuild whose test changes since `since` leave out an ID the naive
- * pass's tests named. A skipped test still counts: the gate reads text, never runs it.
- */
-export const requireAcceptance = (acceptance: t.Acceptance, since: string): void => {
-  const missing = unnamed(acceptance.ids, acceptanceTests(changesSince(since)))
-  if (missing.length === 0) return
-  refuse(
-    `gtd land: rebuild-acceptance: the rebuild's tests leave out ${missing.join(", ")} — carry over the naive pass's acceptance tests (\`git show ${acceptance.hash} -- ${acceptance.tests.map(quote).join(" ")}\`), each with its ID in the test or scenario name`,
-  )
-}
-
-/**
- * Refuse a fix turn that, on its own, drops an ID the naive pass's tests named
- * from a test file. Turn-local, so a person's edit at an escalation rest never
- * wedges later fix turns.
- */
-export const requireAcceptanceKept = (acceptance: t.Acceptance): void => {
-  const dropped = acceptance.ids.filter((id) =>
-    changes()
-      .filter((c) => isCode(c.path) && isTestFile(c.path))
-      .some((c) => named(id, c.before ?? "") && !named(id, c.after ?? "")),
-  )
-  if (dropped.length === 0) return
-  refuse(
-    `gtd land: rebuild-acceptance: this turn drops ${dropped.join(", ")} from the tests — the naive pass's acceptance tests stay; fix the code, not them`,
-  )
-}
+/** What a rebuild carries over from the naive pass `tip`: every test file it added or changed. */
+export const naiveAcceptance = (tip: KeptTip): t.Acceptance => ({
+  hash: tip.hash,
+  tests: acceptanceTests(tip.changes).map((c) => c.path),
+})
 
 const restore = (path: string): string =>
   `if git cat-file -e ${quote(`HEAD:${path}`)} 2>/dev/null; then git checkout -q HEAD -- ${quote(path)}; else rm -f -- ${quote(path)}; fi`
@@ -243,12 +181,6 @@ const applied = async (tip: string): Promise<boolean> => {
   return !wrote(FEEDBACK) && codeChanges().length > 0
 }
 
-/** `carried` limited to the criteria `.gtd/REQUIREMENTS.md` lists now; a file listing none narrows nothing. */
-const settled = (carried: readonly string[]): readonly string[] => {
-  const listed = idsOf(REQUIREMENTS)
-  return listed.length === 0 ? carried : carried.filter((id) => listed.includes(id))
-}
-
 const build = async (options: ImplementOptions): Promise<void> => {
   await t.agentWithSkills(
     "building",
@@ -290,19 +222,11 @@ export async function implement(
 /** `implement`, resolving with the criterion IDs the requirements listed when it closed. */
 export const implementing = (options: ImplementOptions): Promise<readonly string[]> =>
   scope("implement", async () => {
-    const since = head()
-    const acceptance = options.rebuild?.acceptance
     const built = options.naive === undefined || !(await applied(options.naive))
     if (built) await build(options)
     else requireCriteriaFrozen(REQUIREMENTS)
-    // Only the criteria the requirements still list.
-    if (built && acceptance !== undefined)
-      requireAcceptance({ ...acceptance, ids: settled(acceptance.ids) }, since)
-    // Fix turns are held to the carried tests too: deleting a red one must not buy a green suite.
-    const keepsTests =
-      built && acceptance !== undefined ? () => requireAcceptanceKept(acceptance) : undefined
-    await green(keepsTests)
-    await prototypeTest(keepsTests)
+    await green()
+    await prototypeTest()
     const ids = criterionIds(read(REQUIREMENTS) ?? "")
     await run("closing", removeScript([REQUIREMENTS, REFACTOR_NOTE, PROTOTYPE]), {
       label: "Closing out the implementation",
@@ -360,7 +284,7 @@ interface Vetting {
 
 /** Sends a pass whose tests fall short or run red back (`undefined`: it goes on, an overruled one as it is). */
 const vetted = async (tip: KeptTip, vetting: Vetting): Promise<Verdict | undefined> => {
-  const fault = vetting.waived ? undefined : acceptanceFault(REQUIREMENTS, tip)
+  const fault = vetting.waived ? undefined : acceptanceFault(tip)
   if (fault !== undefined) {
     const verdict = await vetting.again({ fault, hash: tip.hash })
     if (verdict.kind !== "overruled") return verdict

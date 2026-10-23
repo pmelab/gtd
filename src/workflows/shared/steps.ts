@@ -66,15 +66,24 @@ export const builtInLenses: Readonly<Record<string, BuiltInLens>> = {
   correctness: { skills: ["code-review-and-quality"], brief: t.correctnessBrief },
   conventions: { skills: [], brief: t.conventionsBrief },
   "spec-challenge": { skills: [], brief: t.specChallengeBrief },
+  "criteria-coverage": { skills: [], brief: t.criteriaCoverageBrief },
 }
 
 const coderLenses: ReadonlySet<string> = new Set(["conventions", "ponytail-review", "test-audit"])
 
-/** One quality review through `lens`; each lens is its own scope, so its own conversation and skills. */
-export const reviewQuality = (lens: string, base?: string, model?: string): Promise<void> =>
+/**
+ * One quality review through `lens`; each lens is its own scope, so its own
+ * conversation and skills. `requirements`, when given, are quoted in the prompt.
+ */
+export const reviewQuality = (
+  lens: string,
+  base?: string,
+  model?: string,
+  requirements?: string,
+): Promise<void> =>
   t.agentWithSkills(
     `quality.${lens}.reviewing`,
-    t.buildQualityReviewingPrompt(lens, builtInLenses[lens]?.brief, base),
+    t.buildQualityReviewingPrompt(lens, builtInLenses[lens]?.brief, base, requirements),
     {
       label: "Reviewing (one quality lens)",
       file: QUALITY,
