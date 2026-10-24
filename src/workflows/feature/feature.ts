@@ -9,7 +9,7 @@ import {
   start,
 } from "../../flows/index.js"
 import { gate } from "../shared/health.js"
-import { flagModeOn, shipped } from "../shared/options.js"
+import { flagModeOn, naiveTestOn, shipped } from "../shared/options.js"
 import { FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import { refusePendingHandOff } from "../shared/tail.js"
 import * as t from "../shared/text.js"
@@ -23,16 +23,15 @@ import {
 } from "./criteria.js"
 import { design } from "./planning.js"
 import { buildTail, isCode, reUnwind, type ReviewOutcome } from "../shared/review.js"
-import { prototypeRounds } from "./prototype.js"
 import { implement, implementing, seamBuild } from "./seam.js"
 import { recordRisk, riskTierOn } from "./tier.js"
 
 // The ordinary start. Any change to the tree starts a process: `idle` →
 // `unwind` reverts the sketch (its intent survives in history) → a
-// green-baseline gate → design → a naive pass, judged with `flagMode` on: it
+// green-baseline gate → design → a naive pass, tried by a person with
+// `naiveTest` on and judged with `flagMode` on: it
 // lands as the implementation, or (refactoring first when the judge asks) is
-// built fresh from → the health loop → a hands-on test of every criterion,
-// fixed and re-tested → the triaged quality lap and its finding gate → a
+// built fresh from → the health loop → the triaged quality lap and its finding gate → a
 // reviewer's walkthrough of the whole change for the human, which signs off
 // (the episode ends back at `idle`) or sends a design → implement lap.
 
@@ -141,7 +140,7 @@ export const ordinaryStart = async (): Promise<void> => {
   refusePendingHandOff()
   // Read right after idle, so a bad value refuses the landing that would pin it.
   flagModeOn()
-  prototypeRounds()
+  naiveTestOn()
   const stated = statedCriteria(changes(), head())
   await unwind()
   if (changes(FEEDBACK).some((c) => c.status !== "deleted")) {

@@ -60,21 +60,15 @@ Nothing guards a turn's context: a long turn relies on the agent harness's own
 compaction, and the red-suite check, the naive retries (then `seam.steer`) and
 the `criteria-coverage` lens catch an incomplete pass.
 
-## The hands-on test
+## The naive test
 
-**Every criterion a person can observe is used by hand before the quality lap.**
-Once the suite is green, `implement.prototype.observable` judges, per criterion
-not tagged `(no hands-on)`, whether a person can observe it by using the
-software; every one it does not judge unobservable is tested, and a change with
-none skips the test. This is the one check that a criterion is met.
-`implement.prototype.testing` runs the real program (guided by a project skill
-or a manual testing section, else the project's shape) in a disposable place and
-writes `.gtd/PROTOTYPE.md`: per criterion `pass`, `fail` or `blocked`, the steps
-run and what was seen, plus any problem found beside them. Failures go to
-`implement.prototype.fix.fixing` and are re-tested; past `prototypeRounds` (3)
-fix rounds, or with only blocked items, `implement.prototype.open` rests for a
-human. No way to test found rests at `implement.prototype.unguided`. See
-[The hands-on test](docs/configuration.md#the-hands-on-test).
+**Off by default.** With `naiveTest` on, a person tries every green naive pass
+by hand at `seam.try`, applied to the working tree, before the seam judge, any
+refactor, the implementation or the quality lap. A clean landing signs it off;
+notes in `.gtd/NAIVE-TEST.md`, code edits or a requirements edit send it back to
+`seam.naive`, and every new green pass rests at `seam.try` again. Nothing else
+tries the change by hand. See
+[The naive test](docs/configuration.md#the-naive-test).
 
 ## The quality lenses and the reviewer's walkthrough
 
@@ -108,10 +102,11 @@ per design round: a review-feedback round re-runs design.
   (design, refactor review, feature review). The feature review comes once,
   after the quality lap. A review note that asks for a behaviour change runs a
   feedback lap — design, then implement with no naive pass or seam judge, the
-  hands-on test, the quality lap — and the review again. Overrule at
-  `seam.steer` passes no seam gate. **A sketch whose own acceptance criteria
-  `design.clear` judges clear and checkable passes no design gate** on its first
-  lap: one gate fewer, and the criteria's author is whoever wrote the sketch.
+  quality lap — and the review again. With `naiveTest` on, **one more gate per
+  naive pass tried** (`seam.try`). Overrule at `seam.steer` passes no seam gate.
+  **A sketch whose own acceptance criteria `design.clear` judges clear and
+  checkable passes no design gate** on its first lap: one gate fewer, and the
+  criteria's author is whoever wrote the sketch.
 - `cleanup`, `fix`, `review`: review sign-off only. `review` fixes what its
   notes ask for in the same process and asks again — never a design phase.
 - `rollout`: **no human gate** — the green suite and the `rollout-only` refusal
@@ -179,8 +174,8 @@ Each path has a `.feature` file:
 - [`src/workflows/feature/naive-acceptance.feature`](src/workflows/feature/naive-acceptance.feature):
   the naive pass's acceptance tests, sent back until they name every criterion
   and pass
-- [`src/workflows/feature/hands-on-skip.feature`](src/workflows/feature/hands-on-skip.feature):
-  which criteria the hands-on test tries
+- [`src/workflows/feature/naive-test.feature`](src/workflows/feature/naive-test.feature):
+  a person tries the naive pass, sends it back or signs it off
 - [`src/workflows/feature/fast-path.feature`](src/workflows/feature/fast-path.feature):
   a trivial fix takes the same few beats at either risk tier
 
@@ -205,9 +200,8 @@ Paths and text are checked, **never behaviour**.
   dropped unseen by a person** but for its line under "Dropped as noise"; one
   judged `mechanical` is fixed with no check beyond the green suite and the
   fixer deleting its chunk.
-- `implement.prototype.observable` reads criterion text only. **A criterion
-  judged unobservable is checked by nothing but the green suite**, and so is
-  every criterion with `prototypeRounds` at `0`.
+- **No step tries the change by hand unless `naiveTest` is on**: a criterion is
+  checked by the green suite, the `criteria-coverage` lens and the review.
 - A review feedback lap's design is refused when it gives a new criterion a
   number already handed out (`criteria-ids`). **It reads IDs only**: a built
   criterion reworded to mean something else keeps its ID unnoticed.

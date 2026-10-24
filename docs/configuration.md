@@ -715,14 +715,6 @@ check already enforces it. Every later step re-reads them from the file.
   `implement.fix.suite.fixing` turn that edits them (`criteria-frozen`).
   `seam.steer` is a human gate and may, but its edit must leave ID'd criteria,
   as at triage.
-- **No hands-on.** A criterion no person can try by using the change — prompt or
-  message wording, internal wiring, anything only a test observes — carries
-  `(no hands-on)` between its ID and the colon:
-  `- AC-<n> (no hands-on): <criterion>`. Triage is asked to tag such criteria,
-  you may add or remove the tag at the design gate (or in a stated list on the
-  skip path), and it is frozen with the criteria after design.
-  [The hands-on test](#the-hands-on-test) skips a tagged criterion and never
-  asks its judge about it.
 - **Stable after review.** A review feedback lap's design keeps a built
   criterion's ID — reworded in place when the review changes that behaviour, or
   deleted when it drops it — and numbers new behaviour above every ID handed out
@@ -738,91 +730,47 @@ process past `start-gate.check` whose sketch held an `Acceptance criteria` list
 in a `TODO.md`. A process resting at `design.triage` keeps replaying; its next
 turn needs ID'd criteria.
 
-### The hands-on test
+### The naive test
 
-Once the health loop is green, each `feature` build — and every feedback lap —
-is used by hand before it closes. First `implement.prototype.observable`, a
-judge, asks per criterion not tagged [`(no hands-on)`](#acceptance-criteria)
-whether it describes behaviour a person can observe by using the software
-(output printed, a file written, an error shown) — not a refactor, something
-left unchanged or internal shape. Each is a `noul` question named by the ID;
-only `no` at `p` ≥ 0.5 keeps it from the test, and an unsure judge is asked to
-say `yes`. Landing without a verdict, or with none for an ID, sends every
-unanswered criterion. It runs afresh at every hands-on test, over
-`.gtd/REQUIREMENTS.md` as it is then. A change with no such criterion — none
-untagged, or every one judged `no` — skips the test silently:
-`implement.closing` follows, with no rest. Otherwise
-`implement.prototype.testing`, an agent turn, finds how the project is exercised
-for real (a project skill that launches or drives it, a manual testing or
-running section in `AGENTS.md`, `CLAUDE.md` or `README.md`, else the project's
-shape: a browser for a web project, the CLI in a scratch directory, a request
-client for an API), performs each of those criteria in a disposable place, and
-writes `.gtd/PROTOTYPE.md`:
+With [`naiveTest`](#the-bundled-workflows-settings) on (off by default), a
+person tries every green naive pass by hand before anything builds on it — no
+seam judge, refactor, implementation or quality lap runs first. `seam.applying`
+puts the kept pass, outside `.gtd/`, in the working tree as a commit, and the
+process rests at `seam.try`. Run it, click through it, use it.
 
-```markdown
-## AC-1: pass
+- **Sign off** — land a clean tree. `seam.restoring` takes the pass out again
+  and the process goes on: to `seam.judge` with
+  [`flagMode`](#the-bundled-workflows-settings) on, else straight to
+  `implement.applying`.
+- **Send it back** — write notes in `.gtd/NAIVE-TEST.md`, edit the code to show
+  what you mean, or edit `.gtd/REQUIREMENTS.md` (its criteria must stay ID'd),
+  then `gtd land`. `seam.restoring` takes the pass, your code edits and the
+  notes file out of the tree again — an edit to `.gtd/REQUIREMENTS.md` stays —
+  and `seam.naive` runs again: its prompt names the tried pass to pick up,
+  quotes your notes and names your landing commit (`git show <commit>`) when it
+  changed code. The new pass goes through `seam.check` and rests at `seam.try`
+  again; a send-back refills the retry budget.
 
-Ran `mycli add 1 2` in a scratch directory; printed 3.
+Nothing else tries the change by hand: the green suite, the quality lap and the
+review are what check that a criterion is met.
 
-## AC-2: fail
-
-Ran `mycli sub 3 1`; printed 4. Expected 2.
-
-## Problem every command warns: fail
-
-Each run printed a deprecation warning.
-```
-
-A criterion left out — tagged, or judged `no` — is skipped: the testing turn is
-told so and the report needs no chunk for it (one there is never an open item).
-
-The hands-on test is the one check that a criterion is met: a test naming its ID
-is asked for, but no judge reads it. A skipped criterion, and with
-`prototypeRounds` at `0` every criterion, is checked by nothing beyond the green
-suite.
-
-One chunk per criterion sent to the test, headed `## AC-<n>: pass|fail|blocked`,
-plus one per problem found beside them, headed `## Problem <title>: <verdict>`;
-under each, the steps run and what was seen. `gtd land` refuses the turn
-(`prototype-report`) when it changes anything but `.gtd/PROTOTYPE.md`, or the
-report lacks exactly one chunk for a criterion sent to the test, or has a
-criterion- or problem-like heading in neither shape. A chunk for a criterion not
-sent to the test is never an open item; any other non-`pass` chunk is.
-
-- **Every chunk `pass`**: `implement.closing` follows, removing the report, and
-  the quality lap runs.
-- **A `fail`**: `implement.prototype.fix.fixing` fixes every failed chunk (the
-  criteria are frozen: `criteria-frozen`; editing the report is refused,
-  `prototype-fix`), the health loop (`implement.prototype.health.*`) turns the
-  suite green, and the change is tested again — failed items in full, passed
-  ones quickly. Each round's report lands with its turn.
-- **Past [`prototypeRounds`](#the-bundled-workflows-settings) fix rounds, or
-  only `blocked` items open** (a criterion the tester could not exercise, or one
-  whose expected behaviour looks wrong): the process rests at
-  `implement.prototype.open`, naming the open items. A change outside
-  `.gtd/PROTOTYPE.md` runs the health loop and tests again with a fresh budget;
-  a `gtd land` without one goes on with the items open.
-- **No way to test found** on a first test (a re-test must report every
-  criterion): the report holds only a `## No testing instructions` chunk and the
-  process rests at `implement.prototype.unguided`. Add instructions and land to
-  run the health loop and test afresh, or land a clean tree to go on untested.
-
-**Upgrading:** `implement.coverage`, `implement.covering` and
-`implement.uncovered` are gone, and so are the `Gtd-Mark: covers=` and
-`uncovered=` trailers. Finish or `gtd abandon` any `feature` process past
-`implement.health.check` (resting at `implement.coverage`, `implement.covering`,
-`implement.uncovered`, or later): replay now expects
-`implement.prototype.observable` (or, with `prototypeRounds` at `0` or every
-criterion tagged, `implement.closing`) there. A process resting earlier keeps
-replaying. Custom fixtures driving the `feature` workflow must answer
-`implement.prototype.observable` instead of `implement.coverage`.
+**Upgrading:** the hands-on test is gone, and with it `prototypeRounds`, the
+`implement.prototype.*` steps, `.gtd/PROTOTYPE.md` and the `(no hands-on)`
+criterion tag (a criterion carrying it no longer reads as ID'd). Finish or
+`gtd abandon` any `feature` process past `implement.health.check` (resting at
+`implement.prototype.*`, `implement.closing` or later): replay now expects
+`implement.closing` right after the health loop. A
+`feature({ prototypeRounds })` option is refused as unknown — drop it. Custom
+fixtures driving `feature` land `implement.health.check → implement.closing`.
 
 ### The naive-pass path
 
 The `feature` workflow's path while
 [`flagMode`](#the-bundled-workflows-settings) is on (the default); off, steps 1
-and 2 run, no judge, and the pass lands as on `land`. After design it runs, in
-order:
+and 2 run, no judge, and the pass lands as on `land`. With
+[`naiveTest`](#the-naive-test) on, a person tries every green pass between steps
+2 and 3 (`seam.applying`, `seam.try`, `seam.restoring`). After design it runs,
+in order:
 
 1. `seam.naive` — an agent implements `.gtd/REQUIREMENTS.md` directly,
    breadth-first; the turn is a [kept tip](#kept-tips), not landed on the branch
@@ -874,16 +822,15 @@ order:
    (`git show <tip> -- <tests>`) to carry over. Nothing refuses a rebuild or a
    fix turn that drops one: a criterion left untested surfaces as a
    `criteria-coverage` finding in the quality lap. Then the health loop
-   (`implement.health.*`, `implement.fix.suite.fixing`), the
-   [hands-on test](#the-hands-on-test) (`implement.prototype.*`) and
-   `implement.closing`, which removes `.gtd/REQUIREMENTS.md` (and
-   `.gtd/REFACTOR-NOTE.md`, when there is one). A build turn is asked for a new
-   release flag. The feature's quality lap (`build.quality.<lens>`) follows,
-   then the [feature review](#the-feature-review) (`build.review.*`); its
-   findings are [triaged](#the-triaged-quality-lap). After a refactor the build
-   turn may change nothing but the carried-over tests — the refactor already
-   carried the whole feature — and an empty turn completes the step when the
-   naive pass's tests named no ID.
+   (`implement.health.*`, `implement.fix.suite.fixing`) and `implement.closing`,
+   which removes `.gtd/REQUIREMENTS.md` (and `.gtd/REFACTOR-NOTE.md`, when there
+   is one). A build turn is asked for a new release flag. The feature's quality
+   lap (`build.quality.<lens>`) follows, then the
+   [feature review](#the-feature-review) (`build.review.*`); its findings are
+   [triaged](#the-triaged-quality-lap). After a refactor the build turn may
+   change nothing but the carried-over tests — the refactor already carried the
+   whole feature — and an empty turn completes the step when the naive pass's
+   tests named no ID.
 
 The refactor's quality lap reviews from its entry commit, the feature's from the
 refactor's sign-off (from the process start without a refactor). The one
@@ -1013,12 +960,11 @@ sign-off ends the process at `idle`. Notes are triaged as in every review
 (`build.review.triage`); an `edit` is collected into `.gtd/REQUIREMENTS.md` and
 starts a feedback lap: `re-unwind` reverts the human's code edits, design runs
 again (its criteria [stable after review](#acceptance-criteria)), then
-`implement.*` with a build turn — never `implement.applying` — and the hands-on
-test, then the quality lap and the review again. A custom workflow ending in
-`afterTail` runs the same lap, without the `criteria-ids` check. `seam.naive`
-and `seam.judge` never run again once judged, so a seam a re-plan turns up is
-built unjudged and unrefactored; a wrong or missing refactor means `gtd abandon`
-and a restart.
+`implement.*` with a build turn — never `implement.applying` — then the quality
+lap and the review again. A custom workflow ending in `afterTail` runs the same
+lap, without the `criteria-ids` check. `seam.naive` and `seam.judge` never run
+again once judged, so a seam a re-plan turns up is built unjudged and
+unrefactored; a wrong or missing refactor means `gtd abandon` and a restart.
 
 **Upgrading:** the quality lap's notes are decided at the finding gate
 (`build.quality.gate`, `mode: "findings"`), and every final review is a
@@ -1325,8 +1271,8 @@ The shipped module offers three workflows:
   quality lap, then a human review whose notes are triaged and, for an edit,
   re-planned.
 - **`review`** — `feature`'s review of everything since
-  `--var reviewBase=<commitish>`, with no design phase and no hands-on test: a
-  green gate (`review-gate`), the triaged quality lap, then the human review of
+  `--var reviewBase=<commitish>`, with no design phase: a green gate
+  (`review-gate`), the triaged quality lap, then the human review of
   [The feature review](#the-feature-review). Fixes and nits are fixed in place
   (`build.review.fix.nits.fixing`); a note judged `edit`, or a hand-edit, is
   collected into `.gtd/REQUIREMENTS.md` (`build.review.collecting`), your edits
@@ -2110,12 +2056,19 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   Off, for a project that is not publicly released: no `seam.judge` or
   `refactor.*` step runs; after design `seam.naive` and `seam.check` run as on,
   and the vetted pass lands as the implementation (`implement.applying`, no
-  build turn, no release flag), then the health loop, the hands-on test,
-  `implement.closing` and the quality lap, as on. A feedback lap asks for no
-  flag either. With `GTD_FLAG_RISK_TIER` on, the tier is still asked for and
-  recorded, but no longer decides the flag. Pinned at process start; a process
-  started before gtd knew `flagMode` reads it live, so leave it on until such a
-  process is finished.
+  build turn, no release flag), then the health loop, `implement.closing` and
+  the quality lap, as on. A feedback lap asks for no flag either. With
+  `GTD_FLAG_RISK_TIER` on, the tier is still asked for and recorded, but no
+  longer decides the flag. Pinned at process start; a process started before gtd
+  knew `flagMode` reads it live, so leave it on until such a process is
+  finished.
+- **`naiveTest`** (`false`) — whether a person tries every green naive pass by
+  hand at `seam.try`, before the seam judge, any refactor, the implementation or
+  the quality lap; notes or edits there send it back to `seam.naive`. See
+  [The naive test](#the-naive-test). Set it as the factory option
+  `feature({ naiveTest: true })` (or `--var naiveTest=true`,
+  `GTD_NAIVETEST=true`). Any value but `true` or `false` refuses the landing
+  that would start the process. Pinned at process start.
 - **`flag_risk_tier`** (`0`) — `1` when `GTD_FLAG_RISK_TIER` is on, recorded at
   process start. Not a factory option; `--var flag_risk_tier=1` is the only
   override. Off, no tier is asked for and no commit carries a `Gtd-Mark:`. See
@@ -2154,11 +2107,6 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   refactor's sign-off); blank runs no refactor quality lap. Each lens is its own
   scope, keyed `refactor.build.quality.<lens>`. Entries take the same
   `<lens>=<model>` hints, read from this list alone.
-- **`prototypeRounds`** (`3`) — how many fix turns the
-  [hands-on test](#the-hands-on-test) gets before open items rest at
-  `implement.prototype.open`. `0` skips the test, and with it the only check
-  that the criteria are met. A whole number, `0` or more; anything else refuses
-  the landing that would start the process. Pinned at process start.
 - **`reviewBase`** (empty) — the commitish `--workflow review` reviews from
   (`gtd door review` sets it).
 

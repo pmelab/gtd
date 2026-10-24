@@ -29,6 +29,8 @@ export const defaults: Readonly<Record<string, string>> = {
   refactorFlagPattern: "\\bGTD_FLAG_\\w+",
   seamAllow: [...testFileGlobs, ".gtd/**"].join(", "),
   flagMode: "true",
+  // A person tries every green naive pass at `seam.try` before anything builds on it.
+  naiveTest: "false",
   // GTD_FLAG_RISK_TIER, recorded at process start; only "1" is on.
   flag_risk_tier: "0",
   // Decides the turn count: one `build.quality.<lens>` scope per entry, each
@@ -36,9 +38,6 @@ export const defaults: Readonly<Record<string, string>> = {
   qualityReviews:
     "correctness, owasp-security, ponytail-review, test-audit, conventions, spec-challenge, criteria-coverage",
   refactorQualityReviews: "correctness, ponytail-review, conventions",
-  // Fix-and-retest rounds of the hands-on test before a person is asked;
-  // "0" skips the test.
-  prototypeRounds: "3",
 }
 
 /** Environment settings. */

@@ -9,8 +9,7 @@ Feature: The bundled unified workflow — one flow, end to end
   raises PRODUCT open questions in `.gtd/REQUIREMENTS.md`; the
   `design.gate.answer` human gate refuses to pass while any remain
   unanswered. Then `seam.naive` writes a naive pass, `seam.judge` rules on
-  its shape, `implement.*` builds the change for real and
-  `implement.prototype.*` tries every observable criterion by hand, before the
+  its shape and `implement.*` builds the change for real, before the
   shared build tail (`build.*`): one quality-lens review turn per lens, and the
   human review gate's sign-off-vs-feedback arbiter — a clean sign-off lands
   an ordinary commit straight into `idle`, retaining every prior per-turn
@@ -143,31 +142,13 @@ Feature: The bundled unified workflow — one flow, end to end
 
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): implement.health.check → implement.prototype.observable"
+    And the last commit subject is "gtd(check): implement.health.check → implement.closing"
 
-    # implement.prototype.observable: which criteria a person can observe by hand.
-    Given gtd lands "gtd(judge): implement.prototype.observable → implement.prototype.testing" judging:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
-
-    # implement.prototype.testing: every criterion used by hand, reported per ID.
-    Given a file ".gtd/PROTOTYPE.md" with:
-      """
-      ## AC-1: pass
-
-      Ran `node -e 'console.log(greet())'` in a scratch directory; printed hello.
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): implement.prototype.testing → implement.closing"
-
-    # implement.closing removes REQUIREMENTS.md and PROTOTYPE.md -> the quality
+    # implement.closing removes REQUIREMENTS.md -> the quality
     # lap, which every ordinary round pays for once, before any human sees the
     # change. These lenses judge the code — one build.quality.<lens>.reviewing
     # turn per bundled qualityReviews entry.
     Given the file ".gtd/REQUIREMENTS.md" is deleted
-    And the file ".gtd/PROTOTYPE.md" is deleted
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): implement.closing → build.quality.correctness.reviewing"
@@ -271,9 +252,7 @@ Feature: The bundled unified workflow — one flow, end to end
       gtd(check): implement.applying → implement.health.check
       gtd(check): implement.health.check → implement.fix.suite.fixing
       gtd(agent): implement.fix.suite.fixing → implement.health.check
-      gtd(check): implement.health.check → implement.prototype.observable
-      gtd(judge): implement.prototype.observable → implement.prototype.testing
-      gtd(agent): implement.prototype.testing → implement.closing
+      gtd(check): implement.health.check → implement.closing
       gtd(check): implement.closing → build.quality.correctness.reviewing
       gtd(agent): build.quality.correctness.reviewing → build.quality.owasp-security.reviewing
       gtd(agent): build.quality.owasp-security.reviewing → build.quality.ponytail-review.reviewing
@@ -1423,20 +1402,8 @@ Feature: The bundled unified workflow — one flow, end to end
       export const B = 2
       """
     And gtd lands "gtd(agent): implement.building → implement.health.check"
-    And gtd lands "gtd(check): implement.health.check → implement.prototype.observable"
-    And gtd lands "gtd(judge): implement.prototype.observable → implement.prototype.testing" judging:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
-    And a file ".gtd/PROTOTYPE.md" with:
-      """
-      ## AC-1: pass
-
-      Used it by hand; it behaves as described.
-      """
-    And gtd lands "gtd(agent): implement.prototype.testing → implement.closing"
+    And gtd lands "gtd(check): implement.health.check → implement.closing"
     And the file ".gtd/REQUIREMENTS.md" is deleted
-    And the file ".gtd/PROTOTYPE.md" is deleted
     And gtd lands "gtd(check): implement.closing → build.review.reviewing"
     When I run gtd next
     Then it succeeds

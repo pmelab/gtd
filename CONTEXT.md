@@ -257,6 +257,11 @@ kept as a [kept tip](#kept-tip). Applied as the implementation when the
 [flag mode](#flag-mode) is off; otherwise only reading material for a rebuild.
 Done only when the suite is green with it applied; it need write no test.
 
+**Naive test**: A person trying a green [naive pass](#naive-pass) by hand at
+`seam.try`, with `naiveTest` on: applied to the working tree, then signed off by
+a clean landing or sent back to a new naive pass with notes or edits. The only
+hands-on check gtd has. _Avoid_: hands-on test, prototype test.
+
 **Acceptance test**: A test file a naive pass adds or changes — one test per
 behaviour its [acceptance criteria](#acceptance-criterion) describe, never named
 after a criterion's ID. It reaches only code that existed before the pass, so it

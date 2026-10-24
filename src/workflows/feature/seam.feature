@@ -7,7 +7,6 @@ Feature: the naive pass and seam judge decide how a feature is built
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
-    And an environment variable "GTD_PROTOTYPEROUNDS" set to "0"
     And the gtd config ends with:
       """
       export const config = {

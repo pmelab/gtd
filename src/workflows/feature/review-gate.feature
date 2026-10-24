@@ -4,13 +4,12 @@ Feature: a feature process ends at the human review
   After the quality lap the process rests at the review gate,
   `.gtd/REVIEW.md`. A sign-off ends the process. A note asking for a change in
   behaviour starts a feedback lap — design, then implement with no new naive
-  pass or seam judge, the hands-on test, the quality lap — and the review
+  pass or seam judge, the quality lap — and the review
   again. Its design keeps a built criterion's ID and numbers
   new behaviour above every ID handed out.
 
   Background:
     Given the shipped workflows, as gtd install scaffolds them
-    And an environment variable "GTD_PROTOTYPEROUNDS" set to "0"
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And an environment variable "GTD_FLAGMODE" set to "false"
     And a file "src/calc.ts" with:

@@ -17,8 +17,6 @@ import * as t from "../shared/text.js"
 export interface Criterion {
   readonly id: string
   readonly text: string
-  /** Tagged `(no hands-on)`: its tests prove it, so the hands-on test skips it. */
-  readonly noHandsOn?: true
 }
 
 /** Acceptance criteria the human's sketch stated outright, ready to normalise. */
@@ -33,13 +31,9 @@ export interface StatedCriteria {
 /** Below this the judge's `yes` is not trusted: a wrong skip builds against criteria nobody can check. */
 const CLEAR_MIN_P = 0.8
 
-const ID = /^(AC-\d+)(\s*\(no hands-on\))?:\s*(.*)$/
+const ID = /^(AC-\d+):\s*(.*)$/
 
-const criterion = (id: RegExpExecArray, as = id[1]!): Criterion => ({
-  id: as,
-  text: id[3]!,
-  ...(id[2] === undefined ? {} : { noHandsOn: true }),
-})
+const criterion = (id: RegExpExecArray, as = id[1]!): Criterion => ({ id: as, text: id[2]! })
 
 /** The list items under the first heading `title` matches (at `level` when given), up to the next heading; wrapped lines joined, fenced lines ignored. */
 const listUnder = (text: string, title: RegExp, level?: number): string[] | undefined => {
@@ -82,12 +76,6 @@ export const criteriaOf = (text: string): readonly Criterion[] | undefined =>
 /** The ID'd criteria of `text`. */
 export const criterionIds = (text: string): string[] =>
   (criteriaOf(text) ?? []).map((c) => c.id).filter((id) => id !== "")
-
-/** The ID'd criteria of `text` a person can try by hand: none tagged `(no hands-on)`. */
-export const handsOnIds = (text: string): string[] => {
-  const tagged = (criteriaOf(text) ?? []).filter((c) => c.noHandsOn).map((c) => c.id)
-  return criterionIds(text).filter((id) => !tagged.includes(id))
-}
 
 /** Items numbered `AC-1`…, unless every one already carries its own distinct ID. */
 const numbered = (items: readonly string[]): Criterion[] => {

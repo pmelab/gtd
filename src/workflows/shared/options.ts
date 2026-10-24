@@ -24,11 +24,11 @@ export const ShippedOptions = Schema.Struct({
   seamAllow: setting,
   qualityReviews: setting,
   refactorQualityReviews: setting,
-  prototypeRounds: setting,
   testCommand: setting,
   plannerModel: setting,
   coderModel: setting,
   flagMode: Schema.optionalWith(Schema.Boolean, { exact: true }),
+  naiveTest: Schema.optionalWith(Schema.Boolean, { exact: true }),
 })
 
 export type ShippedOptions = Schema.Schema.Encoded<typeof ShippedOptions>
@@ -50,6 +50,14 @@ export const flagModeOn = (): boolean => {
   const value = vars.flagMode ?? defaults.flagMode!
   if (value !== "true" && value !== "false")
     refuse(`gtd: flagMode must be "true" or "false", got ${JSON.stringify(value)}`)
+  return value === "true"
+}
+
+/** The `naiveTest` setting, pinned at process start. Anything but true/false fails rather than guess. */
+export const naiveTestOn = (): boolean => {
+  const value = vars.naiveTest ?? defaults.naiveTest!
+  if (value !== "true" && value !== "false")
+    refuse(`gtd: naiveTest must be "true" or "false", got ${JSON.stringify(value)}`)
   return value === "true"
 }
 
