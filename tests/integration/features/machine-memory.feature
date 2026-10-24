@@ -471,20 +471,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => 1
       """
     And gtd lands "gtd(agent): implement.building → implement.health.check"
-    And gtd lands "gtd(check): implement.health.check → implement.prototype.observable"
-    And gtd lands "gtd(judge): implement.prototype.observable → implement.prototype.testing" judging:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
-    And a file ".gtd/PROTOTYPE.md" with:
-      """
-      ## AC-1: pass
-
-      Used it by hand; it behaves as described.
-      """
-    And gtd lands "gtd(agent): implement.prototype.testing → implement.closing"
+    And gtd lands "gtd(check): implement.health.check → implement.closing"
     And the file ".gtd/REQUIREMENTS.md" is deleted
-    And the file ".gtd/PROTOTYPE.md" is deleted
     And gtd lands "gtd(check): implement.closing → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -624,20 +612,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => 1
       """
     And gtd lands "gtd(agent): implement.building → implement.health.check"
-    And gtd lands "gtd(check): implement.health.check → implement.prototype.observable"
-    And gtd lands "gtd(judge): implement.prototype.observable → implement.prototype.testing" judging:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
-    And a file ".gtd/PROTOTYPE.md" with:
-      """
-      ## AC-1: pass
-
-      Used it by hand; it behaves as described.
-      """
-    And gtd lands "gtd(agent): implement.prototype.testing → implement.closing"
+    And gtd lands "gtd(check): implement.health.check → implement.closing"
     And the file ".gtd/REQUIREMENTS.md" is deleted
-    And the file ".gtd/PROTOTYPE.md" is deleted
     And gtd lands "gtd(check): implement.closing → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
@@ -869,20 +845,8 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       export const widget = () => Object.freeze({})
       """
     And gtd lands "gtd(agent): implement.building → implement.health.check"
-    And gtd lands "gtd(check): implement.health.check → implement.prototype.observable"
-    And gtd lands "gtd(judge): implement.prototype.observable → implement.prototype.testing" judging:
-      """
-      [{"id":"AC-1","answer":"yes","p":0.9}]
-      """
-    And a file ".gtd/PROTOTYPE.md" with:
-      """
-      ## AC-1: pass
-
-      Used it by hand; it behaves as described.
-      """
-    And gtd lands "gtd(agent): implement.prototype.testing → implement.closing"
+    And gtd lands "gtd(check): implement.health.check → implement.closing"
     And the file ".gtd/REQUIREMENTS.md" is deleted
-    And the file ".gtd/PROTOTYPE.md" is deleted
     And gtd lands "gtd(check): implement.closing → build.quality.correctness.reviewing"
     When I run gtd next with "--json"
     Then it succeeds

@@ -88,12 +88,6 @@ things when redirected — a failing check, or reviewer feedback. Stay
 strictly inside that task; never touch code outside it. Treat feedback as the
 diagnosis to act on; discard it, with reason, only when simply wrong.`
 
-export const testerPersona = `You are the hands-on tester in gtd's build pipeline: use what was just
-built the way a person would — run the real program, open the real
-page, call the real endpoint — and report exactly what you did and
-what you saw. Never fix anything yourself, and never pass a criterion
-you did not watch hold.`
-
 export const finisherPersona = `You are the closing identity in gtd's build pipeline — the last coder
 before it closes. Fix a late-breaking failing check after sign-off,
 focused and minimal. Every turn lands its own commit — nothing here

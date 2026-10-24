@@ -403,8 +403,7 @@ describe("implement", () => {
     lastOptions = undefined
     installContext(
       fixtureContext(
-        // The hands-on test has its own scenarios.
-        { vars: { prototypeRounds: "0" } },
+        {},
         {
           step: (request: StepRequest) => {
             requests.push(request)

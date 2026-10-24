@@ -545,14 +545,14 @@ noted in steps 3 and 4 below.
    requirements — the built criteria keep their IDs (reworded in place when
    their behaviour changes) and new behaviour gets new ones — then the
    implementation is amended to meet them, with no new naive pass or seam judge,
-   the hands-on test runs again, the quality lap runs, and you review again. At
-   the refactor review an `edit` re-derives the refactor instead. A `question`
-   is answered inline under your note and the process stops at the review again
-   — no new plan. A `nit` is fixed in one batch, the suite must go green (a red
-   one gets fix turns first), then a fresh review of the change stops at the
-   review again. `praise` is dropped; a round of only praise signs off. When a
-   round mixes them, questions are answered and nits fixed first, then the edits
-   are planned — risk: the planning lap may redo nit fixes it touches.
+   the quality lap runs, and you review again. At the refactor review an `edit`
+   re-derives the refactor instead. A `question` is answered inline under your
+   note and the process stops at the review again — no new plan. A `nit` is
+   fixed in one batch, the suite must go green (a red one gets fix turns first),
+   then a fresh review of the change stops at the review again. `praise` is
+   dropped; a round of only praise signs off. When a round mixes them, questions
+   are answered and nits fixed first, then the edits are planned — risk: the
+   planning lap may redo nit fixes it touches.
 
    Each `edit` note also gets a severity tier from four judge questions
    (security, reversibility, blast radius, new concept). Every tier is
@@ -673,25 +673,18 @@ be green; whether each criterion is still tested is the `criteria-coverage`
 lens's call in the quality lap. A wrong approach is retried twice, then rests
 for you to steer or overrule it. A refactor that already carried the whole
 feature leaves the rebuild only the carried-over tests, and the feature's
-quality lap and review cover the whole change. Once the implementation is green,
-a judge asks, per acceptance criterion, whether a person can observe it by using
-the software; an agent then uses the change by hand for those — the real program
-in a scratch directory, the real page, guided by a project skill or a manual
-testing section in `AGENTS.md`, `CLAUDE.md` or `README.md` — and writes
-`.gtd/PROTOTYPE.md`: per criterion pass, fail or blocked, with the steps run and
-what it saw. A criterion the judge finds no one can observe (a refactor,
-something left unchanged, internal shape), or one design tagged `(no hands-on)`,
-is skipped; a change with none left skips this step. This is the one check that
-a criterion is met: with `prototypeRounds` set to `0` nothing checks the
-criteria beyond the green suite. Failures are fixed and re-tested before the
-quality lap, up to `prototypeRounds` (3) fix rounds; past them, with only
-blocked items, or with no way to test found, it rests for you. See
-[The hands-on test](docs/configuration.md#the-hands-on-test). Feedback at the
-feature review re-runs design and the implementation, never the naive pass;
-feedback at the refactor review re-runs the refactor, never design; a
-refactor-review change the refactor cannot build is refused, and the only way
-out is `gtd abandon`. A process from 27.5.0 or later whose judge ruled
-`refactor-first` must `gtd abandon` too. Details in
+quality lap and review cover the whole change. With `naiveTest` on (off by
+default), you try every green naive pass by hand first, applied to the working
+tree at `seam.try`, before the seam judge or anything builds on it: a clean
+`gtd land` signs it off; notes in `.gtd/NAIVE-TEST.md`, code edits or a
+requirements edit send it back to a new naive pass, which gets them, until you
+sign off. See [The naive test](docs/configuration.md#the-naive-test). Nothing
+else tries the change by hand: the suite, the quality lap and the review check
+the criteria. Feedback at the feature review re-runs design and the
+implementation, never the naive pass; feedback at the refactor review re-runs
+the refactor, never design; a refactor-review change the refactor cannot build
+is refused, and the only way out is `gtd abandon`. A process from 27.5.0 or
+later whose judge ruled `refactor-first` must `gtd abandon` too. Details in
 [the naive-pass path](docs/configuration.md#the-naive-pass-path).
 
 **One process, one build.** A change is built in one pass — one naive pass, one

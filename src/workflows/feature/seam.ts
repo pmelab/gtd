@@ -3,6 +3,7 @@ import {
   agent,
   applyScript,
   changes,
+  changesSince,
   check,
   codeChanges,
   env,
@@ -14,6 +15,7 @@ import {
   read,
   refuse,
   removeScript,
+  restoreScript,
   run,
   scope,
   vars,
@@ -22,11 +24,10 @@ import {
   type DiffShapeResult,
   type KeptTip,
 } from "../../flows/index.js"
-import { coder, FEEDBACK, PROTOTYPE, REFACTOR_NOTE, REQUIREMENTS } from "../shared/steps.js"
+import { coder, FEEDBACK, NAIVE_TEST, REFACTOR_NOTE, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
 import { defaults } from "../shared/vars.js"
 import { green } from "./green.js"
-import { prototypeTest } from "./prototype.js"
 import { criterionIds, requireCriteria, requireCriteriaFrozen } from "./criteria.js"
 import {
   COMMENT,
@@ -36,7 +37,7 @@ import {
   reviewedRefactor,
 } from "./refactor.js"
 import { isCode } from "../shared/review.js"
-import { flagModeOn } from "../shared/options.js"
+import { flagModeOn, naiveTestOn } from "../shared/options.js"
 import type { RiskTier } from "./tier.js"
 
 /** Naive-pass retries after a `reject` or a red suite; the next one rests at `seam.steer`. */
@@ -53,7 +54,7 @@ export const judgeSeam = (tip: KeptTip): Promise<DiffShapeResult> =>
     exempt: tip.changes.filter((c) => c.status === "added").map((c) => c.path),
   })
 
-export const naivePass = (retry?: t.NaiveRetry): Promise<void> =>
+export const naivePass = (retry?: t.NaiveRetry | t.NaiveTested): Promise<void> =>
   t.agentWithSkills("naive", t.naivePassPrompt(retry), {
     label: retry === undefined ? "Writing the naive pass" : "Rewriting the naive pass",
     keep: true,
@@ -226,9 +227,8 @@ export const implementing = (options: ImplementOptions): Promise<readonly string
     if (built) await build(options)
     else requireCriteriaFrozen(REQUIREMENTS)
     await green()
-    await prototypeTest()
     const ids = criterionIds(read(REQUIREMENTS) ?? "")
-    await run("closing", removeScript([REQUIREMENTS, REFACTOR_NOTE, PROTOTYPE]), {
+    await run("closing", removeScript([REQUIREMENTS, REFACTOR_NOTE]), {
       label: "Closing out the implementation",
     })
     return ids
@@ -277,7 +277,7 @@ const budget = (): ((next: t.NaiveRetry) => Promise<Verdict>) => {
 }
 
 interface Vetting {
-  readonly again: ReturnType<typeof budget>
+  again: ReturnType<typeof budget>
   /** Set once a human overrules a test fault: the rule does not fit this change, so later passes skip it. */
   waived: boolean
 }
@@ -304,16 +304,62 @@ const ruled = async (tip: KeptTip, again: Vetting["again"]): Promise<Decision | 
   return next.kind === "overruled" ? { reference: tip.hash, tip } : next
 }
 
+/** Back to `before`: every code path, and the notes file. `.gtd/` edits (the requirements) stay. */
+const untryScript = (before: string): string => {
+  const code = changesSince(before).filter((c) => isCode(c.path))
+  return restoreScript(
+    head(),
+    {
+      restore: code.filter((c) => c.status !== "added").map((c) => c.path),
+      remove: [...code.filter((c) => c.status === "added").map((c) => c.path), NAIVE_TEST],
+    },
+    before,
+  )
+}
+
+/**
+ * A person tries the green pass `tip` in the working tree. Resolves
+ * `undefined` on a clean landing (signed off), else what they sent back;
+ * either way the pass, their code edits and the notes file leave the tree.
+ */
+const tried = async (tip: KeptTip): Promise<t.NaiveTested | undefined> => {
+  const before = head()
+  await run("applying", applyScript(tip.hash, FEEDBACK, t.naiveApplyFailure(tip.hash), [".gtd"]), {
+    label: "Applying the naive pass to try it",
+  })
+  await human("try", {
+    message: t.naiveTryMessage(flagModeOn()),
+    label: "Try the naive pass",
+    file: NAIVE_TEST,
+    acceptClean: true,
+  })
+  const landed = changes()
+  const edits = landed.some((c) => isCode(c.path)) ? head() : undefined
+  const notes = read(NAIVE_TEST)?.trim() || undefined
+  if (landed.some((c) => c.path === REQUIREMENTS)) requireCriteria(REQUIREMENTS)
+  await run("restoring", untryScript(before), { label: "Taking the naive pass out again" })
+  return landed.length === 0 ? undefined : { tested: tip.hash, notes, edits }
+}
+
 const decide = (): Promise<Decision> =>
   scope("seam", async () => {
     const vetting: Vetting = { again: budget(), waived: false }
-    let retry: t.NaiveRetry | undefined
+    let retry: t.NaiveRetry | t.NaiveTested | undefined
     for (;;) {
       await naivePass(retry)
       const tip = kept("naive")!
+      const verdict = await vetted(tip, vetting)
+      if (verdict === undefined && naiveTestOn()) {
+        const sentBack = await tried(tip)
+        if (sentBack !== undefined) {
+          // A person's feedback is no failed attempt: the next pass gets a full retry budget.
+          vetting.again = budget()
+          retry = sentBack
+          continue
+        }
+      }
       const outcome =
-        (await vetted(tip, vetting)) ??
-        (flagModeOn() ? await ruled(tip, vetting.again) : { reference: tip.hash, tip })
+        verdict ?? (flagModeOn() ? await ruled(tip, vetting.again) : { reference: tip.hash, tip })
       if (!("kind" in outcome)) return outcome
       retry = outcome.kind === "retry" ? outcome.retry : undefined
     }

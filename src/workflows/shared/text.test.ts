@@ -5,7 +5,6 @@ import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   designImpactPrompt,
-  prototypeFixingPrompt,
   buildReviewTriageMessage,
   buildReviewReviewingPrompt,
   agentWithSkills,
@@ -21,8 +20,7 @@ import {
   buildReviewCollectingPrompt,
   designGateAnswerMessage,
   designTriagePrompt,
-  normaliseCriteriaScript,
-  prototypeTestingPrompt,
+  naiveTryMessage,
   implementBuildingPrompt,
   implementFixPrompt,
   naivePassPrompt,
@@ -173,37 +171,6 @@ describe("the risk tier prompt and gate line", () => {
     expect(gate(true)).toContain("means `high`")
     expect(gate(false)).not.toContain("Risk Tier")
     expect(gate(true).startsWith(gate(false))).toBe(true)
-  })
-})
-
-describe("the (no hands-on) tag", () => {
-  it("is explained at triage and at the design gate", () => {
-    expect(renderText(() => designTriagePrompt("base"))).toContain(
-      "`- AC-<n> (no hands-on): <criterion>`",
-    )
-    expect(renderText(() => designGateAnswerMessage())).toContain(
-      "add or remove `(no hands-on)` between an `AC-<n>` and its colon",
-    )
-  })
-
-  it("names the tagged criteria the testing turn skips, and only when there are any", () => {
-    expect(renderText(() => prototypeTestingPrompt(["AC-2", "AC-3"], false))).toContain(
-      "- Skip AC-2, AC-3: no person can observe them",
-    )
-    expect(renderText(() => prototypeTestingPrompt([], false))).not.toContain("Skip")
-  })
-
-  it("is kept when the stated criteria are recorded", () => {
-    const script = normaliseCriteriaScript({
-      path: "TODO.md",
-      commit: "abc",
-      criteria: [
-        { id: "AC-1", text: "a" },
-        { id: "AC-2", text: "b", noHandsOn: true },
-      ],
-    })
-    expect(script).toContain("'- AC-1: a'")
-    expect(script).toContain("'- AC-2 (no hands-on): b'")
   })
 })
 
@@ -869,16 +836,10 @@ describe("Impact in prompts", () => {
   it.each([
     ["naive", () => naivePassPrompt()],
     ["implement", () => implementBuildingPrompt(undefined)],
-    ["prototype fixing", () => prototypeFixingPrompt()],
   ])("[AC-5] [AC-7] the %s prompt gives Impact as hints, not allowed files", (_n, prompt) => {
     const p = renderText(prompt).replace(/\s+/g, " ")
     expect(p).toContain("`## Impact`")
     expect(p).toContain("not a list of allowed files")
-  })
-
-  it("the prototype testing prompt, which changes no code, carries no Impact hints", () => {
-    const p = renderText(() => prototypeTestingPrompt([], false))
-    expect(p).not.toContain("not a list of allowed files")
   })
 })
 
@@ -900,6 +861,27 @@ describe("the seam phase's texts", () => {
     expect(prompt).toContain("solved the task the wrong way")
   })
 
+  it("hands a pass a person sent back its tip, their notes and their edits", () => {
+    const prompt = renderText(() =>
+      naivePassPrompt({ tested: "tip123", notes: "the button does nothing", edits: "edit456" }),
+    )
+    expect(prompt).toContain("A person tried your previous attempt (`tip123`) by hand")
+    expect(prompt).toContain(
+      "git diff --binary --no-color --no-ext-diff --no-textconv tip123^ tip123",
+    )
+    expect(prompt).toContain("> the button does nothing")
+    expect(prompt).toContain("git show edit456 -- . ':(exclude).gtd'")
+    const bare = renderText(() => naivePassPrompt({ tested: "tip123" }))
+    expect(bare).not.toContain("Their notes")
+    expect(bare).not.toContain("git show")
+  })
+
+  it("offers send-back and sign-off at the naive test, naming what a sign-off reaches", () => {
+    expect(renderText(() => naiveTryMessage(true))).toContain("the seam judge rules on its shape")
+    expect(renderText(() => naiveTryMessage(false))).toContain("lands as the implementation")
+    expect(renderText(() => naiveTryMessage(true))).toContain("`.gtd/NAIVE-TEST.md`")
+  })
+
   it("asks for a breadth-first pass tested through existing code, green before it ends", () => {
     const prompt = renderText(() => naivePassPrompt())
     expect(prompt).toContain("breadth-first")
@@ -910,7 +892,6 @@ describe("the seam phase's texts", () => {
   it.each([
     ["naive", () => naivePassPrompt()],
     ["building", () => implementBuildingPrompt("abc123")],
-    ["prototype fixing", () => prototypeFixingPrompt()],
   ])(
     "the %s prompt asks for a test per behaviour, never a criterion ID in its name",
     (_n, prompt) => {
