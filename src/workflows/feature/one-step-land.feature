@@ -39,6 +39,10 @@ Feature: a naive pass the judge rules land is itself the implementation
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.

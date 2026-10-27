@@ -27,7 +27,6 @@ export const ShippedOptions = Schema.Struct({
   testCommand: setting,
   plannerModel: setting,
   coderModel: setting,
-  flagMode: Schema.optionalWith(Schema.Boolean, { exact: true }),
   naiveTest: Schema.optionalWith(Schema.Boolean, { exact: true }),
 })
 
@@ -44,14 +43,6 @@ const over = (
       .map(([name, value]) => [name, String(value)]),
   ),
 })
-
-/** The `flagMode` setting, pinned at process start. Anything but true/false fails rather than guess a side. */
-export const flagModeOn = (): boolean => {
-  const value = vars.flagMode ?? defaults.flagMode!
-  if (value !== "true" && value !== "false")
-    refuse(`gtd: flagMode must be "true" or "false", got ${JSON.stringify(value)}`)
-  return value === "true"
-}
 
 /** The `naiveTest` setting, pinned at process start. Anything but true/false fails rather than guess. */
 export const naiveTestOn = (): boolean => {

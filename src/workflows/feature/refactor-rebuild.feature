@@ -45,6 +45,10 @@ Feature: refactor-first writes a refactor note, refactors on its own, then rebui
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: subtract returns the difference.

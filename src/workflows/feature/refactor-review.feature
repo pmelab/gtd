@@ -51,6 +51,10 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -149,6 +153,10 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -245,6 +253,10 @@ Feature: the refactor is reviewed on its own before the feature is implemented
         ## Impact
 
         - the greeting module
+
+        ## Release Flag
+
+        new
 
         ## Acceptance Criteria
 
@@ -1193,6 +1205,10 @@ Feature: the refactor is reviewed on its own before the feature is implemented
 
         - the greeting module
 
+        ## Release Flag
+
+        new
+
         ## Acceptance Criteria
 
         - AC-1: the change behaves as described.
@@ -1317,6 +1333,10 @@ Feature: the refactor is reviewed on its own before the feature is implemented
         ## Impact
 
         - the greeting module
+
+        ## Release Flag
+
+        new
 
         ## Acceptance Criteria
 

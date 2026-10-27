@@ -48,6 +48,10 @@ Feature: the naive pass and seam judge decide how a feature is built
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -240,6 +244,10 @@ Feature: the naive pass and seam judge decide how a feature is built
       ## Impact
 
       - the greeting module
+
+      ## Release Flag
+
+      new
 
       ## Acceptance Criteria
 

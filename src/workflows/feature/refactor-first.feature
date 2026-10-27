@@ -39,6 +39,10 @@ Feature: a refactor-first judgment walks one fixed path to the review gate
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.

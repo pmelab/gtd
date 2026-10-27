@@ -39,6 +39,10 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
 
         - the greeting module
 
+        ## Release Flag
+
+        new
+
         ## Acceptance Criteria
 
         - AC-1: `greeting` reads "Hello, world".
@@ -67,6 +71,10 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
 
         - the greeting module
 
+        ## Release Flag
+
+        new
+
         ## Acceptance Criteria
 
         - `greeting` reads "Hello, world".
@@ -81,6 +89,10 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
         ## Impact
 
         - the greeting module
+
+        ## Release Flag
+
+        new
 
         ## Acceptance Criteria
 
@@ -97,6 +109,10 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
         ## Impact
 
         - the greeting module
+
+        ## Release Flag
+
+        new
 
         ## Acceptance Criteria
 
@@ -131,6 +147,10 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
 
         - the greeting module
 
+        ## Release Flag
+
+        new
+
         ## Acceptance Criteria
 
         - AC-1: `greeting` reads "Hi".
@@ -149,6 +169,10 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
       And step "design.triage" writes ".gtd/REQUIREMENTS.md" with:
         """
         # Requirements
+
+        ## Release Flag
+
+        new
 
         ## Acceptance Criteria
 
@@ -177,6 +201,10 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
         ## Impact
 
         - the greeting module
+
+        ## Release Flag
+
+        new
 
         ## Acceptance Criteria
 
@@ -225,6 +253,10 @@ Feature: acceptance criteria carry stable IDs, and a sketch that states clear on
         ## Impact
 
         - the greeting module
+
+        ## Release Flag
+
+        new
 
         ## Acceptance Criteria
 

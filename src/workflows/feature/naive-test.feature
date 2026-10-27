@@ -4,19 +4,20 @@ Feature: a person tries the naive pass by hand before anything builds on it
   `naiveTest` is a factory option of the shipped workflows, off by default. On,
   every green naive pass is applied to the working tree and the process rests
   at `seam.try`. A clean landing signs it off and the process goes on — to the
-  seam judge, or straight to the implementation with `flagMode` off. Notes in
+  seam judge when the requirements ask for a release flag, else straight to the
+  implementation. Notes in
   `.gtd/NAIVE-TEST.md`, a code edit or a requirements edit send it back: the
   pass and the person's code edits leave the tree again, and the next naive
   pass gets the notes and the edits. Every lap ends at the gate again.
 
-  Rule: with flagMode off
+  Rule: with no release flag asked for
 
     Background:
       Given a gtd config with:
         """
         import { feature } from "@pmelab/gtd/workflows/feature"
         export { summary, steering, skills, access } from "@pmelab/gtd/workflows/feature"
-        export default feature({ flagMode: false, naiveTest: true })
+        export default feature({ naiveTest: true })
         """
       And an environment variable "GTD_QUALITYREVIEWS" set to ""
       And a file "src/calc.ts" with:
@@ -177,7 +178,7 @@ Feature: a person tries the naive pass by hand before anything builds on it
         gtd(check): seam.applying → seam.try
         """
 
-  Rule: with flagMode on
+  Rule: with a release flag asked for
 
     Background:
       Given a gtd config with:
@@ -208,7 +209,11 @@ Feature: a person tries the naive pass by hand before anything builds on it
 
         - the calculator module
 
-        ## Acceptance Criteria
+        ## Release Flag
+
+      new
+
+      ## Acceptance Criteria
 
         - AC-1: subtract(a, b) returns a - b.
         """
@@ -226,7 +231,7 @@ Feature: a person tries the naive pass by hand before anything builds on it
       And step "seam.applying" runs its script
       And step "seam.restoring" runs its script
 
-    Scenario: with flagMode on the person tries the pass before the seam judge rules
+    Scenario: the person tries the pass before the seam judge rules
       When the process is driven
       Then the process rests at "seam.try"
       And the resting step's content contains "the seam judge rules on its shape"

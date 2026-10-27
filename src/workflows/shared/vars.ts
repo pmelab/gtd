@@ -28,7 +28,6 @@ export const defaults: Readonly<Record<string, string>> = {
   standardMinP: "0.8",
   refactorFlagPattern: "\\bGTD_FLAG_\\w+",
   seamAllow: [...testFileGlobs, ".gtd/**"].join(", "),
-  flagMode: "true",
   // A person tries every green naive pass at `seam.try` before anything builds on it.
   naiveTest: "false",
   // GTD_FLAG_RISK_TIER, recorded at process start; only "1" is on.

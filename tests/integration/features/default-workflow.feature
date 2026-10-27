@@ -71,6 +71,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -353,6 +357,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -450,6 +458,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Impact
 
       - the greeting module
+
+      ## Release Flag
+
+      new
 
       ## Acceptance Criteria
 
@@ -641,6 +653,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -725,6 +741,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Impact
 
       - the greeting module
+
+      ## Release Flag
+
+      new
 
       ## Acceptance Criteria
 
@@ -822,6 +842,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -881,6 +905,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Impact
 
       - the greeting module
+
+      ## Release Flag
+
+      new
 
       ## Acceptance Criteria
 
@@ -969,6 +997,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -1021,6 +1053,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Impact
 
       - the greeting module
+
+      ## Release Flag
+
+      new
 
       ## Acceptance Criteria
 
@@ -1112,6 +1148,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -1201,6 +1241,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -1260,6 +1304,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Impact
 
       - the greeting module
+
+      ## Release Flag
+
+      new
 
       ## Acceptance Criteria
 
@@ -1371,6 +1419,10 @@ Feature: The bundled unified workflow — one flow, end to end
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -1468,6 +1520,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Impact
 
       - the greeting module
+
+      ## Release Flag
+
+      new
 
       ## Acceptance Criteria
 
@@ -2441,6 +2497,10 @@ Feature: The bundled unified workflow — one flow, end to end
       ## Impact
 
       - the greeting module
+
+      ## Release Flag
+
+      new
 
       ## Acceptance Criteria
 
