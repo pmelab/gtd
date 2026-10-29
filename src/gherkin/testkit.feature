@@ -144,12 +144,11 @@ Feature: testkit drives any workflow against the real engine
     When gtd starts workflow "tiny"
     Then driving the process is refused with 'the actor for human step "ship" changed nothing'
 
-  Scenario: a lenient drive rests at an unscripted check step, past actors it never reaches
+  Scenario: a lenient drive rests at an unscripted check step
     Given step "plan" writes "PLAN.md" with:
       """
       add two numbers
       """
-    And step "repair" changes nothing
     When gtd starts workflow "tiny"
     And the process is driven leniently
     Then the process rests at "check"

@@ -395,20 +395,31 @@ checks the beat at the rest and lands nothing.
 `the process is driven` is a strict drive (see
 [Driving a workflow](#driving-a-workflow)) with one difference: a step the
 scenario scripts, or expects a prompt at, is not checked at the end of each
-drive but once, at the end of the scenario — so a Background, or a step before
-the first drive, may script a step only a later drive reaches. A scenario whose
-steps all passed fails at its end on any such step no drive reached, naming it.
-That end check is left out when no drive was strict, or when a drive was refused
-(`driving the process is refused with …`). Every other strict check — a check
-step without an actor, a human step whose actor changes nothing, a verdict at a
-step that is no judge — still fails the drive it happens in.
-`the process is driven leniently` is the `strict: false` drive, e.g. to rest at
-a check step and inspect its script. `the process rests at {string}` fails on a
-stall; assert one with `the process stalls at {string}`.
+drive but once, at the end of the scenario — so a step before the first drive
+may script a step only a later drive reaches. A scenario whose steps all passed
+fails at its end on any such step no drive reached, naming it, lenient drives
+included. A refused drive (`driving the process is refused with …`) excuses
+every step scripted before it: where it would have gone is unknown.
+
+A step only a Background (or a Rule's) scripts is checked once per feature
+instead, so scenarios reaching different steps can share one Background: the
+feature fails at its end on a Background step no scenario reached. A failed
+scenario counts as reaching every Background step, and the check is left out
+when a scenario of the file did not run — filtered out, or skipped. A scenario
+that scripts the step again makes it the scenario's own.
+
+Every other strict check — a check step without an actor, a human step whose
+actor changes nothing, a verdict at a step that is no judge — still fails the
+drive it happens in. `the process is driven leniently` is the `strict: false`
+drive, e.g. to rest at a check step and inspect its script; unlike
+`repo.drive`'s, it still leaves unreached steps to the scenario's end.
+`the process rests at {string}` fails on a stall; assert one with
+`the process stalls at {string}`.
 
 A failed outcome step ends with where the process rests: its step, kind and the
 first lines of its content, the last commit subjects, and the actors the
-scenario scripted that no drive used.
+scenario scripted that no drive used, each marked `(Background)` or
+`(scenario)`.
 
 `the resting step's {word} is {string}` and `… includes {string}` read a field
 of the beat document by its dotted path — `model`, `idle`, `skills`,
@@ -442,7 +453,9 @@ printing the text.
 - `world.drive(options)` — `options` as `repo.drive` takes them, steps no drive
   reached left to the scenario's end;
 - `world.assertReached()` — that end check, which
-  `@pmelab/gtd/testkit/gherkin`'s `After` hook runs.
+  `@pmelab/gtd/testkit/gherkin`'s `After` hook runs; a step scripted from a
+  Background step goes to the feature's end instead, one from a hook counts as
+  the scenario's.
 
 A support file can make the workflow under test importable in every scenario:
 

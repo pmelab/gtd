@@ -28,7 +28,15 @@ describe("restDescription", () => {
     const repo = testRepo({ workflow: { default: flow } })
     repo.write("go", "\n")
     await repo.drive({ plan: (_, r) => r.write("PLAN.md", "p\n") })
-    expect(await restDescription(() => repo, ["repair", "ready"])).toBe(
+    expect(
+      await restDescription(
+        () => repo,
+        [
+          { step: "repair", origin: "scenario" },
+          { step: "ready", origin: "Background" },
+        ],
+      ),
+    ).toBe(
       [
         "where the process rests:",
         '  step "sign-off" (message, human)',
@@ -37,7 +45,7 @@ describe("restDescription", () => {
         "  last commits:",
         "    chore: initial commit",
         "    gtd(agent): plan → sign-off",
-        '  actors never used: "repair", "ready"',
+        '  actors never used: "repair" (scenario), "ready" (Background)',
       ].join("\n"),
     )
   })

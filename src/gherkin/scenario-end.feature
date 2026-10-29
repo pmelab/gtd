@@ -36,8 +36,7 @@ Feature: a scenario's scripted steps must be reached by its end, not by every dr
     Then the process rests at "done"
     And "SHIPPED.md" contains "shipped"
 
-  @fails
-  Scenario: an actor no drive of the scenario reaches fails it at its end
+  Scenario: an actor the Background scripts may go unreached in a scenario another scenario reaches it in
     Given step "plan" writes "PLAN.md" with:
       """
       add two numbers
@@ -45,3 +44,58 @@ Feature: a scenario's scripted steps must be reached by its end, not by every dr
     When gtd starts workflow "shipping"
     And the process is driven
     Then the process rests at "sign-off"
+
+  @fails
+  Scenario: an actor the scenario scripts that no drive reaches fails it at its end
+    Given step "plan" writes "PLAN.md" with:
+      """
+      add two numbers
+      """
+    And step "done" writes "DONE.md" with:
+      """
+      done
+      """
+    When gtd starts workflow "shipping"
+    And the process is driven
+    Then the process rests at "sign-off"
+
+  @fails
+  Scenario: a lenient drive leaves an actor no drive reaches to fail the scenario at its end
+    Given step "plan" writes "PLAN.md" with:
+      """
+      add two numbers
+      """
+    And step "done" writes "DONE.md" with:
+      """
+      done
+      """
+    When gtd starts workflow "shipping"
+    And the process is driven leniently
+    Then the process rests at "sign-off"
+
+  Scenario: a refused drive excuses the actors it was handed
+    Given step "plan" writes "PLAN.md" with:
+      """
+      add two numbers
+      """
+    And step "sign-off" changes nothing
+    And step "done" writes "DONE.md" with:
+      """
+      done
+      """
+    When gtd starts workflow "shipping"
+    Then driving the process is refused with 'the actor for human step "sign-off" changed nothing'
+
+  @fails
+  Scenario: an actor scripted after a refused drive, and reached by no later one, fails the scenario
+    Given step "plan" writes "PLAN.md" with:
+      """
+      add two numbers
+      """
+    And step "sign-off" changes nothing
+    When gtd starts workflow "shipping"
+    Then driving the process is refused with 'the actor for human step "sign-off" changed nothing'
+    Given step "done" writes "DONE.md" with:
+      """
+      done
+      """

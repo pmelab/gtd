@@ -2,6 +2,7 @@
 // workflow's `.feature` can use them. A workflow's own steps live beside it.
 import {
   After,
+  AfterAll,
   Given,
   QuickPickleWorld,
   Then,
@@ -30,11 +31,25 @@ import {
   refusal,
   refusedWith,
   restDescription,
+  unreachedList,
+  type Unreached,
 } from "./messages.js"
+
+// Kept on quickpickle's per-feature `common`: which steps a Background scripted,
+// and whether any scenario reached each.
+const BACKGROUND_ACTORS = "gtdBackgroundActors"
+
+interface BackgroundActors {
+  readonly reached: Map<string, boolean>
+  // The feature file's vitest task, to tell whether every scenario ran.
+  file: { readonly tasks?: readonly unknown[] } | undefined
+}
 
 export class TestkitWorld extends QuickPickleWorld {
   // Re-declared: under `nodenext` a subclass loses the base's members from TS's view.
   declare info: QuickPickleWorldInterface["info"]
+  declare common: QuickPickleWorldInterface["common"]
+  declare context: TestContext
 
   constructor(context: TestContext, info: InfoConstructor) {
     super(context, info)
@@ -49,8 +64,10 @@ export class TestkitWorld extends QuickPickleWorld {
   private conditionalVerdicts = new Map<string, [text: string, verdict: string][]>()
   private prompts = new Map<string, string[]>()
   private used = new Set<string>()
-  private strictDrives = false
-  private refusedDrives = false
+  // A step a scenario step scripts is the scenario's, even if a Background scripted it too.
+  private origins = new Map<string, Unreached["origin"]>()
+  private backgroundScripted = new Set<string>()
+  private excused = new Set<string>()
   private created: TestRepo | undefined = undefined
 
   // The repository is created on first use and keeps the config and
@@ -111,13 +128,23 @@ export class TestkitWorld extends QuickPickleWorld {
     }))
   }
 
+  // quickpickle numbers a (Rule) Background's steps negatively.
+  private scripting(step: string, replace = false): void {
+    const fromBackground = (this.info.stepIdx ?? 0) < 0
+    if (fromBackground) this.backgroundScripted.add(step)
+    if (!fromBackground || replace || !this.origins.has(step))
+      this.origins.set(step, fromBackground ? "Background" : "scenario")
+  }
+
   /** Adds `action` to what `step`'s actor does at every visit. */
   act(step: string, action: ScriptedActor): void {
+    this.scripting(step)
     this.actions.set(step, [...(this.actions.get(step) ?? []), action])
   }
 
   /** Drops every action and prompt queued for `step`, leaving `action` alone. */
   rescript(step: string, action: ScriptedActor): void {
+    this.scripting(step, true)
     this.actions.set(step, [action])
     this.prompts.delete(step)
   }
@@ -134,31 +161,39 @@ export class TestkitWorld extends QuickPickleWorld {
    * not scripted at all, so a drive rests there and checks it at the rest.
    */
   expectPrompt(step: string, text: string): void {
+    this.scripting(step)
     this.prompts.set(step, [...(this.prompts.get(step) ?? []), text])
   }
 
   /** Judge step `step` answers `verdict`, a JSON array. */
   answer(step: string, verdict: string): void {
+    this.scripting(step)
     this.verdicts.set(step, verdict)
   }
 
   /** Judge step `step` answers `verdict` when its questions contain `text`; the first match answers. */
   answerWhen(step: string, text: string, verdict: string): void {
+    this.scripting(step)
     this.conditionalVerdicts.set(step, [
       ...(this.conditionalVerdicts.get(step) ?? []),
       [text, verdict],
     ])
   }
 
-  /** The steps the scenario scripted, or expects a prompt at, that no drive has reached. */
-  neverUsed(): string[] {
-    const scripted = new Set([
+  private scripted(): Set<string> {
+    return new Set([
       ...this.actions.keys(),
       ...this.verdicts.keys(),
       ...this.conditionalVerdicts.keys(),
       ...this.prompts.keys(),
     ])
-    return [...scripted].filter((step) => !this.used.has(step))
+  }
+
+  /** The steps the scenario scripted, or expects a prompt at, that no drive has reached. */
+  neverUsed(): Unreached[] {
+    return [...this.scripted()]
+      .filter((step) => !this.used.has(step))
+      .map((step) => ({ step, origin: this.origins.get(step) ?? "scenario" }))
   }
 
   private checkPrompts(step: string, content: string): void {
@@ -201,50 +236,90 @@ export class TestkitWorld extends QuickPickleWorld {
   }
 
   /**
-   * `strict: false` lets what a strict drive refuses pass. A strict drive
-   * leaves scripted steps it never reached to `assertReached`: a Background or
-   * an earlier step may script one for a later drive.
+   * `strict: false` lets what a strict drive refuses pass. Every drive leaves
+   * scripted steps it never reached to `assertReached`: an earlier step may
+   * script one for a later drive.
    */
   async drive(options: DriveOptions = {}): Promise<void> {
-    const actors = this.actors()
-    const tracked: Record<string, ScriptedActor> = {}
-    for (const [step, actor] of Object.entries(actors)) {
-      tracked[step] = (beat, repo) => {
-        this.used.add(step)
-        this.checkPrompts(step, beat.content)
-        return actor(beat, repo)
-      }
-    }
-    if (options.strict !== false) this.strictDrives = true
     try {
+      const actors = this.actors()
+      const tracked: Record<string, ScriptedActor> = {}
+      for (const [step, actor] of Object.entries(actors)) {
+        tracked[step] = (beat, repo) => {
+          this.used.add(step)
+          this.checkPrompts(step, beat.content)
+          return actor(beat, repo)
+        }
+      }
       const rest = await this.repo().drive(tracked, { ...options, unreachedActors: "pass" })
       if (rest.kind !== "stalled" && this.prompts.has(rest.state) && !(rest.state in actors)) {
         this.used.add(rest.state)
         this.checkPrompts(rest.state, rest.content)
       }
     } catch (error) {
-      this.refusedDrives = true
+      // Where a refused drive would have gone is unknown, so every step it was handed is excused.
+      for (const step of this.scripted()) this.excused.add(step)
       throw error
     }
   }
 
   /**
-   * Fails on a step the scenario scripted, or expects a prompt at, that no
-   * drive reached. Run at scenario end; a scenario with no strict drive, or
-   * with a refused one, passes.
+   * Fails on a step a scenario step scripted, or expects a prompt at, that no
+   * drive reached. Run at scenario end. A Background's steps are left to the
+   * feature's end, and the steps a refused drive was handed are excused.
    */
   async assertReached(): Promise<void> {
     const never = this.neverUsed()
-    if (!this.strictDrives || this.refusedDrives || never.length === 0) return
-    throw new Error(
-      `strict drive: at scenario end, no drive reached the steps scripted for ${never.map((step) => `"${step}"`).join(", ")} — script a step only for a drive that reaches it\n\n${await restDescription(() => this.repo(), never)}`,
+    const dead = never.filter(
+      ({ step, origin }) => origin === "scenario" && !this.excused.has(step),
     )
+    if (dead.length === 0) return
+    throw new Error(
+      `at scenario end, no drive reached the steps scripted for ${unreachedList(dead)} — script a step only for a drive that reaches it, or in the Background when only some scenarios reach it\n\n${await restDescription(() => this.repo(), never)}`,
+    )
+  }
+
+  /** Records, for the feature's end, which Background-scripted steps this scenario reached. */
+  recordBackground(): void {
+    const record = (this.common[BACKGROUND_ACTORS] ??= {
+      reached: new Map(),
+      file: undefined,
+    }) as BackgroundActors
+    record.file ??= (this.context as Partial<TestContext> | undefined)?.task?.file
+    // A failed scenario stopped early, so it cannot tell a dead actor from one it did not get to.
+    const failed = this.info.errors.length > 0
+    for (const step of this.backgroundScripted) {
+      record.reached.set(step, record.reached.get(step) === true || failed || this.used.has(step))
+    }
   }
 }
 
-// Only for a scenario whose steps all passed: a failed one already reports.
 After(async (world: QuickPickleWorldInterface) => {
-  if (world instanceof TestkitWorld && world.info.errors.length === 0) await world.assertReached()
+  if (!(world instanceof TestkitWorld)) return
+  world.recordBackground()
+  // Only for a scenario whose steps all passed: a failed one already reports.
+  if (world.info.errors.length === 0) await world.assertReached()
+})
+
+// vitest marks a test it filtered out, or skipped, as not run.
+const allRan = (tasks: readonly unknown[]): boolean =>
+  tasks.every((task) => {
+    const t = task as { mode?: string; result?: { state?: string }; tasks?: readonly unknown[] }
+    if (t.tasks !== undefined) return allRan(t.tasks)
+    return t.mode === "run" && t.result?.state !== "skip"
+  })
+
+// Per feature: a Background step no scenario reached scripts nothing. Left out
+// when a scenario did not run, since it may be the one that reaches it.
+AfterAll((common: QuickPickleWorldInterface["common"]) => {
+  const record = common[BACKGROUND_ACTORS] as BackgroundActors | undefined
+  if (record === undefined) return
+  if (record.file?.tasks !== undefined && !allRan(record.file.tasks)) return
+  const dead = [...record.reached].filter(([, reached]) => !reached)
+  if (dead.length === 0) return
+  throw new Error(
+    `${common.info.feature}: no scenario reached the steps scripted for ${unreachedList(dead.map(([step]) => ({ step, origin: "Background" })))} — script a step in the Background only when some scenario reaches it`,
+  )
 })
 
 setWorldConstructor(TestkitWorld)
