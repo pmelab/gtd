@@ -54,7 +54,7 @@ export default defineConfig({
         },
       },
       {
-        // Workflow `.feature` files beside their workflow, and testkit's own,
+        // Workflow `.feature` files beside their workflow, and the gherkin steps' own,
         // run in-process against an in-memory repository: no build needed.
         plugins: [
           rawMd(),
@@ -64,9 +64,9 @@ export default defineConfig({
         test: {
           name: "workflows",
           include: ["src/**/*.feature"],
-          // testkit's generic steps first: a workflow's own steps build on them.
+          // The testkit's gherkin steps first: a workflow's own steps build on them.
           setupFiles: [
-            "./src/testkit/steps.ts",
+            "./src/gherkin/index.ts",
             ...globSync("src/workflows/**/*.steps.ts")
               .sort()
               .map((path) => `./${path}`),

@@ -6,7 +6,7 @@ import { Effect } from "effect"
 import { afterEach, describe, expect, it } from "vitest"
 import { runCli } from "../../src/cli/index.js"
 import { nodeLspIo, type LspIo } from "../../src/lsp/index.js"
-import { InMemRepo, makeCapturingCliIo } from "../../src/testkit/index.js"
+import { InMemRepo, makeCapturingCliIo } from "../../src/twins/index.js"
 import { inMemoryLspIo } from "../integration/support/lsp-io.js"
 
 // The LSP's git and gtd reads, live and in memory, held to the same answers

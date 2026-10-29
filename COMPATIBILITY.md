@@ -70,9 +70,11 @@ histories written by an older or newer gtd.
   - `@pmelab/gtd/workflows/feature`, `@pmelab/gtd/workflows/review`,
     `@pmelab/gtd/workflows/fix`, `@pmelab/gtd/workflows/rollout`,
     `@pmelab/gtd/workflows/cleanup`
-  - `@pmelab/gtd/testkit`'s `testRepo`, `runsItsScript` and `InMemRepo`, with
-    the `TestRepo` and `TestkitWorld` types and its optional peers `vitest` and
-    `quickpickle`
+  - `@pmelab/gtd/testkit`: `testRepo`, `runsItsScript` and `InMemRepo`, with
+    their types and the `TestkitWorld` type
+  - `@pmelab/gtd/testkit/gherkin`: its `TestkitWorld` and the wording of every
+    step it registers (see [Testing a workflow](docs/testing.md#steps)), with
+    its optional peers `vitest` and `quickpickle`
 - **The `gtd.config.ts` shape** — every exported function and workflow factory
   (or call of one) is a workflow, the shipped factories' options are the
   settings below, and the reserved exports (`defaults`, `envDefaults`, `doors`,
@@ -111,9 +113,6 @@ Anything not listed above, e.g.:
 - **UI** — `gtd ui`, the Claude Code mod, and the example drivers in
   [Driver protocol](docs/driver.md).
 - **LSP features** — everything `gtd lsp` offers an editor.
-- **testkit's engine seams** — every other `@pmelab/gtd/testkit` export: the git
-  contract suites, the fake git and workspace operations and the capturing CLI
-  io gtd's own tests run on.
 
 ## Non-goals
 

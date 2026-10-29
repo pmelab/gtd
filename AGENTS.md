@@ -60,6 +60,14 @@ decided by the tiers in [COMPATIBILITY.md](COMPATIBILITY.md).
   only `$PATH` (a shim dir first), `$HOME` and the pass's `GTD_FLAG_*` — any new
   env dependency the paste grows must be documented in its own Prerequisites
   section, and is a scenario failure until it is
+- `docs/testing.md`'s examples are DOC-TESTED the same way:
+  `tests/integration/features/testing-doc.feature` writes the files its
+  `## A complete workflow test` and `## Gherkin steps` sections show — each
+  fence named by its first line (`// workflow.ts`) — into a project that
+  installed the packed tarball, and runs the section's one bash fence. Its
+  `### Steps` list is PINNED equal to the steps `@pmelab/gtd/testkit/gherkin`
+  registers: a new or renamed step is a doc change, and step wording is public
+  API
 - `docs/cli.md`'s `## Commands` block and its exit-code table are PINNED equal
   to the rendered help output and the exit-code set — they are generated views
   under test, not prose to hand-maintain

@@ -130,7 +130,7 @@ export const fetchHistoryRefs = (remote: string): string =>
 // No test asserts the two stay byte-identical; a drift between them is a
 // review-time risk this boundary accepts.
 
-/** Marks an emitted block as print-only — mirrors `OutcomeScript.ts`'s `OUTCOME_MARKER` verbatim, so `src/testkit/EmittedScriptRecognizer.ts` recognizes either path's output identically. */
+/** Marks an emitted block as print-only — mirrors `OutcomeScript.ts`'s `OUTCOME_MARKER` verbatim, so `src/twins/EmittedScriptRecognizer.ts` recognizes either path's output identically. */
 const OUTCOME_MARKER = "# gtd: outcome (print-only)"
 
 const printfLine = (fmt: string, args: readonly string[]): string =>

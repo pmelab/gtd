@@ -11,7 +11,15 @@ import {
 } from "quickpickle"
 import assert from "node:assert"
 import type { TestContext } from "vitest"
-import { runsItsScript, testRepo, type Actor, type TestRepo } from "./TestRepo.js"
+import { resolve } from "node:path"
+import { pathToFileURL } from "node:url"
+import {
+  runsItsScript,
+  testRepo,
+  type Actor,
+  type TestRepo,
+  type WorkflowModule,
+} from "../testkit/index.js"
 
 export class TestkitWorld extends QuickPickleWorld {
   // Re-declared: under `nodenext` a subclass loses the base's members from TS's view.
@@ -21,7 +29,7 @@ export class TestkitWorld extends QuickPickleWorld {
     super(context, info)
   }
 
-  private gtdConfig: string | undefined = undefined
+  private gtdConfig: WorkflowModule | undefined = undefined
   private env: Record<string, string> = {}
   /** Per step, what its scripted actor does, in the order the scenario declared it. */
   actions = new Map<string, Actor[]>()
@@ -33,7 +41,7 @@ export class TestkitWorld extends QuickPickleWorld {
   // The repository is created on first use and keeps the config and
   // environment it was created with, so a later change to either is refused
   // rather than silently ignored.
-  configure(config: string): void {
+  configure(config: WorkflowModule): void {
     this.assertNotCreated("a gtd config")
     this.gtdConfig = config
   }
@@ -41,6 +49,8 @@ export class TestkitWorld extends QuickPickleWorld {
   extendConfig(tail: string): void {
     this.assertNotCreated("a gtd config")
     if (this.gtdConfig === undefined) throw new Error("no gtd config to extend")
+    if (typeof this.gtdConfig !== "string")
+      throw new Error("a gtd config from a module cannot be extended")
     this.gtdConfig += `\n${tail}`
   }
 
@@ -106,6 +116,13 @@ const args = (list: string): string[] => list.split(" ").filter((arg) => arg !==
 
 Given("a gtd config with:", (world: TestkitWorld, source: string) => {
   world.configure(withNewline(source))
+})
+
+// Imported by the test runner itself, from the working directory: the module and
+// the engine share one `@pmelab/gtd/flows`, and a config source string could
+// import only files written into the in-memory repository.
+Given("a gtd config from the module {string}", async (world: TestkitWorld, path: string) => {
+  world.configure({ ...(await import(pathToFileURL(resolve(path)).href)) })
 })
 
 Given("the gtd config ends with:", (world: TestkitWorld, source: string) => {

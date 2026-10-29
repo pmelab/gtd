@@ -105,7 +105,7 @@ other non-function export. **A helper you export is a workflow too**, startable
 by name — keep helpers un-exported, or export them from another module you
 import.
 
-gtd resolves every `@pmelab/gtd/*` subpath but `@pmelab/gtd/testkit` itself (see
+gtd resolves every `@pmelab/gtd/*` subpath but the testkit's (see
 [Entrypoints](https://github.com/pmelab/gtd/blob/main/README.md#entrypoints)),
 to its own copy, so a repository — JavaScript or not (Python, Rust, notes) —
 needs no `package.json`, `node_modules` or install: a root `gtd.config.ts` is

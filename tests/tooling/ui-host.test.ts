@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path"
 import { Effect } from "effect"
 import { afterEach, describe, expect, it } from "vitest"
 import { runCli } from "../../src/cli/index.js"
-import { applyEmittedScript, InMemRepo, makeCapturingCliIo } from "../../src/testkit/index.js"
+import { applyEmittedScript, InMemRepo, makeCapturingCliIo } from "../../src/twins/index.js"
 import { liveUiHost, UiHost, type UiHostOps } from "../../src/ui/index.js"
 import { inMemoryUiHost } from "../integration/support/ui-host.js"
 

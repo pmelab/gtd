@@ -1,6 +1,6 @@
 import { Effect, Exit } from "effect"
 import { describe, expect, it } from "vitest"
-import { applyEmittedScript, InMemRepo, makeCapturingCliIo, testLayers } from "../testkit/index.js"
+import { applyEmittedScript, InMemRepo, makeCapturingCliIo, testLayers } from "../twins/index.js"
 import { runCli } from "./index.js"
 import { historyEntries, resolveHistoryRef, type HistoryEntry } from "./History.js"
 

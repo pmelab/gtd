@@ -27,8 +27,8 @@ beforeAll(async () => {
 
 afterAll(() => rmSync(outDir, { recursive: true, force: true }))
 
-/** Every source file an entry loads: its own file and each chunk it imports, transitively. */
-const sourcesOf = (entry: string): ReadonlySet<string> => {
+/** Every built file an entry loads: its own and each chunk it imports, transitively. */
+const filesOf = (entry: string): ReadonlySet<string> => {
   const files = new Set<string>()
   const visit = (file: string): void => {
     if (files.has(file)) return
@@ -39,8 +39,13 @@ const sourcesOf = (entry: string): ReadonlySet<string> => {
     }
   }
   visit(join(outDir, `${entry}.mjs`))
+  return files
+}
+
+/** Every source file an entry loads: its own file and each chunk it imports, transitively. */
+const sourcesOf = (entry: string): ReadonlySet<string> => {
   const sources = new Set<string>()
-  for (const file of files) {
+  for (const file of filesOf(entry)) {
     // A file of bare re-exports or bundler runtime has no source to map.
     if (!existsSync(`${file}.map`)) continue
     const map = JSON.parse(readFileSync(`${file}.map`, "utf8")) as { readonly sources: string[] }
@@ -60,6 +65,13 @@ describe("package entrypoints", () => {
       expect(unitsOf(unit)).toEqual([`src/${unit}/`])
     })
   }
+
+  // The core testkit runs under any test runner; only its gherkin steps need one.
+  it("the bundled ./testkit entry imports no test runner", () => {
+    const runners = /from\s*"(vitest|quickpickle|@vitest\/[^"]*)"/
+    for (const file of filesOf("testkit")) expect(readFileSync(file, "utf8")).not.toMatch(runners)
+    expect(unitsOf("testkit")).not.toContain("src/gherkin/")
+  })
 
   // The check above sees across chunks: an entry built on other units shows them.
   it("the bundled ./workflow-kit entry shows the units it is built on", () => {

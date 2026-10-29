@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { EXIT_OK, EXIT_RUNTIME_ERROR, EXIT_STRAYS_FOUND } from "../wire/index.js"
-import { InMemRepo, makeCapturingCliIo } from "../testkit/index.js"
+import { InMemRepo, makeCapturingCliIo } from "../twins/index.js"
 import { runCli } from "./index.js"
 
 const seed = (): InMemRepo => {

@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { planStart, type StartOutcome } from "./planStart.js"
-import { InMemRepo, testLayers } from "../testkit/index.js"
+import { InMemRepo, testLayers } from "../twins/index.js"
 import { ConfigService } from "../workflow/index.js"
 
 const WORKFLOW = `import { agent, human } from "@pmelab/gtd/flows"

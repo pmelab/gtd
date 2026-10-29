@@ -66,6 +66,11 @@
       "types": "./src/testkit/index.ts",
       "source": "./src/testkit/index.ts",
       "default": "./dist/testkit.mjs"
+    },
+    "./testkit/gherkin": {
+      "types": "./src/gherkin/index.ts",
+      "source": "./src/gherkin/index.ts",
+      "default": "./dist/testkit/gherkin.mjs"
     }
   },
   "files": [
@@ -76,6 +81,8 @@
     "src/wire/",
     "src/steering/",
     "src/testkit/",
+    "src/twins/",
+    "src/gherkin/",
     "src/cli/",
     "src/edge/",
     "src/emit/",

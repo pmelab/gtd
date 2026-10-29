@@ -83,15 +83,21 @@ const require = __createRequire(import.meta.url);`,
       "workflows/rollout": "src/workflows/rollout/index.ts",
       "workflows/cleanup": "src/workflows/cleanup/index.ts",
       testkit: "src/testkit/index.ts",
+      "testkit/gherkin": "src/gherkin/index.ts",
     },
     format: ["esm"],
     platform: "node",
     target: "node20",
     outDir: "dist",
     outExtensions: () => ({ js: ".mjs" }),
-    clean: ["dist/chunks", "dist/workflows", "dist/{flows,wire,steering,workflow-kit,testkit}.mjs"],
-    // The test runner testkit runs inside is the consumer's own: its optional
-    // peers stay imports.
+    clean: [
+      "dist/chunks",
+      "dist/workflows",
+      "dist/testkit",
+      "dist/{flows,wire,steering,workflow-kit,testkit}.mjs",
+    ],
+    // The test runner the gherkin steps run inside is the consumer's own: its
+    // optional peers stay imports.
     deps: { alwaysBundle: (id) => !/^(vitest|quickpickle|@vitest\/)/.test(id) },
     dts: false,
     outputOptions: { chunkFileNames: "chunks/[name]-[hash].mjs" },
