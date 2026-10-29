@@ -139,7 +139,7 @@ inside. Skills are declared per scope, never on `agent()`, and a driver
 restricts each turn to its scope's list where it can. `refuse(message)` refuses
 the pending landing — call it right after the step whose turn you reject.
 `@pmelab/gtd/flows` exports `requireProgress(file)`, `requireAnswers(file)` and
-`requireRevert(edited, base)`, three such checks ready-made.
+`requireRevert(edited, base)` among its ready-made checks.
 
 ## Names, commits and history
 
@@ -206,7 +206,8 @@ divergence later.
   network or filesystem. Read the tree through the helpers; do IO inside a
   `run()` body.
 - Await only a step, `scope()`, or a function that steps. Anything else fails
-  with `the flow awaited something that is not a step`.
+  with `the flow awaited something that is not a step`. gtd does not flag a step
+  you forget to await — turn on a `no-floating-promises` lint rule.
 - One call site per step name — wrap a reused helper in two different
   `scope()`s.
 - No `try`/`catch` around a step: `restart()` and refusals travel as exceptions.

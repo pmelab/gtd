@@ -21,6 +21,10 @@ import {
   type TestRepo,
   type WorkflowModule,
 } from "../testkit/index.js"
+import { assertContains, assertLacks, refusal, refusedWith, restDescription } from "./messages.js"
+
+// Kept off the class so the exported world's type stays as it is.
+const usedActors = new WeakMap<TestkitWorld, Set<string>>()
 
 export class TestkitWorld extends QuickPickleWorld {
   // Re-declared: under `nodenext` a subclass loses the base's members from TS's view.
@@ -88,6 +92,8 @@ export class TestkitWorld extends QuickPickleWorld {
 
   async drive(): Promise<void> {
     const actors: Record<string, Actor> = {}
+    const used = usedActors.get(this) ?? new Set<string>()
+    usedActors.set(this, used)
     for (const [step, actions] of this.actions) {
       actors[step] = async (beat, repo) => {
         for (const action of actions) await action(beat, repo)
@@ -115,7 +121,14 @@ export class TestkitWorld extends QuickPickleWorld {
         return hit[1]
       }
     }
-    await this.repo().drive(actors)
+    const tracked: Record<string, Actor> = {}
+    for (const [step, actor] of Object.entries(actors)) {
+      tracked[step] = (beat, repo) => {
+        used.add(step)
+        return actor(beat, repo)
+      }
+    }
+    await this.repo().drive(tracked)
   }
 }
 
@@ -124,6 +137,29 @@ setWorldConstructor(TestkitWorld)
 const withNewline = (content: string): string => (content.endsWith("\n") ? content : `${content}\n`)
 
 const args = (list: string): string[] => list.split(" ").filter((arg) => arg !== "")
+
+const neverUsed = (world: TestkitWorld): string[] => {
+  const used = usedActors.get(world) ?? new Set<string>()
+  const scripted = new Set([
+    ...world.actions.keys(),
+    ...world.verdicts.keys(),
+    ...world.conditionalVerdicts.keys(),
+  ])
+  return [...scripted].filter((step) => !used.has(step))
+}
+
+/** An outcome step: a failure ends with where the process rests. */
+const outcome =
+  <A extends unknown[]>(check: (world: TestkitWorld, ...rest: A) => unknown) =>
+  async (world: TestkitWorld, ...rest: A): Promise<void> => {
+    try {
+      await check(world, ...rest)
+    } catch (error) {
+      const failure = error instanceof Error ? error : new Error(String(error))
+      failure.message += `\n\n${await restDescription(() => world.repo(), neverUsed(world))}`
+      throw failure
+    }
+  }
 
 Given("a gtd config with:", (world: TestkitWorld, source: string) => {
   world.configure(withNewline(source))
@@ -337,74 +373,86 @@ When("the process is driven", async (world: TestkitWorld) => {
 
 Then(
   "opening door {string} is refused with {string}",
-  async (world: TestkitWorld, door: string, message: string) => {
-    await assert.rejects(world.repo().door(door), (error: Error) => error.message.includes(message))
-  },
+  outcome(async (world, door: string, message: string) => {
+    await refusedWith(world.repo().door(door), message)
+  }),
 )
 
 Then(
   "starting workflow {string} with {string} is refused with {string}",
-  async (world: TestkitWorld, workflow: string, list: string, message: string) => {
-    await assert.rejects(world.repo().start(workflow, ...args(list)), (error: Error) =>
-      error.message.includes(message),
-    )
-  },
+  outcome(async (world, workflow: string, list: string, message: string) => {
+    await refusedWith(world.repo().start(workflow, ...args(list)), message)
+  }),
 )
 
-Then("landing is refused with {string}", async (world: TestkitWorld, message: string) => {
-  await assert.rejects(world.repo().land(), (error: Error) => error.message.includes(message))
-})
+Then(
+  "landing is refused with {string}",
+  outcome(async (world, message: string) => {
+    await refusedWith(world.repo().land(), message)
+  }),
+)
 
 Then(
   "driving the process is refused with {string}",
-  async (world: TestkitWorld, message: string) => {
-    await assert.rejects(world.drive(), (error: Error) => error.message.includes(message))
-  },
+  outcome(async (world, message: string) => {
+    await refusedWith(world.drive(), message)
+  }),
 )
 
 Then(
   "driving the process is refused without {string}",
-  async (world: TestkitWorld, message: string) => {
-    await assert.rejects(world.drive(), (error: Error) => !error.message.includes(message))
-  },
+  outcome(async (world, message: string) => {
+    const got = await refusal(world.drive(), `without "${message}"`)
+    if (got.includes(message))
+      assert.fail(`expected a refusal without "${message}", but it was refused with:\n${got}`)
+  }),
 )
 
-Then("the process rests at {string}", async (world: TestkitWorld, step: string) => {
-  assert.strictEqual((await world.repo().next()).state, step)
-})
+Then(
+  "the process rests at {string}",
+  outcome(async (world, step: string) => {
+    assert.strictEqual((await world.repo().next()).state, step)
+  }),
+)
 
-Then("the resting step's content contains {string}", async (world: TestkitWorld, text: string) => {
-  const { content } = await world.repo().next()
-  assert.ok(content.includes(text), content)
-})
+Then(
+  "the resting step's content contains {string}",
+  outcome(async (world, text: string) => {
+    assertContains("the resting step's content", text, (await world.repo().next()).content)
+  }),
+)
 
 Then(
   "the resting step's content contains the hash of the commit {string}",
-  async (world: TestkitWorld, subject: string) => {
+  outcome(async (world, subject: string) => {
     const repo = world.repo()
     const hash = repo.hashes()[repo.subjects().lastIndexOf(subject)]
     assert.ok(hash !== undefined, `no commit "${subject}"`)
-    const { content } = await repo.next()
-    assert.ok(content.includes(hash), content)
-  },
+    assertContains("the resting step's content", hash, (await repo.next()).content)
+  }),
 )
 
 Then(
   "the resting step's content does not contain {string}",
-  async (world: TestkitWorld, text: string) => {
-    const { content } = await world.repo().next()
-    assert.ok(!content.includes(text), content)
-  },
+  outcome(async (world, text: string) => {
+    assertLacks("the resting step's content", text, (await world.repo().next()).content)
+  }),
 )
 
-Then("the last commit subject is {string}", (world: TestkitWorld, subject: string) => {
-  assert.strictEqual(world.repo().subjects().at(-1), subject)
-})
+Then(
+  "the last commit subject is {string}",
+  outcome((world, subject: string) => {
+    assert.strictEqual(world.repo().subjects().at(-1), subject)
+  }),
+)
 
-Then("the commit subjects end with:", (world: TestkitWorld, list: string) => {
-  const expected = list.split("\n").filter((line) => line.trim() !== "")
-  assert.deepStrictEqual(world.repo().subjects().slice(-expected.length), expected)
-})
+Then(
+  "the commit subjects end with:",
+  outcome((world, list: string) => {
+    const expected = list.split("\n").filter((line) => line.trim() !== "")
+    assert.deepStrictEqual(world.repo().subjects().slice(-expected.length), expected)
+  }),
+)
 
 const outputOf = async (world: TestkitWorld, list: string): Promise<string> => {
   const result = await world.repo().gtd(...args(list))
@@ -414,61 +462,77 @@ const outputOf = async (world: TestkitWorld, list: string): Promise<string> => {
 
 Then(
   "the output of gtd {string} contains {string}",
-  async (world: TestkitWorld, list: string, text: string) => {
-    const out = await outputOf(world, list)
-    assert.ok(out.includes(text), out)
-  },
+  outcome(async (world, list: string, text: string) => {
+    assertContains(`the output of gtd ${list}`, text, await outputOf(world, list))
+  }),
 )
 
 Then(
   "the output of gtd {string} does not contain {string}",
-  async (world: TestkitWorld, list: string, text: string) => {
-    const out = await outputOf(world, list)
-    assert.ok(!out.includes(text), out)
-  },
+  outcome(async (world, list: string, text: string) => {
+    assertLacks(`the output of gtd ${list}`, text, await outputOf(world, list))
+  }),
 )
 
 Then(
   "the output lines of gtd {string} start with:",
-  async (world: TestkitWorld, list: string, prefixes: string) => {
+  outcome(async (world, list: string, prefixes: string) => {
     const out = (await outputOf(world, list)).split("\n").filter((line) => line !== "")
     const expected = prefixes.split("\n").filter((line) => line.trim() !== "")
-    assert.strictEqual(out.length, expected.length, out.join("\n"))
-    out.forEach((line, i) => assert.ok(line.startsWith(expected[i]!), out.join("\n")))
-  },
+    const sides = `expected lines starting with:\n${expected.join("\n")}\ngot:\n${out.join("\n")}`
+    assert.strictEqual(out.length, expected.length, sides)
+    out.forEach((line, i) => assert.ok(line.startsWith(expected[i]!), sides))
+  }),
 )
 
-Then("{string} contains {string}", (world: TestkitWorld, path: string, text: string) => {
-  assert.ok(world.repo().read(path)?.includes(text), `${path}: ${world.repo().read(path)}`)
-})
+Then(
+  "{string} contains {string}",
+  outcome((world, path: string, text: string) => {
+    assertContains(`"${path}"`, text, world.repo().read(path))
+  }),
+)
 
-Then("{string} contains:", (world: TestkitWorld, path: string, text: string) => {
-  assert.ok(world.repo().read(path)?.includes(text), `${path}: ${world.repo().read(path)}`)
-})
+Then(
+  "{string} contains:",
+  outcome((world, path: string, text: string) => {
+    assertContains(`"${path}"`, text, world.repo().read(path))
+  }),
+)
 
 Then(
   "{string} contains the short hash of the commit {string}",
-  (world: TestkitWorld, path: string, subject: string) => {
+  outcome((world, path: string, subject: string) => {
     const repo = world.repo()
     const hash = repo.hashes()[repo.subjects().lastIndexOf(subject)]
     assert.ok(hash !== undefined, `no commit "${subject}"`)
-    assert.ok(repo.read(path)?.includes(hash.slice(0, 7)), `${path}: ${repo.read(path)}`)
-  },
+    assertContains(`"${path}"`, hash.slice(0, 7), repo.read(path))
+  }),
 )
 
 Then(
   "{string} contains {string} exactly once",
-  (world: TestkitWorld, path: string, text: string) => {
+  outcome((world, path: string, text: string) => {
     const content = world.repo().read(path) ?? ""
-    assert.strictEqual(content.split(text).length - 1, 1, `${path}: ${content}`)
-  },
+    const times = content.split(text).length - 1
+    assert.strictEqual(
+      times,
+      1,
+      `"${path}" contains "${text}" ${times} times; it holds:\n${content}`,
+    )
+  }),
 )
 
-Then("{string} does not contain {string}", (world: TestkitWorld, path: string, text: string) => {
-  const content = world.repo().read(path)
-  assert.ok(content !== undefined && !content.includes(text), `${path}: ${content}`)
-})
+Then(
+  "{string} does not contain {string}",
+  outcome((world, path: string, text: string) => {
+    assertLacks(`"${path}"`, text, world.repo().read(path))
+  }),
+)
 
-Then("{string} does not exist", (world: TestkitWorld, path: string) => {
-  assert.strictEqual(world.repo().read(path), undefined)
-})
+Then(
+  "{string} does not exist",
+  outcome((world, path: string) => {
+    const content = world.repo().read(path)
+    assert.strictEqual(content, undefined, `"${path}" exists; it holds:\n${content}`)
+  }),
+)

@@ -27,14 +27,13 @@ TypeScript as is):
 
 ```ts
 // workflow.ts
-import { agent, human, read, run } from "@pmelab/gtd/flows"
+import { agent, check, human, read } from "@pmelab/gtd/flows"
 
 export const calculator = async (): Promise<void> => {
   await agent("plan", "Write PLAN.md.")
   await agent("build", `Build what PLAN.md says:\n${read("PLAN.md") ?? ""}`)
-  await run("check", "npm test > .gtd/FEEDBACK.md 2>&1 && rm .gtd/FEEDBACK.md")
-  if (read(".gtd/FEEDBACK.md") !== undefined)
-    await agent("repair", "Make the suite pass.")
+  const green = await check("test", "npm test", { report: ".gtd/FEEDBACK.md" })
+  if (!green) await agent("repair", "Make the suite pass.")
   await human("sign-off")
 }
 
@@ -45,11 +44,11 @@ export default calculator
 // workflow.test.ts
 import assert from "node:assert/strict"
 import { test } from "node:test"
-import { testRepo } from "@pmelab/gtd/testkit"
+import { runsItsScript, testRepo } from "@pmelab/gtd/testkit"
 import * as workflow from "./workflow.ts"
 
 test("a plan is built, checked and handed to a human", async () => {
-  const repo = testRepo({ workflow })
+  const repo = testRepo({ workflow, commands: [{ run: "npm test" }] })
   repo.write("IDEA.md", "a calculator\n")
 
   const rest = await repo.drive({
@@ -61,14 +60,14 @@ test("a plan is built, checked and handed to a human", async () => {
         "export const add = (a: number, b: number) => a + b\n",
       )
     },
-    check: () => undefined,
+    test: runsItsScript,
   })
 
   assert.equal(rest.state, "sign-off")
   assert.deepEqual(repo.subjects().slice(-3), [
     "gtd(agent): plan → build",
-    "gtd(agent): build → check",
-    "gtd(check): check → sign-off",
+    "gtd(agent): build → test",
+    "gtd(check): test → sign-off",
   ])
 })
 ```
@@ -92,14 +91,62 @@ node --test workflow.test.ts
   [Canned commands](#canned-commands).
 
 `repo.drive(actors)` runs the process beat by beat, as a driver would, and
-returns the beat it rests at: the first step without an actor, or a human step.
-An actor is keyed by the step's full name and gets the beat and the repository:
+returns the beat it rests at: the first step without an actor, or a stall. An
+actor is keyed by the step's full name and gets the beat and the repository:
 
-- at an agent or check step, it edits the tree (`r.write`, `r.remove`), and the
-  beat lands;
+- at an agent, check or human step, it edits the tree (`r.write`, `r.remove`),
+  and the beat lands;
 - at a judge step, it returns the verdict as a JSON string;
 - `runsItsScript` runs the step's own script: file moves, copies and removals
   run in memory, and every other command runs as canned.
+
+The beat is a `BeatDocument`, what `gtd next --json` prints. Its type comes from
+`@pmelab/gtd/wire`:
+
+```ts
+import type { BeatDocument } from "@pmelab/gtd/wire"
+```
+
+`repo.drive(actors, { maxBeats })` gives up after `maxBeats` beats (50 by
+default) and fails, listing the steps it passed through — a workflow that loops
+without resting fails the test instead of hanging it.
+
+### Where a drive rests
+
+- **A step without an actor.** `rest.state` is its name, `rest.actor` who acts
+  there. A judge step without an actor rests too, as a `message` beat.
+- **A stall.** An agent actor that changes nothing lands one empty attempt, and
+  the drive returns a beat whose `kind` is `stalled` — unless the step sets
+  `allowEmpty`.
+- **Idle.** When no process is underway — before the first start, or after the
+  flow returns — the beat has `idle: true` and names the default workflow's
+  first step. With an actor for that step, the drive starts a new process there,
+  so a test that drives past the end of a flow leaves that step without one.
+
+### A human step
+
+A human step is scripted like any other: its actor edits the tree, and the edit
+lands as the human's turn. An actor that changes nothing lands nothing, unless
+the step sets `acceptClean` — the drive stays at the step and fails once it runs
+out of beats. Leave the step without an actor to have the drive rest there.
+
+### A judge's verdict
+
+At a judge step, `rest.judge` holds the pending judgment as a JSON string:
+`{ schema, state, questions }`, each question
+`{ id, primitive, instructions, criteria }`. The actor returns a JSON string of
+an array with one entry per question:
+
+```ts
+const rest = await repo.drive({
+  ready: () => JSON.stringify([{ id: "ready", answer: true, p: 0.9 }]),
+})
+```
+
+`answer` is a boolean for a `noul` question (read back as `"yes"`/`"no"`), one
+of the listed options for a `choice`, a number for a `score`; `p` is between 0
+and 1. A verdict that does not fit the questions fails the drive, echoing what
+was sent and the shape expected.
 
 The repository is also driven by hand: `repo.start(name, ...args)`,
 `repo.door(name, ...args)`, `repo.land()`, `repo.next()` and
@@ -191,7 +238,8 @@ Feature: the calculator workflow
       """
       export const add = (a: number, b: number) => a + b
       """
-    And step "check" changes nothing
+    And the command "npm test" exits 0
+    And step "test" runs its script
     When the process is driven
     Then the process rests at "sign-off"
     And "src/add.ts" contains "a + b"
@@ -203,6 +251,16 @@ npx vitest run
 
 `a gtd config from the module` takes a path from the directory vitest runs in.
 The step wording is public API: a step is renamed only in a major release.
+
+Every actor step for one step name adds to that step's script, run in the order
+the scenario gives them. `step "build" is prompted with "…"` is one of them: it
+checks the beat, and on its own it scripts the step to change nothing: the drive
+does not rest at `build` for the scenario to inspect, it lands an empty attempt
+there and stalls. Pair it with a step that writes, as the example above does.
+
+A failed outcome step ends with where the process rests: its step, kind and the
+first lines of its content, the last commit subjects, and the actors the
+scenario scripted that no drive used.
 
 ### Steps
 

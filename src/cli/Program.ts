@@ -33,6 +33,7 @@ import {
   landFields,
   noopText,
   renderBeatJson,
+  DEMAND_BRIEFING,
   renderBeatPlain,
   renderLandJson,
   renderLandPlain,
@@ -143,7 +144,7 @@ export type Command =
       readonly vars: Readonly<Record<string, string>>
       readonly label: string
     }
-  | { readonly kind: "door"; readonly name: string; readonly args: readonly string[] }
+  | { readonly kind: "door"; readonly name?: string; readonly args: readonly string[] }
   | { readonly kind: "doors" }
   | { readonly kind: "abandon" }
   | { readonly kind: "restore" }
@@ -566,10 +567,12 @@ const runStartCommand = (
     const config = yield* (yield* ConfigService).load
     const resolved = config.workflowNamed(workflow)
     if (resolved === undefined) {
+      const startable =
+        config.workflowNames.length > 0
+          ? `startable: ${config.workflowNames.join(", ")}`
+          : "this config exports no workflow besides its default, which an ordinary start runs"
       return yield* Effect.fail(
-        new GtdUsageError(
-          `gtd --workflow: unknown workflow "${workflow}" — startable: ${config.workflowNames.join(", ")}`,
-        ),
+        new GtdUsageError(`gtd --workflow: unknown workflow "${workflow}" — ${startable}`),
       )
     }
     const rest = yield* restAt(undefined, varOverrides)
@@ -591,8 +594,23 @@ const runStartCommand = (
     if (plan.kind === "refusal") {
       return yield* Effect.fail(new Error(plan.message))
     }
-    out.write(landingScript(ScriptSurface.render(plan.steps)))
+    out.write(listingCommitted(landingScript(ScriptSurface.render(plan.steps)), rest.changes))
   })
+
+/**
+ * A start commits the whole tree (`git add -A`), so its script says up front
+ * which paths that is. Comment lines only: control characters are masked so a
+ * path can never end the comment and become a command.
+ */
+const listingCommitted = (script: string, changes: readonly PendingChange[]): string => {
+  if (changes.length === 0) return script
+  const listing = [
+    "# commits every change in the working tree (git add -A):",
+    ...changes.map((change) => `#   ${change.status} ${change.path.replace(/\p{Cc}/gu, "?")}`),
+  ].join("\n")
+  const at = script.indexOf("\n\n")
+  return at === -1 ? script : `${script.slice(0, at)}\n\n${listing}${script.slice(at)}`
+}
 
 const doorSynopsis = (name: string, door: Door): string =>
   [
@@ -600,26 +618,33 @@ const doorSynopsis = (name: string, door: Door): string =>
     ...(door.args ?? []).map((arg) => (arg.optional === true ? `[${arg.name}]` : `<${arg.name}>`)),
   ].join(" ")
 
+const noSuchDoor = (name: string | undefined, doors: ReadonlyMap<string, Door>): GtdUsageError => {
+  const listing =
+    doors.size > 0
+      ? `doors: ${[...doors].map(([n, d]) => doorSynopsis(n, d)).join(", ")}`
+      : "this config has no doors"
+  return new GtdUsageError(
+    name === undefined
+      ? `gtd door: missing door name — ${listing}`
+      : `gtd door: unknown door "${name}" — ${listing}`,
+  )
+}
+
 /**
  * `gtd door <name> [args…]`: `gtd --workflow` with the door's workflow and the
  * process settings its `vars` derive from the positional args. A wrong name or
  * arity is a usage error naming what would have worked.
  */
 const runDoorCommand = (
-  name: string,
+  name: string | undefined,
   args: readonly string[],
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
-    const door = config.doors.get(name)
-    if (door === undefined) {
-      const known = [...config.doors]
-      return yield* Effect.fail(
-        new GtdUsageError(
-          `gtd door: unknown door "${name}" — doors: ${known.map(([n, d]) => doorSynopsis(n, d)).join(", ")}`,
-        ),
-      )
+    const door = name === undefined ? undefined : config.doors.get(name)
+    if (name === undefined || door === undefined) {
+      return yield* Effect.fail(noSuchDoor(name, config.doors))
     }
     const declared = door.args ?? []
     const required = declared.filter((arg) => arg.optional !== true).length
@@ -650,6 +675,11 @@ const runDoorsCommand = (
     const config = yield* (yield* ConfigService).load
     const doors = [...config.doors]
     if (json.kind === "off") {
+      if (doors.length === 0) {
+        yield* (yield* Narrator).warn(
+          "gtd doors: this config has no doors — a workflow factory's `doors` option or the config's `doors` export adds one",
+        )
+      }
       out.write(doors.map(([n, d]) => `${doorSynopsis(n, d)} → ${d.workflow}\n`).join(""))
       return
     }
@@ -849,6 +879,12 @@ const runNextCommand = (
       const validateCommand = emitsValidatablePrompt(rendered)
         ? selfValidateCommand(rest.def, rest.state, rendered.mode!, rendered.file!)
         : undefined
+      if (DEMAND_BRIEFING[fields.kind].suppressHeader) {
+        // A prompt's stdout is the agent's input, so its header goes to stderr;
+        // rendered as a header-showing kind to reuse the one header layout.
+        const shown = renderBeatPlain({ ...fields, kind: "message" })
+        yield* narrator.warn(shown.slice(0, shown.indexOf("\n\n")))
+      }
       out.write(renderBeatPlain(fields, validateCommand))
     }
   })
@@ -1125,18 +1161,29 @@ const runUiCliCommand = (
  */
 const assertRunningFromRepoRoot = (git: GitOperations, host: HostOps): Effect.Effect<void, Error> =>
   Effect.gen(function* () {
-    const topLevel = yield* git.topLevel()
+    const topLevel = yield* git
+      .topLevel()
+      .pipe(
+        Effect.mapError((e) =>
+          /not a git repository/.test(e.message)
+            ? new Error("gtd: not a git repository — run gtd inside one (`git init` makes one)")
+            : e,
+        ),
+      )
     const topReal = yield* host.realPath(topLevel)
     const cwdReal = yield* host.realPath(host.root)
     if (topReal !== cwdReal) {
       return yield* Effect.fail(
         new Error(
-          `gtd must be run from the repository root (${topLevel}); ` +
-            `the current directory is ${host.root}`,
+          `gtd: run gtd from the repository root — cd ${shellWord(topLevel)} ` +
+            `(the current directory is ${host.root})`,
         ),
       )
     }
   })
+
+const shellWord = (path: string): string =>
+  /^[\w@%+=:,./-]+$/.test(path) ? path : `'${path.replace(/'/g, "'\\''")}'`
 
 /** A command that derives workflow state needs at least one commit too — a commitless repository has no HEAD to resolve a `Rest` at. */
 const assertRepositoryHasCommits = (git: GitOperations): Effect.Effect<void, Error> =>
@@ -1145,7 +1192,7 @@ const assertRepositoryHasCommits = (git: GitOperations): Effect.Effect<void, Err
     if (!hasCommits) {
       return yield* Effect.fail(
         new Error(
-          "gtd requires a repository with at least one commit — make an initial commit, then run gtd again",
+          "gtd: the repository has no commits yet — make an initial commit, then run gtd again",
         ),
       )
     }

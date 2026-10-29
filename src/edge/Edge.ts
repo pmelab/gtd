@@ -995,7 +995,7 @@ export const restAt = (
     if (stepDef.mode !== undefined && def.modes[stepDef.mode] === undefined) {
       return yield* Effect.fail(
         new Error(
-          `gtd config: step "${step.name}": mode "${stepDef.mode}" is not a mode this workflow knows (${knownModes(def).join(", ")})`,
+          `gtd: config: step "${step.name}": mode "${stepDef.mode}" is not a mode this workflow knows (${knownModes(def).join(", ")})`,
         ),
       )
     }

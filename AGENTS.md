@@ -68,9 +68,10 @@ decided by the tiers in [COMPATIBILITY.md](COMPATIBILITY.md).
   `### Steps` list is PINNED equal to the steps `@pmelab/gtd/testkit/gherkin`
   registers: a new or renamed step is a doc change, and step wording is public
   API
-- `docs/cli.md`'s `## Commands` block and its exit-code table are PINNED equal
-  to the rendered help output and the exit-code set — they are generated views
-  under test, not prose to hand-maintain
+- `docs/cli.md`'s `## Commands` block, its `## Every command` section and its
+  exit-code table are PINNED equal to the rendered help output (top-level and
+  per-command) and the exit-code set — they are generated views under test, not
+  prose to hand-maintain
 
 ### Task graph and caching
 

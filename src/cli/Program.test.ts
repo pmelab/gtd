@@ -4,7 +4,7 @@
  * e2e tier observes. Argv parsing is pinned in `src/cli/Cli.test.ts`.
  */
 
-import { Cause, Effect, Exit } from "effect"
+import { Cause, Context, Effect, Exit } from "effect"
 import { PassThrough } from "node:stream"
 import { afterEach, describe, expect, it, vi } from "vitest"
 
@@ -17,7 +17,7 @@ vi.mock("node:os", async (importOriginal) => ({
 
 import { runCli, type Command } from "./index.js"
 import { EXIT_USAGE_ERROR, stallDiagnosis, noopText, WIRE_SCHEMA } from "../wire/index.js"
-import { needsOf, runCommand, SelectorUsageError } from "./Program.js"
+import { needsOf, runCommand, SelectorUsageError, type CommandRequirements } from "./Program.js"
 import { InMemRepo, makeCapturingCliIo, testLayers, applyEmittedScript } from "../twins/index.js"
 import {
   commitAll,
@@ -26,7 +26,7 @@ import {
   noteOutcome,
   restoredOutcome,
 } from "../emit/index.js"
-import { HISTORY_REF } from "../platform/index.js"
+import { GitService, HISTORY_REF, Host } from "../platform/index.js"
 import { contentHash } from "../workflow/index.js"
 import { WORKFLOWS_REPO } from "../install/index.js"
 
@@ -117,6 +117,19 @@ export const defaults = { greeting: "hello" }
     expect(repo.commitHistory()).toHaveLength(before)
     expect(stderr).toContain('unknown workflow "bogus"')
     expect(stderr).toContain("startable: hotfix")
+  })
+
+  it("lists the paths its script commits as comments a path cannot break out of", async () => {
+    const repo = seed(WORKFLOW)
+    repo.writeFile("NOTE.md", "a note\n")
+    repo.writeFile("evil\nrm -rf x", "")
+    const { stdout, exitCode } = await run(repo, "--workflow", "hotfix")
+    expect(exitCode).toBe(0)
+    expect(stdout).toContain("# commits every change in the working tree (git add -A):\n")
+    expect(stdout).toContain("#   A NOTE.md\n")
+    expect(stdout).toContain("evil?rm -rf x")
+    expect(stdout).not.toMatch(/^rm -rf x/m)
+    expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
   })
 
   it("`default` is not startable by name", async () => {
@@ -1733,7 +1746,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
   )
 
   const NO_COMMITS_MESSAGE =
-    "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
+    "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
 
   it("derives exactly the eighteen non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
@@ -2292,5 +2305,55 @@ export const defaults = ${vars}
     expect(exitCode).toBe(0)
     expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
     expect(repo.lastCommitMessage()).not.toContain("Gtd-Payload:")
+  })
+})
+
+describe("runCommand — the repository-root guard's messages", () => {
+  const guarded = async (
+    override: (
+      git: Context.Tag.Service<GitService>,
+      host: Context.Tag.Service<Host>,
+    ) => Effect.Effect<unknown, Error, CommandRequirements>,
+  ): Promise<string> => {
+    const exit = await Effect.runPromiseExit(
+      Effect.gen(function* () {
+        return yield* override(yield* GitService, yield* Host)
+      }).pipe(Effect.provide(testLayers(seedIdle()))),
+    )
+    return Exit.isFailure(exit) ? (Cause.squash(exit.cause) as Error).message : ""
+  }
+  const out = { write: () => {}, flush: () => {} }
+  const next = runCommand({ kind: "next" }, { kind: "off" }, out)
+
+  it("outside a git repository says so instead of quoting git", async () => {
+    const message = await guarded((git) =>
+      next.pipe(
+        Effect.provideService(GitService, {
+          ...git,
+          topLevel: () =>
+            Effect.fail(
+              new Error(
+                "git rev-parse --show-toplevel failed (exit 128): fatal: not a git repository (or any of the parent directories): .git",
+              ),
+            ),
+        }),
+      ),
+    )
+    expect(message).toBe("gtd: not a git repository — run gtd inside one (`git init` makes one)")
+  })
+
+  it("from a subdirectory names the root to cd to", async () => {
+    const message = await guarded((_git, host) =>
+      next.pipe(
+        Effect.provideService(Host, {
+          ...host,
+          root: "/repo/my sub",
+          realPath: (path: string) => Effect.succeed(path),
+        }),
+      ),
+    )
+    expect(message).toBe(
+      "gtd: run gtd from the repository root — cd /repo (the current directory is /repo/my sub)",
+    )
   })
 })

@@ -485,6 +485,6 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       """
     When I run gtd next
     Then it fails
-    And stderr contains "gtd config:"
+    And stderr contains "gtd: config:"
     And stderr contains "unknown key"
     And stderr contains "memory"

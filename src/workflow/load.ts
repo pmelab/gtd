@@ -50,7 +50,7 @@ export interface ConfigOperations {
 // prints `message` verbatim and would print a duplicated `detail` twice.
 const configError = (diagnostics: readonly Diagnostic[]): GtdError =>
   new GtdError(
-    `gtd config:\n${diagnostics
+    `gtd: config:\n${diagnostics
       .filter((d) => d.severity === "error")
       .map((d) => `  - ${formatDiagnostic(d)}`)
       .join("\n")}`,
@@ -84,7 +84,7 @@ export const refuseLegacyRc: Effect.Effect<void, GtdError, Host | ConfigDiscover
     return yield* Effect.fail(
       new GtdError(
         [
-          "gtd config:",
+          "gtd: config:",
           ...found.map((file) => `  - ${file}: no longer read — delete it`),
           "  gtd 23 removed the .gtdrc files; move each key they set:",
           "    vars    → an option of the workflow factory in gtd.config.ts, or its `defaults` export",
@@ -129,7 +129,7 @@ export const load: Effect.Effect<
     try: () => loadWorkflows(module, shipped),
     catch: (e) =>
       new GtdError(
-        `gtd config:\n  - ${module.filepath}: ${e instanceof Error ? e.message : String(e)}`,
+        `gtd: config:\n  - ${module.filepath}: ${e instanceof Error ? e.message : String(e)}`,
       ),
   })
   const compiled = loaded.config
@@ -885,7 +885,7 @@ const replayToFirstStep = (
         outcome.kind === "failed" || outcome.kind === "refused"
           ? outcome.message.replace(/^gtd: /, "")
           : "the default entry must begin at a step — that step is where a finished process waits"
-      return Effect.fail(new GtdError(`gtd config:\n  - ${loaded.file.origin}: ${problem}`))
+      return Effect.fail(new GtdError(`gtd: config:\n  - ${loaded.file.origin}: ${problem}`))
     },
   )
 
@@ -912,7 +912,7 @@ const firstStep = (
     if (reads.length > 0) {
       return yield* Effect.fail(
         new GtdError(
-          `gtd config:\n  - ${loaded.file.origin}: the flow's first step on an ordinary start reads ${reads.join(" and ")} — that step is where a finished process waits, so it must not depend on a setting`,
+          `gtd: config:\n  - ${loaded.file.origin}: the flow's first step on an ordinary start reads ${reads.join(" and ")} — that step is where a finished process waits, so it must not depend on a setting`,
         ),
       )
     }
@@ -923,7 +923,7 @@ const firstStep = (
     if (atHead === name) return name
     return yield* Effect.fail(
       new GtdError(
-        `gtd config:\n  - ${loaded.file.origin}: the flow's first step on an ordinary start depends on the repository's files ("${name}" without them, "${atHead}" at HEAD) — that step is where a finished process waits, so it must not change as files do`,
+        `gtd: config:\n  - ${loaded.file.origin}: the flow's first step on an ordinary start depends on the repository's files ("${name}" without them, "${atHead}" at HEAD) — that step is where a finished process waits, so it must not change as files do`,
       ),
     )
   })

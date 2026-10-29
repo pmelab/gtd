@@ -26,7 +26,7 @@ Feature: An invalid workflow config fails loudly at load time, naming where
       """
     When I run gtd next
     Then it fails
-    And stderr contains "gtd config:"
+    And stderr contains "gtd: config:"
     And stderr contains "mode \"adrs\" is not a mode this workflow knows"
     And stderr contains "qa, review, findings, adr"
     And stderr contains "step \"idle\""
@@ -66,7 +66,7 @@ Feature: An invalid workflow config fails loudly at load time, naming where
       """
     When I run gtd next
     Then it fails
-    And stderr contains "gtd config:"
+    And stderr contains "gtd: config:"
     And stderr contains "mode \"prose\" is not a mode this workflow knows (qa, review, findings)"
     And stderr contains "step \"idle\""
 
@@ -90,7 +90,7 @@ Feature: An invalid workflow config fails loudly at load time, naming where
       """
     When I run gtd next
     Then it fails
-    And stderr contains "gtd config:"
+    And stderr contains "gtd: config:"
     And stderr contains "gtd.config.ts: config.modes.adr.lint: is not a known key"
 
   Scenario: a removed key in the config export fails with remediation naming the key and its file — unconditional, no --verbose needed
@@ -109,7 +109,7 @@ Feature: An invalid workflow config fails loudly at load time, naming where
       """
     When I run gtd next
     Then the exit code is 1
-    And stderr contains "gtd config:"
+    And stderr contains "gtd: config:"
     And stderr contains "gtd.config.ts: config.env: is not a known key"
 
   Scenario: defineConfig rejects a removed key while gtd.config.ts loads
@@ -132,7 +132,7 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     Given a test project
     When I run gtd next
     Then the exit code is 1
-    And stderr contains "gtd config:"
+    And stderr contains "gtd: config:"
     And stderr contains "no workflows configured: no gtd.config.ts here or above — gtd ships no workflow; `gtd install` says where to get one"
 
   Scenario: an engine on another flows protocol is refused, naming which side to upgrade

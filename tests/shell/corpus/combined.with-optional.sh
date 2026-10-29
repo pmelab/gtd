@@ -1,4 +1,4 @@
-# gtd emitted this and did NOT run it — pipe it into `sh` to land the turn
+# gtd emitted this and did NOT run it — run it with `sh` to apply it
 
 set -eu
 

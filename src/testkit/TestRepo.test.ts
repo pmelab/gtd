@@ -16,13 +16,14 @@ import {
   agent,
   check,
   human,
+  judge,
   moveScript,
   read,
   removeScript,
   run,
   showScript,
 } from "../flows/index.js"
-import { runsItsScript, testRepo } from "./TestRepo.js"
+import { runsItsScript, testRepo, type Actor } from "./TestRepo.js"
 
 const tiny = async (): Promise<void> => {
   await agent("plan", "Write PLAN.md.")
@@ -201,7 +202,51 @@ describe("testRepo", () => {
     let n = 0
     await expect(
       repo.drive({ spin: (_, r) => r.write("n", `${++n}\n`) }, { maxBeats: 5 }),
-    ).rejects.toThrow(/did not rest within 5 beats/)
+    ).rejects.toThrow(
+      "did not rest within 5 beats; it passed through:\nspin → spin → spin → spin → spin",
+    )
+  })
+
+  describe("judge verdicts", () => {
+    const judged = async (): Promise<void> => {
+      await agent("plan", "Plan.")
+      const { answers } = await judge("ready", {
+        questions: [{ id: "ready", primitive: "noul", instructions: "Ready?", criteria: "" }],
+        evidence: { plan: "p" },
+      })
+      await human(answers.ready?.answer === "yes" ? "ship" : "rework")
+    }
+    const plan: Actor = (_, r) => r.write("PLAN.md", "p\n")
+    const template =
+      'expected a JSON array, one entry per question — answer a boolean for a noul, a string for a choice, a number for a score; p between 0 and 1:\n[{ "id": "ready", "answer": true, "p": 0.9 }]'
+
+    it("echoes a refused verdict and the shape it should have", async () => {
+      const repo = testRepo({ workflow: { default: judged } })
+      repo.write("go", "\n")
+      const error = await repo
+        .drive({ plan, ready: () => '{"ready": true}' })
+        .catch((e: Error) => e)
+      expect((error as Error).message).toContain(
+        `the actor for judge step "ready" sent a verdict gtd refused:\n{"ready": true}\n${template}\ngtd judge answer exited 2\n`,
+      )
+    })
+
+    it("says an actor returned an object rather than no verdict", async () => {
+      const repo = testRepo({ workflow: { default: judged } })
+      repo.write("go", "\n")
+      const actor = (() => [{ id: "ready", answer: true, p: 0.9 }]) as unknown as Actor
+      await expect(repo.drive({ plan, ready: actor })).rejects.toThrow(
+        `the actor for judge step "ready" returned an array, not a JSON string — JSON.stringify it\n${template}`,
+      )
+    })
+
+    it("says an actor returned nothing", async () => {
+      const repo = testRepo({ workflow: { default: judged } })
+      repo.write("go", "\n")
+      await expect(repo.drive({ plan, ready: () => undefined })).rejects.toThrow(
+        `the actor for judge step "ready" returned no verdict\n${template}`,
+      )
+    })
   })
 
   describe("canned commands", () => {
