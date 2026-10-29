@@ -9,8 +9,13 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { createRequire } from "node:module"
 import { describe, expect, it } from "vitest"
-import { EDIT_COMMAND, DOOR_COMMAND, MINIMAL_DRIVER, renderBriefing } from "./Install.js"
-import { CONFIG_SCAFFOLD } from "./index.js"
+import {
+  EDIT_COMMAND,
+  DOOR_COMMAND,
+  MINIMAL_DRIVER,
+  renderBriefing,
+  WORKFLOWS_REPO,
+} from "./Install.js"
 
 const SUITE_PATHS = ["gtd-build", "gtd-edit", "gtd-door"]
 const SUPERSEDED_PATHS = ["gtd-fix", "gtd-review"]
@@ -108,6 +113,13 @@ describe("renderBriefing", () => {
     expect(briefing).toContain("`config` export")
     expect(briefing).not.toContain("gtd init")
     expect(briefing).not.toContain(".gtdrc")
+  })
+
+  it("says gtd ships no workflow, offering gtd-workflows or the user's own", () => {
+    const briefing = renderBriefing()
+    expect(briefing).toContain("gtd ships no")
+    expect(briefing).toContain(`git clone ${WORKFLOWS_REPO}`)
+    expect(briefing).toMatch(/\*\*Their own workflow\.\*\*/)
   })
 
   it("instructs committing the config before the first drive", () => {
@@ -423,14 +435,5 @@ describe("DOOR_COMMAND", () => {
 
   it("prints usage to stderr and exits 2 when no name is given", () => {
     expect(DOOR_COMMAND).toMatch(/usage: gtd-door <name> \[args\.\.\.\]" >&2\n\s*exit 2/)
-  })
-})
-
-describe("bundled door lists", () => {
-  it("the scaffold's exports stay feature, review, fix, never rollout or cleanup", () => {
-    const code = CONFIG_SCAFFOLD.split("\n")
-      .filter((l) => !l.startsWith("//"))
-      .join("\n")
-    expect(code).not.toMatch(/rollout|cleanup/)
   })
 })

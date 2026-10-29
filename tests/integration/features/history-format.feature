@@ -9,7 +9,15 @@ Feature: History format — replay reads only the history formats it knows
 
   Background:
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("building", "build it")
+      }
+      """
 
   Scenario: a landing writes the current format
     Given a file "NOTE.md" with:
@@ -18,7 +26,7 @@ Feature: History format — replay reads only the history formats it knows
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → unwind"
+    And the last commit subject is "gtd(human): idle → building"
     And the last commit body contains "Gtd-Format: 1"
 
   Scenario: a history written before the trailer existed replays as format 1
@@ -28,13 +36,13 @@ Feature: History format — replay reads only the history formats it knows
       """
     And the working tree is committed with message:
       """
-      gtd(human): idle → unwind
+      gtd(human): idle → building
 
       Gtd-Step: idle#1
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "unwind"
+    And stdout contains "build it"
 
   # The commit below would also diverge: only the format gate explains the refusal.
   Scenario: a history in an unsupported format is refused, never reported as divergence

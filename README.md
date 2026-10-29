@@ -31,19 +31,28 @@ Git history; keep secrets in an environment setting (see
 `GTD_FLAG_<NAME>` variables toggle experimental features — see
 [Feature flags](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#feature-flags).
 
-Also install all three skill sources the bundled workflow names in its prompts —
-none is optional. See
-[Setup](https://github.com/pmelab/gtd/blob/main/docs/setup.md) for the list, the
-install flags, and the never-install-the-plugin caveat. Skills are declared per
-scope, and restricted per turn where the driver can; each bundled scope has its
-own addressable `config.skills` entry in `gtd.config.ts` — see
-[Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#skills)
-to repoint one to a set your own harness has instead.
+gtd ships no workflow. Get one from
+[gtd-workflows](https://github.com/pmelab/gtd-workflows) — a pinned checkout
+whose `default` workflow is the feature → review → fix workflow gtd used to
+bundle:
 
-Each scope also declares which files its agent turns may read and write;
-`gtd land` refuses a turn that wrote outside its scope, and a driver can pass
-the read side to its agent. `read` is not a security boundary unless your driver
-enforces it at the OS level. See
+```bash
+git clone https://github.com/pmelab/gtd-workflows ~/.local/share/gtd/workflows
+~/.local/share/gtd/workflows/bin/gtd-wf pin origin/main
+~/.local/share/gtd/workflows/bin/gtd-wf config default > gtd.config.ts
+```
+
+The config imports the workflow by absolute path, so each machine needs its own
+checkout. Its README covers pinning, upgrading and the skills its prompts name.
+Or write your own workflow: see
+[Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
+and
+[Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md).
+
+A workflow's scopes may also declare which files their agent turns may read and
+write; `gtd land` refuses a turn that wrote outside its scope, and a driver can
+pass the read side to its agent. `read` is not a security boundary unless your
+driver enforces it at the OS level. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#file-access).
 
 > **A repository's `gtd.config.ts` is code, and gtd runs it.** A custom workflow
@@ -54,13 +63,14 @@ enforces it at the OS level. See
 
 ## Quick start
 
-Run `gtd install` at your repository's root. It writes a `gtd.config.ts` that
-runs gtd's shipped workflows — commit it; gtd refuses to run without one — and
-prints a briefing. The repository need not be a JavaScript project: gtd resolves
-the config's `@pmelab/gtd/*` imports itself, so a Python, Rust or notes
-repository needs no `package.json` and no install. Pipe that briefing into your
-coding agent and answer its questions. It should build you a script that will
-autonomously run the process for you. Ask your agent if you have any questions.
+Put a `gtd.config.ts` at your repository's root (see [Install](#install)) and
+commit it; gtd refuses to run without one. The repository need not be a
+JavaScript project: gtd resolves the config's `@pmelab/gtd/*` imports itself, so
+a Python, Rust or notes repository needs no `package.json` and no install. Then
+run `gtd install`: it writes nothing and prints a briefing (and where to get a
+workflow, if you have none yet). Pipe that briefing into your coding agent and
+answer its questions. It should build you a script that will autonomously run
+the process for you. Ask your agent if you have any questions.
 
 ## Why
 
@@ -85,7 +95,7 @@ full command/flag reference,
 [Compatibility](https://github.com/pmelab/gtd/blob/main/COMPATIBILITY.md) for
 which surfaces you can rely on across releases, and
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
-for how to inspect or replace the workflow itself.
+for how to write or replace the workflow itself.
 
 ## Basic concept
 
@@ -93,11 +103,11 @@ Two commands make up the whole cycle. **`gtd next` says what to do now.
 `gtd land` records that it is done — as a commit.** Everything else follows from
 that.
 
-The fastest way to understand it is to drive a few beats by hand. Any git
-repository with at least one commit will do once `gtd install` has written its
-`gtd.config.ts` and you have committed it — the first two beats need nothing
-else. Later beats run your test command, set as the `testCommand` workflow
-option in `gtd.config.ts`.
+The fastest way to understand it is to drive a few beats by hand. The beats
+below are those of gtd-workflows' `default` workflow. Any git repository with at
+least one commit will do once its `gtd.config.ts` is committed — the first two
+beats need nothing else. Later beats run your test command, set as the
+`testCommand` workflow option in `gtd.config.ts`.
 
 ### Beat 1 — `gtd next` says whose turn it is
 
@@ -311,9 +321,8 @@ workflow's `smart`/`base` model hints to real model names through
 `GTD_LOOP_MODEL_SMART`/`GTD_LOOP_MODEL_BASE`.
 
 Neither guards an agent turn's context: a long turn relies on the agent
-harness's own compaction, and a pass that falls short is caught by its
-acceptance tests and retried. Size the work before the sketch — a change too big
-for one process is several processes.
+harness's own compaction. Size the work before the sketch — a change too big for
+one process is several processes.
 
 ### Or drive it from inside Claude Code
 
@@ -336,25 +345,26 @@ That starts a process from your requirements and drives it until it needs you.
 The requirements go to the top of `.gtd/TODO.md`, above whatever it already
 holds. A long, multi-line requirements paste still starts a process; if Claude
 Code never expanded the paste, gtd says it could not read it, and you add the
-requirements to the top of `.gtd/TODO.md` and run `/gtd`. `/gtd fix`,
-`/gtd review [base]`, `/gtd rollout <flag>` and `/gtd cleanup <flag>` (where the
-config exports them) take the doors described below; text whose word count does
-not fit a door's args (bare `/gtd rollout` included) starts a process from that
-text as requirements. At every human rest Claude itself takes over: it walks you
-through the open questions one at a time, answers your own questions about the
-plan or the diff, records what you decide in the steering file the way the step
-asks, and moves the process on only when you say so; a review you leave
-untouched signs off. While a step runs you can keep asking; requests for changes
-wait for the next rest. When the process finishes, Claude offers to squash it
-and open its pull request (or run `/gtd ship`: one commit under one pull
-request, see the [driver doc](docs/driver.md)); a process started for an issue
-ships with `Closes #N` on its pull request; a closed pull request whose branch
-was deleted from origin is left behind and a new one opens. A process can change
-hands at any gate: ask Claude to hand it off (or run `/gtd throw @dev`) and it
-opens a draft pull request assigned to them, and `/gtd catch <pr>` picks it up
-exactly where it waits, so whoever wrote the requirements can hand the build to
-someone else. `/gtd pr` brings a pull request's unresolved review threads into
-the review: each becomes a note in `.gtd/REVIEW.md` ticked "fix as suggested"
+requirements to the top of `.gtd/TODO.md` and run `/gtd`. `/gtd <door> [args]`
+takes one of the doors `gtd doors` lists (gtd-workflows' `default` brings `fix`,
+`review [base]`, and `rollout <flag>` and `cleanup <flag>` where the config
+exports them); text whose word count does not fit a door's args (bare
+`/gtd rollout` included) starts a process from that text as requirements. At
+every human rest Claude itself takes over: it walks you through the open
+questions one at a time, answers your own questions about the plan or the diff,
+records what you decide in the steering file the way the step asks, and moves
+the process on only when you say so; a review you leave untouched signs off.
+While a step runs you can keep asking; requests for changes wait for the next
+rest. When the process finishes, Claude offers to squash it and open its pull
+request (or run `/gtd ship`: one commit under one pull request, see the
+[driver doc](docs/driver.md)); a process started for an issue ships with
+`Closes #N` on its pull request; a closed pull request whose branch was deleted
+from origin is left behind and a new one opens. A process can change hands at
+any gate: ask Claude to hand it off (or run `/gtd throw @dev`) and it opens a
+draft pull request assigned to them, and `/gtd catch <pr>` picks it up exactly
+where it waits, so whoever wrote the requirements can hand the build to someone
+else. `/gtd pr` brings a pull request's unresolved review threads into the
+review: each becomes a note in `.gtd/REVIEW.md` ticked "fix as suggested"
 (untick it for "won't fix" plus a reason, or your own answer), the review door
 fixes them in place, and each thread then gets a reply naming the fixing commit
 (or your reason) and is resolved. Ship, hand-off and throw answer at once and
@@ -380,211 +390,38 @@ you what you want before it starts driving. You get one prompt to paste, not a
 state name to choose. The four commands: **`gtd-build`** drives beats until the
 process rests; **`gtd-edit`** opens the steering file the process is waiting on
 right now — falling back to `.gtd/TODO.md` when the resting state declares none;
-**`gtd-door <name> [args...]`** starts a process through a door (`gtd-door fix`,
-`gtd-door review [base]`, `gtd-door rollout <flag>`, `gtd-door cleanup <flag>`
-where the config exports them) and drives it. The `.gtd/TODO.md` fallback is
-also how you begin: on a clean repository the edit command opens the empty
-`.gtd/TODO.md`, and whatever you write there is the first sketch the whole
-process gets planned from. As a final step, if it finds an LSP-capable editor,
-the briefing also offers to wire up live diagnostics and review actions in it —
-asking first and naming the exact file, and merging rather than overwriting your
-editor's config. That editor integration also adds a footnote at the exact
-cursor position with one code action, landing the cursor in the new, empty
-definition ready to type, and jumps between a footnote's marker and its
-definition both ways — so leaving a comment for the next agent turn never means
-hand-typing the `[^name]` syntax yourself. In a review file, a `./path#42-70`
-hunk pointer is also a clickable link straight to that file and range, no
-go-to-definition required. A footnote can also hold a `H:`/`A:` conversation (a
-thread — see [configuration](docs/configuration.md)); the editor outlines
-threads, flags the open ones, and a `gtd: reply` code action adds your empty
-`- H:` entry and puts the cursor there; `gtd check <mode> <file> --open-threads`
-lists the ones still waiting on you, and a review question gets its answer at
-the review gate again, not a lap. The same conversation works as bare `// H: …`
-/ `// A: …` line comments (`#`, `--`, `;` by language) in files the process
-changed; `gtd check --open-threads` alone lists the open ones (editor-only — the
-phone UI does not show them).
+**`gtd-door <name> [args...]`** starts a process through one of the doors
+`gtd doors` lists (`gtd-door fix`, `gtd-door review [base]` with gtd-workflows'
+`default`) and drives it. The `.gtd/TODO.md` fallback is also how you begin: on
+a clean repository the edit command opens the empty `.gtd/TODO.md`, and whatever
+you write there is the first sketch the whole process gets planned from. As a
+final step, if it finds an LSP-capable editor, the briefing also offers to wire
+up live diagnostics and review actions in it — asking first and naming the exact
+file, and merging rather than overwriting your editor's config. That editor
+integration also adds a footnote at the exact cursor position with one code
+action, landing the cursor in the new, empty definition ready to type, and jumps
+between a footnote's marker and its definition both ways — so leaving a comment
+for the next agent turn never means hand-typing the `[^name]` syntax yourself.
+In a review file, a `./path#42-70` hunk pointer is also a clickable link
+straight to that file and range, no go-to-definition required. A footnote can
+also hold a `H:`/`A:` conversation (a thread — see
+[configuration](docs/configuration.md)); the editor outlines threads, flags the
+open ones, and a `gtd: reply` code action adds your empty `- H:` entry and puts
+the cursor there; `gtd check <mode> <file> --open-threads` lists the ones still
+waiting on you. The same conversation works as bare `// H: …` / `// A: …` line
+comments (`#`, `--`, `;` by language) in files the process changed;
+`gtd check --open-threads` alone lists the open ones (editor-only — the phone UI
+does not show them).
 
-### The workflow it ships with
+### The workflow
 
-One built-in workflow drives all of that. From where you sit, it has four
-moments — everything between them runs without you, with the judged exceptions
-noted in steps 3 and 4 below.
-
-1. **You sketch.** Change anything, or write the idea into `.gtd/TODO.md`. Rough
-   is fine; it is treated as a sketch, not as work.
-2. **You answer questions and discuss.** Planning works out what the thing
-   should do and hands you `.gtd/REQUIREMENTS.md` — every process stops there,
-   even with no open question. Answer open questions in your editor, in the
-   file, and start the loop again; a round that only leaves notes needs no tick.
-   Start a footnote with `- H: <question>` to ask something: the agent replies
-   with `- A: <reply>` and the process stops at the same gate again. Close a
-   thread by replying with a conclusion or deleting it. While a thread's last
-   entry is the agent's, moving on is refused. Leave the file untouched and
-   start the loop to accept the plan as-is, unanswered questions and all. The
-   file lists numbered acceptance criteria (`AC-1`, `AC-2`, …) that bind the
-   build, and an `## Impact` section mapping the units and public surfaces the
-   change touches — correct it here and the next lap re-explores from your edit.
-   Sketch your own criteria under an `Acceptance criteria` heading and, when a
-   judge finds every one clear and checkable, they are recorded as they are and
-   this moment is skipped: a `design.impact` agent turn writes Impact instead,
-   unreviewed. One vague criterion brings the moment back. See
-   [Acceptance criteria](docs/configuration.md#acceptance-criteria).
-
-3. **You wait.** The agent first implements the requirements the quickest way
-   that works — the naive pass — and a judge reads where it changed code (see
-   [the naive pass](#the-naive-pass) below; with [flag mode](#the-naive-pass)
-   off, no judge runs). A pass the judge lets through is the implementation; one
-   whose seam is refactored first is built again test-first. Then it is checked
-   against the full suite (`testCommand`) and fixed until it passes — so keep
-   that suite fast; gtd has no lighter one. Scenario wording is not frozen: a
-   review's `## Scenarios` chunk marks any assertion an existing scenario lost
-   as `Weakened:`, so you sign the scenarios off at step 4. After the build the
-   quality lap runs. Three points along the process (two with flag mode off) are
-   judged rather than always asking you outright — each stops and hands you a
-   verdict to make (`gtd judge answer`, or land with a clean tree to accept the
-   conservative default, which never skips work;
-   `gtd judge run --provider fixed --answers <path>` — or the
-   `GTD_JUDGE_ANSWERS` env var, inline JSON — answers one from a file, piped
-   between `gtd judge --json` and `gtd judge answer`;
-   `gtd judge run --provider jev` asks TypeSafe's Jev instead, with the key in
-   `TYPESAFE_API_KEY` and `JEV_BASE_URL` optionally overriding the endpoint;
-   `gtd judge run --provider llm` asks the `claude` CLI on `PATH` (Claude Code
-   users only; model `sonnet`; `--model <name>` overrides) and reuses its login.
-   With no `--provider`, `gtd judge run` picks jev when `TYPESAFE_API_KEY` is
-   set and non-empty and no `--model` is given, else llm — never falling back
-   across them; the `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` environment
-   variables and a user-level `~/.config/gtd/judge.json` `{ provider, model }`
-   choose the judge without editing the driver (flags win over both, in that
-   order); `--model` with `--provider fixed`/`jev` is refused. jev and llm exit
-   1 with nothing on stdout when they cannot answer every question):
-   - After the naive pass: does it land as is, need its seam refactored first,
-     or get rejected and retried?
-   - Every red round after the first: was the failure identical, new, or
-     progress?
-   - After you review: is each of your notes an edit, a question, a nit or
-     praise?
-
-   gtd itself never calls a judge: the Claude Code mod and the reference driver
-   answer these through `gtd judge run` (auto selection: jev when
-   `TYPESAFE_API_KEY` is set, else `llm` via `claude`, default model sonnet,
-   while the Claude Code mod's own judge subagent stays on `haiku` —
-   `--model <name>` overrides); if that fails it shows you the message and
-   stops. **The `llm` provider's `p` is self-reported by the model, not a
-   measured probability, so a confidently wrong verdict can clear the 0.7 floor
-   and skip a gate unattended.**
-
-   Once the change is built, the whole change goes through a qualitative review
-   lap before you see anything: seven lenses, one turn each, in order —
-   `correctness`, `owasp-security`, `ponytail-review`, `test-audit`,
-   `conventions`, `spec-challenge`, `criteria-coverage`. `correctness`,
-   `owasp-security`, `spec-challenge` and `criteria-coverage` run on the planner
-   model (`smart`), the other three on the coder model (`base`); a
-   `qualityReviews` entry `<lens>=<model>` picks a lens's own.
-   `criteria-coverage` reads the requirements and the change's tests and writes
-   one finding per acceptance criterion no test exercises; with no requirements
-   (the `review` and `fix` workflows) it runs no turn. Each traces the change
-   from its own angle and records every finding, blocking or not, as its own
-   `## ` chunk of `.gtd/QUALITY.md`. A clean turn means approval only when that
-   lens found nothing at all. The lenses are the only agentic review: a judge
-   (`build.quality.triage`) then classifies each finding — `mechanical` ones are
-   fixed by the fix turn (`build.fix.quality.fixing`, up to three turns),
-   `noise` is dropped with its `p` recorded as
-   `Gtd-Mark: noise=<id> p=<p> <title>`, and `design` ones (questioning a
-   criterion or the approach) become notes. An unsure verdict (below
-   `qualityTriageMinP`, `0.7`) is `design`; mechanical findings the fix turns
-   leave become notes too. **The finding gate** (`build.quality.gate`) then
-   stops for you: `.gtd/QUALITY.md` lists the notes, then the noise under
-   `# Dropped as noise` so you can overrule the judge, each with one `- [ ] fix`
-   box. Tick a finding to have it fixed, optionally with a line of guidance
-   below its box; leave it unticked to drop it — landing the file untouched
-   drops them all, and guidance under an unticked box is refused. The ticked
-   ones go to the same fix turns (up to three), then the suite is kept green;
-   what they leave is listed as unresolved, with no second gate. A ticked
-   finding is fixed, never re-planned: raise anything bigger in your review. A
-   lap with no notes and no noise has no gate. This lap is where code quality is
-   looked at, and every round pays for it. It never replaces step 4 — your
-   review stays the final gate, and nothing here skips it. The `fix` and
-   `cleanup` doors run the same lap and gate before their own review.
-
-   A red suite that keeps failing past a few fix attempts escalates instead of
-   retrying forever: an agent turn reads the failing output and writes
-   `.gtd/ESCALATION.md` — what's failing, why the earlier attempts didn't fix
-   it, and what to try next — and the process stops for you to edit or land
-   as-is, handing that document to the next fix turn as its instruction. Two
-   such rounds with no fix is the terminal stop: the last analysis stays on disk
-   instead of a third being written, and editing it is what gets the next
-   attempt anywhere new. A loop the retry judge still calls progress at the cap
-   gets one extra fix turn first. Before any escalation or red-baseline stop the
-   suite runs once more; a pass there continues without you and is recorded as
-   `Gtd-Mark: flaky=<check>` (see
-   [Re-check before a person](docs/configuration.md#re-check-before-a-person)).
-
-4. **You review.** After the quality lap a reviewer turn
-   (`build.review.reviewing`) walks you through the whole change: `## ` chunks
-   grouped by concern, **every chunk pointing at its code**
-   (`./path#start-end`), so the phone shows the diff beside each one. gtd
-   appends one `## Quality lap` chunk (`build.review.carrying`) listing, for
-   reference, what the quality lap did with every finding: **fixed
-   automatically** and **fixed at the finding gate** (each with its fixing
-   commit), **dropped at the finding gate**, **dropped as noise**, and
-   **unresolved after the finding gate**. To reopen one, write a note under its
-   line. A review with a chunk pointing at no code is refused
-   (`review-pointers`). A pointer note the reviewer opens with `Risk:` is fixed
-   before you see the review (`build.review.fix.risks.fixing`), then the review
-   is written again over the reviewer's own draft. On `refactor-first` the
-   refactor gets a walkthrough of its own first, covering the whole refactor on
-   every round, before the feature is built; see
-   [the naive pass](#the-naive-pass). Land with nothing changed to approve, or
-   write what is wrong. A note added with its own `Tick exactly one:` boxes (as
-   `/gtd pr` imports a thread) is answered by its tick instead of judged: fix as
-   suggested joins the nit batch below, won't fix drops it and records
-   `Gtd-Mark: wontfix=<title>`, your own answer is judged like a note. Approving
-   ends the process (at the refactor review, it moves on to the feature);
-   feedback is judged note by note, each as `edit`, `question`, `nit` or
-   `praise`. An `edit` sends the process back to step 2 for re-derived
-   requirements — the built criteria keep their IDs (reworded in place when
-   their behaviour changes) and new behaviour gets new ones — then the
-   implementation is amended to meet them, with no new naive pass or seam judge,
-   the quality lap runs, and you review again. At the refactor review an `edit`
-   re-derives the refactor instead. A `question` is answered inline under your
-   note and the process stops at the review again — no new plan. A `nit` is
-   fixed in one batch, the suite must go green (a red one gets fix turns first),
-   then a fresh review of the change stops at the review again. `praise` is
-   dropped; a round of only praise signs off. When a round mixes them, questions
-   are answered and nits fixed first, then the edits are planned — risk: the
-   planning lap may redo nit fixes it touches.
-
-   Each `edit` note also gets a severity tier from four judge questions
-   (security, reversibility, blast radius, new concept). Every tier is
-   re-planned this round, `critical` first, then `should`, then `could`; nothing
-   is deferred. A leading `!` on a note forces `critical` and skips the judge.
-   `reviewSeverityMinP` sets the confidence floor (see
-   [configuration](docs/configuration.md)). A hand-edit to code always plans a
-   lap. Only a confident non-`edit` verdict skips the replan — a note whose
-   evidence was cut, or that got no verdict, counts as `edit`. The same
-   `gtd judge answer` / conservative-default shape as step 3's own judged
-   points.
-
-   **The review learns your taste.** Each won't-fix and each own answer is a
-   candidate standard. A judge (`build.review.standards.judge`) asks whether it
-   is reusable beyond this note; at `standardMinP` (`0.8`) or above it is kept
-   in `.gtd/STANDARDS.md` with no question asked, and the next review lists it
-   under `## Standards added`. Every later agent turn — the lenses, the naive
-   pass, the build, every fix — is handed the kept standards, so a finding you
-   rejected once is not raised again and a rule you wrote is followed, in this
-   process and every later one. One the judge does not confidently rule out
-   contradicting a standard already kept is not applied: it waits under
-   `## Undecided` and becomes a `## Standard conflict <id>` note in the review,
-   with its own three boxes — **keep the new one (drop the old)**, **keep the
-   old one (discard the new)**, or **your own wording**, which replaces both —
-   and the review does not sign off until it is answered. `.gtd/STANDARDS.md` is
-   committed and yours to edit; gtd rewrites it as one bullet per standard when
-   it learns.
-
-You never talk to it. Every exchange is a file in `.gtd/` that you edit in your
-own editor, and every answer you give is a commit. Your test suite is the gate
-throughout: a red baseline stops the process before it starts, and a red build
-is fixed before review.
+gtd decides nothing about _what_ a process does: the workflow in your
+`gtd.config.ts` does. gtd-workflows' `default` has four moments for you — you
+sketch, you answer the planning questions in `.gtd/REQUIREMENTS.md`, you wait
+while it builds, checks and runs its quality lenses, and you review — with every
+exchange a file in `.gtd/` that you edit in your own editor, and every answer a
+commit. Its guide is
+[The default workflow](https://github.com/pmelab/gtd-workflows/blob/main/docs/default.md).
 
 Prefer a phone or another device over your editor? `gtd ui` opens the file whose
 turn it is as a small web app, over Tailscale — including a step that names no
@@ -600,45 +437,19 @@ conversation under their block, question, chunk, or hunk, and one the agent
 answered last carries a "waiting on you" badge. Tap it to reply — your reply is
 added as a new `H:` entry; while the agent has yet to answer, reopening it edits
 your last entry instead. Tap an already-answered question to leave a note on it;
-the agent may overturn the answer. At the finding gate the phone lists the open
-findings, then those dropped as noise, each with a fix checkbox and, once
-ticked, an optional line of guidance; Done stays disabled while the file holds
-anything the gate would refuse. See
+the agent may overturn the answer. A `findings` file lists its findings, each
+with a fix checkbox and, once ticked, an optional line of guidance; Done stays
+disabled while the file holds anything its gate would refuse. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 
-The bundled workflows are named `feature` (the ordinary start above), `review`
-and `fix`. `review` and `fix` never plan. Each brings its own door. This
-command:
-
-```bash
-gtd door review <commitish>
-```
-
-starts a review of everything from `<commitish>` to HEAD — the same review a
-`feature` process ends with, minus planning and building. A green gate, then the
-quality lenses: mechanical findings are fixed, the rest wait at the finding
-gate, then a reviewer walks you through the change in `.gtd/REVIEW.md`, with the
-lap's summary. A nit note is fixed in place; a note asking for a change is
-collected into `.gtd/REQUIREMENTS.md` and built by one `feedback.fixing` turn,
-with no design phase and no criteria — under the health loop, then it asks for
-your review again. Sign off and it closes; nothing is left behind. A note asking
-for new behaviour belongs in a `feature` process: sign off and start one.
-`gtd door fix` repairs a red baseline as its own reviewed commit; a note at its
-review is left in `.gtd/REVIEW.md` (beside the reviewer's original,
-`.gtd/REVIEW.orig.md`) for the next `gtd door fix`, and until that runs,
-starting `feature` or `review` is refused — remove both files to abandon the
-hand-off. `gtd doors` lists the doors of the workflows your `gtd.config.ts`
-exports, plus any it adds. `gtd --workflow <name>` starts any workflow by name.
-
 The workflow itself is a plain async TypeScript function, and the
-`gtd.config.ts` at the repository root names it: the one `gtd install` writes
-re-exports each shipped workflow from its own subpath
-(`@pmelab/gtd/workflows/feature`, `…/review`, `…/fix`), and the pieces they are
-built from are exported for yours to reuse. Each shipped workflow is a factory —
+`gtd.config.ts` at the repository root names it. A workflow may be a factory —
 `feature({ testCommand: "npm run ci" })` — whose options gtd validates when it
 loads the config: a misspelled or mistyped one fails every command, naming the
-workflow, the key and what was expected. See
+workflow, the key and what was expected. `gtd doors` lists the doors of the
+workflows your config exports, and `gtd --workflow <name>` starts any workflow
+by name. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md) —
 and remember gtd evaluates that file on every command. A shared workflow package
 bundling its own `@pmelab/gtd` is checked against the running gtd and refused,
@@ -651,91 +462,6 @@ unknown key. `gtd.config.ts` is the only repository config: gtd 23 removed the
 `.gtdrc` files, and a leftover one — in the repository, above it, or in your
 home directory — fails every command until you delete it. See
 [Migrating from `.gtdrc`](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#migrating-from-gtdrc).
-
-#### The naive pass
-
-After design the agent first implements the requirements directly,
-breadth-first. It is asked to test the behaviour the criteria describe — one
-test per behaviour, not per criterion, with no criterion ID in a test name —
-through code that existed before the pass, but no test is required. The pass is
-sent back while a test imports a file it added, or the suite is red on it. A
-judge checks whether it changed anything outside the expected set (tests,
-steering files; see `seamAllow`). Incidental changes land: the pass itself is
-the implementation, with no rebuild, straight through the health loop and the
-quality lap. A needed seam change resets: the pass is never applied. An agent
-reads its whole diff and writes a refactor note (`.gtd/REFACTOR-NOTE.md`: which
-seams, which shape); the seam is refactored first, flag-free with the existing
-suite green, on its own with its own quality lap (`refactorQualityReviews`) and
-review; then the feature is rebuilt on the refactored base, behind a release
-flag, with the note and the naive diff as reference. The rebuild is asked to
-carry over every test file the naive pass added or changed, and the suite must
-be green; whether each criterion is still tested is the `criteria-coverage`
-lens's call in the quality lap. A wrong approach is retried twice, then rests
-for you to steer or overrule it. A refactor that already carried the whole
-feature leaves the rebuild only the carried-over tests, and the feature's
-quality lap and review cover the whole change. With `naiveTest` on (off by
-default), you try every green naive pass by hand first, applied to the working
-tree at `seam.try`, before the seam judge or anything builds on it: a clean
-`gtd land` signs it off; notes in `.gtd/NAIVE-TEST.md`, code edits or a
-requirements edit send it back to a new naive pass, which gets them, until you
-sign off. See [The naive test](docs/configuration.md#the-naive-test). Nothing
-else tries the change by hand: the suite, the quality lap and the review check
-the criteria. Feedback at the feature review re-runs design and the
-implementation, never the naive pass; feedback at the refactor review re-runs
-the refactor, never design; a refactor-review change the refactor cannot build
-is refused, and the only way out is `gtd abandon`. A process from 27.5.0 or
-later whose judge ruled `refactor-first` must `gtd abandon` too. Details in
-[the naive-pass path](docs/configuration.md#the-naive-pass-path).
-
-**One process, one build.** A change is built in one pass — one naive pass, one
-build, one quality lap, one review — however many criteria it has. Sizing the
-work is yours: split a change too big for one process into several before the
-sketch.
-
-**Release flags (only when asked for).** A change ships unflagged unless its
-requirements ask for a flag: a `## Release Flag` section in
-`.gtd/REQUIREMENTS.md` reading `new` (a new release flag) or `existing: <NAME>`
-(behind a flag that already exists). Triage writes it only when the sketch asks
-for a flag; you can add, change or delete it at the design gate. With it, the
-naive pass's judge runs as above and the build adds the new flag, or uses the
-named one; without it, no seam judge or refactor runs and the naive pass lands
-as the implementation, straight through the health loop and the quality lap. See
-[Release flags](docs/configuration.md#release-flags).
-
-**Risk tier (flag `GTD_FLAG_RISK_TIER=1`, off by default).** Triage proposes a
-risk tier, `low` or `high`, and the production signals to watch after merge.
-Edit the first word under `## Risk Tier` at the design gate to change it; a
-missing or unreadable tier means `high`. Each lap lands a
-`Gtd-Mark: risk-tier=<low|high>` trailer and a `Gtd-Mark: production-signal=…`
-trailer per signal; `gtd summary` reads the last lap's only. Its "needs a human
-reviewer" line for `high` is advisory, not a gate.
-
-A `gtd.config.ts` call to `buildTail` or `tail` that fits neither call form is
-rejected; `tail`'s positional form is deprecated for `tail(finish, options?)`.
-See [docs/configuration.md](docs/configuration.md).
-
-### Rolling out and cleaning up release flags
-
-Two more bundled workflows retire a release flag. They are opt-in: the
-`gtd.config.ts` that `gtd install` writes does not export them, so add `rollout`
-from `@pmelab/gtd/workflows/rollout` and `cleanup` from
-`@pmelab/gtd/workflows/cleanup` to its exports first. `gtd door rollout <flag>`
-turns it default-on, `gtd door cleanup <flag>` removes it afterwards
-(`/gtd rollout <flag>` and `/gtd cleanup <flag>` in Claude Code;
-`gtd --workflow rollout --var flag=<name>` works too). See
-[Feature flags](docs/configuration.md#rolling-out-and-cleaning-up-a-release-flag).
-
-Rollout makes "on under `GTD_FLAG_<NAME>=1`" prose wrong until cleanup, so once
-the suite passes it lists every line outside the registry that names the flag
-(as `path:line`, the first 50, then a `git grep` command over tracked files for
-the rest) and edits none of them, leaving no file behind. The squash carries the
-list only through the closing message `gtd summary` writes; the `Gtd-Mark:`
-trailers survive only in the process history ref `refs/gtd/history/<entry>`,
-recovered with `gtd history fetch | sh` and read with
-`git log --format=%B <ref>`. An empty list says so in one line. Fix the prose by
-hand or leave it for cleanup.
-
-The delivery model these workflows implement: [Delivery model](SDLC.md).
 
 ## Checking a range for stray files
 
@@ -768,9 +494,9 @@ gtd history judges [ref...]      # how often each judge's verdicts were overturn
 gtd history fetch | sh           # pull every kept ref from origin
 ```
 
-`gtd history metrics` measures the bundled `feature` workflow from the kept refs
-— every ref, or the ones named. It reads commit subjects and trailers only, so
-it never replays and a config changed since is no refusal:
+`gtd history metrics` measures gtd-workflows' `default` `feature` workflow from
+the kept refs — every ref, or the ones named. It reads commit subjects and
+trailers only, so it never replays and a config changed since is no refusal:
 
 - **refactor-first rate** — of the builds whose naive pass was decided, the
   share rebuilt rather than landed as it is; a landed pass that no longer
@@ -795,9 +521,10 @@ process kept from that branch. A rate is `null` without a decided build. Each
 process names its `workflow` (`null` for the default one); the total spans every
 ref measured, so name the refs to leave another workflow's processes out.
 
-`gtd history judges` calibrates three of the bundled `feature` workflow's judges
-from the `Gtd-Judge` verdicts the kept refs recorded. It never replays and asks
-no model. A verdict is **overturned** when later history contradicts it:
+`gtd history judges` calibrates three of gtd-workflows' `default` `feature`
+workflow's judges from the `Gtd-Judge` verdicts the kept refs recorded. It never
+replays and asks no model. A verdict is **overturned** when later history
+contradicts it:
 
 - **retry** (`health.judge`) — an `identical` verdict, when the next fix turn's
   check went green anyway (no outcome when a person edited code in between)
@@ -855,9 +582,9 @@ are not process history: `gtd history` does not list them, and the
 `refs/gtd/history/*` refspecs above neither push nor fetch them.
 
 A workflow can rest at an approval gate (`human(name, { approve: true })`; the
-`seamGate` helper does this for a `refactor-first` diff-shape judgment; the
-shipped flow does not use it). Only a clean `gtd land` approves it, and the
-commit records who in a
+`seamGate` helper does this for a `refactor-first` diff-shape judgment;
+gtd-workflows' `default` does not use it). Only a clean `gtd land` approves it,
+and the commit records who in a
 `Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}` trailer;
 a landing with any edit is refused (as is a script run after the tree changed —
 revert and land again), and `gtd abandon` is the only other way out. `approve`
@@ -873,16 +600,14 @@ approvals as `approvals` (`[]` when none), and `gtd history show` prints each as
 gtd is one package, `@pmelab/gtd`, and every entrypoint shares its version and
 [SemVer promise](https://github.com/pmelab/gtd/blob/main/COMPATIBILITY.md).
 
-| Import                                                                                                                                                         | What it is                                                                                                                                                                                             |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@pmelab/gtd/flows`                                                                                                                                            | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                                       |
-| `@pmelab/gtd/wire`                                                                                                                                             | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                                           |
-| `@pmelab/gtd/steering`                                                                                                                                         | The steering-file formats (`qa`, `review`, `findings`) and the review-note readers.                                                                                                                    |
-| `@pmelab/gtd/workflow-kit`                                                                                                                                     | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails.                                                                                  |
-| `@pmelab/gtd/workflows`                                                                                                                                        | Every shipped workflow and all its parts in one module; also resolvable as `@pmelab/gtd/workflow`.                                                                                                     |
-| `@pmelab/gtd/workflows/feature`, `@pmelab/gtd/workflows/review`, `@pmelab/gtd/workflows/fix`, `@pmelab/gtd/workflows/rollout`, `@pmelab/gtd/workflows/cleanup` | One shipped workflow each: its factory as the default export, its parts, and the reserved exports (`defaults`, `envDefaults`, `summary`, `steering`, `skills`, `access`). `gtd install` imports these. |
-| `@pmelab/gtd/testkit`                                                                                                                                          | Runs any workflow against the real engine in an in-memory repository, under any test runner. See [Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md).                        |
-| `@pmelab/gtd/testkit/gherkin`                                                                                                                                  | The testkit as quickpickle steps for vitest. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                                                             |
+| Import                        | What it is                                                                                                                                                                      |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@pmelab/gtd/flows`           | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                |
+| `@pmelab/gtd/wire`            | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                    |
+| `@pmelab/gtd/steering`        | The steering-file formats (`qa`, `review`, `findings`) and the review-note readers.                                                                                             |
+| `@pmelab/gtd/workflow-kit`    | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails.                                                           |
+| `@pmelab/gtd/testkit`         | Runs any workflow against the real engine in an in-memory repository, under any test runner. See [Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md). |
+| `@pmelab/gtd/testkit/gherkin` | The testkit as quickpickle steps for vitest. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                                      |
 
 Types come from the TypeScript sources the package ships. Configs never need an
 install for any of these but the testkit's: gtd resolves a `gtd.config.ts`'s

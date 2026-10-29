@@ -105,10 +105,8 @@ Commands:
                    agent (or a human) to build a gtd driver in any shell or
                    runtime — the self-serve version of
                    https://github.com/pmelab/gtd/blob/main/docs/driver.md's
-                   'Writing your own driver'. At a repository root no
-                   gtd.config.ts governs yet, it also writes one importing each
-                   shipped workflow from @pmelab/gtd/workflows/<name>; anywhere
-                   else it writes nothing.
+                   'Writing your own driver', and how to get a workflow: gtd
+                   ships none. It writes nothing.
   summary          Print the prompt for an agent to write the process HEAD
                    closes or sits inside its own closing message — the entry
                    commit, each human-authored commit (a review round, an
@@ -347,8 +345,8 @@ to cwd, so they refuse with a clear error from a subdirectory; `lsp`, `check`,
 own help entry).
 
 `install` is described on its own above: it installs knowledge into the calling
-agent's context, and at a repository root no `gtd.config.ts` governs yet, the
-config that runs gtd's shipped workflows.
+agent's context — including where to get a workflow, since gtd ships none — and
+writes nothing.
 
 `--json`, `--cost=<n>`, `--model=<name>` (`--cost` only for `gtd land`;
 `--model` for `gtd land` with `--cost`, or `gtd judge run`), `--workflow <name>`

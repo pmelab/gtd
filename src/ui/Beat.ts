@@ -43,7 +43,7 @@ const findOwnVersion = (): string => {
 /**
  * Mirrors `src/wire/Demand.ts`'s `BeatKind` union verbatim, duplicated
  * rather than imported: that module pulls in `Edge.ts` → `PatternConfig.ts`
- * → the bundled workflow YAML, a chain the web client's own `tsconfig.json`
+ * → YAML, a chain the web client's own `tsconfig.json`
  * (scoped to `src/web/`, no visibility into `src/ui/types.d.ts`'s `*.yaml`
  * ambient module) cannot type-check through. `App.tsx` imports this
  * module's types (`Step`/`StepRead`), so keeping this vocabulary local

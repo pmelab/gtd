@@ -15,6 +15,7 @@ export {
 export { formatDiagnostic } from "./Diagnostic.js"
 export {
   resolveVars,
+  ownFlagRefusal,
   resolveStartVars,
   StartFlags,
   multilineSetting,

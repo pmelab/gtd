@@ -27,8 +27,8 @@ import {
   restoredOutcome,
 } from "../emit/index.js"
 import { HISTORY_REF } from "../platform/index.js"
-import { CONFIG_SCAFFOLD } from "../install/index.js"
 import { contentHash } from "../workflow/index.js"
+import { WORKFLOWS_REPO } from "../install/index.js"
 
 const run = async (
   repo: InMemRepo,
@@ -64,15 +64,6 @@ const seed = (source: string, extra: Record<string, string> = {}): InMemRepo => 
   return repo
 }
 
-/** A repo `gtd install` set up: its config runs the shipped workflows. */
-const seedBundled = (): InMemRepo => {
-  const repo = new InMemRepo()
-  repo.writeFile("README.md", "# test project\n")
-  repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
-  repo.seedCommit("chore: init")
-  return repo
-}
-
 const IDLE_THEN_WORKING = `import { agent, human } from "@pmelab/gtd/flows"
 
 export default async () => {
@@ -80,6 +71,15 @@ export default async () => {
   await agent("working", "do the work described in NOTE.md")
 }
 `
+
+/** A repo at rest: its config runs {@link IDLE_THEN_WORKING}. */
+const seedIdle = (): InMemRepo => {
+  const repo = new InMemRepo()
+  repo.writeFile("README.md", "# test project\n")
+  repo.writeFile("gtd.config.ts", IDLE_THEN_WORKING)
+  repo.seedCommit("chore: init")
+  return repo
+}
 
 describe("gtd --workflow <name> — a custom workflow's named workflow", () => {
   const WORKFLOW = `import { agent, human } from "@pmelab/gtd/flows"
@@ -194,9 +194,50 @@ export const defaults = { greeting: "hello" }
   })
 })
 
-describe("gtd --workflow <name> — the shipped workflows", () => {
+describe("gtd install", () => {
+  it("where no gtd.config.ts governs, prints the briefing and warns where to get a workflow — writing nothing", async () => {
+    const repo = new InMemRepo()
+    repo.writeFile("README.md", "# test project\n")
+    repo.seedCommit("chore: init")
+    const before = repo.snapshot()
+    const { stdout, stderr, exitCode } = await run(repo, "install")
+    expect(exitCode).toBe(0)
+    expect(stdout).toMatch(/Make sure a .gtd\.config\.ts. governs the repository/)
+    expect(stderr).toContain(
+      "gtd install: no gtd.config.ts governs here, and gtd ships no workflow",
+    )
+    expect(stderr).toContain(WORKFLOWS_REPO)
+    expect(repo.hasPath("gtd.config.ts")).toBe(false)
+    expect(repo.snapshot()).toBe(before)
+  })
+
+  it("where a gtd.config.ts governs, prints the briefing alone", async () => {
+    const repo = seedIdle()
+    const { stdout, stderr, exitCode } = await run(repo, "install")
+    expect(exitCode).toBe(0)
+    expect(stdout).toMatch(/Make sure a .gtd\.config\.ts. governs the repository/)
+    expect(stderr).not.toContain(WORKFLOWS_REPO)
+  })
+})
+
+describe("gtd --workflow <name> — a workflow that fixes its diff base", () => {
+  const WORKFLOW = `import { human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle", { message: "hi" })
+}
+
+export const review = async () => {
+  await human("checking", { message: "check" })
+}
+
+export const defaults = { reviewBase: "" }
+
+export const base = (workflow, vars) => (workflow === "review" ? vars.reviewBase : undefined)
+`
+
   it("--workflow review --var reviewBase=<base> emits a script anchoring the process to that base", async () => {
-    const repo = seedBundled()
+    const repo = seed(WORKFLOW)
     const base = repo.commitHistory().at(-1)!.hash
     repo.writeFile("scratch.txt", "more work\n")
     repo.seedCommit("chore: more work")
@@ -209,26 +250,16 @@ describe("gtd --workflow <name> — the shipped workflows", () => {
       `reviewBase=${base}`,
     )
     expect(exitCode).toBe(0)
-    expect(stdout).toContain("gtd(human): review-gate.check")
+    expect(stdout).toContain("gtd(human): checking")
     expect(stdout).toContain("Gtd-Workflow: review")
     expect(stdout).toContain(`Gtd-Review-Base: ${base}`)
-    expect(repo.commitHistory()).toHaveLength(before)
-  })
-
-  it("--workflow fix emits a script that would start a fix process", async () => {
-    const repo = seedBundled()
-    const before = repo.commitHistory().length
-    const { stdout, exitCode } = await run(repo, "--workflow", "fix")
-    expect(exitCode).toBe(0)
-    expect(stdout).toContain("gtd(human): fix-precheck")
-    expect(stdout).toContain("Gtd-Workflow: fix")
     expect(repo.commitHistory()).toHaveLength(before)
   })
 })
 
 describe("config loading", () => {
   it('gtd next --verbose narrates "config: module" exactly once — the extra load that surfaces warnings is silent', async () => {
-    const repo = seedBundled()
+    const repo = seedIdle()
     const { stderr, exitCode } = await run(repo, "next", "--verbose")
     expect(exitCode).toBe(0)
     expect(stderr.match(/config: module /g)).toHaveLength(1)
@@ -287,7 +318,7 @@ describe("gtd next --json — log path emission", () => {
   const seededRepo = (): InMemRepo => {
     const repo = new InMemRepo()
     repo.writeFile("NOTE.md", "a note\n")
-    repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
+    repo.writeFile("gtd.config.ts", IDLE_THEN_WORKING)
     repo.seedCommit("gtd: init")
     return repo
   }
@@ -1752,7 +1783,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
   )
 
   it("a repository with a commit passes the guard and dispatches normally", async () => {
-    const repo = seedBundled()
+    const repo = seedIdle()
     const written: string[] = []
     const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
 
@@ -1765,7 +1796,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
   })
 
   it("gtd ui in a repository WITH commits reaches its own dispatch, past the guard", async () => {
-    const repo = seedBundled()
+    const repo = seedIdle()
     const out = { write: () => {}, flush: () => {} }
     const requests: unknown[] = []
     const ui = (request: unknown) => Effect.sync(() => void requests.push(request))
@@ -1950,7 +1981,7 @@ describe("gtd next/land --json=<path> — the select branch", () => {
   const seededRepo = (): InMemRepo => {
     const repo = new InMemRepo()
     repo.writeFile("NOTE.md", "a note\n")
-    repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
+    repo.writeFile("gtd.config.ts", IDLE_THEN_WORKING)
     repo.seedCommit("gtd: init")
     return repo
   }
@@ -1987,7 +2018,7 @@ describe("gtd next/land --json=<path> — the select branch", () => {
 
   it("an absent selector writes zero bytes to stdout and exits EXIT_OK", async () => {
     const repo = seededRepo()
-    // The built-in workflow's initial `idle` state declares no `mode:` —
+    // The workflow's initial `idle` step declares no `mode:` —
     // `mode` is a real, present-but-`undefined` field on the beat document
     // there (see `src/wire/BeatStatus.ts`'s `statusOf`), not merely an
     // unknown path.

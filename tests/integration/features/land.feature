@@ -187,7 +187,19 @@ Feature: gtd land — the one landing verb, actorless
   @inmem
   Scenario: gtd land --json reports settled:false, idle:true for the green --workflow fix probe, without landing it
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, check, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+      }
+
+      export const fix = async () => {
+        if (await check("fix-precheck", "true", { report: ".gtd/FEEDBACK.md" })) return
+        await agent("fixing", "fix .gtd/FEEDBACK.md")
+      }
+      """
     When I run gtd with args "--workflow fix"
     Then it succeeds
     And I record the commit count

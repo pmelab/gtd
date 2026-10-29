@@ -65,12 +65,7 @@ export default defineConfig({
           name: "workflows",
           include: ["src/**/*.feature"],
           // The testkit's gherkin steps first: a workflow's own steps build on them.
-          setupFiles: [
-            "./src/gherkin/index.ts",
-            ...globSync("src/workflows/**/*.steps.ts")
-              .sort()
-              .map((path) => `./${path}`),
-          ],
+          setupFiles: ["./src/gherkin/index.ts"],
           testTimeout: 120_000,
         },
       },

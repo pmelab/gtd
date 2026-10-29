@@ -14,7 +14,16 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
 
   Background:
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "develop the note")
+        await agent("reviewing", "review it")
+      }
+      """
 
   Scenario: refuses when there is no retained history to restore
     When I run gtd with args "restore"
@@ -28,10 +37,7 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → unwind"
-    # Abandon here, still resting AT unwind, before its own script lands: past
-    # that point NOTE.md would already be gone from the tree, with nothing
-    # left to leave dirty.
+    And the last commit subject is "gtd(human): idle → working"
     When I run gtd with args "abandon"
     Then it succeeds
     And the git ref "refs/worktree/gtd/history" exists
@@ -49,26 +55,22 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
     When I run gtd land
     Then it succeeds
 
-    # unwind: simulate the revert without running the
-    # printed script, by reverting the working tree to the start commit ourselves.
+    # The process's net diff is empty once NOTE.md is gone again.
     Given the file "NOTE.md" is deleted
     When I run gtd land
     Then it succeeds
-
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): start-gate.check → design.triage"
+    And the last commit subject is "gtd(agent): working → reviewing"
 
     When I run gtd with args "abandon"
     Then it succeeds
     And the git ref "refs/worktree/gtd/history" exists
-    And the last commit subject is "chore: init gtd workflow"
+    And the last commit subject is "chore: add gtd.config.ts"
 
-    # Past the unwind, the abandon leaves nothing pending at all — NOTE.md is
-    # already gone from the tree — so restore's dirty-tree guard never fires.
+    # The abandon leaves nothing pending at all — NOTE.md is already gone
+    # from the tree — so restore's dirty-tree guard never fires.
     When I run gtd with args "restore"
     Then it succeeds
-    And the last commit subject is "gtd(check): start-gate.check → design.triage"
+    And the last commit subject is "gtd(agent): working → reviewing"
     And the git ref "refs/worktree/gtd/history" does not exist
 
   Scenario: reports the restored state via the emitted script, in plain text
@@ -81,25 +83,21 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
     When I run gtd land
     Then it succeeds
 
-    # unwind: simulate the revert without running the
-    # printed script, by reverting the working tree to the start commit ourselves.
+    # The process's net diff is empty once NOTE.md is gone again.
     Given the file "NOTE.md" is deleted
     When I run gtd land
     Then it succeeds
+    And the last commit subject is "gtd(agent): working → reviewing"
 
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): start-gate.check → design.triage"
-
-    # Past the unwind, abandon leaves nothing pending at all, so restore's
-    # dirty-tree guard never fires.
+    # Abandon leaves nothing pending at all, so restore's dirty-tree guard
+    # never fires.
     When I run gtd with args "abandon"
     Then it succeeds
 
     When I run gtd with args "restore"
     Then it succeeds
     And stdout contains "restored the retained history"
-    And stdout contains "'design.triage'"
+    And stdout contains "'reviewing'"
 
   Scenario: reports the standard error on stderr, leaving stdout empty
     When I run gtd with args "restore"

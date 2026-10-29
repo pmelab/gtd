@@ -54,26 +54,36 @@ from `PATH`, so putting `bin/` first is required, not a convenience.
 repo="$(mktemp -d)" && cd "$repo"
 git init -q -b main
 cat > gtd.config.ts <<'EOF'
-import { feature } from "@pmelab/gtd/workflows"
+import { agent, human, read, scope } from "@pmelab/gtd/flows"
 
-export { summary, steering, skills, access } from "@pmelab/gtd/workflows"
-
-export default feature({ testCommand: "true" })
+export default async () => {
+  await human("idle", { message: "write .gtd/TODO.md to start", file: ".gtd/TODO.md" })
+  await scope("design", async () => {
+    for (;;) {
+      await agent("triage", "Write .gtd/REQUIREMENTS.md.", { file: ".gtd/REQUIREMENTS.md" })
+      if (!(read(".gtd/REQUIREMENTS.md") ?? "").includes("- [ ]")) break
+      await scope("gate", () =>
+        human("answer", {
+          message: "Awaiting your product answers in .gtd/REQUIREMENTS.md",
+          file: ".gtd/REQUIREMENTS.md",
+        }),
+      )
+    }
+  })
+  await human("done")
+}
 EOF
 git add -A && git commit -qm "chore: initial commit"
 ```
 
 - **No install needed.** gtd resolves `@pmelab/gtd/*` imports to its own copy,
-  so the config runs this checkout's workflows.
-- **`testCommand`** is what every check runs. `true` keeps the baseline green;
-  use a real script (`sh test.sh`) when the behaviour under test depends on red
-  checks. The default, `npm test`, is red in a repository with no
-  `package.json`.
-- **A different workflow:** export it, e.g.
-  `export { review } from "@pmelab/gtd/workflows"`, and start it with
-  `gtd --workflow review | sh` (review needs a branch with commits beyond
-  `main`). `gtd install`, run before the config exists, writes the full shipped
-  one instead.
+  so the config runs against this checkout's engine.
+- **Write the smallest workflow that reaches the behaviour under test.** gtd
+  ships none; add the steps (`run`, `check`, `judge`, doors, …) the criterion
+  needs.
+- **A real workflow:** import a bundle from a pinned checkout of
+  pmelab/gtd-workflows (`gtd-wf config default` prints the config) when the
+  behaviour only shows in one.
 - **A fake `origin`** where pushing or a base branch matters:
   `git init -q --bare "$repo.git" && git remote add origin "$repo.git" && git push -q -u origin main`.
 
@@ -189,8 +199,8 @@ skill) with HTTPS errors ignored, then check the steering file and
 
 ## Worked example
 
-Start a feature process, stand in for the triage agent, rest at the product
-gate, answer it and land. Run it with `bin/` first on `PATH`, as in
+Start a process on a small design loop, stand in for the triage agent, rest at
+the product gate, answer it and land. Run it with `bin/` first on `PATH`, as in
 [Build](#build); it cleans up its scratch repository on exit.
 
 ```bash
@@ -202,11 +212,24 @@ trap 'rm -rf "$repo"' EXIT
 cd "$repo"
 git init -q -b main
 cat >gtd.config.ts <<'EOF'
-import { feature } from "@pmelab/gtd/workflows"
+import { agent, human, read, scope } from "@pmelab/gtd/flows"
 
-export { summary, steering, skills, access } from "@pmelab/gtd/workflows"
-
-export default feature({ testCommand: "true" })
+export default async () => {
+  await human("idle", { message: "write .gtd/TODO.md to start", file: ".gtd/TODO.md" })
+  await scope("design", async () => {
+    for (;;) {
+      await agent("triage", "Write .gtd/REQUIREMENTS.md.", { file: ".gtd/REQUIREMENTS.md" })
+      if (!(read(".gtd/REQUIREMENTS.md") ?? "").includes("- [ ]")) break
+      await scope("gate", () =>
+        human("answer", {
+          message: "Awaiting your product answers in .gtd/REQUIREMENTS.md",
+          file: ".gtd/REQUIREMENTS.md",
+        }),
+      )
+    }
+  })
+  await human("done")
+}
 EOF
 git add -A
 git commit -qm "chore: initial commit"
@@ -223,11 +246,6 @@ mkdir -p .gtd
 echo "Add hello.sh that prints hello." >.gtd/TODO.md
 land
 
-# Checks run until the first agent turn.
-while [ "$(gtd next --json=kind)" = script ]; do
-  sh -c "$(gtd next --json=content)" >/dev/null 2>&1 || true
-  land
-done
 test "$(gtd next --json=state)" = design.triage
 
 # Stand in for the triage agent: one open product question.

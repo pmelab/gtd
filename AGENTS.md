@@ -2,8 +2,8 @@
 
 **The code is the source of truth. Documentation exists only to tell a USER
 something the code cannot.** That means: how to install and run gtd, what its
-commands, flags, config keys, and driver protocol accept, and what the bundled
-workflow asks of a person using it. Nothing else.
+commands, flags, config keys, and driver protocol accept, and where to get a
+workflow. Nothing else.
 
 Never write — and never keep — documentation that describes how gtd is BUILT:
 module boundaries, data flow, call sequences, which file owns which invariant,
@@ -90,6 +90,11 @@ in `test:unit` and both e2e tasks' `inputs`, because
 `tests/integration/features/driver-doc.feature` runs `docs/driver.md` as
 executable code — omitting it would let a broken doc pass on a cached result.
 
+Those release flags are gtd's own registry's (empty today). A workflow's own
+release flag — a `flag_<name>` setting it declares, pinned from
+`GTD_FLAG_<NAME>` at process start — is that workflow repository's to test, not
+a state of this runner.
+
 ### Import rules
 
 `lint:boundaries` runs dependency-cruiser over `src/`, `tests/` and `claude/`.
@@ -144,18 +149,15 @@ Because architecture is NOT documented in markdown, a comment is where a
 non-obvious invariant lives. Put it at the code it constrains, and keep it to
 the decision and its reason — never a summary of the module.
 
-## Changing the workflow
+## Workflows live elsewhere
 
-A workflow is CODE, not data: the shipped workflows are plain TypeScript under
-`src/workflows/`, published as `@pmelab/gtd/workflows` and reaching gtd only
-through a repository's `gtd.config.ts`, which imports them or their parts. There
-is no engine-side wiring to trace when its shape changes — edit the flow. The
-tests that pin it are the unit tests and `.feature` files beside it in
-`src/workflows/` (`npm run test:workflows`), and the e2e features that set a
-workflow up with a `gtd config file at "gtd.config.ts"` step; they tell you what
-you broke. A step's full name is public API.
+gtd ships no workflow. The former bundled one is `workflows/default/` in
+[pmelab/gtd-workflows](https://github.com/pmelab/gtd-workflows), with its own
+tests, docs and glossary; change it there. Its step names are its public API,
+not gtd's. This repository's own `gtd.config.ts` imports it from a pinned
+checkout.
 
-The one thing those tests cannot tell you: every step a process can rest at must
-resolve to exactly one content kind a driver already handles
+What gtd's tests cannot hand off: every step a process can rest at must resolve
+to exactly one content kind a driver already handles
 (`capture`/`message`/`script`/`prompt`/`stalled`). There is no sixth kind to add
 without changing every driver in the world.

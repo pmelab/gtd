@@ -47,9 +47,7 @@ histories written by an older or newer gtd.
   `check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `strays`,
   `history list`, `history show`, `history metrics`, `history judges`,
   `history fetch`, `version`, `help`, `ui`, `lsp`, `judge`, `judge answer`,
-  `judge run`), option and argument in [CLI reference](docs/cli.md), the doors
-  the bundled `fix`, `review`, `rollout` and `cleanup` build (`fix`,
-  `review [base]`, `rollout <flag>`, `cleanup <flag>`), and the
+  `judge run`), option and argument in [CLI reference](docs/cli.md), the
   `gtd doors --json` and `gtd history list --json` arrays (bare arrays with no
   `schema`), and `gtd history show --json`, `gtd history metrics --json`,
   `gtd history judges --json` and its `--jsonl` lines (no `schema`; not driver
@@ -65,37 +63,22 @@ histories written by an older or newer gtd.
   - `@pmelab/gtd/wire`
   - `@pmelab/gtd/steering`
   - `@pmelab/gtd/workflow-kit`
-  - `@pmelab/gtd/workflows`, also resolvable as `@pmelab/gtd/workflow` (see
-    [Reusing the shipped workflows](docs/configuration.md#reusing-the-shipped-workflows))
-  - `@pmelab/gtd/workflows/feature`, `@pmelab/gtd/workflows/review`,
-    `@pmelab/gtd/workflows/fix`, `@pmelab/gtd/workflows/rollout`,
-    `@pmelab/gtd/workflows/cleanup`
   - `@pmelab/gtd/testkit`: `testRepo`, `runsItsScript` and `InMemRepo`, with
     their types and the `TestkitWorld` type
   - `@pmelab/gtd/testkit/gherkin`: its `TestkitWorld` and the wording of every
     step it registers (see [Testing a workflow](docs/testing.md#steps)), with
     its optional peers `vitest` and `quickpickle`
 - **The `gtd.config.ts` shape** — every exported function and workflow factory
-  (or call of one) is a workflow, the shipped factories' options are the
-  settings below, and the reserved exports (`defaults`, `envDefaults`, `doors`,
-  `skills`, `access`, `config`, …) keep their meaning. See
-  [Shape](docs/configuration.md#shape).
+  (or call of one) is a workflow, and the reserved exports (`defaults`,
+  `envDefaults`, `doors`, `skills`, `access`, `config`, …) keep their meaning.
+  See [Shape](docs/configuration.md#shape).
 - **The `config` export** — the keys `defineConfig` accepts (`modes`, `ui`,
   `skills`, `access`) and their values. See
   [The `config` export](docs/configuration.md#the-config-export).
-- **Bundled workflow and step names** — `feature`, `fix`, `review`, `rollout`,
-  `cleanup`, and each step's full name, plus which steps a bundled workflow
-  reaches and in what order: changing either strands every process resting on
-  it. Adding `approve` to an existing step strands every process that already
-  passed it.
-- **The review hand-off** — what `fix`'s review leaves for the next `fix`:
-  `.gtd/REVIEW.md` with the human's notes beside the reviewer's own
-  `.gtd/REVIEW.orig.md`, read as review notes (see
-  [Steering formats](src/steering/FORMATS.md)).
-- **Settings** — the setting names the bundled workflows read (`testCommand`,
-  `reviewBase`, …), the `GTD_*` variables (not `GTD_FLAG_*`, nor the `flag_*`
-  settings that pin them), and the judge providers (`fixed`, `jev`, `llm`) with
-  their variables and the user-level `judge.json`.
+- **Settings** — the `GTD_*` variables gtd itself reads (not `GTD_FLAG_*`, nor a
+  `GTD_<NAME>` override of a workflow's setting), how a `flag_<name>` setting a
+  workflow declares is pinned from `GTD_FLAG_<NAME>`, and the judge providers
+  (`fixed`, `jev`, `llm`) with their variables and the user-level `judge.json`.
 
 ## No promise
 
@@ -104,15 +87,21 @@ Anything not listed above, e.g.:
 - **Feature flags** — the `GTD_FLAG_*` variables; any feature flag may appear,
   flip or vanish in any release (see
   [Feature flags](docs/configuration.md#feature-flags)).
-- **Prompts** — the text of every `prompt` beat and of `gtd install`.
+- **Prompts** — the text of `gtd install`.
 - **Plain output** — `gtd next` without `--json`, help layout, every message,
   narration and remediation line. See
   [Plain output is not a parsing surface](docs/cli.md#plain-output-is-not-a-parsing-surface).
-- **Workflow internals** — lens briefs, judge questions and thresholds, the
-  skills a prompt names. (Lens names are step names, so they follow SemVer.)
 - **UI** — `gtd ui`, the Claude Code mod, and the example drivers in
   [Driver protocol](docs/driver.md).
 - **LSP features** — everything `gtd lsp` offers an editor.
+
+## Not gtd's to promise
+
+**Workflows.** gtd ships none. A workflow's names, step names, the order its
+steps are reached in, its settings, doors, prompts and steering files are not
+gtd's public API: they belong to whichever repository the workflow comes from —
+[gtd-workflows](https://github.com/pmelab/gtd-workflows) for `default`. gtd's
+promise ends at the engine that replays them.
 
 ## Non-goals
 

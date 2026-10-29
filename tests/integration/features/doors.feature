@@ -1,7 +1,7 @@
 @inmem
 Feature: doors — named shortcuts that start a workflow with positional args
 
-  Each shipped workflow builds its own doors — `fix` builds `fix`, `review`
+  A workflow factory builds its own doors — here `fix` builds `fix`, `review`
   builds `review [base]` — so a config's doors are those of the workflows it
   exports, plus its reserved `doors` export. `gtd door <name> [args…]` starts
   the door's workflow exactly as `gtd --workflow` would, mapping the positional
@@ -10,9 +10,50 @@ Feature: doors — named shortcuts that start a workflow with positional args
 
   Background:
     Given a test project
-    And the workflow gtd install scaffolds
+    And a file "flows.ts" with:
+      """
+      import { agent, defineWorkflow, start } from "@pmelab/gtd/flows"
 
-  Scenario: the installed config lists the shipped fix and review doors
+      const schema = {
+        "~standard": { version: 1, vendor: "test", validate: (value) => ({ value }) },
+      }
+
+      export const fix = defineWorkflow(schema, () => ({
+        flow: async () => {
+          await agent("mending", "Mend it.")
+        },
+        defaults: { ticket: "" },
+        doors: { fix: {} },
+      }))
+
+      export const review = defineWorkflow(schema, () => ({
+        flow: async () => {
+          await agent("reviewing", `Review everything since ${start()}.`)
+        },
+        defaults: { reviewBase: "" },
+        doors: {
+          review: {
+            args: [{ name: "base", optional: true }],
+            vars: ({ base }) => (base === undefined ? {} : { reviewBase: base }),
+          },
+        },
+        base: (_workflow, vars) => vars.reviewBase || "",
+      }))
+      """
+    And the working tree is committed
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("building", "Build it.")
+      }
+
+      export { fix, review } from "./flows.js"
+      """
+
+  Scenario: a config lists the doors its workflows build
     When I run gtd with args "doors --json"
     Then it succeeds
     And stdout contains "[{\"name\":\"fix\",\"workflow\":\"fix\",\"args\":[]},{\"name\":\"review\",\"workflow\":\"review\",\"args\":[{\"name\":\"base\",\"optional\":true}]}]"
@@ -26,7 +67,7 @@ Feature: doors — named shortcuts that start a workflow with positional args
         await human("idle", { message: "go" })
       }
 
-      export { fix, defaults, envDefaults } from "@pmelab/gtd/workflows"
+      export { fix } from "./flows.js"
       """
     When I run gtd with args "doors --json"
     Then it succeeds
@@ -99,19 +140,22 @@ Feature: doors — named shortcuts that start a workflow with positional args
     And the last commit body contains "Gtd-Workflow: hotfix"
     And the last commit body contains "Gtd-Var: ticket=T-42"
 
-  Scenario: a config adds its own door beside the shipped ones by spreading their doors export
+  Scenario: a config's doors export adds its own door beside the doors its workflows build
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent } from "@pmelab/gtd/flows"
-      import { doors as shipped } from "@pmelab/gtd/workflows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export { feature as default, fix, review } from "@pmelab/gtd/workflows"
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+
+      export { fix, review } from "./flows.js"
 
       export const hotfix = async () => {
         await agent("patch", "Patch it.")
       }
 
-      export const doors = { ...shipped, patch: { workflow: "hotfix" } }
+      export const doors = { patch: { workflow: "hotfix" } }
       """
     When I run gtd with args "doors"
     Then it succeeds
@@ -213,7 +257,13 @@ Feature: doors — named shortcuts that start a workflow with positional args
   Scenario: two workflows building the same door, none exported under its name, builds no door
     Given a gtd config file at "gtd.config.ts" with:
       """
-      export { feature as default, fix as mend, fix as patch, defaults, envDefaults } from "@pmelab/gtd/workflows"
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+
+      export { fix as mend, fix as patch } from "./flows.js"
       """
     When I run gtd with args "doors --json"
     Then it succeeds
@@ -226,7 +276,13 @@ Feature: doors — named shortcuts that start a workflow with positional args
   Scenario: a door several workflows build belongs to the one exported under the door's own name
     Given a gtd config file at "gtd.config.ts" with:
       """
-      export { feature as default, fix, fix as mend, defaults, envDefaults } from "@pmelab/gtd/workflows"
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+
+      export { fix, fix as mend } from "./flows.js"
       """
     When I run gtd with args "doors"
     Then it succeeds
@@ -235,7 +291,13 @@ Feature: doors — named shortcuts that start a workflow with positional args
   Scenario: a doors export declaring the clashing name settles it, the declared door winning
     Given a gtd config file at "gtd.config.ts" with:
       """
-      export { feature as default, fix as mend, fix as patch, defaults, envDefaults } from "@pmelab/gtd/workflows"
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+
+      export { fix as mend, fix as patch } from "./flows.js"
 
       export const doors = { fix: { workflow: "mend" } }
       """
@@ -275,17 +337,13 @@ Feature: doors — named shortcuts that start a workflow with positional args
   Scenario: a review exported under another name with no base reviews since the default branch's merge-base
     Given a gtd config file at "gtd.config.ts" with:
       """
-      export {
-        feature as default,
-        review as audit,
-        defaults,
-        envDefaults,
-        summary,
-        base,
-        steering,
-        skills,
-        access,
-      } from "@pmelab/gtd/workflows"
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+
+      export { review as audit } from "./flows.js"
       """
     And I mark the current commit as "main"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -296,19 +354,6 @@ Feature: doors — named shortcuts that start a workflow with positional args
     Then it succeeds
     And stdout contains the hash of "main"
     And the last commit body contains "Gtd-Workflow: audit"
-
-  Scenario: a config importing the deprecated doors export still loads with its workflows' doors
-    Given a gtd config file at "gtd.config.ts" with:
-      """
-      import { doors as shipped } from "@pmelab/gtd/workflows"
-
-      export { feature as default, fix, review } from "@pmelab/gtd/workflows"
-
-      export const doors = { ...shipped }
-      """
-    When I run gtd with args "doors --json"
-    Then it succeeds
-    And stdout contains "[{\"name\":\"fix\",\"workflow\":\"fix\",\"args\":[]},{\"name\":\"review\",\"workflow\":\"review\",\"args\":[{\"name\":\"base\",\"optional\":true}]}]"
 
   Scenario: a factory of your own brings its door, listed under its export name
     Given a gtd config file at "gtd.config.ts" with:
@@ -368,47 +413,51 @@ Feature: doors — named shortcuts that start a workflow with positional args
     Then it succeeds
     And stdout contains the hash of "base"
 
-  Scenario: the doors export declares the rollout door two instances clash on
+  Scenario: the doors export declares the door two instances of one factory clash on
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { rollout } from "@pmelab/gtd/workflows"
+      import { human } from "@pmelab/gtd/flows"
+      import { fix } from "./flows.js"
 
-      export { feature as default } from "@pmelab/gtd/workflows"
-      export const rolloutA = rollout({ flagRegistry: "a.ts" })
-      export const rolloutB = rollout({ flagRegistry: "b.ts" })
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+
+      export const fixA = fix({})
+      export const fixB = fix({})
       export const doors = {
-        rollout: {
-          workflow: "rolloutB",
-          args: [{ name: "flag" }],
-          vars: ({ flag }) => ({ flag: flag ?? "" }),
+        fix: {
+          workflow: "fixB",
+          args: [{ name: "ticket" }],
+          vars: ({ ticket }) => ({ ticket: ticket ?? "" }),
         },
       }
       """
     When I run gtd with args "doors --json"
     Then it succeeds
-    And stdout contains "\"name\":\"rollout\",\"workflow\":\"rolloutB\""
-    Given a commit "chore: add registry" that adds "b.ts" with:
-      """
-      export const flags = [{ name: "x", kind: "release", defaultOn: false }]
-      """
-    When I run gtd with args "door rollout x"
+    And stdout contains "\"name\":\"fix\",\"workflow\":\"fixB\""
+    When I run gtd with args "door fix x"
     Then it succeeds
-    And the last commit body contains "Gtd-Workflow: rolloutB"
-    And the last commit body contains "Gtd-Var: flag=x"
+    And the last commit body contains "Gtd-Workflow: fixB"
+    And the last commit body contains "Gtd-Var: ticket=x"
 
-  Scenario: two exported rollout instances with no doors entry warn on stderr and keep the other doors
+  Scenario: two instances of one factory with no doors entry warn on stderr and keep the other doors
     Given a gtd config file at "gtd.config.ts" with:
       """
-      export { fix } from "@pmelab/gtd/workflows"
-      import { feature, rollout } from "@pmelab/gtd/workflows"
+      import { human } from "@pmelab/gtd/flows"
+      import { review } from "./flows.js"
 
-      export default feature
-      export const rolloutA = rollout({ flagRegistry: "a.ts" })
-      export const rolloutB = rollout({ flagRegistry: "b.ts" })
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+
+      export { fix } from "./flows.js"
+      export const reviewA = review({})
+      export const reviewB = review({})
       """
     When I run gtd with args "doors"
     Then it succeeds
     And stderr contains "gtd: warning:"
-    And stderr contains "door \"rollout\" is built by workflows \"rolloutA\" and \"rolloutB\""
+    And stderr contains "door \"review\" is built by workflows \"reviewA\" and \"reviewB\""
     And stderr contains "declare it in the \"doors\" export"
     And stdout contains "fix → fix"

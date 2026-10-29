@@ -115,7 +115,7 @@ export const load: Effect.Effect<
     const missing: Diagnostic = {
       severity: "error",
       path: [],
-      message: `no workflows configured: no ${WORKFLOW_MODULE} here or above — run \`gtd install\` to scaffold one`,
+      message: `no workflows configured: no ${WORKFLOW_MODULE} here or above — gtd ships no workflow; \`gtd install\` says where to get one`,
       origin: host.root,
     }
     return yield* Effect.fail(configError([missing]))

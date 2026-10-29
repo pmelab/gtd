@@ -9,7 +9,14 @@ Feature: a leftover .gtdrc fails loudly
   @inmem
   Scenario: a repository's .gtdrc.json is refused, naming the file and each key's new home
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+      """
     And a gtd config file at ".gtdrc.json" with:
       """
       { "env": { "testCommand": "npm test" } }
@@ -27,7 +34,14 @@ Feature: a leftover .gtdrc fails loudly
   @inmem
   Scenario: a YAML .gtdrc is refused without being parsed
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+      """
     And a gtd config file at ".gtdrc" with:
       """
       modes: [this is: not valid
@@ -39,7 +53,14 @@ Feature: a leftover .gtdrc fails loudly
   @inmem
   Scenario: deleting the rc file is the whole fix
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+      """
     And a gtd config file at ".gtdrc.json" with:
       """
       {}
@@ -56,7 +77,14 @@ Feature: a leftover .gtdrc fails loudly
       """
       { "$schema": "https://cdn.jsdelivr.net/npm/@pmelab/gtd/schema.json" }
       """
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+      """
     When I run gtd with args "next"
     Then the exit code is 1
     And stderr contains "/.gtdrc.json: no longer read — delete it"

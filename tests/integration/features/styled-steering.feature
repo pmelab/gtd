@@ -1,14 +1,10 @@
 @inmem
-Feature: the voice survives the parsers it shares a prompt with (package 03, task 3)
+Feature: styled prose in a steering file passes the built-in parsers
 
-  Package 03 injects gtd's own terse "voice" alongside a structural-override
-  format contract into every machine-parsed prompt state, so an agent styling its prose can't also style
-  away the `##`/`### ` headings, `- [ ]` checkbox rows, or marker lines the
-  parser requires. This feature is the end-to-end proof: a HUMAN, standing in
-  for the agent, writes a styled `.gtd/REQUIREMENTS.md`/`.gtd/REVIEW.md` at
-  one of those resting states — voice in the prose, grammar intact — and
-  `gtd validate` must actually accept it through the real validator, then
-  `gtd land` advances — not just look plausible.
+  A steering file written in a terse, styled voice — bold claims, flat
+  imperative sentences — keeps the `##`/`### ` headings, `- [ ]` checkbox
+  rows and marker lines its parser requires. `gtd validate` must accept it
+  through the real validator, then `gtd land` advances.
 
   The seeded `qa`/`review` validator renders as a literal
   `gtd check <mode> '<file>'` command inside the script `gtd validate` prints;
@@ -18,9 +14,19 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
   double, so a parser that chokes on styled prose fails here.
   `steering-modes.feature` covers the scripted-double shape for a custom mode.
 
-  Scenario: a styled REQUIREMENTS.md passes gtd check qa and design.triage advances
+  Background:
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await agent("triage", "plan", { file: ".gtd/REQUIREMENTS.md", mode: "qa" })
+        await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
+        await human("await-review", { file: ".gtd/REVIEW.md", mode: "review", message: "review it" })
+      }
+      """
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -29,17 +35,13 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
       """
       a sketch
       """
+    And gtd lands "gtd(human): idle → triage"
 
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
+  Scenario: a styled REQUIREMENTS.md passes gtd check qa and triage advances
     # The styled file itself — bold claim up front, flat imperative sentences,
     # no padding — with the "## Open Questions" / "### <question>" / "- [ ]"
     # grammar `gtd check qa` requires still intact.
-    And a file ".gtd/REQUIREMENTS.md" with:
+    Given a file ".gtd/REQUIREMENTS.md" with:
       """
       **Add a calculator module.** One export, `add`, no dependencies.
 
@@ -66,43 +68,14 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
     And stdout contains ".gtd/REQUIREMENTS.md: valid"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
+    And the last commit subject is "gtd(agent): triage → reviewing"
 
-  Scenario: a styled REVIEW.md passes gtd check review and build.review.reviewing advances
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
+  Scenario: a styled REVIEW.md passes gtd check review and reviewing advances
+    Given a file ".gtd/REQUIREMENTS.md" with:
       """
-      import { start } from "@pmelab/gtd/flows"
-      import { gate, handOffTail } from "@pmelab/gtd/workflows"
-
-      export {
-        feature as default,
-        feature,
-        fix,
-        defaults,
-        envDefaults,
-        summary,
-        base,
-        steering,
-        skills,
-        access,
-      } from "@pmelab/gtd/workflows"
-
-      // review as fix's own tail: a reviewer turn, and a note handed to fix.
-      export async function review() {
-        await gate("review-gate", "The baseline is red.")
-        await handOffTail(false, start())
-      }
+      Add a calculator module.
       """
-    And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And I mark the current commit as "base"
-    And a commit "feat: add calculator" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(agent): triage → reviewing"
     # The styled file itself — bold claim, imperative, no padding — with the
     # "# Review: <hash>" header, the base marker, and "## <chunk>" / "- [ ]
     # ./path#line" rows `gtd check review` requires still intact.
@@ -127,7 +100,7 @@ Feature: the voice survives the parsers it shares a prompt with (package 03, tas
     And stdout contains ".gtd/REVIEW.md: valid"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.await-review"
+    And the last commit subject is "gtd(agent): reviewing → await-review"
     When I run gtd next
     Then it succeeds
-    And stdout contains "State: build.review.await-review"
+    And stdout contains "State: await-review"

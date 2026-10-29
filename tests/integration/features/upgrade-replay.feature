@@ -5,13 +5,13 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
   with no `gtd.config.ts` ran them anyway. A process such a gtd started records
   what it ran the same way every process does: an ordinary start records no
   workflow (it replays on the default export), a door or `--workflow` start
-  records `Gtd-Workflow: <name>`. After the upgrade, `gtd install` writes a
-  config exporting the shipped workflows under those same names, and the
-  process picks up where it stopped. The opening commits below are verbatim
-  what gtd 20.3.0 wrote; each continuation is the commit 20.3.0 itself wrote
-  next.
+  records `Gtd-Workflow: <name>`. Once a config exports workflows under those
+  same names, declaring the vars the history records, the process picks up
+  where it stopped. The opening commits below are verbatim what gtd 20.3.0
+  wrote; each continuation is the commit 20.3.0 itself wrote next, against a
+  small config that declares the same step names.
 
-  Scenario: until a config exists, the process is told to run gtd install
+  Scenario: until a config exists, the process is pointed at gtd install
     Given a test project
     And a file "NOTE.md" with:
       """
@@ -31,9 +31,9 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
       """
     When I run gtd next
     Then it fails
-    And stderr contains "run `gtd install`"
+    And stderr contains "`gtd install` says where to get one"
 
-  Scenario: an ordinary start replays on the scaffolded default and lands its next turn
+  Scenario: an ordinary start replays on the default export and lands its next turn
     Given a test project
     And a file "NOTE.md" with:
       """
@@ -51,7 +51,34 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
       Gtd-Var: reviewNoteActionable=0.7
       Gtd-Format: 1
       """
-    And I run gtd with args "install"
+    And a file "gtd.config.ts" with:
+      """
+      import { agent, human, run, scope } from "@pmelab/gtd/flows"
+
+      export const defaults = {
+        judgeBudgetBytes: "32768",
+        judgeIdenticalMinP: "0.7",
+        qualityReviews: "",
+        reviewBase: "",
+        reviewNoteActionable: "0.7",
+      }
+
+      export const base = (workflow, vars) =>
+        workflow === "review" ? (vars.reviewBase ?? "") : undefined
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await run("unwind", "git checkout HEAD~1 -- .")
+        await scope("start-gate", () => run("check", "true"))
+      }
+
+      export const review = async () => {
+        await scope("review-gate", () => run("check", "true"))
+        await scope("build", () =>
+          scope("quality", () => scope("correctness", () => agent("reviewing", "Review it."))),
+        )
+      }
+      """
     When I run gtd next
     Then it succeeds
     And stdout contains "State: unwind"
@@ -64,7 +91,7 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
     Then it succeeds
     And stdout contains "State: start-gate.check"
 
-  Scenario: a review door process replays on the scaffolded review and lands its next turn
+  Scenario: a review door process replays on the review export and lands its next turn
     Given a test project
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -84,7 +111,34 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
       Gtd-Var: reviewNoteActionable=0.7
       Gtd-Format: 1
       """
-    And I run gtd with args "install"
+    And a file "gtd.config.ts" with:
+      """
+      import { agent, human, run, scope } from "@pmelab/gtd/flows"
+
+      export const defaults = {
+        judgeBudgetBytes: "32768",
+        judgeIdenticalMinP: "0.7",
+        qualityReviews: "",
+        reviewBase: "",
+        reviewNoteActionable: "0.7",
+      }
+
+      export const base = (workflow, vars) =>
+        workflow === "review" ? (vars.reviewBase ?? "") : undefined
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await run("unwind", "git checkout HEAD~1 -- .")
+        await scope("start-gate", () => run("check", "true"))
+      }
+
+      export const review = async () => {
+        await scope("review-gate", () => run("check", "true"))
+        await scope("build", () =>
+          scope("quality", () => scope("correctness", () => agent("reviewing", "Review it."))),
+        )
+      }
+      """
     When I run gtd next
     Then it succeeds
     And stdout contains "State: review-gate.check"
@@ -92,10 +146,3 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): review-gate.check → build.quality.correctness.reviewing"
-
-  Scenario: a triage commit recorded before severity tiers replays to the same route
-    Given a history whose "build.review.triage" commit carries only "Gtd-Judge" trailers for "note-1" as "edit"
-    When I run gtd next
-    Then it succeeds
-    And the process rests at "build.review.collecting"
-    And stdout contains "critical: judge unsure"

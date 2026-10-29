@@ -95,12 +95,10 @@ class FastImport {
  * no bare entry-marker commit to throw the count off) whose history is
  * exactly `episodeLength` step commits long: `idle` (the human's sketch),
  * `unwind` (reverting it clean), `start-gate.check` (green), then
- * `design.triage` / `design.gate.answer` alternating forever — a loop the
- * bundled workflow's `design()` genuinely takes for as long as
- * `design.triage` keeps leaving an open question in `.gtd/REQUIREMENTS.md`
- * (see src/workflows/feature/planning.ts's `questionGate`) and the human keeps
- * landing that gate clean (`acceptClean: true`, allowed by `requireAnswers`'s
- * "an untouched tree is silence" rule). No test suite is ever actually run —
+ * `design.triage` / `design.gate.answer` alternating forever — the loop
+ * `WORKFLOW` below takes for as long as `design.triage` keeps leaving an open
+ * question in `.gtd/REQUIREMENTS.md` and the human keeps landing that gate
+ * clean (`acceptClean: true`). No test suite is ever actually run —
  * `check`/`run` steps only need their tree to show what a real run would have
  * left (here: `.gtd/FEEDBACK.md` absent, i.e. green).
  */
@@ -116,7 +114,25 @@ const step = (actor, from, to, occurrence, files) => ({
   files,
 })
 
-/** The bundled workflow's own step sequence, lazily — `appendEpisode` below takes exactly as many as `episodeLength` needs, so nothing past that is ever built. */
+/** A planning loop shaped like gtd-workflows' default: the steps the episode replays. */
+const WORKFLOW = `import { agent, human, read, run, scope } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle", { message: "write .gtd/TODO.md to start" })
+  await run("unwind", "rm -f .gtd/TODO.md")
+  await scope("start-gate", () => run("check", "true"))
+  await scope("design", async () => {
+    for (;;) {
+      await agent("triage", "Write .gtd/REQUIREMENTS.md.")
+      if (!(read(".gtd/REQUIREMENTS.md") ?? "").includes("## Open Questions")) break
+      await scope("gate", () => human("answer", { acceptClean: true }))
+    }
+  })
+  await human("done")
+}
+`
+
+/** \`WORKFLOW\`'s own step sequence, lazily — `appendEpisode` below takes exactly as many as `episodeLength` needs, so nothing past that is ever built. */
 function* episodeSteps() {
   yield step("human", "idle", "unwind", 1, { ".gtd/TODO.md": "Add a feature.\n" })
   yield { ...step("check", "unwind", "start-gate.check", 1), deletes: [".gtd/TODO.md"] }
@@ -144,8 +160,7 @@ function buildRepo(dir, { backdropCount, episodeLength }) {
   const fi = new FastImport()
   fi.commit("chore: initial commit", {
     "README.md": "# bench-replay fixture\n",
-    "gtd.config.ts":
-      'import { feature } from "@pmelab/gtd/workflows"\nexport default feature({ testCommand: "true" })\n',
+    "gtd.config.ts": WORKFLOW,
   })
   for (let i = 1; i <= backdropCount; i++) fi.commit(`chore: backdrop ${i}`)
   appendEpisode(fi, episodeLength)

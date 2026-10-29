@@ -14,7 +14,25 @@ Feature: gtd abandon — end the process underway without completing it
 
   Background:
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("building", "build it")
+        await human("checking", { message: "check it" })
+      }
+
+      export const defaults = { reviewBase: "" }
+
+      export const base = (workflow, vars) => (workflow === "review" ? vars.reviewBase : undefined)
+
+      export async function review() {
+        await agent("reviewing", "review the branch into .gtd/REVIEW.md")
+        await human("await-review", { message: "read .gtd/REVIEW.md" })
+      }
+      """
 
   Scenario: abandons a process mid-flight — HEAD back at the process boundary, the work kept as pending changes
     Given a file "NOTE.md" with:
@@ -23,10 +41,7 @@ Feature: gtd abandon — end the process underway without completing it
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): idle → unwind"
-    # Abandon here, still resting AT unwind, before its own script lands: past
-    # that point the sketch survives only in retained history, never as a
-    # pending edit again — unwind's whole job is removing it from the tree.
+    And the last commit subject is "gtd(human): idle → building"
     When I run gtd with args "abandon"
     Then it succeeds
     # Plain text prints the pasteable script itself — the rendered "abandoned
@@ -35,8 +50,8 @@ Feature: gtd abandon — end the process underway without completing it
     # deciding; this only proves the emitted printf carries the right resting
     # state as its first argument.
     And stdout contains "abandoned the process resting at"
-    And stdout contains "'unwind'"
-    And the last commit subject is "chore: init gtd workflow"
+    And stdout contains "'building'"
+    And the last commit subject is "chore: add gtd.config.ts"
     And the git status contains "NOTE.md"
     And "NOTE.md" contains "Build a thing."
     When I run gtd next
@@ -50,12 +65,13 @@ Feature: gtd abandon — end the process underway without completing it
       """
     When I run gtd land
     Then it succeeds
-    # unwind: simulate the revert without running the
-    # printed script, by reverting the working tree to the start commit ourselves.
-    Given the file "NOTE.md" is deleted
+    Given a file "src/a.ts" with:
+      """
+      export const a = 1
+      """
     When I run gtd land
     Then it succeeds
-    Given I mark the current commit as "tip"
+    And the last commit subject is "gtd(agent): building → checking"
     When I run gtd with args "abandon"
     Then it succeeds
     And the git ref "refs/worktree/gtd/history" exists
@@ -66,82 +82,32 @@ Feature: gtd abandon — end the process underway without completing it
     Then it succeeds
     And stdout contains "nothing to abandon"
     And the commit count is unchanged
-    And the last commit subject is "chore: init gtd workflow"
+    And the last commit subject is "chore: add gtd.config.ts"
 
-  Scenario: abandons a gtd review process — HEAD never moved for the review, so the reviewed branch tip is restored directly
-    Given a gtd config file at "gtd.config.ts" with:
-      """
-      import { start } from "@pmelab/gtd/flows"
-      import { gate, handOffTail } from "@pmelab/gtd/workflows"
-
-      export {
-        feature as default,
-        feature,
-        fix,
-        defaults,
-        envDefaults,
-        summary,
-        base,
-        steering,
-        skills,
-        access,
-      } from "@pmelab/gtd/workflows"
-
-      // review as fix's own tail: a reviewer turn, and a note handed to fix.
-      export async function review() {
-        await gate("review-gate", "The baseline is red.")
-        await handOffTail(false, start())
-      }
-      """
-    And I mark the current commit as "base"
-    # A blank qualityReviews skips the lap review-gate now hands to — this
-    # scenario is about abandoning, not about the lap.
-    And an environment variable "GTD_QUALITYREVIEWS" set to ""
+  Scenario: abandons a process with a fixed diff base — HEAD never moved for it, so the reviewed branch tip is restored directly
+    Given I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
     When I run gtd with args "--workflow review --var reviewBase=base"
     Then it succeeds
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): review-gate.check → build.health.check"
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
+    And the last commit subject is "gtd(human): reviewing"
     Given a file ".gtd/REVIEW.md" with:
       """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add calc.ts
+      # Review
 
       - [ ] ./src/calc.ts#1
       new export
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.reviewing → build.review.await-review"
+    And the last commit subject is "gtd(agent): reviewing → await-review"
     When I run gtd with args "abandon"
     Then it succeeds
     And the last commit subject is "feat: add calculator"
     And the git status contains ".gtd/REVIEW.md"
     And the git status does not contain "src/calc.ts"
-
-  Scenario: reports the abandoned process and the state it returned to, in plain text
-    Given a file "NOTE.md" with:
-      """
-      Build a thing.
-      """
-    When I run gtd land
-    Then it succeeds
-    When I run gtd with args "abandon"
-    Then it succeeds
-    And stdout contains "abandoned the process resting at"
-    And stdout contains "'unwind'"
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "State: idle"
 
   Scenario: the no-op succeeds too, without printing an error
     When I run gtd with args "abandon"

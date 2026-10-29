@@ -47,7 +47,6 @@ const units = {
   contracts: "^src/(flows|wire|steering)/",
   core: "^src/(cli|edge|emit|flags|install|platform|replay|step|workflow)/",
   kit: "^src/workflow-kit/",
-  workflows: "^src/workflows/",
   drivers: "^claude/",
   tools: "^src/(ui|web|lsp|judges)/",
   testkit: "^src/testkit/",
@@ -83,7 +82,6 @@ const npmAllowList = [
     packages: ["effect"],
     units: [
       units.core,
-      units.workflows,
       units.testkit,
       units.twins,
       "^src/(lsp|ui)/",
@@ -266,16 +264,6 @@ export default {
       },
     },
 
-    // --- spec 11 ---
-    {
-      name: "workflows-only-through-subpath",
-      comment:
-        "The shipped workflows reach the engine only through a repository's gtd.config.ts: nothing outside src/workflows/ imports it — its index.ts is the @pmelab/gtd/workflows build entry.",
-      severity: "error",
-      from: { pathNot: "^src/workflows/" },
-      to: { path: "^src/workflows/" },
-    },
-
     // --- spec 20: unit map ---
     {
       name: "unit-map-is-total",
@@ -320,33 +308,6 @@ export default {
       severity: "error",
       from: { path: units.kit, pathNot: productionExcluded },
       to: { path: local, pathNot: [units.kit, "^src/(flows|steering)/"] },
-    },
-    {
-      name: "kit-never-imports-workflows",
-      comment:
-        "Unit map, kit imports only flows and steering (tests included): the kit carries no workflow's policy.",
-      severity: "error",
-      from: { path: units.kit },
-      to: { path: units.workflows },
-    },
-    {
-      name: "workflows-import-only-flows-kit-steering",
-      comment:
-        "Unit map, workflows import only flows, kit and steering: a workflow folder under src/workflows/ imports, of src/, only those, src/workflows/shared/ and itself.",
-      severity: "error",
-      from: { path: "^src/workflows/([^/]+)/", pathNot: productionExcluded },
-      to: {
-        path: local,
-        pathNot: ["^src/(flows|workflow-kit|steering)/", "^src/workflows/(shared|$1)/"],
-      },
-    },
-    {
-      name: "workflows-never-import-each-other",
-      comment:
-        "Unit map, workflows never import each other (tests included): feature, review and fix interact only through git and steering files; shared/ imports none of them.",
-      severity: "error",
-      from: { path: "^src/workflows/([^/]+)/" },
-      to: { path: "^src/workflows/(?!shared/|$1/)[^/]+/" },
     },
     {
       name: "drivers-import-only-contracts",

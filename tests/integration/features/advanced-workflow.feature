@@ -1,8 +1,8 @@
 @inmem
 Feature: A picking-arbiter example — a per-task queue loop via a custom workflow
 
-  Coverage for the deterministic queue-arbiter shape the bundled workflow's
-  per-package build queue uses: a `run` step (`picking`) that takes the first
+  Coverage for the deterministic queue-arbiter shape a per-package build queue
+  uses: a `run` step (`picking`) that takes the first
   task file under `.gtd/tasks/` into `.gtd/NEXT.md`, or removes
   `.gtd/NEXT.md` once the queue is empty, inside a plain loop. The flow checks
   the deletion before any change to `.gtd/NEXT.md` — a deletion is a change

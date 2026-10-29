@@ -175,7 +175,7 @@ const restName = (outcome: ReplayOutcome): string => {
 }
 
 // Plain loops, a counter cap, and helper-driven branches: the shape the
-// bundled workflow has.
+// workflow might have.
 const fixLoop = async () => {
   await human("idle", { file: "TODO.md" })
   for (let attempt = 1; ; attempt++) {

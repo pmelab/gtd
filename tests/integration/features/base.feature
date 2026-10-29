@@ -135,44 +135,40 @@ Feature: gtd base — prints the review anchor hash, writing nothing
   @inmem
   Scenario: gtd base refuses on a fresh idle repo — no process underway
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("building", "build it")
+      }
+      """
     When I run gtd with args "base"
     Then it fails
     And stdout is empty
     And stderr contains "gtd base: refused"
 
   @inmem
-  Scenario: On the bundled workflow, gtd base agrees with the review round's own base marker and range
-    # Reaches `build.review.reviewing` by the shortest real history: two
-    # feature commits build up the reviewable diff, then `--workflow
-    # review` fixes the review base at "boundary" (the quality lap
-    # disabled).
+  Scenario: gtd base names the diff base a started workflow's base export fixes, and that range is the reviewed one
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { start } from "@pmelab/gtd/flows"
-      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export {
-        feature as default,
-        feature,
-        fix,
-        defaults,
-        envDefaults,
-        summary,
-        base,
-        steering,
-        skills,
-        access,
-      } from "@pmelab/gtd/workflows"
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+      }
 
-      // review as fix's own tail: a reviewer turn, and a note handed to fix.
+      export const defaults = { reviewBase: "" }
+
+      export const base = (workflow, vars) => (workflow === "review" ? vars.reviewBase : undefined)
+
       export async function review() {
-        await gate("review-gate", "The baseline is red.")
-        await handOffTail(false, start())
+        await agent("reviewing", "review the branch into REVIEW.md")
+        await human("await-review", { message: "read REVIEW.md" })
       }
       """
-    And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And I mark the current commit as "boundary"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
@@ -182,45 +178,29 @@ Feature: gtd base — prints the review anchor hash, writing nothing
       """
       export const untouched = () => true
       """
-    And gtd starts workflow "review" with "--var reviewBase=boundary"
-    And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
-    # The reviewing prompt makes the agent write this marker verbatim as
-    # `refs.reviewBase` (src/workflows/shared/text.ts). BASE here is
-    # substituted for the real hash "boundary" resolves to — not typed by
-    # this scenario — so the assertions below compare `gtd base`'s output
-    # against a value this scenario did not itself supply: two independently
-    # derived renderings of the one true commit, one via the doc, one via
-    # `reviewBaseFor`.
-    And a file ".gtd/REVIEW.md" with the hash of "boundary" substituted for "BASE":
-      """
-      # Review: abc1234
-
-      <!-- base: BASE -->
-
-      ## calc
-      - [ ] ./src/calc.ts#1
-      new add function
-
-      ## other
-      - [ ] ./src/other.ts#1
-      untouched helper
-      """
-    When I run gtd land
+    When I run gtd with args "--workflow review --var reviewBase=boundary"
     Then it succeeds
+    And the last commit subject is "gtd(human): reviewing"
 
     When I run gtd with args "base"
     Then it succeeds
     And stdout contains the hash of "boundary"
-    And ".gtd/REVIEW.md" contains the hash of "boundary"
-    # The actual range check: `git diff --name-only` against the printed base
-    # names exactly the paths the doc's two hunk pointers name — nothing more,
-    # nothing less.
     And git diff --name-only against "boundary" names exactly:
       """
       src/calc.ts
       src/other.ts
       """
+
+    Given a file "REVIEW.md" with:
+      """
+      - [ ] ./src/calc.ts#1
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): reviewing → await-review"
+    When I run gtd with args "base"
+    Then it succeeds
+    And stdout contains the hash of "boundary"
 
   @inmem
   Scenario: gtd base writes nothing — the repository is byte-identical before and after the call

@@ -127,12 +127,16 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
   Scenario: a red check that passed on its re-check is counted as flaky
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { human } from "@pmelab/gtd/flows"
-      import { gate } from "@pmelab/gtd/workflows"
+      import { check, human, mark, scope } from "@pmelab/gtd/flows"
+
+      const report = ".gtd/FEEDBACK.md"
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
-        await gate("start-gate", "the baseline is red")
+        await scope("start-gate", async () => {
+          if (await check("check", "npm test", { report })) return
+          if (await check("recheck", "npm test", { report })) mark("flaky", "start-gate.check")
+        })
       }
       """
     And the working tree is committed as "chore: gated config"

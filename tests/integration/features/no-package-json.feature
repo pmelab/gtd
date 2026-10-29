@@ -8,10 +8,10 @@ Feature: a repository without a package.json runs its workflows
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
-      export { summary } from "@pmelab/gtd/workflows"
+      import { FIX_BOX } from "@pmelab/gtd/steering"
 
       export default async () => {
-        await human("idle", { message: "write NOTE.md to start a process" })
+        await human("idle", { message: `write NOTE.md to start a process (${FIX_BOX})` })
         await agent("working", "develop the note, then sign off")
       }
       """
@@ -37,9 +37,9 @@ Feature: a repository without a package.json runs its workflows
     Given a test project
     And a file "node_modules/@pmelab/gtd/package.json" with:
       """
-      {"name":"@pmelab/gtd","version":"0.0.0","type":"module","exports":{"./workflows":"./workflows.js","./flows":"./flows.js"}}
+      {"name":"@pmelab/gtd","version":"0.0.0","type":"module","exports":{"./steering":"./steering.js","./flows":"./flows.js"}}
       """
-    And a file "node_modules/@pmelab/gtd/workflows.js" with:
+    And a file "node_modules/@pmelab/gtd/steering.js" with:
       """
       throw new Error("project node_modules copy was used")
       """
@@ -50,10 +50,10 @@ Feature: a repository without a package.json runs its workflows
     And a gtd config file at "gtd.config.ts" with:
       """
       import { human } from "@pmelab/gtd/flows"
-      export { summary } from "@pmelab/gtd/workflows"
+      import { FIX_BOX } from "@pmelab/gtd/steering"
 
       export default async () => {
-        await human("idle", { message: "nothing to do" })
+        await human("idle", { message: `nothing to do (${FIX_BOX})` })
       }
       """
     When I run gtd next with "--json"

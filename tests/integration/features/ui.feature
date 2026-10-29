@@ -8,8 +8,8 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   and refuses — exit 2, no port ever bound — unless that beat rests with a
   HUMAN actor carrying a `file`: every other rest has no phone screen to show
   it on, regardless of its reported content kind. Idle is renderable too —
-  the phone opens free-form on the idle rest's own `file` (`.gtd/TODO.md` in
-  the bundled workflow), and the human's write is what eventually moves the
+  the phone opens free-form on the idle rest's own `file` (`.gtd/TODO.md`
+  below), and the human's write is what eventually moves the
   state, not `gtd ui` itself. `mode` is NOT part of that axis — an absent or
   unregistered mode renders free-form. Scenarios run the server in-process
   against the in-memory worktree; refusing outside a repository needs a real
@@ -36,7 +36,15 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   @inmem
   Scenario: gtd ui binds on an idle worktree (the default rest of a fresh project), the phone sketches, hands off, and the sketch stays un-triaged until the next gtd run
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "Sketch the change in .gtd/TODO.md.", file: ".gtd/TODO.md" })
+        await agent("planning", "Plan the sketch.")
+      }
+      """
     And I record the commit count
     When I sketch ".gtd/TODO.md" with the text "a sketch from the phone" then hand off via a spawned gtd ui
     Then the reported exit status is 0

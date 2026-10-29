@@ -80,18 +80,6 @@ describe("turbo.json / package.json invariants", () => {
     expect(turbo.tasks["lint:boundaries"].inputs).toContain("scripts/**")
   })
 
-  it("lists evals/** as an input to typecheck, lint, analyze, and test:unit", () => {
-    // tests/tooling/eval-baseline.test.ts imports evals/compare-baseline.mjs,
-    // and tsconfig.json's allowJs+include pulls that .mjs into `tsc --noEmit`
-    // — a change to evals/**/*.mjs that breaks the type-check must invalidate
-    // every task that actually depends on it, or Turborepo replays a stale
-    // cached green.
-    expect(turbo.tasks["typecheck"].inputs).toContain("evals/**")
-    expect(turbo.tasks["lint"].inputs).toContain("evals/**")
-    expect(turbo.tasks["analyze"].inputs).toContain("evals/**")
-    expect(turbo.tasks["test:unit"].inputs).toContain("evals/**")
-  })
-
   it("lists .storybook/** as an input to lint and analyze", () => {
     // `.storybook/main.ts`/`preview.ts` are covered by `oxlint .`'s own glob
     // and by fallow's own `storybook` plugin discovery, but nothing else

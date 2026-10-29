@@ -1,54 +1,32 @@
 @inmem
-Feature: A review sign-off lands even when its mode declares a format: command that fails on a missing file
+Feature: A step that deletes its review file lands even when its mode declares a format: command that fails on a missing file
 
-  Package 2, Requirement A removed the mode's `format:`/`validate:` pair from
-  `gtd land`'s own emitted script entirely — that script is only the HEAD
-  assertion and the commit now, for every step regardless of whether its diff
-  deletes the state's own `file:` (a review sign-off's only change is deleting
-  `.gtd/REVIEW.md`). Before that package, a formatter that exits non-zero on a
-  missing path (`prettier --write`, modelled below) would have made a
-  sign-off's step UNLANDABLE — `format:` was the first command in a
-  `set -euo pipefail` script, and its failure aborted the whole script before
-  the commit.
+  `gtd land`'s emitted script is only the HEAD assertion and the commit — a
+  mode's `format:`/`validate:` pair is never part of it, so a formatter that
+  exits non-zero on a missing path (`prettier --write`, modelled below) cannot
+  make a step whose only change deletes the state's `file:` unlandable. This
+  scenario EXECUTES the rendered scripts.
 
-  This scenario actually EXECUTES the rendered script (`I execute the printed
-  check script`) rather than simulating its outcome by hand — `@inmem`
-  scenarios never run the emitted script at all.
-
-  `gtd uncheck` resets every tick ahead of the human's own commit, so no
-  `[x]` can reach a commit through gtd's own landing path — this scenario
-  lands the human turn through `gtd land` itself, rather than hand-committing
-  a ticked `.gtd/REVIEW.md`, so the tick is genuinely gone by the time the
-  flow compares the review commit's `.gtd/REVIEW.md`.
-
-  Scenario: the sign-off still lands when the review mode declares a format command that fails on a missing file
+  Scenario: the review is closed even though the review mode's format command fails on the missing file
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { start } from "@pmelab/gtd/flows"
-      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+      import { agent, human, removeScript, run } from "@pmelab/gtd/flows"
 
-      export {
-        feature as default,
-        feature,
-        fix,
-        defaults,
-        envDefaults,
-        summary,
-        base,
-        steering,
-        skills,
-        access,
-      } from "@pmelab/gtd/workflows"
+      const REVIEW = ".gtd/REVIEW.md"
 
-      // review as fix's own tail: a reviewer turn, and a note handed to fix.
-      export async function review() {
-        await gate("review-gate", "The baseline is red.")
-        await handOffTail(false, start())
+      export default async () => {
+        await agent("reviewing", "Write .gtd/REVIEW.md.", { file: REVIEW, mode: "review" })
+        await human("await-review", {
+          message: "Review the change.",
+          file: REVIEW,
+          mode: "review",
+          acceptClean: true,
+        })
+        await run("closing", removeScript([REVIEW]), { label: "Closing the review" })
+        await human("done", { message: "reviewed" })
       }
-      """
-    And the file "gtd.config.ts" ends with:
-      """
+
       export const config = {
         modes: {
           review: {
@@ -61,15 +39,10 @@ Feature: A review sign-off lands even when its mode declares a format: command t
         },
       }
       """
-    And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -80,7 +53,7 @@ Feature: A review sign-off lands even when its mode declares a format: command t
       - [ ] ./src/calc.ts#1-1
       new add function
       """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
+    And gtd lands "gtd(agent): reviewing → await-review"
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -93,10 +66,10 @@ Feature: A review sign-off lands even when its mode declares a format: command t
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.closing"
+    And the last commit subject is "gtd(human): await-review → closing"
     When I run gtd next with "--json"
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): build.review.closing → idle"
+    And the last commit subject is "gtd(check): closing → done"
     And ".gtd/REVIEW.md" does not exist

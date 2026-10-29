@@ -469,9 +469,14 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     # Exit 1, like every other config error: a `ui`-only usage exit would be
     # the one config error in the CLI a user couldn't infer the reason for.
     Given a test project
-    And the workflow gtd install scaffolds
-    And the file "gtd.config.ts" ends with:
+    And a gtd config file at "gtd.config.ts" with:
       """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "Sketch the change in .gtd/TODO.md.", file: ".gtd/TODO.md" })
+      }
+
       export const config = { ui: { loop: "claude -p" } }
       """
     When I run gtd with args "ui"

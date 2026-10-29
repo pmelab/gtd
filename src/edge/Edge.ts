@@ -1476,12 +1476,12 @@ const historySteps = (run: ProcessRun): readonly HistoryStep[] => {
 const versionWarningFor = (recorded: string | undefined): string | undefined =>
   recorded === GTD_VERSION
     ? undefined
-    : `gtd: warning: this history was recorded by ${recorded === undefined ? "an unknown gtd version" : `gtd ${recorded}`} and is replayed by gtd ${GTD_VERSION} — a workflow imported from @pmelab/gtd/workflows may have changed since`
+    : `gtd: warning: this history was recorded by ${recorded === undefined ? "an unknown gtd version" : `gtd ${recorded}`} and is replayed by gtd ${GTD_VERSION} — the engine the workflow runs on may have changed since`
 
 /**
  * Replays the closed run at `tip` under today's config. The workflow is not
- * fingerprinted for a version change: one imported from `@pmelab/gtd/workflows`
- * moves with every upgrade, and the version warning is the only signal.
+ * fingerprinted for a version change: the engine under it moves with every
+ * upgrade, and the version warning is the only signal.
  */
 export const historyTrail = (tip: string): Effect.Effect<HistoryTrail, Error, RestRequirements> =>
   Effect.gen(function* () {

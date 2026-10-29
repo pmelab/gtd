@@ -1,10 +1,10 @@
 @inmem
 Feature: gtd validate — self-validating the resolved rest's steering file
 
-  `gtd validate` (see src/cli/Program.ts) resolves the current rest exactly like
+  `gtd validate` resolves the current rest exactly like
   `gtd next`, renders that state's `file:`, and evaluates it per its `mode:`.
   For the two BUILT-IN modes that means reading the working-tree contents and
-  running gtd's own parser — `qa` and `review`, both under src/steering/ (the
+  running gtd's own parser — `qa` and `review` (the
   SAME pure parsers the LSP publishes as diagnostics, so there is one source
   of truth per format and no bash port). A mode may also
   declare shell commands; that is steering-modes.feature's subject.
@@ -18,12 +18,26 @@ Feature: gtd validate — self-validating the resolved rest's steering file
   dedicated state, the producing agent self-validates before finishing, so a
   human gate is only ever handed a well-formed file.
 
-  In the bundled template the `qa` mode governs `.gtd/REQUIREMENTS.md` at
-  design.triage and `.gtd/ARCHITECTURE.md` at architecture.author.
-
-  Scenario: a well-formed REQUIREMENTS.md at design.triage validates cleanly
+  Scenario: a well-formed REQUIREMENTS.md at triage validates cleanly
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, changes, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start", file: "NOTE.md" })
+        for (;;) {
+          await agent("triage", "plan", { file: ".gtd/REQUIREMENTS.md", mode: "qa" })
+          await human("answer", {
+            file: ".gtd/REQUIREMENTS.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      }
+      """
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. Plan: add src/thing.ts exporting `thing`.
@@ -38,20 +52,31 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
       a sketch
       """
-
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And gtd lands "gtd(human): idle → triage"
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/REQUIREMENTS.md: valid"
 
-  Scenario: a malformed REQUIREMENTS.md at design.triage fails with the parser's finding
+  Scenario: a malformed REQUIREMENTS.md at triage fails with the parser's finding
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, changes, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start", file: "NOTE.md" })
+        for (;;) {
+          await agent("triage", "plan", { file: ".gtd/REQUIREMENTS.md", mode: "qa" })
+          await human("answer", {
+            file: ".gtd/REQUIREMENTS.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      }
+      """
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
@@ -66,54 +91,29 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
       a sketch
       """
-
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And gtd lands "gtd(human): idle → triage"
     When I run gtd with args "validate"
     Then it fails
     And stderr contains ".gtd/REQUIREMENTS.md is not valid"
     And stderr contains "has no question text"
     And stderr contains "does not pass its own validation script"
 
-  Scenario: a well-formed REVIEW.md at build.review.reviewing validates cleanly
+  Scenario: a well-formed REVIEW.md at reviewing validates cleanly
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { start } from "@pmelab/gtd/flows"
-      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export {
-        feature as default,
-        feature,
-        fix,
-        defaults,
-        envDefaults,
-        summary,
-        base,
-        steering,
-        skills,
-        access,
-      } from "@pmelab/gtd/workflows"
-
-      // review as fix's own tail: a reviewer turn, and a note handed to fix.
-      export async function review() {
-        await gate("review-gate", "The baseline is red.")
-        await handOffTail(false, start())
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
       }
       """
-    And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And I mark the current commit as "base"
-    And a commit "feat: add thing" that adds "src/thing.ts" with:
+    And a file "NOTE.md" with:
       """
-      export const thing = 1
+      a sketch
       """
-    And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(human): idle → reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -128,41 +128,22 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     Then it succeeds
     And stdout contains ".gtd/REVIEW.md: valid"
 
-  Scenario: a malformed REVIEW.md at build.review.reviewing fails with the parser's finding
+  Scenario: a malformed REVIEW.md at reviewing fails with the parser's finding
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { start } from "@pmelab/gtd/flows"
-      import { gate, handOffTail } from "@pmelab/gtd/workflows"
+      import { agent, human } from "@pmelab/gtd/flows"
 
-      export {
-        feature as default,
-        feature,
-        fix,
-        defaults,
-        envDefaults,
-        summary,
-        base,
-        steering,
-        skills,
-        access,
-      } from "@pmelab/gtd/workflows"
-
-      // review as fix's own tail: a reviewer turn, and a note handed to fix.
-      export async function review() {
-        await gate("review-gate", "The baseline is red.")
-        await handOffTail(false, start())
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
       }
       """
-    And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And I mark the current commit as "base"
-    And a commit "feat: add thing" that adds "src/thing.ts" with:
+    And a file "NOTE.md" with:
       """
-      export const thing = 1
+      a sketch
       """
-    And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
+    And gtd lands "gtd(human): idle → reviewing"
     And a file ".gtd/REVIEW.md" with:
       """
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -179,7 +160,24 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: a state with a file: but no mode: has nothing to validate
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, changes, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start", file: "NOTE.md" })
+        for (;;) {
+          await agent("triage", "plan", { file: ".gtd/REQUIREMENTS.md", mode: "qa" })
+          await human("answer", {
+            file: ".gtd/REQUIREMENTS.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      }
+      """
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains "nothing to validate at \"idle\""
@@ -189,7 +187,24 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # file/script pair to pin any more, just the same "nothing to validate"
     # line every no-op prints.
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, changes, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start", file: "NOTE.md" })
+        for (;;) {
+          await agent("triage", "plan", { file: ".gtd/REQUIREMENTS.md", mode: "qa" })
+          await human("answer", {
+            file: ".gtd/REQUIREMENTS.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      }
+      """
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains "nothing to validate at \"idle\""
@@ -204,25 +219,53 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # `--json=validate` always prints a script whenever the resting state
     # declares both `file:` and `mode:`.
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, changes, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start", file: "NOTE.md" })
+        for (;;) {
+          await agent("triage", "plan", { file: ".gtd/REQUIREMENTS.md", mode: "qa" })
+          await human("answer", {
+            file: ".gtd/REQUIREMENTS.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      }
+      """
     And a file "NOTE.md" with:
       """
       a sketch
       """
-
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And gtd lands "gtd(human): idle → triage"
     When I run gtd next with "--json=validate"
     Then it succeeds
     And stdout contains "gtd check qa"
 
   Scenario: plain `gtd next` appends the self-validation instruction at a producing agent state
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, changes, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start", file: "NOTE.md" })
+        for (;;) {
+          await agent("triage", "plan", { file: ".gtd/REQUIREMENTS.md", mode: "qa" })
+          await human("answer", {
+            file: ".gtd/REQUIREMENTS.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      }
+      """
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
@@ -231,13 +274,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
       a sketch
       """
-
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And gtd lands "gtd(human): idle → triage"
     When I run gtd next
     Then it succeeds
     # The instruction names the MODE's own resolved validation command — for a
@@ -248,7 +285,24 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
   Scenario: `gtd next --json` withholds the self-validation instruction but embeds the validate script
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, changes, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start", file: "NOTE.md" })
+        for (;;) {
+          await agent("triage", "plan", { file: ".gtd/REQUIREMENTS.md", mode: "qa" })
+          await human("answer", {
+            file: ".gtd/REQUIREMENTS.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      }
+      """
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
@@ -257,16 +311,10 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
       a sketch
       """
-
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And gtd lands "gtd(human): idle → triage"
     When I run gtd next with "--json"
     Then it succeeds
-    And stdout contains "\"state\":\"design.triage\""
+    And stdout contains "\"state\":\"triage\""
     And stdout does not contain "Before finishing your turn"
     And the json field "validate" contains "gtd check qa"
 
@@ -276,7 +324,24 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # plugs a `format:` command into the mode (see steering-modes.feature and
     # formatting.feature).
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, changes, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start", file: "NOTE.md" })
+        for (;;) {
+          await agent("triage", "plan", { file: ".gtd/REQUIREMENTS.md", mode: "qa" })
+          await human("answer", {
+            file: ".gtd/REQUIREMENTS.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      }
+      """
     And a commit "feat: add requirements" that adds ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. This is a deliberately long single prose line that clearly exceeds the eighty character print width, and nothing rewraps it.
@@ -285,31 +350,36 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
       a sketch
       """
-
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And gtd lands "gtd(human): idle → triage"
     When I run gtd with args "validate"
     Then it succeeds
     And the git status is clean
 
   Scenario: gtd land no longer runs format/validate — a malformed edit lands, and gtd validate is what still catches it
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, changes, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start", file: "NOTE.md" })
+        for (;;) {
+          await agent("triage", "plan", { file: ".gtd/REQUIREMENTS.md", mode: "qa" })
+          await human("answer", {
+            file: ".gtd/REQUIREMENTS.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      }
+      """
     And a file "NOTE.md" with:
       """
       a sketch
       """
-
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And gtd lands "gtd(human): idle → triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. Plan: do it.
@@ -329,7 +399,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       - AC-1: the change behaves as described.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(agent): triage → answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a thing. Plan: do it.
@@ -352,22 +422,33 @@ Feature: gtd validate — self-validating the resolved rest's steering file
     # `gtd land` itself.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → design.triage"
+    And the last commit subject is "gtd(human): answer → triage"
 
-  Scenario: the step gate captures a human's valid edit (routing it back to design.triage)
+  Scenario: the step gate captures a human's valid edit (routing it back to triage)
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, changes, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start", file: "NOTE.md" })
+        for (;;) {
+          await agent("triage", "plan", { file: ".gtd/REQUIREMENTS.md", mode: "qa" })
+          await human("answer", {
+            file: ".gtd/REQUIREMENTS.md",
+            mode: "qa",
+            message: "answer",
+            acceptClean: true,
+          })
+          if (changes().length === 0) return
+        }
+      }
+      """
     And a file "NOTE.md" with:
       """
       a sketch
       """
-
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And gtd lands "gtd(human): idle → triage"
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.
@@ -387,7 +468,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
 
       - AC-1: the change behaves as described.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(agent): triage → answer"
     Given ".gtd/REQUIREMENTS.md" is modified to:
       """
       Build a thing. Plan: add src/thing.ts exporting `thing`, with a named
@@ -395,4 +476,4 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → design.triage"
+    And the last commit subject is "gtd(human): answer → triage"

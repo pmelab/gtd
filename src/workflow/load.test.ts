@@ -15,7 +15,6 @@ import {
   resolveVars,
   seededValidateCommand,
 } from "./index.js"
-import { CONFIG_SCAFFOLD } from "../install/index.js"
 
 // Every real port `ConfigService.Live` needs, scoped to `dir` — `home` is a
 // fresh directory above the project, so the walk stops there as it would in a
@@ -71,12 +70,109 @@ const loadAndResolve = (dir: string = projectDir, vars: Env = {}) =>
 let homeDir: string
 let projectDir: string
 
-// Every test starts where `gtd install` leaves a repository.
+// A config whose default workflow rests at `idle`, declaring a process
+// setting, an environment setting and the scopes its turns run under.
+const BASE_CONFIG = `import { human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle", { message: "hi" })
+}
+
+export const defaults = { qualityReviews: "" }
+export const envDefaults = { testCommand: "npm test" }
+
+export const skills = (vars) => ({
+  build: [],
+  "build.fix.quality": [],
+  "build.review": [],
+  ...Object.fromEntries(
+    (vars.qualityReviews ?? "")
+      .split(",")
+      .map((lens) => lens.trim())
+      .filter((lens) => lens !== "")
+      .map((lens) => [\`build.quality.\${lens}\`, []]),
+  ),
+})
+`
+
+// Workflow factories a config imports from a sibling module: string options
+// with defaults, an unknown or non-string option being an issue.
+const FACTORIES = `import { defineWorkflow, human } from "@pmelab/gtd/flows"
+
+const settings = (known) => ({
+  "~standard": {
+    version: 1,
+    vendor: "test",
+    validate: (value) => {
+      const issues = Object.entries(value).flatMap(([key, given]) =>
+        !Object.hasOwn(known, key)
+          ? [{ path: [key], message: \`is not an option — options: \${Object.keys(known).join(", ")}\` }]
+          : typeof given === "string"
+            ? []
+            : [{ path: [key], message: "must be a string" }],
+      )
+      return issues.length > 0 ? { issues } : { value: { ...known, ...value } }
+    },
+  },
+})
+
+export const feature = defineWorkflow(
+  settings({ qualityReviews: "", reviewNoteActionable: "0.7", testCommand: "npm test" }),
+  ({ testCommand, ...defaults }) => ({
+    flow: async () => {
+      await human("idle")
+    },
+    defaults,
+    envDefaults: { testCommand },
+  }),
+)
+
+export const review = defineWorkflow(settings({ reviewNoteActionable: "0.7" }), (defaults) => ({
+  flow: async () => {
+    await human("review-gate")
+  },
+  defaults: { ...defaults, reviewBase: "" },
+  doors: {
+    review: {
+      args: [{ name: "base", optional: true }],
+      vars: ({ base }) => (base === undefined ? {} : { reviewBase: base }),
+    },
+  },
+  base: (_workflow, vars) => vars.reviewBase || "",
+}))
+
+export const fix = defineWorkflow(settings({ judgeBudgetBytes: "65536" }), (defaults) => ({
+  flow: async () => {
+    await human("fix-precheck")
+  },
+  defaults,
+  doors: { fix: {} },
+}))
+
+export const rollout = defineWorkflow(settings({ flagRegistry: "flags.ts" }), (defaults) => ({
+  flow: async () => {
+    await human("flipping")
+  },
+  defaults: { ...defaults, flag: "" },
+  doors: { rollout: { args: [{ name: "flag" }], vars: ({ flag }) => ({ flag: flag ?? "" }) } },
+}))
+
+export const unwind = async () => {
+  await human("unwinding")
+}
+`
+
+/** Writes `config` as gtd.config.ts beside {@link FACTORIES} as `workflows.ts`. */
+const withFactories = (config: string): void => {
+  writeFileSync(join(projectDir, "workflows.ts"), FACTORIES)
+  writeFileSync(join(projectDir, "gtd.config.ts"), config)
+}
+
 beforeEach(() => {
   homeDir = mkdtempSync(join(tmpdir(), "gtd-config-"))
   projectDir = join(homeDir, "project")
   mkdirSync(projectDir)
-  writeFileSync(join(projectDir, "gtd.config.ts"), CONFIG_SCAFFOLD)
+  writeFileSync(join(projectDir, "gtd.config.ts"), BASE_CONFIG)
 })
 
 afterEach(() => {
@@ -97,11 +193,11 @@ const minimalWorkflow = (first: string) =>
 const withConfig = (config: string) =>
   writeFileSync(
     join(projectDir, "gtd.config.ts"),
-    `${CONFIG_SCAFFOLD}\nexport const config = ${config}\n`,
+    `${BASE_CONFIG}\nexport const config = ${config}\n`,
   )
 
 describe("ConfigService", () => {
-  it("the scaffolded config runs the shipped feature workflow by default", async () => {
+  it("a config runs its default workflow, its envDefaults as environment settings", async () => {
     const cfg = await getConfig()
 
     expect(cfg.workflow.initial).toBe("idle")
@@ -109,11 +205,11 @@ describe("ConfigService", () => {
     expect(cfg.defaultWorkflow.vars["testCommand"]).toBeUndefined()
   })
 
-  it("with no gtd.config.ts anywhere: fails, saying to run gtd install", async () => {
+  it("with no gtd.config.ts anywhere: fails, pointing at gtd install", async () => {
     rmSync(join(projectDir, "gtd.config.ts"))
 
     await expect(getConfig()).rejects.toThrow(
-      /no workflows configured: no gtd\.config\.ts here or above — run `gtd install`/,
+      /no workflows configured: no gtd\.config\.ts here or above — gtd ships no workflow; `gtd install` says where to get one/,
     )
   })
 
@@ -149,7 +245,7 @@ describe("ConfigService", () => {
     const others = Layer.succeed(ConfigDiscovery, {
       legacyRcFiles: () => Effect.succeed([{ path: "/shared/.gtdrc", owned: false }]),
       workflowModule: () =>
-        Effect.succeed({ filepath: join(projectDir, "gtd.config.ts"), source: CONFIG_SCAFFOLD }),
+        Effect.succeed({ filepath: join(projectDir, "gtd.config.ts"), source: BASE_CONFIG }),
     })
     const cfg = await Effect.runPromise(
       Effect.flatMap(ConfigService, (c) => c.load).pipe(
@@ -172,7 +268,7 @@ describe("ConfigService", () => {
   it("refuses a user-level rc file in home, even when the walk never reaches home", async () => {
     writeFileSync(join(homeDir, ".gtdrc.json"), `{ "$schema": "x" }\n`)
     const outside = mkdtempSync(join(tmpdir(), "gtd-outside-"))
-    writeFileSync(join(outside, "gtd.config.ts"), CONFIG_SCAFFOLD)
+    writeFileSync(join(outside, "gtd.config.ts"), BASE_CONFIG)
 
     try {
       await expect(getConfig()).rejects.toThrow(`${join(homeDir, ".gtdrc.json")}: no longer read`)
@@ -233,7 +329,7 @@ describe("ConfigService", () => {
       join(projectDir, "gtd.config.ts"),
       [
         `import { defineConfig } from "@pmelab/gtd/flows"`,
-        CONFIG_SCAFFOLD,
+        BASE_CONFIG,
         `export const config = defineConfig({ ui: { port: 4173 } })`,
         ``,
       ].join("\n"),
@@ -247,7 +343,7 @@ describe("ConfigService", () => {
       join(projectDir, "gtd.config.ts"),
       [
         `import { defineConfig } from "@pmelab/gtd/flows"`,
-        CONFIG_SCAFFOLD,
+        BASE_CONFIG,
         `export const config = defineConfig({ env: { testCommand: "x" } })`,
         ``,
       ].join("\n"),
@@ -318,7 +414,7 @@ describe("ConfigService", () => {
     expect(Object.keys(cfg.fingerprint).sort()).toEqual(["gtd.config.ts", "steps.ts"])
   })
 
-  it("the fingerprint covers gtd.config.ts but no shipped module it imports", async () => {
+  it("the fingerprint covers gtd.config.ts but no gtd module it imports", async () => {
     const cfg = await getConfig()
 
     expect(Object.keys(cfg.fingerprint)).toEqual(["gtd.config.ts"])
@@ -465,7 +561,8 @@ describe("ConfigService", () => {
     const flow = (first: string) => `async () => {\n  await human("${first}")\n}`
     const header = `import { human } from "@pmelab/gtd/flows"\n`
 
-    it("the scaffolded config: feature, review and fix are startable, default is not", async () => {
+    it("re-exported factories are startable under their names, default is not", async () => {
+      withFactories(`export { feature as default, feature, review, fix } from "./workflows"\n`)
       const cfg = await getConfig()
       expect(cfg.workflowNames).toEqual(["feature", "fix", "review"])
       expect(cfg.defaultWorkflow.name).toBe("feature")
@@ -512,38 +609,12 @@ describe("ConfigService", () => {
       expect((await getConfig()).defaultWorkflow.name).toBe("hotfix")
     })
 
-    it("a helper re-exported from the shipped module becomes a startable workflow", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        [`export { feature as default, unwind } from "@pmelab/gtd/workflows"`, ``].join("\n"),
-      )
+    it("a helper re-exported from a workflow module becomes a startable workflow", async () => {
+      withFactories(`export { feature as default, unwind } from "./workflows"\n`)
       expect((await getConfig()).workflowNames).toContain("unwind")
     })
 
-    it("the old @pmelab/gtd/workflow subpath serves the same module", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        [`export { feature as default, feature } from "@pmelab/gtd/workflow"`, ``].join("\n"),
-      )
-      expect((await getConfig()).defaultWorkflow.name).toBe("feature")
-    })
-
-    it("each shipped workflow has its own subpath", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        [
-          `export { feature as default, feature } from "@pmelab/gtd/workflows/feature"`,
-          `export { review } from "@pmelab/gtd/workflows/review"`,
-          `export { fix } from "@pmelab/gtd/workflows/fix"`,
-          ``,
-        ].join("\n"),
-      )
-      const config = await getConfig()
-      expect(config.defaultWorkflow.name).toBe("feature")
-      expect(config.workflowNames).toEqual(["feature", "fix", "review"])
-    })
-
-    it("a shipped subpath only a helper file imports resolves", async () => {
+    it("a gtd subpath only a helper file imports resolves", async () => {
       writeFileSync(
         join(projectDir, "kit.ts"),
         [
@@ -598,7 +669,8 @@ describe("ConfigService", () => {
         ].join("\n"),
       )
 
-    it("the scaffolded config: the fix and review doors, review taking an optional base", async () => {
+    it("exported factories bring their doors, review taking an optional base", async () => {
+      withFactories(`export { feature as default, review, fix } from "./workflows"\n`)
       const { doors } = await getConfig()
       expect([...doors.keys()].sort()).toEqual(["fix", "review"])
       expect(doors.get("fix")?.workflow).toBe("fix")
@@ -606,44 +678,33 @@ describe("ConfigService", () => {
     })
 
     it("a config exporting only fix gets only fix's door", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        [
-          header,
-          `export default ${flow("main")}`,
-          `export { fix } from "@pmelab/gtd/workflows"`,
-          ``,
-        ].join("\n"),
+      withFactories(
+        [header, `export default ${flow("main")}`, `export { fix } from "./workflows"`, ``].join(
+          "\n",
+        ),
       )
       const { doors } = await getConfig()
       expect([...doors.keys()]).toEqual(["fix"])
     })
 
     it("a door follows the name its workflow is exported under", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        `export { feature as default, review as audit } from "@pmelab/gtd/workflows"\n`,
-      )
+      withFactories(`export { feature as default, review as audit } from "./workflows"\n`)
       const door = (await getConfig()).doors.get("review")
       expect(door?.workflow).toBe("audit")
       expect(door?.vars?.({ base: "main" })).toEqual({ reviewBase: "main" })
     })
 
     it("a review factory exported as audit reviews the default branch, or an explicit base", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        `export { feature as default, review as audit } from "@pmelab/gtd/workflows"\n`,
-      )
+      withFactories(`export { feature as default, review as audit } from "./workflows"\n`)
       const audit = (await getConfig()).workflowNamed("audit")
       expect(audit?.def.base?.("audit", {})).toBe("")
       expect(audit?.def.base?.("audit", { reviewBase: "v1" })).toBe("v1")
     })
 
     it("a config's own base export wins over the review factory's", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
+      withFactories(
         [
-          `export { feature as default, review } from "@pmelab/gtd/workflows"`,
+          `export { feature as default, review } from "./workflows"`,
           `export const base = (w: string) => (w === "review" ? "develop" : undefined)`,
           ``,
         ].join("\n"),
@@ -652,8 +713,8 @@ describe("ConfigService", () => {
     })
 
     it("a door several workflows build gets no door when none is exported under its name, until the doors export declares it", async () => {
-      const both = `export { feature as default, fix as fix2, fix as fix3 } from "@pmelab/gtd/workflows"`
-      writeFileSync(join(projectDir, "gtd.config.ts"), `${both}\n`)
+      const both = `export { feature as default, fix as fix2, fix as fix3 } from "./workflows"`
+      withFactories(`${both}\n`)
       expect((await getConfig()).doors.get("fix")).toBeUndefined()
       writeFileSync(
         join(projectDir, "gtd.config.ts"),
@@ -663,9 +724,8 @@ describe("ConfigService", () => {
     })
 
     it("a door clash warns once at doors.<name>, builders sorted", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        `export { feature as default, fix as fix3, fix as fix4, fix as fix2 } from "@pmelab/gtd/workflows"\n`,
+      withFactories(
+        `export { feature as default, fix as fix3, fix as fix4, fix as fix2 } from "./workflows"\n`,
       )
       const cfg = await getConfig()
       const clash = cfg.warnings.filter((w) => w.path[0] === "doors")
@@ -680,70 +740,38 @@ describe("ConfigService", () => {
     })
 
     it("no clash warning when an export is named after the door, one workflow builds it, or doors declares it", async () => {
-      const both = `export { feature as default, fix as fix2, fix as fix3 } from "@pmelab/gtd/workflows"`
+      const both = `export { feature as default, fix as fix2, fix as fix3 } from "./workflows"`
       for (const body of [
-        `export { feature as default, fix as fix2, fix } from "@pmelab/gtd/workflows"\n`,
-        `export { feature as default, fix } from "@pmelab/gtd/workflows"\n`,
+        `export { feature as default, fix as fix2, fix } from "./workflows"\n`,
+        `export { feature as default, fix } from "./workflows"\n`,
         `${both}\nexport const doors = { fix: { workflow: "fix3" } }\n`,
       ]) {
-        writeFileSync(join(projectDir, "gtd.config.ts"), body)
+        withFactories(body)
         expect((await getConfig()).warnings.filter((w) => w.path[0] === "doors")).toEqual([])
       }
     })
 
     it("door ownership does not depend on export order", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        `export { feature as default, fix as fix2, fix } from "@pmelab/gtd/workflows"\n`,
-      )
+      withFactories(`export { feature as default, fix as fix2, fix } from "./workflows"\n`)
       expect((await getConfig()).doors.get("fix")?.workflow).toBe("fix")
     })
 
     it("rollout and a second instance of it load, door rollout running workflow rollout whichever export comes first", async () => {
       for (const body of [
-        `export { rollout } from "@pmelab/gtd/workflows"\nimport { rollout } from "@pmelab/gtd/workflows"\nexport const elsewhere = rollout({ flagRegistry: "x.ts" })`,
-        `import { rollout } from "@pmelab/gtd/workflows"\nexport const elsewhere = rollout({ flagRegistry: "x.ts" })\nexport { rollout }`,
+        `export { rollout } from "./workflows"\nimport { rollout } from "./workflows"\nexport const elsewhere = rollout({ flagRegistry: "x.ts" })`,
+        `import { rollout } from "./workflows"\nexport const elsewhere = rollout({ flagRegistry: "x.ts" })\nexport { rollout }`,
       ]) {
-        writeFileSync(
-          join(projectDir, "gtd.config.ts"),
-          `export { feature as default } from "@pmelab/gtd/workflows"\n${body}\n`,
-        )
+        withFactories(`export { feature as default } from "./workflows"\n${body}\n`)
         expect((await getConfig()).doors.get("rollout")?.workflow).toBe("rollout")
       }
-    })
-
-    it("shipped rollout and cleanup list their doors beside fix and review", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        `export { feature as default, fix, review, rollout, cleanup } from "@pmelab/gtd/workflows"\n`,
-      )
-      const { doors } = await getConfig()
-      expect([...doors.keys()]).toEqual(["cleanup", "fix", "review", "rollout"])
-      expect(doors.get("rollout")?.args).toEqual([{ name: "flag" }])
-      expect(doors.get("cleanup")?.args).toEqual([{ name: "flag" }])
-    })
-
-    it("rollout and cleanup load from their own subpaths", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        [
-          `export { feature as default, fix, review } from "@pmelab/gtd/workflows"`,
-          `export { rollout } from "@pmelab/gtd/workflows/rollout"`,
-          `export { cleanup } from "@pmelab/gtd/workflows/cleanup"`,
-          ``,
-        ].join("\n"),
-      )
-      const { doors } = await getConfig()
-      expect([...doors.keys()]).toEqual(["cleanup", "fix", "review", "rollout"])
-      expect(doors.get("rollout")?.args).toEqual([{ name: "flag" }])
-      expect(doors.get("cleanup")?.args).toEqual([{ name: "flag" }])
     })
 
     it("a config's doors merge derived doors (exported workflows) with declared doors (doors export)", async () => {
       withDoors(
         `{ hot: { workflow: "hotfix", args: [{ name: "ticket" }] } }`,
-        'export { fix } from "@pmelab/gtd/workflows"',
+        'export { fix } from "./workflows"',
       )
+      writeFileSync(join(projectDir, "workflows.ts"), FACTORIES)
       const { doors } = await getConfig()
       expect([...doors.keys()].sort()).toEqual(["fix", "hot"])
       expect(doors.get("fix")).toBeDefined()
@@ -939,10 +967,7 @@ describe("ConfigService", () => {
 
 describe("ConfigService — workflow factory options", () => {
   const configWith = (body: string) =>
-    writeFileSync(
-      join(projectDir, "gtd.config.ts"),
-      [`import { feature, fix, review } from "@pmelab/gtd/workflows"`, body, ``].join("\n"),
-    )
+    withFactories([`import { feature, fix, review } from "./workflows"`, body, ``].join("\n"))
 
   it("an option given in gtd.config.ts becomes the workflow's setting of its kind", async () => {
     configWith(
