@@ -2,187 +2,174 @@
 Feature: Code threads — an H:/A: conversation in line comments of changed code
 
   A run of line comments opening with `H:` in a file changed in the current
-  process is a thread, like a footnote thread: the agent answers a question
-  with one `A:` comment line below it and the process rests at the review gate
-  again — no lap. A thread whose last entry is the agent's is open and refuses
-  landing. `gtd check --open-threads` alone lists the open ones.
+  process is a thread, like a footnote thread: an agent turn that leaves one
+  ending in `H:` is refused, and one whose last entry is the agent's refuses
+  landing at the gate, naming `path:line`. A file the process did not change
+  holds no thread. `gtd check --open-threads` alone lists the open ones.
 
   Background:
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { start } from "@pmelab/gtd/flows"
-      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
+      import {
+        agent,
+        changes,
+        hasThreadFor,
+        human,
+        requireAnswers,
+        requireReplies,
+        requireThreadsClosed,
+      } from "@pmelab/gtd/flows"
 
-      export {
-        feature as default,
-        feature,
-        defaults,
-        envDefaults,
-        summary,
-        base,
-        steering,
-        skills,
-        access,
-      } from "@pmelab/gtd/workflows"
+      const PLAN = ".gtd/PLAN.md"
 
-      // review and fix as feature's own tail: a note is triaged and re-planned.
-      export async function review() {
-        await gate("review-gate", "The baseline is red.")
-        return afterTail(await buildTail(start()))
+      export default async () => {
+        await human("idle", { message: "write .gtd/PLAN.md to start" })
+        for (;;) {
+          await agent("drafting", "Revise the plan; reply to each H: thread.", { file: PLAN, mode: "qa" })
+          requireReplies(PLAN)
+          await human("answering", {
+            message: "Review the plan.",
+            file: PLAN,
+            mode: "qa",
+            acceptClean: true,
+          })
+          requireThreadsClosed(PLAN)
+          if (changes().length === 0) break
+          if (!hasThreadFor("agent", PLAN)) requireAnswers(PLAN)
+        }
+        await human("done", { message: "plan accepted" })
       }
-
-      export async function fix() {
-        if (await baseline("fix-precheck")) return
-        return afterTail(await buildTail(start(), { fixFirst: true }))
-      }
       """
-    And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And I mark the current commit as "base"
-    And a commit "feat: add calculator" that adds "src/calc.ts" with:
+
+  Scenario: a thread in a file the process did not change is no thread
+    Given a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
-      """
-    And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
-    And a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#1
-      new add function
-      """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
-
-  Scenario: a code thread question gets one A: reply and the gate rests again, no lap
-    Given "src/calc.ts" is modified to:
-      """
       // H: why not multiply?
-      export const add = (a: number, b: number) => a + b
+      // A: this is the addition helper.
       """
+    And a file ".gtd/PLAN.md" with:
+      """
+      ## Open Questions
+
+      ### Which style?
+
+      - [ ] plain
+      - [ ] fancy
+
+      ## Greeting export
+
+      Add a `greet()` export.
+      """
+    And gtd lands "gtd(human): idle → drafting"
+    And ".gtd/PLAN.md" is modified to:
+      """
+      ## Open Questions
+
+      ### Which style?
+
+      - [ ] plain
+      - [ ] fancy
+
+      ## Greeting export
+
+      Add a `greet()` export. Keep it tiny.
+      """
+    And gtd lands "gtd(agent): drafting → answering"
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): build.review.await-review → build.review.collecting"
-    Given "src/calc.ts" is modified to:
-      """
-      // H: why not multiply?
-      // A: this is the addition helper.
-      export const add = (a: number, b: number) => a + b
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.collecting → build.review.await-review"
-    And ".gtd/REQUIREMENTS.md" does not exist
-    And ".gtd/REVIEW.md" exists
+    And the last commit subject is "gtd(human): answering → done"
 
-  Scenario: a concluded code thread is folded into requirements and its lines deleted
-    Given "src/calc.ts" is modified to:
-      """
-      // H: why not multiply?
-      // A: this is the addition helper.
-      // H: then add a subtract function too
-      export const add = (a: number, b: number) => a + b
-      """
-    And gtd lands "gtd(human): build.review.await-review → build.review.collecting"
-    And a file ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Subtract
+  Rule: the process changed the calculator
 
-      Export `subtract()`. TECHNICAL.
-      """
-    And "src/calc.ts" is modified to:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.collecting → build.review.closing"
-    And ".gtd/REQUIREMENTS.md" exists
-    And "src/calc.ts" does not contain "H:"
+    Background:
+      Given a commit "feat: add calculator" that adds "src/calc.ts" with:
+        """
+        export const add = (a: number, b: number) => a + b
+        """
+      And a file ".gtd/PLAN.md" with:
+        """
+        ## Open Questions
 
-  Scenario: an open code thread refuses landing, naming path:line
-    Given "src/calc.ts" is modified to:
-      """
-      export const add = (a: number, b: number) => a + b
-      // H: why not multiply?
-      """
-    And gtd lands "gtd(human): build.review.await-review → build.review.collecting"
-    And "src/calc.ts" is modified to:
-      """
-      export const add = (a: number, b: number) => a + b
-      // H: why not multiply?
-      // A: this is the addition helper.
-      """
-    And gtd lands "gtd(agent): build.review.collecting → build.review.await-review"
-    And ".gtd/REVIEW.md" is modified to:
-      """
-      # Review: abc1234
+        ### Which style?
 
-      <!-- base: 0000000 -->
+        - [ ] plain
+        - [ ] fancy
 
-      ## calc
+        ## Greeting export
 
-      - [x] ./src/calc.ts#1
-      new add function
-      """
-    When I run gtd land
-    Then it fails
-    And stderr contains "open-threads"
-    And stderr contains "src/calc.ts:2"
+        Add a `greet()` export.
+        """
+      And gtd lands "gtd(human): idle → drafting"
+      And ".gtd/PLAN.md" is modified to:
+        """
+        ## Open Questions
 
-  Scenario: bare gtd check --open-threads lists an open code thread
-    Given "src/calc.ts" is modified to:
-      """
-      export const add = (a: number, b: number) => a + b
-      // H: why not multiply?
-      // A: this is the addition helper.
-      """
-    When I run gtd with args "check --open-threads"
-    Then it fails
-    And stderr contains "src/calc.ts:2: why not multiply?"
+        ### Which style?
 
-  Scenario: a round mixing a thread with a real code edit still counts the edit and takes the lap
-    Given "src/calc.ts" is modified to:
-      """
-      // H: why not multiply?
-      export const add = (a: number, b: number) => b + a
-      """
-    And gtd lands "gtd(human): build.review.await-review → build.review.collecting"
-    And a file ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Commutative add
+        - [ ] plain
+        - [ ] fancy
 
-      The reviewer rewrote `add` as `b + a`. TECHNICAL.
-      """
-    And "src/calc.ts" is modified to:
-      """
-      // H: why not multiply?
-      // A: this is the addition helper.
-      export const add = (a: number, b: number) => b + a
-      """
-    And gtd lands "gtd(agent): build.review.collecting → build.review.await-review"
-    And "src/calc.ts" is modified to:
-      """
-      export const add = (a: number, b: number) => b + a
-      """
-    And ".gtd/REVIEW.md" is modified to:
-      """
-      # Review: abc1234
+        ## Greeting export
 
-      <!-- base: 0000000 -->
+        Add a `greet()` export. Keep it tiny.
+        """
+      And gtd lands "gtd(agent): drafting → answering"
 
-      ## calc
+    Scenario: a code H: question alone needs no tick, and the agent turn must answer it
+      Given "src/calc.ts" is modified to:
+        """
+        // H: why not multiply?
+        export const add = (a: number, b: number) => a + b
+        """
+      When I run gtd land
+      Then it succeeds
+      And the last commit subject is "gtd(human): answering → drafting"
+      Given ".gtd/PLAN.md" is modified to:
+        """
+        ## Open Questions
 
-      - [x] ./src/calc.ts#1
-      new add function
-      """
-    And gtd lands "gtd(human): build.review.await-review → build.review.closing"
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.review.closing → re-unwind"
-    And "src/calc.ts" contains "b + a"
+        ### Which style?
+
+        - [ ] plain
+        - [ ] fancy
+
+        ## Greeting export
+
+        Add a `greet()` export. Revised.
+        """
+      When I run gtd land
+      Then it fails
+      And stderr contains "unanswered-threads"
+      And stderr contains "src/calc.ts:1: why not multiply?"
+
+    Scenario: an answered code thread refuses landing at the gate, naming path:line
+      Given "src/calc.ts" is modified to:
+        """
+        export const add = (a: number, b: number) => a + b
+        // H: why not multiply?
+        """
+      And gtd lands "gtd(human): answering → drafting"
+      And "src/calc.ts" is modified to:
+        """
+        export const add = (a: number, b: number) => a + b
+        // H: why not multiply?
+        // A: this is the addition helper.
+        """
+      And gtd lands "gtd(agent): drafting → answering"
+      When I run gtd land
+      Then it fails
+      And stderr contains "open-threads"
+      And stderr contains "src/calc.ts:2"
+
+    Scenario: bare gtd check --open-threads lists an open code thread
+      Given "src/calc.ts" is modified to:
+        """
+        export const add = (a: number, b: number) => a + b
+        // H: why not multiply?
+        // A: this is the addition helper.
+        """
+      When I run gtd with args "check --open-threads"
+      Then it fails
+      And stderr contains "src/calc.ts:2: why not multiply?"

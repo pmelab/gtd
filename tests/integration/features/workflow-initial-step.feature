@@ -1,10 +1,9 @@
 @inmem
 Feature: Initial step — every unrecognized HEAD lands at the initial state
 
-  Against the bundled default workflow, a HEAD that records no process — an
-  ordinary commit, an old v1/v2-style `gtd: <label>` subject, or an actor the
-  workflow doesn't declare — resolves to the default workflow's first step
-  (`idle`) rather than erroring.
+  A HEAD that records no process — an ordinary commit, an old v1/v2-style
+  `gtd: <label>` subject, or an actor the workflow doesn't declare — resolves
+  to the default workflow's first step (`idle`) rather than erroring.
 
   The one exception is an in-flight process whose recorded step the workflow
   no longer reaches — it got renamed or removed out from under the process by
@@ -13,14 +12,30 @@ Feature: Initial step — every unrecognized HEAD lands at the initial state
 
   Scenario: an ordinary non-gtd HEAD resolves to the initial state
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write a change to start a process" })
+        await agent("working", "develop the change")
+      }
+      """
     When I run gtd next
     Then it succeeds
     And stdout contains "State: idle"
 
   Scenario: an old v1/v2-style "gtd: <label>" subject resolves to the initial state
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write a change to start a process" })
+        await agent("working", "develop the change")
+      }
+      """
     And a commit "gtd: build" that adds "NOTE.md" with:
       """
       old two-namespace boundary commit
@@ -62,8 +77,16 @@ Feature: Initial step — every unrecognized HEAD lands at the initial state
 
   Scenario: a subject naming an actor the workflow doesn't declare resolves to the initial state
     Given a test project
-    And the workflow gtd install scaffolds
-    And a commit "gtd(nobody): design.triage" that adds "NOTE.md" with:
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write a change to start a process" })
+        await agent("working", "develop the change")
+      }
+      """
+    And a commit "gtd(nobody): working" that adds "NOTE.md" with:
       """
       a plan
       """

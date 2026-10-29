@@ -4,6 +4,7 @@ import {
   ConfigDiscovery,
   ConfigService,
   multilineSetting,
+  ownFlagRefusal,
   resolveStartVars,
   StartFlags,
   type ConfigFingerprint,
@@ -110,7 +111,11 @@ export const planStart = (
     if (overrideRefusal !== undefined) return overrideRefusal
 
     const baseOf = workflow.def.base
-    const vars = resolveStartVars(workflow.vars, yield* StartFlags, varOverrides, (yield* Host).env)
+    const flags = yield* StartFlags
+    const hostEnv = (yield* Host).env
+    const badFlag = ownFlagRefusal(workflow.vars, flags, hostEnv)
+    if (badFlag !== undefined) return refusal(`${commandLabel}: ${badFlag}`)
+    const vars = resolveStartVars(workflow.vars, flags, varOverrides, hostEnv)
     const multiline = multilineSetting(vars)
     if (multiline !== undefined) {
       return refusal(

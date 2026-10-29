@@ -14,27 +14,18 @@
     // Vitest loads support files via setupFiles in vitest.config.ts — declare them
     // so fallow treats them as entry points rather than dead files.
     "tests/integration/support/**/*.{ts,mjs}",
-    // The same for the `workflows` project: the gherkin steps and each workflow's own.
+    // The same for the `workflows` project: the gherkin steps.
     "src/gherkin/index.ts",
     // A scenario names it by path for the gherkin steps to import.
     "src/gherkin/tiny.fixture.ts",
-    "src/workflows/**/*.steps.ts",
     // Vitest loads the reporter via a string path in vitest.config.ts.
     "tests/vitest.reporter.ts",
 
     // Vitest config for Stryker mutation testing — loaded by Stryker CLI, not imported.
     "vitest.stryker.config.ts",
 
-    // evals/ is a plain-.mjs promptfoo config, not imported by anything —
-    // its own files are entry points, not dead code.
-    "evals/*.mjs",
-    // Copied into each eval fixture repo as its gtd.config.ts.
-    "evals/gtd.config.ts",
     // gtd evaluates this repository's own workflows config; nothing imports it.
     "gtd.config.ts",
-    // A workflow module: the loader reads its default and named exports off
-    // the module namespace, and other workflows import its helpers.
-    "src/workflows/unified.ts",
     // The Claude Code mod: Claude Code loads it by the path hooks/hooks.json names.
     "claude/hooks/register.tsx",
     // Run by .releaserc.json's prepareCmd, which no package.json script names.
@@ -52,12 +43,15 @@
   // Same for src/ui/Server.ts's `import ... from "./client.generated.html"`: that
   // file is written by scripts/inline-web-client.mjs during `build` and is
   // gitignored, so it is absent on a fresh checkout when `analyze` runs.
-  "ignoreUnresolvedImports": ["**/main.css", "**/client.generated.html"],
+  // gtd.config.ts imports its workflows from a checkout of pmelab/gtd-workflows
+  // pinned on the developer's machine, by absolute path: absent anywhere else.
+  "ignoreUnresolvedImports": [
+    "**/main.css",
+    "**/client.generated.html",
+    "**/gtd/workflows/dist/*.mjs"
+  ],
   // jiti is a peer requirement of eslint's TypeScript config loader, not a direct import.
   // Stryker packages are CLI tools invoked via npx/scripts, not imported in TypeScript source.
-  // promptfoo is spawned as a CLI binary from evals/eval.mjs's own child_process call, never
-  // `require`d/`import`ed and never named in a package.json script fallow's own scan can see.
-  // @earendil-works/pi-coding-agent is spawned the same way from evals/run-turn.mjs.
   // react/react-dom/@tanstack/react-query/@trpc/client/@trpc/react-query are imported from
   // production `src/web/**` source but deliberately stay `devDependencies`, never
   // `dependencies` — they're inlined into `src/ui/client.generated.html` at BUILD time
@@ -71,8 +65,6 @@
     "@stryker-mutator/core",
     "@stryker-mutator/vitest-runner",
     "@stryker-mutator/typescript-checker",
-    "promptfoo",
-    "@earendil-works/pi-coding-agent",
     "react",
     "react-dom",
     "@tanstack/react-query",

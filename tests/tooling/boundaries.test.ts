@@ -345,17 +345,6 @@ describe("spec 20: the unit map", () => {
     ).toEqual(["npm-react-only-where-used: src/replay/Replay.ts -> react"])
   })
 
-  it("fails one workflow importing another", () => {
-    expect(
-      cruiseFiles({
-        "src/workflows/feature/feature.ts": `export const feature = 1\n`,
-        "src/workflows/review/review.ts": `import { feature } from "../feature/feature.js"\nvoid feature\n`,
-      }),
-    ).toEqual([
-      "workflows-import-only-flows-kit-steering,workflows-never-import-each-other: src/workflows/review/review.ts -> src/workflows/feature/feature.ts",
-    ])
-  })
-
   it("fails core importing a tool, and passes the composition root doing it", () => {
     expect(
       cruiseFiles({

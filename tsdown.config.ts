@@ -1,13 +1,13 @@
 import { defineConfig } from "tsdown"
 
-// Four configs, browser-first: the phone/web client bundles for the browser
+// Three configs, browser-first: the phone/web client bundles for the browser
 // platform, then `scripts/inline-web-client.mjs` folds its output into
 // src/ui/client.generated.html (gitignored), which the node config below imports
 // through the ".html" text loader. tsdown builds array
 // entries in PARALLEL (see its `buildWithConfigs`), so this ordering is not
 // self-enforcing — `npm run build`'s script runs `tsdown --filter web`,
-// the inline step, `tsdown --filter gtd`, `tsdown --filter workflows`, then
-// `tsdown --filter entrypoints` as separate sequential steps, using each
+// the inline step, `tsdown --filter gtd`, then `tsdown --filter entrypoints` as
+// separate sequential steps, using each
 // config's `name` to select it.
 export default defineConfig([
   {
@@ -47,23 +47,8 @@ import { createRequire as __createRequire } from 'module';
 const require = __createRequire(import.meta.url);`,
     },
     // Only its own file: `tsdown --watch` builds every config in parallel,
-    // and cleaning all of dist/ would race the `workflows` build.
+    // and cleaning all of dist/ would race the `entrypoints` build.
     clean: ["dist/gtd.bundle.mjs"],
-    deps: { alwaysBundle: [/.*/] },
-    dts: false,
-    outputOptions: { codeSplitting: false },
-  },
-  {
-    // `@pmelab/gtd/workflows`: its own entry, since the gtd bundle never
-    // imports it.
-    name: "workflows",
-    entry: { workflows: "src/workflows/index.ts" },
-    format: ["esm"],
-    platform: "node",
-    target: "node20",
-    outDir: "dist",
-    outExtensions: () => ({ js: ".mjs" }),
-    clean: ["dist/workflows.mjs"],
     deps: { alwaysBundle: [/.*/] },
     dts: false,
     outputOptions: { codeSplitting: false },
@@ -77,11 +62,6 @@ const require = __createRequire(import.meta.url);`,
       wire: "src/wire/index.ts",
       steering: "src/steering/index.ts",
       "workflow-kit": "src/workflow-kit/index.ts",
-      "workflows/feature": "src/workflows/feature/index.ts",
-      "workflows/review": "src/workflows/review/index.ts",
-      "workflows/fix": "src/workflows/fix/index.ts",
-      "workflows/rollout": "src/workflows/rollout/index.ts",
-      "workflows/cleanup": "src/workflows/cleanup/index.ts",
       testkit: "src/testkit/index.ts",
       "testkit/gherkin": "src/gherkin/index.ts",
     },
@@ -90,12 +70,7 @@ const require = __createRequire(import.meta.url);`,
     target: "node20",
     outDir: "dist",
     outExtensions: () => ({ js: ".mjs" }),
-    clean: [
-      "dist/chunks",
-      "dist/workflows",
-      "dist/testkit",
-      "dist/{flows,wire,steering,workflow-kit,testkit}.mjs",
-    ],
+    clean: ["dist/chunks", "dist/testkit", "dist/{flows,wire,steering,workflow-kit,testkit}.mjs"],
     // The test runner the gherkin steps run inside is the consumer's own: its
     // optional peers stay imports.
     deps: { alwaysBundle: (id) => !/^(vitest|quickpickle|@vitest\/)/.test(id) },

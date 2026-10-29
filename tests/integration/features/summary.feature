@@ -125,7 +125,17 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
   @inmem
   Scenario: gtd summary refuses on a fresh idle repo — nothing to summarize
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("building", "build it")
+      }
+
+      export const summary = (it) => `Closing message for ${it.entryCommit}.`
+      """
     When I run gtd with args "summary"
     Then it fails
     And stdout is empty

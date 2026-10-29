@@ -26,7 +26,7 @@ Feature: file access is declared per scope
     And stdout contains "\"read\":[\"docs/**\",\".gtd/NOTES.md\"]"
     And stdout contains "\"write\":[\"out/**\",\".gtd/NOTES.md\"]"
 
-  Scenario: an unrestricted turn carries null on both sides and an untouched prompt
+  Scenario: an unrestricted turn carries null on both sides
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -40,9 +40,6 @@ Feature: file access is declared per scope
     Then it succeeds
     And stdout contains "\"read\":null"
     And stdout contains "\"write\":null"
-    When I run gtd next
-    Then it succeeds
-    And stdout does not contain "This turn may"
 
   Scenario: write does not imply read
     Given a test project
@@ -76,24 +73,6 @@ Feature: file access is declared per scope
     When I run gtd next with "--json=access.read"
     Then it succeeds
     And stdout does not contain "null"
-
-  Scenario: the prompt names a restricted turn's globs
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { scope } from "@pmelab/gtd/flows"
-      import { agentWithSkills } from "@pmelab/gtd/workflow"
-
-      export default async () => {
-        await scope({ name: "work", access: { read: ["docs/**"], write: ["out/**"] } }, () =>
-          agentWithSkills("doing", "do the work", { file: ".gtd/NOTES.md", allowEmpty: true }),
-        )
-      }
-      """
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "- This turn may read only: docs/**, .gtd/NOTES.md"
-    And stdout contains "- This turn may write only: out/**, .gtd/NOTES.md — anything else is refused when the turn lands"
 
   Scenario: a nested scope inherits its parent's access
     Given a test project
@@ -229,9 +208,19 @@ Feature: file access is declared per scope
 
   Scenario: an access key naming no scope that runs a turn is a load error listing the known scopes
     Given a test project
-    And the workflow gtd install scaffolds
-    And the file "gtd.config.ts" ends with:
+    And a gtd config file at "gtd.config.ts" with:
       """
+      import { agent, scope } from "@pmelab/gtd/flows"
+
+      export const skills = { design: [], "build.review": [] }
+
+      export default async () => {
+        await scope("design", () => agent("triage", "design it", { allowEmpty: true }))
+        await scope("build", () =>
+          scope("review", () => agent("reviewing", "review it", { allowEmpty: true })),
+        )
+      }
+
       export const config = {
         access: {
           "no.such.scope": {
@@ -247,9 +236,19 @@ Feature: file access is declared per scope
 
   Scenario: a malformed access value is a load error
     Given a test project
-    And the workflow gtd install scaffolds
-    And the file "gtd.config.ts" ends with:
+    And a gtd config file at "gtd.config.ts" with:
       """
+      import { agent, scope } from "@pmelab/gtd/flows"
+
+      export const skills = { design: [], "build.review": [] }
+
+      export default async () => {
+        await scope("design", () => agent("triage", "design it", { allowEmpty: true }))
+        await scope("build", () =>
+          scope("review", () => agent("reviewing", "review it", { allowEmpty: true })),
+        )
+      }
+
       export const config = {
         access: {
           "build.review": {
@@ -414,115 +413,3 @@ Feature: file access is declared per scope
     When I run gtd land
     Then it fails
     And stderr contains "  - src/keep.ts"
-
-  Scenario: a bundled review lens that writes src/ is refused at landing
-    Given a test project
-    And the workflow gtd install scaffolds
-    And an environment variable "GTD_QUALITYREVIEWS" set to "owasp-security"
-    And gtd starts workflow "fix"
-    And a file ".gtd/FEEDBACK.md" with:
-      """
-      1 test failed
-      """
-    And gtd lands "gtd(check): fix-precheck → build.fix"
-    And a file "src/thing.ts" with:
-      """
-      export const thing = 1
-      """
-    And gtd lands "gtd(agent): build.fix → build.health.check"
-    Given the file ".gtd/FEEDBACK.md" is deleted
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.owasp-security.reviewing"
-    When I run gtd next with "--json=access.write"
-    Then it succeeds
-    And stdout contains ".gtd/QUALITY.md"
-    And stdout does not contain "src/"
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "- This turn may write only: .gtd/QUALITY.md — anything else is refused when the turn lands"
-    Given "src/thing.ts" is modified to:
-      """
-      export const thing = 2
-      """
-    When I run gtd land
-    Then it fails
-    And stderr contains "  - src/thing.ts"
-    And stderr contains "allowed: .gtd/QUALITY.md"
-    Given "src/thing.ts" is modified to:
-      """
-      export const thing = 1
-      """
-    When I run gtd land
-    Then it succeeds
-
-  Scenario: a feature-tail review turn answering a code thread in src/ lands with the file on the wire
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { start } from "@pmelab/gtd/flows"
-      import { afterTail, baseline, buildTail, gate } from "@pmelab/gtd/workflows"
-
-      export {
-        feature as default,
-        feature,
-        defaults,
-        envDefaults,
-        summary,
-        base,
-        steering,
-        skills,
-        access,
-      } from "@pmelab/gtd/workflows"
-
-      // review and fix as feature's own tail: a note is triaged and re-planned.
-      export async function review() {
-        await gate("review-gate", "The baseline is red.")
-        return afterTail(await buildTail(start()))
-      }
-
-      export async function fix() {
-        if (await baseline("fix-precheck")) return
-        return afterTail(await buildTail(start(), { fixFirst: true }))
-      }
-      """
-    And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And I mark the current commit as "base"
-    And a commit "feat: add calculator" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    And gtd starts workflow "review" with "--var reviewBase=base"
-    And gtd lands "gtd(check): review-gate.check → build.health.check"
-    And gtd lands "gtd(check): build.health.check → build.review.reviewing"
-    And a file ".gtd/REVIEW.md" with:
-      """
-      # Review: abc1234
-
-      <!-- base: 0000000 -->
-
-      ## calc
-
-      - [ ] ./src/calc.ts#1
-      new add function
-      """
-    And gtd lands "gtd(agent): build.review.reviewing → build.review.await-review"
-    And "src/calc.ts" is modified to:
-      """
-      // H: why not multiply?
-      export const add = (a: number, b: number) => a + b
-      """
-    And gtd lands "gtd(human): build.review.await-review → build.review.collecting"
-    When I run gtd next with "--json=access.write"
-    Then it succeeds
-    And stdout contains "src/calc.ts"
-    And stdout contains ".gtd/REQUIREMENTS.md"
-    Given "src/calc.ts" is modified to:
-      """
-      // H: why not multiply?
-      // A: this is the addition helper.
-      export const add = (a: number, b: number) => a + b
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): build.review.collecting → build.review.await-review"

@@ -9,16 +9,15 @@ Feature: skills are declared per scope
   none). A key that is not a scope running a turn is a load error listing the
   known scopes. `agent()` takes no `skills` option.
 
-  Scenario: a scope's skills ride on the wire and in the preamble
+  Scenario: a scope's skills ride on the wire
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { scope } from "@pmelab/gtd/flows"
-      import { agentWithSkills } from "@pmelab/gtd/workflow"
+      import { agent, scope } from "@pmelab/gtd/flows"
 
       export default async () => {
         await scope({ name: "work", skills: ["skill-one", "skill-two"] }, () =>
-          agentWithSkills("doing", "do the work", { allowEmpty: true }),
+          agent("doing", "do the work", { allowEmpty: true }),
         )
       }
       """
@@ -26,9 +25,6 @@ Feature: skills are declared per scope
     Then it succeeds
     And stdout contains "\"skill-one\""
     And stdout contains "\"skill-two\""
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "missing one: skill-one, skill-two"
 
   Scenario: a nested scope inherits its parent's list
     Given a test project
@@ -151,9 +147,19 @@ Feature: skills are declared per scope
 
   Scenario: an unknown key exits 1 and lists the known scopes
     Given a test project
-    And the workflow gtd install scaffolds
-    And the file "gtd.config.ts" ends with:
+    And a gtd config file at "gtd.config.ts" with:
       """
+      import { agent, scope } from "@pmelab/gtd/flows"
+
+      export const skills = { design: [], "build.review": [] }
+
+      export default async () => {
+        await scope("design", () => agent("triage", "design it", { allowEmpty: true }))
+        await scope("build", () =>
+          scope("review", () => agent("reviewing", "review it", { allowEmpty: true })),
+        )
+      }
+
       export const config = {
         skills: {
           "no.such.scope": ["whatever"],
@@ -166,7 +172,7 @@ Feature: skills are declared per scope
     And stderr contains "design"
     And stderr contains "build.review"
 
-  Scenario: an empty array empties gtd next --json's skills and drops the preamble
+  Scenario: an empty array empties gtd next --json's skills
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -186,9 +192,6 @@ Feature: skills are declared per scope
         },
       }
       """
-    When I run gtd next
-    Then it succeeds
-    And stdout does not contain "Load whatever's listed here"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout does not contain "\"skills\""
@@ -217,82 +220,86 @@ Feature: skills are declared per scope
     And stdout contains "\"my-org-skill\""
     And stdout does not contain "bundled-default"
 
-  Scenario: a build.quality.<lens> entry replaces that lens's skills only
+  Scenario: a scope key a pinned var adds stays valid after the env that set it is gone
     Given a test project
-    And the workflow gtd install scaffolds
-    And the file "gtd.config.ts" ends with:
+    And a gtd config file at "gtd.config.ts" with:
       """
+      import { agent, human, scope, vars } from "@pmelab/gtd/flows"
+
+      export const defaults = { lenses: "" }
+      export const skills = (v) => ({
+        work: [],
+        ...Object.fromEntries(
+          (v.lenses ?? "")
+            .split(",")
+            .map((l) => l.trim())
+            .filter((l) => l !== "")
+            .map((l) => [`work.${l}`, []]),
+        ),
+      })
+
+      export default async () => {
+        await human("idle", { message: "nothing to do" })
+      }
+
+      export const review = async () => {
+        for (const lens of (vars.lenses ?? "").split(",").map((l) => l.trim()).filter((l) => l !== ""))
+          await scope("work", () => scope(lens, () => agent("reviewing", "review it", { allowEmpty: true })))
+      }
+
       export const config = {
         skills: {
-          "build.quality.owasp-security": ["my-org-checklist"],
+          "work.my-lens": ["my-org-checklist"],
         },
       }
       """
-    And an environment variable "GTD_QUALITYREVIEWS" set to "owasp-security, ponytail-review"
-    And gtd starts workflow "fix"
-    And a file ".gtd/FEEDBACK.md" with:
-      """
-      1 test failed
-      """
-    And gtd lands "gtd(check): fix-precheck → build.fix"
-    And a file "src/thing.ts" with:
-      """
-      export const thing = 1
-      """
-    And gtd lands "gtd(agent): build.fix → build.health.check"
-    Given the file ".gtd/FEEDBACK.md" is deleted
-    When I run gtd land
+    And an environment variable "GTD_LENSES" set to "my-lens"
+    When I run gtd with args "--workflow review"
     Then it succeeds
-    And the last commit subject is "gtd(check): build.health.check → build.quality.owasp-security.reviewing"
-
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "missing one: my-org-checklist"
-    And stdout contains "`owasp-security`"
+    And the last commit subject is "gtd(human): work.my-lens.reviewing"
+    Given the environment variable "GTD_LENSES" is unset
     When I run gtd next with "--json=skills"
     Then it succeeds
     And stdout contains "\"my-org-checklist\""
-
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): build.quality.owasp-security.reviewing → build.quality.ponytail-review.reviewing"
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "missing one: ponytail-review"
-    And stdout does not contain "my-org-checklist"
-
-  Scenario: a lens pinned from GTD_QUALITYREVIEWS at entry stays valid after the env is gone
-    Given a test project
-    And the workflow gtd install scaffolds
-    And an environment variable "GTD_QUALITYREVIEWS" set to "my-lens"
-    And the file "gtd.config.ts" ends with:
-      """
-      export const config = {
-        skills: {
-          "build.quality.my-lens": ["my-org-checklist"],
-        },
-      }
-      """
-    And gtd starts workflow "fix"
-    And the environment variable "GTD_QUALITYREVIEWS" is unset
-    When I run gtd next
-    Then it succeeds
     And stderr does not contain "is not a scope that runs a turn"
 
-  Scenario: a lens pinned from --var at entry stays valid for the rest of the process
+  Scenario: a scope key a --var adds stays valid for the rest of the process
     Given a test project
-    And the workflow gtd install scaffolds
-    And the file "gtd.config.ts" ends with:
+    And a gtd config file at "gtd.config.ts" with:
       """
+      import { agent, human, scope, vars } from "@pmelab/gtd/flows"
+
+      export const defaults = { lenses: "" }
+      export const skills = (v) => ({
+        work: [],
+        ...Object.fromEntries(
+          (v.lenses ?? "")
+            .split(",")
+            .map((l) => l.trim())
+            .filter((l) => l !== "")
+            .map((l) => [`work.${l}`, []]),
+        ),
+      })
+
+      export default async () => {
+        await human("idle", { message: "nothing to do" })
+      }
+
+      export const review = async () => {
+        for (const lens of (vars.lenses ?? "").split(",").map((l) => l.trim()).filter((l) => l !== ""))
+          await scope("work", () => scope(lens, () => agent("reviewing", "review it", { allowEmpty: true })))
+      }
+
       export const config = {
         skills: {
-          "build.quality.my-lens": ["my-org-checklist"],
+          "work.my-lens": ["my-org-checklist"],
         },
       }
       """
-    When I run gtd with args "--workflow fix --var qualityReviews=my-lens"
+    When I run gtd with args "--workflow review --var lenses=my-lens"
     Then it succeeds
-    And the last commit subject is "gtd(human): fix-precheck"
-    When I run gtd next
+    And the last commit subject is "gtd(human): work.my-lens.reviewing"
+    When I run gtd next with "--json=skills"
     Then it succeeds
+    And stdout contains "\"my-org-checklist\""
     And stderr does not contain "is not a scope that runs a turn"

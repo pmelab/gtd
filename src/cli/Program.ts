@@ -87,7 +87,7 @@ import {
   abandonNoopOutcome,
   restoredOutcome,
 } from "../emit/index.js"
-import { CONFIG_SCAFFOLD, renderBriefing } from "../install/index.js"
+import { renderBriefing, WORKFLOWS_REPO } from "../install/index.js"
 import { ToolCommands, type SelfGtd } from "./ToolCommands.js"
 import {
   SelectorUsageError,
@@ -207,13 +207,12 @@ const runLspCommand = (): Effect.Effect<void, Error, ToolCommands> =>
 
 /**
  * Prints the briefing, emitted by the binary itself so it's always current.
- * At a repository root no `gtd.config.ts` governs yet, it also writes one
- * importing gtd's shipped workflows, left uncommitted.
- * Anywhere else it writes nothing.
+ * gtd ships no workflow, so where no `gtd.config.ts` governs it says where to
+ * get one; it writes nothing.
  */
 const runInstallCommand = (
   out: ArtifactOut,
-): Effect.Effect<void, Error, GitService | Workspace | Host | ConfigDiscovery | Narrator> =>
+): Effect.Effect<void, Error, GitService | Host | ConfigDiscovery | Narrator> =>
   Effect.gen(function* () {
     const briefing = renderBriefing()
     out.write(briefing.endsWith("\n") ? briefing : briefing + "\n")
@@ -222,9 +221,8 @@ const runInstallCommand = (
     if (topLevel._tag === "Left") return
     if ((yield* host.realPath(topLevel.right)) !== (yield* host.realPath(host.root))) return
     if ((yield* (yield* ConfigDiscovery).workflowModule(host.root, host.home)) !== undefined) return
-    yield* (yield* Workspace).write(WORKFLOW_MODULE, CONFIG_SCAFFOLD)
     yield* (yield* Narrator).warn(
-      `gtd install: wrote ${WORKFLOW_MODULE}, importing gtd's shipped workflows — commit it before your first \`gtd land\``,
+      `gtd install: no ${WORKFLOW_MODULE} governs here, and gtd ships no workflow — get one from ${WORKFLOWS_REPO} or write your own (step 2 of the briefing above)`,
     )
   })
 

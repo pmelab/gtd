@@ -72,7 +72,14 @@ Feature: An invalid workflow config fails loudly at load time, naming where
 
   Scenario: an unknown key inside a "modes:" entry fails naming both
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "start" })
+      }
+      """
     And the file "gtd.config.ts" ends with:
       """
       export const config = {
@@ -88,7 +95,14 @@ Feature: An invalid workflow config fails loudly at load time, naming where
 
   Scenario: a removed key in the config export fails with remediation naming the key and its file — unconditional, no --verbose needed
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "start" })
+      }
+      """
     And the file "gtd.config.ts" ends with:
       """
       export const config = { env: { testCommand: "npm test" } }
@@ -102,8 +116,11 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { defineConfig } from "@pmelab/gtd/flows"
-      export { feature as default } from "@pmelab/gtd/workflows"
+      import { defineConfig, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "start" })
+      }
 
       export const config = defineConfig({ vars: { greeting: "hi" } } as never)
       """
@@ -111,12 +128,12 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     Then the exit code is 1
     And stderr contains "gtd.config.ts: config.vars: is not a known key"
 
-  Scenario: a repository with no gtd.config.ts is told to run gtd install
+  Scenario: a repository with no gtd.config.ts is told gtd ships no workflow and where to look
     Given a test project
     When I run gtd next
     Then the exit code is 1
     And stderr contains "gtd config:"
-    And stderr contains "no workflows configured: no gtd.config.ts here or above — run `gtd install` to scaffold one"
+    And stderr contains "no workflows configured: no gtd.config.ts here or above — gtd ships no workflow; `gtd install` says where to get one"
 
   Scenario: an engine on another flows protocol is refused, naming which side to upgrade
     Given a test project

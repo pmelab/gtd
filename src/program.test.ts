@@ -19,11 +19,17 @@ vi.mock("./judges/index.js", () => {
 })
 
 import { runCli, ToolCommands } from "./cli/index.js"
-import { CONFIG_SCAFFOLD } from "./install/index.js"
 import { CommandRunner, GtdError, GtdUsageError } from "./platform/index.js"
 import { liveToolCommands } from "./program.js"
 import { InMemRepo, makeCapturingCliIo } from "./twins/index.js"
 import { EXIT_RUNTIME_ERROR } from "./wire/index.js"
+
+const CONFIG = `import { human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle", { message: "hi" })
+}
+`
 
 const tools = liveToolCommands.pipe(
   Layer.provide(CommandRunner.layer(() => Effect.fail(new Error("no shell in this test")))),
@@ -32,7 +38,7 @@ const tools = liveToolCommands.pipe(
 
 it("gtd next loads no ui, lsp or judge module", async () => {
   const repo = new InMemRepo()
-  repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
+  repo.writeFile("gtd.config.ts", CONFIG)
   repo.seedCommit("chore: init")
   const live = await Effect.runPromise(Effect.provide(ToolCommands, tools))
   const { io, result } = makeCapturingCliIo(repo, {}, live)

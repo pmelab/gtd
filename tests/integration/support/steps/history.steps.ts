@@ -36,26 +36,6 @@ Given(
   },
 )
 
-// A workflow's opening commit is subjected to its first step, which the
-// bundled workflows fix: the scenario names the workflow, not that step.
-const FIRST_STEP: Readonly<Record<string, string>> = {
-  fix: "fix-precheck",
-  review: "review-gate.check",
-}
-
-Given("gtd starts workflow {string}", async (world: GtdWorld, workflow: string) => {
-  await world.runGtd("--workflow", workflow)
-  expectSubject(world, `gtd(human): ${FIRST_STEP[workflow] ?? workflow}`)
-})
-
-Given(
-  "gtd starts workflow {string} with {string}",
-  async (world: GtdWorld, workflow: string, args: string) => {
-    await world.runGtd("--workflow", workflow, ...args.split(" "))
-    expectSubject(world, `gtd(human): ${FIRST_STEP[workflow] ?? workflow}`)
-  },
-)
-
 Given("gtd lands {string} judging:", async (world: GtdWorld, subject: string, verdict: string) => {
   await world.runGtdJudgeAnswerWithStdin(String(verdict))
   expectSubject(world, subject)

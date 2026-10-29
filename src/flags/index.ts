@@ -13,9 +13,7 @@ export interface FlagDeclaration {
   readonly defaultOn?: boolean
 }
 
-export const FLAGS = [
-  { name: "risk_tier", owner: "pmelab", expiry: "2027-01-15", kind: "release" },
-] as const satisfies readonly FlagDeclaration[]
+export const FLAGS = [] as const satisfies readonly FlagDeclaration[]
 
 /** A misspelt name is a compile error. */
 export type Flags<R extends readonly FlagDeclaration[] = typeof FLAGS> = {

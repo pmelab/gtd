@@ -1,50 +1,41 @@
-Feature: gtd install — the driver-building briefing and the workflows config
+Feature: gtd install — the driver-building briefing, and where to get a workflow
 
   `gtd install` prints a complete, self-contained briefing that teaches an
-  agent (or a human) to build a gtd driver in any shell or runtime. At a
-  repository root no `gtd.config.ts` governs yet, it also writes one that
-  imports gtd's shipped workflows from `@pmelab/gtd/workflows`, left
-  uncommitted like `gtd init`'s file; anywhere else it writes nothing. Its
-  `needs: "none"` (like `gtd lsp`) means it runs from any directory, in or out
-  of a repository, and takes no argument.
+  agent (or a human) to build a gtd driver in any shell or runtime. It writes
+  nothing: gtd ships no workflow, so at a repository root no `gtd.config.ts`
+  governs yet it warns on stderr where to get one. Its `needs: "none"` (like
+  `gtd lsp`) means it runs from any directory, in or out of a repository, and
+  takes no argument.
 
   @inmem
-  Scenario: at a repository root with no gtd.config.ts, it scaffolds one importing each shipped workflow from its own subpath
+  Scenario: at a repository root with no gtd.config.ts, it prints the briefing and says where to get a workflow, writing nothing
     Given a test project
     And I record the commit count
     When I run gtd with args "install"
     Then it succeeds
     And stdout contains "gtd door"
-    And stderr contains "gtd install: wrote gtd.config.ts"
-    And "gtd.config.ts" contains "feature as default,"
-    And "gtd.config.ts" does not contain "doors,"
-    And "gtd.config.ts" contains "} from \"@pmelab/gtd/workflows/feature\""
-    And "gtd.config.ts" contains "export { review } from \"@pmelab/gtd/workflows/review\""
-    And "gtd.config.ts" contains "export { fix } from \"@pmelab/gtd/workflows/fix\""
+    And stderr contains "gtd install: no gtd.config.ts governs here, and gtd ships no workflow — get one from https://github.com/pmelab/gtd-workflows or write your own (step 2 of the briefing above)"
+    And stderr does not contain "wrote gtd.config.ts"
+    And "gtd.config.ts" does not exist
     And the commit count is unchanged
+    And the git status is clean
 
   @inmem
-  Scenario: the scaffolded config runs the shipped feature workflow once committed
+  Scenario: a repository with its own gtd.config.ts is left untouched, without the warning
     Given a test project
-    And I run gtd with args "install"
-    And the working tree is committed
-    When I run gtd next
-    Then it succeeds
-    And stdout contains "State: idle"
-    And stdout contains "Workflow: feature"
-    When I run gtd with args "doors"
-    Then it succeeds
-    And stdout contains "fix → fix"
-    And stdout contains "review [base] → review"
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
 
-  @inmem
-  Scenario: a repository with its own gtd.config.ts is left untouched
-    Given a test project
-    And the workflow gtd install scaffolds
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+      }
+      """
     And I record the commit count
     When I run gtd with args "install"
     Then it succeeds
-    And stderr does not contain "wrote gtd.config.ts"
+    And stdout contains "gtd door"
+    And stderr does not contain "gtd ships no workflow"
     And the commit count is unchanged
     And the git status is clean
 
@@ -137,18 +128,18 @@ Feature: gtd install — the driver-building briefing and the workflows config
     And stdout contains every JSON key recorded as "status"
 
   @live
-  Scenario: from a repository subdirectory, it writes no gtd.config.ts anywhere
+  Scenario: from a repository subdirectory, it writes no gtd.config.ts anywhere and does not warn
     Given a subdirectory of a test project
     When I run gtd with args "install"
     Then it succeeds
-    And stderr does not contain "wrote gtd.config.ts"
+    And stderr does not contain "gtd ships no workflow"
     And "gtd.config.ts" does not exist
     And "../../gtd.config.ts" does not exist
 
   @live
-  Scenario: outside any git repository, it writes no gtd.config.ts
+  Scenario: outside any git repository, it writes no gtd.config.ts and does not warn
     Given a plain directory that is not a git repository
     When I run gtd with args "install"
     Then it succeeds
-    And stderr does not contain "wrote gtd.config.ts"
+    And stderr does not contain "gtd ships no workflow"
     And "gtd.config.ts" does not exist

@@ -3,18 +3,16 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
 
   `gtd --workflow <name>` (always authenticated as `human`) starts a process on
   the named workflow; an ordinary start runs the default. Every exported
-  function of a `gtd.config.ts` is a workflow named by its export — gtd's
-  shipped `feature`, `review` and `fix` are startable only when the config
-  exports them, as the one `gtd install` scaffolds does. The
+  function of a `gtd.config.ts` is a workflow named by its export. The
   workflow's name is recorded on the opening commit (`Gtd-Workflow:`), so every
   later command replays that workflow. Repeatable `--var <name>=<value>`
   supplies that process's fixed vars, which must already be declared by the
   workflow file's `defaults` (or its factory's options).
 
-  `review` fixes the whole process's diff base to the merge-base of `--var
-  reviewBase=<commitish>` and HEAD; the default empty string means the default
-  branch (`origin/HEAD`, else `main`). A base with nothing between it and HEAD
-  is refused. `fix` needs no `--var`.
+  A config's `base` export fixes a workflow's diff base: below, `review`'s is
+  the merge-base of `--var reviewBase=<commitish>` and HEAD; the empty string
+  means the default branch (`origin/HEAD`, else `main`). A base with nothing
+  between it and HEAD is refused. `fix` has no base and needs no `--var`.
 
   Resting at the initial state is required — a process already underway
   refuses. The working tree need not be clean: whatever it carries is CAPTURED
@@ -22,37 +20,35 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
 
   Background:
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, run, scope, start } from "@pmelab/gtd/flows"
+
+      export default async function feature() {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "develop the note")
+      }
+
+      export async function review() {
+        await scope("review-gate", () => run("check", "true"))
+        await scope("build", async () => {
+          await scope("health", () => run("check", "true"))
+          await scope("review", () => agent("reviewing", `Review everything since ${start()}.`))
+        })
+      }
+
+      export async function fix() {
+        await run("fix-precheck", "true")
+      }
+
+      export const defaults = { reviewBase: "" }
+
+      export const base = (workflow, vars) =>
+        workflow === "review" ? (vars.reviewBase ?? "") : undefined
+      """
 
   Scenario: happy path — a local branch started for review via the space-separated "--workflow" form, gated then resting at build.review.reviewing
-    Given a gtd config file at "gtd.config.ts" with:
-      """
-      import { start } from "@pmelab/gtd/flows"
-      import { gate, handOffTail } from "@pmelab/gtd/workflows"
-
-      export {
-        feature as default,
-        feature,
-        fix,
-        defaults,
-        envDefaults,
-        summary,
-        base,
-        steering,
-        skills,
-        access,
-      } from "@pmelab/gtd/workflows"
-
-      // review as fix's own tail: a reviewer turn, and a note handed to fix.
-      export async function review() {
-        await gate("review-gate", "The baseline is red.")
-        await handOffTail(false, start())
-      }
-      """
     And I mark the current commit as "base"
-    # A blank qualityReviews skips the lap review-gate now hands to — this
-    # scenario is about the entry mechanics, not about the lap.
-    And an environment variable "GTD_QUALITYREVIEWS" set to ""
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
@@ -60,9 +56,6 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     When I run gtd with args "--workflow review --var reviewBase=base"
     Then it succeeds
     And the last commit subject is "gtd(human): review-gate.check"
-    # The green-baseline gate: a clean tree (tests pass) advances into the
-    # quality lap — the review pre-judge fast path was removed. With the lap
-    # disabled here, the gate hands straight on to build.review.reviewing.
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): review-gate.check → build.health.check"
@@ -71,7 +64,7 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     And the last commit subject is "gtd(check): build.health.check → build.review.reviewing"
     When I run gtd next
     Then it succeeds
-    # The reviewing prompt NAMES the fixed base rather than inlining its diff.
+    # The reviewing prompt names the fixed base: `start()` is the review base.
     And stdout contains the hash of "base"
     And stdout does not contain "## Full diff under review"
     And stdout does not contain "diff --git"
@@ -265,10 +258,22 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     And stderr contains "no default export"
     And stderr contains "gtd install"
 
-  Scenario: a helper re-exported from the shipped module is a startable workflow
-    Given a gtd config file at "gtd.config.ts" with:
+  Scenario: a helper re-exported from another module is a startable workflow
+    Given a gtd config file at "helpers.ts" with:
       """
-      export { feature as default, unwind } from "@pmelab/gtd/workflows"
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export const feature = async () => {
+        await human("idle", { message: "go" })
+      }
+
+      export const unwind = async () => {
+        await agent("unwinding", "Unwind it.")
+      }
+      """
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      export { feature as default, unwind } from "./helpers"
       """
     When I run gtd with args "--workflow unwind"
     Then it succeeds

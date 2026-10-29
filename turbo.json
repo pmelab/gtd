@@ -17,7 +17,6 @@
         "tests/**",
         "scripts/**",
         "dev/**",
-        "evals/**",
         ".storybook/**",
         "*.ts",
         "*.mjs",
@@ -47,7 +46,7 @@
       "outputs": []
     },
     "typecheck": {
-      "inputs": ["src/**", "tests/**", "evals/**", "scripts/**", "*.ts"],
+      "inputs": ["src/**", "tests/**", "scripts/**", "*.ts"],
       "outputs": []
     },
     "analyze": {
@@ -56,7 +55,6 @@
         "tests/**",
         "scripts/**",
         "dev/**",
-        "evals/**",
         ".storybook/**",
         "*.ts",
         "*.mjs",
@@ -83,8 +81,6 @@
         "docs/**",
         "COMPATIBILITY.md",
         "README.md",
-        "SDLC.md",
-        "evals/**",
         ".dependency-cruiser.mjs",
         "claude/**",
         "package.json",

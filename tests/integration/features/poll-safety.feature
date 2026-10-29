@@ -17,18 +17,26 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
 
   Scenario: repeated reads at a resting prompt turn change nothing — session, memory, and model all stay put
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "develop the note", { model: "smart" })
+        await human("waiting", { message: "answer the open question" })
+      }
+
+      export const fix = async () => {
+        await agent("fixing", "Fix it.")
+      }
+      """
     And a file "NOTE.md" with:
       """
       a sketch
       """
 
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
+    And gtd lands "gtd(human): idle → working"
     And the git index has settled
     And I snapshot the repository
     When I run gtd next with "--json"
@@ -45,38 +53,31 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
 
   Scenario: repeated reads at a settled gate change nothing
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "develop the note", { model: "smart" })
+        await human("waiting", { message: "answer the open question" })
+      }
+
+      export const fix = async () => {
+        await agent("fixing", "Fix it.")
+      }
+      """
     And a file "NOTE.md" with:
       """
       a sketch
       """
 
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
-    And a file ".gtd/REQUIREMENTS.md" with:
+    And gtd lands "gtd(human): idle → working"
+    And a file "notes/sketch.md" with:
       """
-      Add a feature.
-
-      ## Open Questions
-
-      ### Which feature?
-
-      - [ ] Search
-      - [ ] Export
-
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
+      the developed sketch
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
+    And gtd lands "gtd(agent): working → waiting"
     And the git index has settled
     And I snapshot the repository
     When I run gtd next with "--json"
@@ -97,7 +98,20 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
 
   Scenario: negative control — the snapshot helper actually detects a real write
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "develop the note", { model: "smart" })
+        await human("waiting", { message: "answer the open question" })
+      }
+
+      export const fix = async () => {
+        await agent("fixing", "Fix it.")
+      }
+      """
     And the git index has settled
     And I snapshot the repository
     When I run gtd with args "--workflow fix"

@@ -26,7 +26,6 @@ import { EXIT_CODES, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.
 import { Host } from "../platform/index.js"
 import { type CommandRequirements } from "./Cli.js"
 import { InMemRepo, makeCapturingCliIo, testLayers } from "../twins/index.js"
-import { CONFIG_SCAFFOLD } from "../install/index.js"
 
 const FLAG_NAMES = [
   "--json",
@@ -1291,8 +1290,9 @@ export const side = async () => {
   await agent("working", "w")
 }
 
-export const defaults = { flag_risk_tier: "0" }
+export const defaults = { flag_beta: "0" }
 `
+  const BETA = { name: "beta", owner: "pmelab", expiry: "2099-01-01", kind: "release" } as const
   const start = async (
     flags?: CliIo["flags"],
     env: Record<string, string> = {},
@@ -1307,26 +1307,22 @@ export const defaults = { flag_risk_tier: "0" }
     return result().stdout
   }
 
-  it("pins flag_risk_tier=1 with the flag on", async () => {
-    expect(await start(undefined, { GTD_FLAG_RISK_TIER: "1" })).toContain("flag_risk_tier=1")
+  it("pins flag_beta=1 with the flag on", async () => {
+    expect(await start([BETA], { GTD_FLAG_BETA: "1" })).toContain("flag_beta=1")
   })
 
   it("honours defaultOn with GTD_FLAG_* unset", async () => {
-    const out = await start(
-      [
-        {
-          name: "risk_tier",
-          owner: "pmelab",
-          expiry: "2099-01-01",
-          kind: "release",
-          defaultOn: true,
-        },
-      ],
-      { GTD_FLAG_RISK_TIER: "" },
-    )
-    expect(out).toContain("flag_risk_tier=1")
+    const out = await start([{ ...BETA, defaultOn: true }], { GTD_FLAG_BETA: "" })
+    expect(out).toContain("flag_beta=1")
   })
 })
+
+const IDLE_CONFIG = `import { human } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle", { message: "hi" })
+}
+`
 
 describe("runCli — exit codes", () => {
   it("output plan: exit is never called (success) — --help and --version still exit 0", async () => {
@@ -1369,7 +1365,7 @@ describe("runCli — exit codes", () => {
   it("an unknown --json=<path> selector exits EXIT_USAGE_ERROR, not EXIT_RUNTIME_ERROR — Program.ts's SelectorUsageError mapped by report()", async () => {
     const repo = new InMemRepo()
     repo.writeFile("NOTE.md", "a note\n")
-    repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
+    repo.writeFile("gtd.config.ts", IDLE_CONFIG)
     repo.seedCommit("gtd: init")
     const { io, captured } = capturingIo(() => testLayers(repo))
     await Effect.runPromise(runCli(["node", "gtd.js", "next", "--json=does.not.exist"], io))
@@ -1534,7 +1530,7 @@ describe("runCli — flush normalizes the artifact's trailing newline", () => {
   it("a plain-text write command's script (no trailing newline) reaches io.stdout with exactly one", async () => {
     const repo = new InMemRepo()
     repo.writeFile(".gitignore", "node_modules\n")
-    repo.writeFile("gtd.config.ts", CONFIG_SCAFFOLD)
+    repo.writeFile("gtd.config.ts", IDLE_CONFIG)
     repo.seedCommit("chore: initial commit")
     const { io, captured } = capturingIo(() => testLayers(repo))
     await Effect.runPromise(runCli(["node", "gtd.js", "land"], io))

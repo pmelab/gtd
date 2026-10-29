@@ -505,9 +505,17 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     And stdout does not contain "\"file\""
     And stdout does not contain "\"mode\""
 
-  Scenario: the bundled template's idle rest carries the .gtd/TODO.md hint in gtd next --json
+  Scenario: an initial message rest carries its declared file in gtd next --json
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write .gtd/TODO.md to start a process", file: ".gtd/TODO.md" })
+        await agent("working", "do the work described in .gtd/TODO.md")
+      }
+      """
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"idle\""
@@ -546,14 +554,30 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
 
   Scenario: gtd next --json reports the per-worktree loop log path by default (gtd#169)
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+      }
+      """
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"log\":\".git/gtd-loop.log\""
 
   Scenario: gtd next --json reports GTD_LOOP_LOG verbatim when set (gtd#169)
     Given a test project
-    And the workflow gtd install scaffolds
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do the work described in NOTE.md")
+      }
+      """
     And an environment variable "GTD_LOOP_LOG" set to "/tmp/run.log"
     When I run gtd next with "--json"
     Then it succeeds

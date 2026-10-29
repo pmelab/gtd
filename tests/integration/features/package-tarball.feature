@@ -4,9 +4,8 @@ Feature: the packed package — gtd installed from its own tarball
   `npm pack` builds the tarball a release publishes, and npm installs it — the
   one package fetched — into a test project. Its companions (typescript,
   vitest, quickpickle, @types/node) are linked from this checkout. Every subpath
-  resolves with types, the installed `gtd install` scaffolds a config from the
-  per-workflow subpaths, and the driver from docs/driver.md runs the feature
-  workflow on the installed gtd with a stub agent.
+  resolves with types, and the driver from docs/driver.md runs a workflow on
+  the installed gtd with a stub agent.
 
   Background:
     Given a test project
@@ -43,16 +42,11 @@ Feature: the packed package — gtd installed from its own tarball
       import { WIRE_SCHEMA } from "@pmelab/gtd/wire"
       import { reviewNotes } from "@pmelab/gtd/steering"
       import { lensesOf } from "@pmelab/gtd/workflow-kit"
-      import shipped from "@pmelab/gtd/workflows"
-      import feature from "@pmelab/gtd/workflows/feature"
-      import review from "@pmelab/gtd/workflows/review"
-      import fix from "@pmelab/gtd/workflows/fix"
-      import { feature as legacy } from "@pmelab/gtd/workflow"
       import { InMemRepo } from "@pmelab/gtd/testkit"
 
       // @ts-expect-error each export is typed, never `any`
       export const typed: string = WIRE_SCHEMA
-      export const all = [FLOWS_PROTOCOL, reviewNotes, lensesOf, shipped, feature, review, fix, legacy, InMemRepo]
+      export const all = [FLOWS_PROTOCOL, reviewNotes, lensesOf, InMemRepo]
       """
     # `./testkit/gherkin` registers steps with the consumer's quickpickle.
     And a file "check.mjs" with:
@@ -76,17 +70,24 @@ Feature: the packed package — gtd installed from its own tarball
       node node_modules/typescript/bin/tsc -p . && node check.mjs && node node_modules/vitest/vitest.mjs run testkit.test.mjs
       """
     Then it succeeds
-    And stdout contains "imported ./flows ./wire ./steering ./workflow-kit ./workflows ./workflows/feature ./workflows/review ./workflows/fix ./workflow ./workflows/rollout ./workflows/cleanup ./testkit"
+    And stdout contains "imported ./flows ./wire ./steering ./workflow-kit ./testkit"
     And stdout contains "1 passed"
 
-  Scenario: the driver from docs/driver.md runs the feature workflow on the installed gtd
-    Given I run gtd with args "install"
-    And the working tree is committed
+  Scenario: the driver from docs/driver.md runs a workflow on the installed gtd
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human, run } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "Write .gtd/REQUIREMENTS.md for the note.")
+        await run("checking", "test -f .gtd/REQUIREMENTS.md && rm .gtd/REQUIREMENTS.md")
+      }
+      """
     And a file "NOTE.md" with:
       """
       Build a calculator.
       """
-    And an environment variable "GTD_TESTCOMMAND" set to "true"
     # No judge.json from this machine: a judge gate goes to the stub, not to
     # whatever provider the developer configured.
     And an environment variable "XDG_CONFIG_HOME" set to "/nonexistent-gtd-config"
@@ -98,16 +99,14 @@ Feature: the packed package — gtd installed from its own tarball
     And the driver pasted from docs/driver.md
     When I run the pasted script
     Then it succeeds
-    And "gtd.config.ts" contains "from \"@pmelab/gtd/workflows/feature\""
     And the commit subjects from oldest to newest are:
       """
       chore: initial commit
       chore: install @pmelab/gtd
-      chore: commit working tree
-      gtd(human): idle → unwind
-      gtd(check): unwind → start-gate.check
-      gtd(check): start-gate.check → design.triage
-      gtd(agent): design.triage → design.gate.answer
+      chore: add gtd.config.ts
+      gtd(human): idle → working
+      gtd(agent): working → checking
+      gtd(check): checking → idle
       """
 
   # gtd imports a shipped subpath once a config requires it: here only as the
@@ -133,8 +132,15 @@ Feature: the packed package — gtd installed from its own tarball
     And stdout contains "wire schema 1"
 
   Scenario: the installed gtd refuses a history in an unsupported Gtd-Format
-    Given I run gtd with args "install"
-    And the working tree is committed
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("review", "review it")
+      }
+      """
     And a file "NOTE.md" with:
       """
       Build a thing.

@@ -224,7 +224,7 @@ const recognizePatch = (repo: InMemRepo, script: string): FlowScriptResult | und
 
 type PreambleOutcome = { readonly exit: boolean; readonly output: string }
 
-/** One preamble line — the closed vocabulary the bundled workflows write there. */
+/** One preamble line — the closed vocabulary workflows write there. */
 const runPreambleLine = (repo: InMemRepo, line: string): PreambleOutcome => {
   const quoted = words(line)
   if (line === "exit 0") return { exit: true, output: "" }

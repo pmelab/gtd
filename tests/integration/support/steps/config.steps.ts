@@ -4,7 +4,6 @@ import { readFileSync, writeFileSync, mkdirSync, mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { GtdWorld } from "../world.js"
-import { CONFIG_SCAFFOLD } from "../../../../src/install/index.js"
 import { createPlainDirectory, createTestProjectWithSubdir } from "../../helpers/project-setup.js"
 
 // @live only: the in-memory tier has no directories above the repository.
@@ -75,27 +74,6 @@ Given(
     }
   },
 )
-
-// What `gtd install` leaves behind: a `gtd.config.ts` running the shipped
-// workflows. One clean commit at the default entry's first step.
-const scaffoldUnifiedWorkflow = (world: GtdWorld): void => {
-  const files = { "gtd.config.ts": CONFIG_SCAFFOLD }
-  if (world.tier === "inmem") {
-    for (const [path, content] of Object.entries(files)) world.repo!.writeFile(path, content)
-    world.repo!.seedCommit("chore: init gtd workflow")
-  } else {
-    for (const [path, content] of Object.entries(files)) {
-      writeFileSync(join(world.repoDir, path), content)
-    }
-    execFileSync("git", ["add", ...Object.keys(files)], { cwd: world.repoDir, stdio: "pipe" })
-    execFileSync("git", ["commit", "-q", "-m", "chore: init gtd workflow"], {
-      cwd: world.repoDir,
-      stdio: "pipe",
-    })
-  }
-}
-
-Given("the workflow gtd install scaffolds", (world: GtdWorld) => scaffoldUnifiedWorkflow(world))
 
 // Appends to a committed file and commits again — e.g. a `config` export below
 // the workflows an earlier step wrote.

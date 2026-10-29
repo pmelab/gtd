@@ -20,8 +20,7 @@ which no inspection can tell apart from a gate you have not read yet — so the
 driver treats its OPENING beat as yours regardless and lands it: you re-ran it
 while resting there, and that invocation IS the decision. Every later beat halts
 as usual, because a gate the driver produced mid-run is one you have not seen.
-An approval gate (`approve: true`; the shipped flow rests at none, and a
-refactor's review sign-off is not one) is the strictest case: a workflow's
+An approval gate (`approve: true`) is the strictest case: a workflow's
 `seamGate` rests at it with a `message` that is a seam report listing the strays
 the judge saw, and it asks you to land a clean tree with `gtd land` to approve,
 or `gtd abandon` to stop. Any edit makes the landing refuse with exit `1`, so
@@ -60,12 +59,7 @@ info, memory-path information, git status. A workflow author reaching for
 prompt, not a tweak on top of the harness's own. Every agent step in one
 conversation — one unbroken run of a memory scope (below) — must run with the
 same `model` and `system`: a conversation has one identity. A fresh `scope()`
-call starts a fresh conversation, free to differ. The bundled workflow ships
-five such personas — design, reviewer, builder, finisher and escalation. Each
-carries only its role paragraph; a shared block of agent conduct (tool-use
-conduct, orienting with git since there is no injected status block, and
-inspecting what the turn's own message names) is appended after it everywhere,
-so the identities differ only in role, never in how they're told to behave.
+call starts a fresh conversation, free to differ.
 
 Memory follows the step name. A step's **memory scope** is its name up to the
 last dot — the `scope()` prefixes around it — so `build.fix` and
@@ -77,14 +71,10 @@ CURRENT unbroken run inside that scope started FROM. Dipping into a
 **descendant** scope (from `build` into `build.health`) does not break the
 parent's run — an agent turn in `build.health`, then back to `build`, still
 resumes the SAME `build` conversation; entering a **sibling or unrelated** scope
-does start a fresh one. The bundled workflow's review tail is a worked example:
-it sits inside `build` (as `build.review.*`) so that a `gtd --workflow fix` run
-— `build.fix` → `build.health.check` → `build.review.*` — stays inside one
-subtree. (An actionable review round breaks the run on purpose instead: it
-leaves `build` through the root-level `re-unwind` step and a design lap, since a
-hand-edit made during review is a sketch to reconsider, not a fix to build on.)
-The same steps placed under two different prefixes (`build.health` and
-`implement.health`) gets two different scopes, so a reviewer's turn never
+does start a fresh one. A review tail placed inside `build` (as
+`build.review.*`) therefore resumes the conversation of the `build.fix` turn
+before it. The same steps placed under two different prefixes (`build.health`
+and `implement.health`) gets two different scopes, so a reviewer's turn never
 resumes an implementer's session as long as the two live in different scopes.
 
 `gtd` itself stores NOTHING to make this work: `session.id` is
@@ -273,15 +263,12 @@ falls back to the `gtd` on your `PATH`.
   check the tree, then **Continue** runs it again. A reload at a gate leaves it
   as it was.
 - `/gtd <door> [args]` starts a process through one of the doors `gtd doors`
-  lists, runs the script `gtd door` prints, then drives like `/gtd`. The bundled
-  doors are `fix` (repair a red baseline as its own reviewed commit),
-  `review [base]` (a pure review of everything since the merge-base with `base`,
-  the default branch unless named), and, only where the config exports them from
-  `@pmelab/gtd/workflows/rollout` and `@pmelab/gtd/workflows/cleanup`,
-  `rollout <flag>` (turn a release flag default-on) and `cleanup <flag>` (remove
-  it). `/gtd <verb> …` enters a door only when one by that name exists and the
-  word count fits its args; otherwise the text, bare `/gtd rollout` included,
-  starts a process as requirements.
+  lists, runs the script `gtd door` prints, then drives like `/gtd`. Which doors
+  exist is the config's: gtd-workflows' `default` brings `fix`, `review [base]`,
+  and, where the config exports them, `rollout <flag>` and `cleanup <flag>`.
+  `/gtd <verb> …` enters a door only when one by that name exists and the word
+  count fits its args; otherwise the text, bare `/gtd rollout` included, starts
+  a process as requirements.
 - `/gtd pr` reads the unresolved review threads of the branch's pull request
   (`gh api`, the first 100 threads with up to 50 comments each) and adds each to
   `.gtd/REVIEW.md` as a note headed `<path>:<line> (thread <id>)`, the comments
@@ -424,18 +411,16 @@ Every script gtd emits — `gtd land --json=script`, `gtd --workflow <name>`,
 `gtd judge answer --json=script`, and the format/validate script `gtd validate`
 prints — is POSIX `sh`, portable to `dash`: a driver may run any of them with
 any POSIX-compliant shell, not specifically bash. The same convention extends to
-the bundled workflow's `testCommand` environment setting (what its checks run
-through `sh -c`): it is expected to be POSIX sh-compatible too, but this is a
-DOCUMENTED CONVENTION only — gtd never inspects or validates `testCommand`'s
-shell dialect itself.
+a workflow's test command (gtd-workflows' `testCommand`, run through `sh -c`):
+it is expected to be POSIX sh-compatible too, but this is a DOCUMENTED
+CONVENTION only — gtd never inspects or validates its shell dialect.
 
 A `script` beat's content is the whole script, rendered from values the flow
-already decided — for the bundled workflow, its checks (which run
-`testCommand`), `unwind` and `re-unwind` (which reverse-apply patches to the
-working tree), and a few `rm`/`mv` bookkeeping steps. gtd itself runs none of
-them and writes nothing but `gtd uncheck`'s and `gtd ui`'s steering-file edits;
-what a script leaves is landed like any other check turn, by `gtd land`'s
-script, whatever its exit code.
+already decided — checks that run a test command, scripts that reverse-apply
+patches to the working tree, `rm`/`mv` bookkeeping. gtd itself runs none of them
+and writes nothing but `gtd uncheck`'s and `gtd ui`'s steering-file edits; what
+a script leaves is landed like any other check turn, by `gtd land`'s script,
+whatever its exit code.
 
 - **The required half** is everything that decides what lands in git — the
   commit itself (`gtd land`, `gtd --workflow <name>`, `gtd door`, and
@@ -703,7 +688,7 @@ while :; do
       system="$(gtd next --json=system)"
       validate="$(gtd next --json=validate)"
       log="$(gtd next --json=log)"
-      # `model` is a hint, not a model name — the bundled workflow ships
+      # `model` is a hint, not a model name — gtd-workflows' default ships
       # `smart` and `base`, which `claude --model` rejects. Resolve them
       # from your environment; unset, the hint is dropped and the agent runs
       # its own default. Any other value is a real model name.
@@ -834,17 +819,17 @@ handed to you rather than answered again.
 
 This paste passes `$system` on argv, and POSIX guarantees only 4 KB of argv
 (`ARG_MAX`) — real systems are far higher (roughly 1 MB on both macOS and
-Linux), and the bundled personas are only a few KB each, so this works
-everywhere in practice. A driver shipping much larger system prompts, or
-targeting a platform sitting at the POSIX floor, should write the string to a
-file and pass that instead: gtd's own contract ends at emitting `system` as a
-string, and how a driver hands that string to its agent CLI — argv, a temp file,
-or something else — is the driver's own call, since it alone knows its
-platform's argv limit and whether it has a writable temp directory; gtd adds no
-flag, no file, and no mechanism of its own for this. (The doc-test below only
-proves this paste parses and runs against a `claude` shim — not that the flag is
-spelled or placed correctly; that's a `claude --help` check plus one live run,
-not something the green suite can catch.)
+Linux), and a system prompt is typically a few KB, so this works everywhere in
+practice. A driver shipping much larger system prompts, or targeting a platform
+sitting at the POSIX floor, should write the string to a file and pass that
+instead: gtd's own contract ends at emitting `system` as a string, and how a
+driver hands that string to its agent CLI — argv, a temp file, or something else
+— is the driver's own call, since it alone knows its platform's argv limit and
+whether it has a writable temp directory; gtd adds no flag, no file, and no
+mechanism of its own for this. (The doc-test below only proves this paste parses
+and runs against a `claude` shim — not that the flag is spelled or placed
+correctly; that's a `claude --help` check plus one live run, not something the
+green suite can catch.)
 
 ### Judge gates: an aware driver's env var mapping
 

@@ -1,82 +1,66 @@
 @inmem
-Feature: Conversational gates — the gates always stop, threads get replies, open threads block moving on
+Feature: Conversation threads at a gate — threads get replies, open threads block moving on
 
-  The requirements gate stops on every process, even with no open question.
-  A footnote written as a `- H:` thread gets an `- A:` reply and the process
-  rests at the same gate again. A thread whose last entry is the agent's is
-  open: every landing at the gate is refused until the human replies with a
-  conclusion or deletes the thread.
+  A footnote written as a `- H:` thread waits on the agent: an agent turn
+  that leaves one is refused (`requireReplies`). A thread whose last entry is
+  the agent's waits on the human: every landing at the gate is refused
+  (`requireThreadsClosed`) until the human replies with a conclusion or
+  deletes it. A round that leaves the agent a thread to answer needs no
+  ticked open question (`hasThreadFor`); any other edit does
+  (`requireAnswers`).
 
   Background:
     Given a test project
-    And the workflow gtd install scaffolds
-    And a file "NOTE.md" with:
+    And a gtd config file at "gtd.config.ts" with:
       """
-      a sketch
+      import {
+        agent,
+        changes,
+        hasThreadFor,
+        human,
+        requireAnswers,
+        requireReplies,
+        requireThreadsClosed,
+      } from "@pmelab/gtd/flows"
+
+      const PLAN = ".gtd/PLAN.md"
+
+      export default async () => {
+        await human("idle", { message: "write .gtd/PLAN.md to start" })
+        for (;;) {
+          await agent("drafting", "Revise the plan; reply to each H: thread.", { file: PLAN, mode: "qa" })
+          requireReplies(PLAN)
+          await human("answering", {
+            message: "Review the plan.",
+            file: PLAN,
+            mode: "qa",
+            acceptClean: true,
+          })
+          requireThreadsClosed(PLAN)
+          if (changes().length === 0) break
+          if (!hasThreadFor("agent", PLAN)) requireAnswers(PLAN)
+        }
+        await human("done", { message: "plan accepted" })
+      }
       """
-
-    And gtd lands "gtd(human): idle → unwind"
-
-    And the file "NOTE.md" is deleted
-
-    And gtd lands "gtd(check): unwind → start-gate.check"
-    And gtd lands "gtd(check): start-gate.check → design.triage"
-
-  Scenario: the design gate stops with no open question, and a clean re-run accepts the plan
-    Given a file ".gtd/REQUIREMENTS.md" with:
+    And a file ".gtd/PLAN.md" with:
       """
-      ## Greeting export
+      ## Open Questions
 
-      Add a `greet()` export. No open questions.
+      ### Which style?
 
-      ## Impact
+      - [ ] plain
+      - [ ] fancy
 
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → seam.naive"
-
-  Scenario: a clean re-run at the design gate is refused while a thread is open
-    Given a file ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Greeting export
-
-      Add a `greet()` export.[^why]
-
-      [^why]:
-          - H: why a function?
-          - A: a constant cannot take a name later.
-
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    When I run gtd land
-    Then it fails
-    And stderr contains "open-threads"
-    And stderr contains ".gtd/REQUIREMENTS.md:5: [^why]"
-    And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
-
-  Scenario: a reply-only round at the design gate returns to the agent, then to the same gate
-    Given a file ".gtd/REQUIREMENTS.md" with:
-      """
       ## Greeting export
 
       Add a `greet()` export.
+      """
+    And gtd lands "gtd(human): idle → drafting"
 
+  Scenario: a clean re-run at the gate accepts the plan
+    Given ".gtd/PLAN.md" is modified to:
+      """
       ## Open Questions
 
       ### Which style?
@@ -84,24 +68,18 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       - [ ] plain
       - [ ] fancy
 
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    Given ".gtd/REQUIREMENTS.md" is modified to:
-      """
       ## Greeting export
 
-      Add a `greet()` export.[^why]
+      Add a `greet()` export. Keep it tiny.
+      """
+    And gtd lands "gtd(agent): drafting → answering"
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): answering → done"
 
-      [^why]:
-          - H: why a function?
-
+  Scenario: a clean re-run at the gate is refused while a thread waits on the human
+    Given ".gtd/PLAN.md" is modified to:
+      """
       ## Open Questions
 
       ### Which style?
@@ -109,19 +87,6 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       - [ ] plain
       - [ ] fancy
 
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → design.triage"
-    Given ".gtd/REQUIREMENTS.md" is modified to:
-      """
       ## Greeting export
 
       Add a `greet()` export.[^why]
@@ -129,7 +94,17 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       [^why]:
           - H: why a function?
           - A: a constant cannot take a name later.
+      """
+    And gtd lands "gtd(agent): drafting → answering"
+    When I run gtd land
+    Then it fails
+    And stderr contains "open-threads"
+    And stderr contains ".gtd/PLAN.md:12: [^why]"
+    And the last commit subject is "gtd(agent): drafting → answering"
 
+  Scenario: a reply-only round returns to the agent, then to the same gate
+    Given ".gtd/PLAN.md" is modified to:
+      """
       ## Open Questions
 
       ### Which style?
@@ -137,82 +112,76 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       - [ ] plain
       - [ ] fancy
 
-      ## Impact
+      ## Greeting export
 
-      - the greeting module
+      Add a `greet()` export. Keep it tiny.
+      """
+    And gtd lands "gtd(agent): drafting → answering"
+    And ".gtd/PLAN.md" is modified to:
+      """
+      ## Open Questions
 
-      ## Acceptance Criteria
+      ### Which style?
 
-      - AC-1: the change behaves as described.
+      - [ ] plain
+      - [ ] fancy
+
+      ## Greeting export
+
+      Add a `greet()` export. Keep it tiny.[^why]
+
+      [^why]:
+          - H: why a function?
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): design.triage → design.gate.answer"
+    And the last commit subject is "gtd(human): answering → drafting"
+    Given ".gtd/PLAN.md" is modified to:
+      """
+      ## Open Questions
+
+      ### Which style?
+
+      - [ ] plain
+      - [ ] fancy
+
+      ## Greeting export
+
+      Add a `greet()` export. Keep it tiny.[^why]
+
+      [^why]:
+          - H: why a function?
+          - A: a constant cannot take a name later.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): drafting → answering"
 
   Scenario: an agent turn that leaves a thread ending in "H:" is refused
-    Given a file ".gtd/REQUIREMENTS.md" with:
+    Given ".gtd/PLAN.md" is modified to:
       """
+      ## Open Questions
+
+      ### Which style?
+
+      - [ ] plain
+      - [ ] fancy
+
       ## Greeting export
 
       Add a `greet()` export.[^why]
 
       [^why]:
           - H: why a function?
-
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it fails
     And stderr contains "unanswered-threads"
-    And stderr contains ".gtd/REQUIREMENTS.md:5: [^why]"
-
-  Scenario: a notes-only round at the design gate with no open question needs no tick
-    Given a file ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Greeting export
-
-      Add a `greet()` export.
-
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    Given ".gtd/REQUIREMENTS.md" is modified to:
-      """
-      ## Greeting export
-
-      Add a `greet()` export. Keep it tiny.
-
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → design.triage"
+    And stderr contains ".gtd/PLAN.md:12: [^why]"
 
   Scenario: a round with no thread for the agent still needs every open question ticked
-    Given a file ".gtd/REQUIREMENTS.md" with:
+    Given ".gtd/PLAN.md" is modified to:
       """
-      ## Greeting export
-
-      Add a `greet()` export.
-
       ## Open Questions
 
       ### Which style?
@@ -220,21 +189,13 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       - [ ] plain
       - [ ] fancy
 
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    Given ".gtd/REQUIREMENTS.md" is modified to:
-      """
       ## Greeting export
 
       Add a `greet()` export. Keep it tiny.
-
+      """
+    And gtd lands "gtd(agent): drafting → answering"
+    And ".gtd/PLAN.md" is modified to:
+      """
       ## Open Questions
 
       ### Which style?
@@ -242,21 +203,24 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       - [ ] plain
       - [ ] fancy
 
-      ## Impact
+      ## Greeting export
 
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
+      Add a `greet()` export. Keep it small.
       """
     When I run gtd land
     Then it fails
     And stderr contains "answer-completeness"
 
   Scenario: a partial reply is refused while another thread is open
-    Given a file ".gtd/REQUIREMENTS.md" with:
+    Given ".gtd/PLAN.md" is modified to:
       """
+      ## Open Questions
+
+      ### Which style?
+
+      - [ ] plain
+      - [ ] fancy
+
       ## Greeting export
 
       Add a `greet()` export.[^a][^b]
@@ -268,18 +232,17 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       [^b]:
           - H: why exported?
           - A: callers need it.
-
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
       """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    Given ".gtd/REQUIREMENTS.md" is modified to:
+    And gtd lands "gtd(agent): drafting → answering"
+    And ".gtd/PLAN.md" is modified to:
       """
+      ## Open Questions
+
+      ### Which style?
+
+      - [ ] plain
+      - [ ] fancy
+
       ## Greeting export
 
       Add a `greet()` export.[^a][^b]
@@ -292,114 +255,8 @@ Feature: Conversational gates — the gates always stop, threads get replies, op
       [^b]:
           - H: why exported?
           - A: callers need it.
-
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
       """
     When I run gtd land
     Then it fails
     And stderr contains "[^b]"
     And stderr does not contain "[^a]"
-
-  Scenario: a code `// H:` question alone at the design gate goes to design.triage, skipping the tick requirement
-    Given a file ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Greeting export
-
-      Add a `greet()` export.
-
-      ## Open Questions
-
-      ### Which style?
-
-      - [ ] plain
-      - [ ] fancy
-
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    Given a file "src/calc.ts" with:
-      """
-      // H: why not multiply?
-      export const add = (a: number, b: number) => a + b
-      """
-    When I run gtd land
-    Then it succeeds
-    And the last commit subject is "gtd(human): design.gate.answer → design.triage"
-    Given ".gtd/REQUIREMENTS.md" is modified to:
-      """
-      ## Greeting export
-
-      Revised.
-
-      ## Open Questions
-
-      ### Which style?
-
-      - [ ] plain
-      - [ ] fancy
-
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
-      """
-    When I run gtd land
-    Then it fails
-    And stderr contains "unanswered-threads"
-    And stderr contains "src/calc.ts:1"
-
-  Scenario: an open code thread refuses landing at the design gate, naming path:line
-    Given a file ".gtd/REQUIREMENTS.md" with:
-      """
-      ## Greeting export
-
-      Add a `greet()` export.
-
-      ## Open Questions
-
-      ### Which style?
-
-      - [ ] plain
-      - [ ] fancy
-
-      ## Impact
-
-      - the greeting module
-
-      ## Acceptance Criteria
-
-      - AC-1: the change behaves as described.
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    Given a file "src/calc.ts" with:
-      """
-      // H: why not multiply?
-      export const add = (a: number, b: number) => a + b
-      """
-    And gtd lands "gtd(human): design.gate.answer → design.triage"
-    Given "src/calc.ts" is modified to:
-      """
-      // H: why not multiply?
-      // A: this is the addition helper.
-      export const add = (a: number, b: number) => a + b
-      """
-    And gtd lands "gtd(agent): design.triage → design.gate.answer"
-    When I run gtd land
-    Then it fails
-    And stderr contains "open-threads"
-    And stderr contains "src/calc.ts:1"
