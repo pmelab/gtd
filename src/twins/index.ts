@@ -1,5 +1,10 @@
 export { InMemRepo } from "./InMemRepo.js"
-export { makeInMemoryWorkspaceOps, testLayers, type ScriptedCommand } from "./Layers.js"
+export {
+  makeInMemoryWorkspaceOps,
+  testLayers,
+  type CommandTable,
+  type ScriptedCommand,
+} from "./Layers.js"
 export { makeCapturingCliIo, type CapturedCliResult } from "./cliIo.js"
 export { applyEmittedScript } from "./EmittedScriptRecognizer.js"
 export { applyFlowScript } from "./FlowScripts.js"

@@ -6,6 +6,7 @@ export {
   testRepo,
   type Actor,
   type Actors,
+  type CannedCommand,
   type DriveOptions,
   type TestRepo,
   type TestRepoOptions,

@@ -17,6 +17,7 @@ import {
   runsItsScript,
   testRepo,
   type Actor,
+  type CannedCommand,
   type TestRepo,
   type WorkflowModule,
 } from "../testkit/index.js"
@@ -31,6 +32,7 @@ export class TestkitWorld extends QuickPickleWorld {
 
   private gtdConfig: WorkflowModule | undefined = undefined
   private env: Record<string, string> = {}
+  private commands: CannedCommand[] = []
   /** Per step, what its scripted actor does, in the order the scenario declared it. */
   actions = new Map<string, Actor[]>()
   verdicts = new Map<string, string>()
@@ -54,6 +56,11 @@ export class TestkitWorld extends QuickPickleWorld {
     this.gtdConfig += `\n${tail}`
   }
 
+  command(command: CannedCommand): void {
+    if (this.created === undefined) this.commands.push(command)
+    else this.created.command(command)
+  }
+
   setEnv(name: string, value: string): void {
     this.assertNotCreated(`the environment variable ${name}`)
     this.env[name] = value
@@ -68,7 +75,11 @@ export class TestkitWorld extends QuickPickleWorld {
   repo(): TestRepo {
     if (this.gtdConfig === undefined)
       throw new Error("no gtd config: add a `gtd config` step first")
-    return (this.created ??= testRepo({ workflow: this.gtdConfig, env: this.env }))
+    return (this.created ??= testRepo({
+      workflow: this.gtdConfig,
+      env: this.env,
+      commands: this.commands,
+    }))
   }
 
   act(step: string, action: Actor): void {
@@ -135,6 +146,29 @@ Given(
     world.setEnv(name, value)
   },
 )
+
+Given("the command {string} exits {int}", (world: TestkitWorld, run: string, exit: number) => {
+  world.command({ run, exit })
+})
+
+Given(
+  "the command {string} exits {int} with:",
+  (world: TestkitWorld, run: string, exit: number, output: string) => {
+    world.command({ run, exit, output: withNewline(output) })
+  },
+)
+
+Given("a branch {string}", (world: TestkitWorld, name: string) => {
+  world.repo().branch(name)
+})
+
+Given("{string} is checked out", (world: TestkitWorld, name: string) => {
+  world.repo().checkout(name)
+})
+
+Given("the ref {string} points at HEAD", (world: TestkitWorld, name: string) => {
+  world.repo().ref(name)
+})
 
 Given("a file {string} with:", (world: TestkitWorld, path: string, content: string) => {
   world.repo().write(path, withNewline(content))
