@@ -20,7 +20,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     Given a git repository with no commits
     When I run gtd with args "ui"
     Then it fails
-    And stderr contains "gtd requires a repository with at least one commit"
+    And stderr contains "gtd: the repository has no commits yet"
 
   @live
   Scenario: gtd ui outside a git repository refuses through the repo-root guard

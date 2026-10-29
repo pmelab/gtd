@@ -16,7 +16,7 @@ Feature: gtd in a repository with no commits yet
     When I run gtd land
     Then it fails
     And the exit code is 1
-    And stderr contains "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
+    And stderr contains "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
     And the commit count is unchanged
 
   @inmem
@@ -25,7 +25,7 @@ Feature: gtd in a repository with no commits yet
     When I run gtd next
     Then it fails
     And the exit code is 1
-    And stderr contains "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
+    And stderr contains "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
 
   @inmem
   Scenario: gtd validate refuses in a repository with no commits
@@ -33,7 +33,7 @@ Feature: gtd in a repository with no commits yet
     When I run gtd with args "validate"
     Then it fails
     And the exit code is 1
-    And stderr contains "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
+    And stderr contains "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
 
   @inmem
   Scenario: gtd abandon refuses in a repository with no commits
@@ -41,7 +41,7 @@ Feature: gtd in a repository with no commits yet
     When I run gtd with args "abandon"
     Then it fails
     And the exit code is 1
-    And stderr contains "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
+    And stderr contains "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
 
   @inmem
   Scenario: gtd restore refuses in a repository with no commits
@@ -49,7 +49,7 @@ Feature: gtd in a repository with no commits yet
     When I run gtd with args "restore"
     Then it fails
     And the exit code is 1
-    And stderr contains "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
+    And stderr contains "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
 
   @inmem
   Scenario: gtd --workflow <name> refuses in a repository with no commits
@@ -57,7 +57,7 @@ Feature: gtd in a repository with no commits yet
     When I run gtd with args "--workflow review"
     Then it fails
     And the exit code is 1
-    And stderr contains "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
+    And stderr contains "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
 
   @inmem
   Scenario: gtd land --json refuses in a repository with no commits, same envelope as gtd next --json
@@ -69,5 +69,5 @@ Feature: gtd in a repository with no commits yet
     Then it fails
     And the exit code is 1
     And stdout is empty
-    And stderr contains "gtd requires a repository with at least one commit — make an initial commit, then run gtd again"
+    And stderr contains "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
     And stderr contains "\"state\":\"error\""

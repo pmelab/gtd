@@ -71,5 +71,5 @@ export const landProseText = (subject: string): string => renderFormat(FMT_LAND_
  */
 export const renderLandPlain = (fields: LandFields, command = "land"): string =>
   fields.subject !== null
-    ? `${landProseText(fields.subject).trimEnd()}\n(run \`gtd ${command} --json=script | sh\` to get the landing script)\n`
+    ? `${landProseText(fields.subject).trimEnd()}\n(to land it: s=$(gtd ${command} --json=script) && sh -c "$s")\n`
     : noopText(fields.state)

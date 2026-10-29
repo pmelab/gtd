@@ -112,7 +112,7 @@ export const emitScripts = (
 
 /** Exported so `src/twins/EmittedScriptRecognizer.ts` can recognize these by exact string comparison. `printf`, not `echo`, avoids shell-specific backslash-escape quirks. */
 export const DID_NOT_RUN_COMMENT =
-  "# gtd emitted this and did NOT run it — pipe it into `sh` to land the turn"
+  "# gtd emitted this and did NOT run it — run it with `sh` to apply it"
 
 export const PRESENTATION_ONLY_COMMENT = "# presentation only — safe to skip"
 

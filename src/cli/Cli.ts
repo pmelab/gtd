@@ -36,6 +36,7 @@ import {
 } from "./Program.js"
 import type { ToolCommands } from "./ToolCommands.js"
 import { THRESHOLDS } from "./Judges.js"
+import { closest, definition, wrap } from "./Help.js"
 import { EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 
 export type { Command, CommandRequirements } from "./Program.js"
@@ -77,8 +78,9 @@ interface FlagRow {
   readonly decode: (raws: readonly string[]) => Either.Either<unknown, string>
   readonly scopeError: string
   readonly valueHint: string
-  /** Pre-wrapped help lines (data, not generated prose) — see `renderHelp`. */
-  readonly help: readonly string[]
+  /** One sentence for a command's help, wrapped when rendered; `helpFor` overrides it for a command the flag means something else on. */
+  readonly help: string
+  readonly helpFor?: Partial<Record<Command["kind"], string>>
   /** Flag names this one may never appear alongside — checked generically after parsing (see `conflictViolation`), never as a bespoke `if`. Defaults to none. */
   readonly conflicts?: readonly string[]
 }
@@ -115,20 +117,10 @@ const FLAGS: readonly FlagRow[] = [
       "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors`/`gtd history list`/`gtd history show`/`gtd history metrics`/`gtd history judges`/`gtd strays` — " +
       "every other command prints plain text; see `gtd install` for the driver protocol briefing",
     valueHint: "<path>",
-    help: [
-      "(gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd history",
-      "list/gtd history show/gtd history metrics/gtd history judges/gtd strays only) output structured JSON. Bare --json prints the whole document;",
-      "--json=<path> (a dotted key path into that document, e.g.",
-      "kind, content, session.id) prints just that value: a",
-      "scalar raw and unquoted, a boolean as true/false, a list",
-      "one JSON entry per line — a numeric segment (e.g.",
-      "skills.0) indexes into one entry of a list field instead.",
-      "An absent optional field prints nothing and exits 0 —",
-      "including when an earlier segment of <path> is itself",
-      "absent/null (e.g. session.id at a non-prompt rest), which",
-      "never counts as unknown; an unknown path is a usage error",
-      "(exit 2).",
-    ],
+    help: "Print the JSON document, or with --json=<path> one field of it (e.g. --json=kind): a scalar bare, a list one entry per line, nothing for an absent field",
+    helpFor: {
+      strays: "Print one entry of the array (--json=0), nothing past its end",
+    },
   },
   {
     name: "--port",
@@ -143,11 +135,7 @@ const FLAGS: readonly FlagRow[] = [
     },
     scopeError: "gtd: --port is only valid for `gtd ui`",
     valueHint: "<n>",
-    help: [
-      "(gtd ui only) the tailscale serve port (default: the first",
-      "free of 8443, 10000, 443), or the bind port when --host",
-      "opts out of serve (default: a free port)",
-    ],
+    help: "The tailscale serve port (default: the first free of 8443, 10000, 443), or with --host the port to bind (default: any free one)",
   },
   {
     name: "--host",
@@ -160,11 +148,7 @@ const FLAGS: readonly FlagRow[] = [
         : Either.right(raw),
     scopeError: "gtd: --host is only valid for `gtd ui`",
     valueHint: "<addr>",
-    help: [
-      "(gtd ui only) opt out of the default tailscale serve front",
-      "door and bind this address directly instead, showing it in",
-      "the printed URL",
-    ],
+    help: "Bind this address directly instead of publishing through tailscale serve",
   },
   {
     name: "--self-signed",
@@ -174,10 +158,7 @@ const FLAGS: readonly FlagRow[] = [
     decode: () => Either.right(true),
     scopeError: "gtd: --self-signed is only valid for `gtd ui`",
     valueHint: "",
-    help: [
-      "(gtd ui only) generate a throwaway self-signed TLS",
-      "certificate instead of the configured ui.cert/ui.key",
-    ],
+    help: "Bind directly with a throwaway self-signed certificate instead of the configured ui.cert/ui.key",
   },
   {
     name: "--dev",
@@ -187,7 +168,7 @@ const FLAGS: readonly FlagRow[] = [
     decode: () => Either.right(true),
     scopeError: "gtd: --dev is only valid for `gtd ui`",
     valueHint: "",
-    help: ["(gtd ui only) run against local development sources", "instead of the packaged build"],
+    help: "Serve local development sources instead of the packaged build",
   },
   {
     name: "--provider",
@@ -200,11 +181,7 @@ const FLAGS: readonly FlagRow[] = [
         : Either.left(`gtd: --provider must be one of fixed, jev, llm — got "${raw ?? ""}"`),
     scopeError: "gtd: --provider is only valid for `gtd judge run`",
     valueHint: "<name>",
-    help: [
-      "(gtd judge run only) the answerer: fixed | jev | llm;",
-      "omitted: GTD_JUDGE_PROVIDER, then judge.json, then jev",
-      "when TYPESAFE_API_KEY is set, else llm",
-    ],
+    help: "The answerer: fixed, jev or llm (default: $GTD_JUDGE_PROVIDER, then ~/.config/gtd/judge.json, then jev when $TYPESAFE_API_KEY is set, else llm)",
   },
   {
     name: "--answers",
@@ -217,11 +194,7 @@ const FLAGS: readonly FlagRow[] = [
         : Either.right(raw),
     scopeError: "gtd: --answers is only valid for `gtd judge run`",
     valueHint: "<path>",
-    help: [
-      "(gtd judge run --provider fixed only) a JSON verdict array",
-      "[{ id, answer, p }]; else the GTD_JUDGE_ANSWERS env var",
-      "(inline JSON) is read",
-    ],
+    help: "With --provider fixed: a JSON verdict file [{ id, answer, p }] (default: $GTD_JUDGE_ANSWERS, inline JSON)",
   },
   {
     name: "--cost",
@@ -231,7 +204,7 @@ const FLAGS: readonly FlagRow[] = [
     decode: ([raw]) => nonNegativeNumber(raw ?? "", "--cost"),
     scopeError: "gtd: --cost is only valid for `gtd land` — a start is not a metered agent turn",
     valueHint: "<n>",
-    help: ["(gtd land only) record the invocation's token cost"],
+    help: "Record the token cost of the invocation that just finished on the commit",
   },
   {
     name: "--model",
@@ -244,11 +217,12 @@ const FLAGS: readonly FlagRow[] = [
         : Either.right(raw),
     scopeError: "gtd: --model is only valid for `gtd land` (with --cost) or `gtd judge run`",
     valueHint: "<name>",
-    help: [
-      "(gtd land, with --cost) tag that cost's model",
-      "(gtd judge run, llm answerer) the claude model; omitted:",
-      "GTD_JUDGE_MODEL, then judge.json, then sonnet",
-    ],
+    help: "",
+    helpFor: {
+      land: "With --cost: the model that cost was spent on",
+      judgeRun:
+        "The claude model the llm answerer uses (default: $GTD_JUDGE_MODEL, then judge.json, then sonnet)",
+    },
   },
   {
     name: "--workflow",
@@ -260,10 +234,7 @@ const FLAGS: readonly FlagRow[] = [
       "gtd: --workflow is only valid with no other command — use the bare `gtd --workflow <name>` " +
       "form; landing and starting are different verbs",
     valueHint: "<name>",
-    help: [
-      "(with no command at all) start a brand new process on",
-      "the named workflow — authenticated as human",
-    ],
+    help: "Start a new process on the named workflow",
   },
   {
     name: "--var",
@@ -308,14 +279,12 @@ const FLAGS: readonly FlagRow[] = [
     },
     scopeError: "gtd: --var requires --workflow (or `gtd history judges`)",
     valueHint: "<name>=<value>",
-    help: [
-      "(with --workflow; repeatable) pin a process setting for the",
-      "new process; the name must already be declared by the",
-      "workflow's defaults (environment settings are not",
-      "pinnable). (gtd history judges) re-decide past verdicts",
-      "under this threshold: judgeIdenticalMinP or",
-      "qualityTriageMinP",
-    ],
+    help: "",
+    helpFor: {
+      start: "Pin one of the workflow's declared settings for the new process (repeatable)",
+      historyJudges:
+        "Re-decide every past verdict under this threshold: judgeIdenticalMinP or qualityTriageMinP (repeatable)",
+    },
   },
   {
     name: "--jsonl",
@@ -325,7 +294,7 @@ const FLAGS: readonly FlagRow[] = [
     decode: () => Either.right(true),
     scopeError: "gtd: --jsonl is only valid for `gtd history judges`",
     valueHint: "",
-    help: ["(gtd history judges only) print one JSON line per verdict", "instead of the report"],
+    help: "Print one JSON line per verdict instead of the report",
     conflicts: ["--json", "--var"],
   },
   {
@@ -336,12 +305,7 @@ const FLAGS: readonly FlagRow[] = [
     decode: () => Either.right(true),
     scopeError: "gtd: --open-questions is only valid for `gtd check`",
     valueHint: "",
-    help: [
-      "(gtd check only) ignore <mode>'s structural findings and",
-      "instead run the qa open-questions predicate over <file>,",
-      "printing each unanswered question one per line and exiting",
-      "non-zero when any remain",
-    ],
+    help: "Instead of <mode>'s findings, list the unanswered questions in <file>; exits 1 when any remain",
   },
   {
     name: "--open-threads",
@@ -351,15 +315,7 @@ const FLAGS: readonly FlagRow[] = [
     decode: () => Either.right(true),
     scopeError: "gtd: --open-threads is only valid for `gtd check`",
     valueHint: "",
-    help: [
-      "(gtd check only) ignore <mode>'s structural findings and",
-      "instead list every open thread (a footnote whose last",
-      "entry is the agent's) over <file>, one per line with its",
-      "first H entry, exiting non-zero when any are open. With no",
-      "<mode>/<file>, lists code-comment threads in the files the",
-      "current process changed (read from its diff base, unlike",
-      "the rest of `gtd check`)",
-    ],
+    help: "Instead of <mode>'s findings, list the open threads in <file>; exits 1 when any are open. Alone, lists the open code-comment threads in the files the current process changed",
   },
   {
     name: "--verbose",
@@ -369,11 +325,7 @@ const FLAGS: readonly FlagRow[] = [
     decode: () => Either.right(true),
     scopeError: "gtd: --verbose is valid for every command — this error is unreachable",
     valueHint: "",
-    help: [
-      "enable stderr narration for this invocation: which rest",
-      "resolved and how config resolved across layers. Aliased",
-      "to -v",
-    ],
+    help: "Narrate on stderr what gtd resolved and where its config came from",
   },
 ]
 
@@ -409,444 +361,371 @@ type Arity =
   // Any number of positionals, none included.
   | { readonly name: string; readonly many: true }
 
+type Group = "Core loop" | "Start and stop" | "Inspect" | "Driver plumbing"
+
 interface CommandRow {
   readonly token: string
   readonly kind: Command["kind"]
   readonly arity: Arity
-  readonly details: readonly string[]
+  readonly group: Group
+  /** The top-level help's one line — short enough for its column. */
+  readonly summary: string
+  /** The command's own help: prose paragraphs, wrapped when rendered (see `wrap`). */
+  readonly details: string
 }
 
 const COMMAND_ROWS: readonly CommandRow[] = [
   {
-    token: "land",
-    kind: "land",
-    arity: "none",
-    details: [
-      "Land whatever the tree now shows at the currently resolved",
-      "rest — a human capture, an agent/check turn, or an empty",
-      "attempt (a fruitless prompt turn). Pass",
-      "--cost=<n> (optionally --model=<name>) to record the",
-      "just-finished invocation's token cost and model on the",
-      "turn commit (summed into it.processCost/",
-      "processCostByModel). Plain (the default) prints one",
-      "human-readable sentence naming the commit subject (or a",
-      "no-op note) plus a pointer to `gtd land --json=script | sh`",
-      "to get the landing script — never the script itself.",
-      "--json emits script (the actual POSIX sh",
-      "a driver runs) alongside settled, idle, state (the",
-      "post-land target), subject, cost and model. Exits 0 on",
-      "success, 1 on any refusal — see the Exit codes section",
-      "below",
-    ],
-  },
-  {
-    token: "abandon",
-    kind: "abandon",
-    arity: "none",
-    details: [
-      "End the process currently underway without completing it:",
-      "rewind HEAD to the commit the process started from,",
-      "keeping everything it produced as uncommitted changes. A",
-      "no-op when no process is underway",
-    ],
-  },
-  {
-    token: "restore",
-    kind: "restore",
-    arity: "none",
-    details: [
-      "Hard-reset HEAD back to the tip retained by the last",
-      "abandon (refs/worktree/gtd/history), bringing back an",
-      "abandoned process's turns. Refuses on a dirty working",
-      "tree, when there is no retained history, or when HEAD has",
-      "advanced past the retained tip with commits that would be",
-      "lost",
-    ],
-  },
-  {
     token: "next",
     kind: "next",
     arity: "none",
-    details: [
-      "Print the resolved rest's beat (no mutation, safe to",
-      "poll), in one of three encodings. Plain (the default): a",
-      "status summary, a blank line, then the step verbatim — at a",
-      "script/capture rest an instruction line ('Run this",
-      "script:' / 'The edit is already made — run `gtd land` to",
-      "land it.') precedes the status summary; at a prompt rest",
-      "it's the bare step (plus the self-validation instruction",
-      "when applicable) with no header at all, since those bytes",
-      "are the agent's own input. --json emits the one structured",
-      "surface gtd has: kind (capture|message|script|prompt|",
-      "stalled) selects what a driver does, content is what it",
-      "runs or shows, idle marks the workflow's initial state with",
-      "a clean tree, plus the prompt session, model, validate",
-      "script, log path, changes, next and the resting state's own",
-      "fields. --json=<path> (a dotted key path into that same",
-      "document, e.g. kind, content, session.id) prints just that",
-      "value instead of the whole document — see --json's own help",
-      "above. Exits 0 — see the Exit codes section below",
-    ],
+    group: "Core loop",
+    summary: "Print what should happen next",
+    details: `Print what should happen next in the process, changing nothing — safe to poll.
+
+Plain output is for a person: a status header (the step, who acts, the pending changes, where landing them would go), then the step's content. At a prompt the header goes to stderr, so stdout is exactly the agent's input.
+
+--json prints one JSON document for a driver: its kind (capture, message, script, prompt or stalled) says what to do, its content what to run or show. --json=<path> prints one field of it; an unknown path is a usage error (exit 2).`,
+  },
+  {
+    token: "land",
+    kind: "land",
+    arity: "none",
+    group: "Core loop",
+    summary: "Record what the tree now shows",
+    details: `Record what the working tree now shows at the current step: a person's edit, an agent's or a check's turn, or an empty attempt when an agent changed nothing.
+
+gtd writes nothing itself. Plain output names the commit it would make; --json=script prints the script that makes it:
+
+  s=$(gtd land --json=script) && sh -c "$s"
+
+--json prints the whole document: the script, the step the process lands at, the commit subject, and the recorded cost and model. A refusal exits 1.`,
   },
   {
     token: "validate",
     kind: "validate",
     arity: "none",
-    details: [
-      "Print the script that formats (when declared) then",
-      "validates the resolved rest's steering file, using its",
-      "mode's commands (its file:/mode:), instead of running it —",
-      "a driver runs the script and reads the findings from its",
-      'own exit code/output. Always exits 0; prints "nothing to',
-      'validate" when the resolved rest declares nothing to run.',
-      "On a non-zero validate exit the emitted script prints a",
-      "ready-to-send fix prompt (instruction + findings) and",
-      "exits with the validator's own code",
-    ],
-  },
-  {
-    token: "lsp",
-    kind: "lsp",
-    arity: "none",
-    details: ["Start the LSP server for .gtd/ steering files (stdio)"],
-  },
-  {
-    token: "ui",
-    kind: "ui",
-    arity: "none",
-    details: [
-      "Expose gtd's web/phone client for THIS worktree — the",
-      "invoking directory, never a configured list of roots — and",
-      "refuses outside a repository like every other state command.",
-      "By default, publishes through `tailscale serve` (reachable",
-      "from anywhere on the tailnet, including over a DERP relay)",
-      "with tailscaled terminating TLS, walking 8443, then 10000,",
-      "then 443 until one publishes; falls back to binding a local",
-      "HTTPS server directly, never refusing, when none of the",
-      "three works. --host <addr> opts out of serve and binds that",
-      "address directly instead; --port <n> overrides the serve",
-      "port (default: the first free of 8443, 10000, 443), or the",
-      "bind port when --host is given (default: a free port);",
-      "--self-signed also opts out of serve, generating a",
-      "throwaway TLS certificate instead of the configured",
-      "ui.cert/ui.key; --dev runs against local development sources",
-      "instead of the packaged build",
-    ],
-  },
-  {
-    token: "check",
-    kind: "check",
-    arity: { names: ["mode", "file"] },
-    details: [
-      "Read <file> and run the built-in steering format named",
-      "<mode> (see `gtd validate`'s modes: qa, review, findings)",
-      "over its contents, printing each finding one per line and",
-      "exiting non-zero when there are any. Resolves no workflow",
-      "state and reads no config — standalone, runnable from any",
-      "directory with <mode>/<file> given explicitly. This is what a",
-      "workflow's emitted validation script invokes as a leaf step.",
-      "--open-questions runs the qa unanswered-questions predicate",
-      "instead (see --help); --open-threads lists open threads.",
-      "`gtd check --open-threads` alone lists open code-comment",
-      "threads (`// H: ...`) in the files the process changed;",
-      "it prints nothing when no process is underway.",
-    ],
-  },
-  {
-    token: "uncheck",
-    kind: "uncheck",
-    arity: { name: "file" },
-    details: [
-      "Read <file> and reset every review-mode `- [x]`/`- [X]`",
-      "file-pointer box back to `- [ ]`, writing the result back",
-      "only when the bytes actually changed. Resolves no workflow",
-      "state and reads no config — standalone, runnable from any",
-      "directory with <file> given explicitly. This is what the",
-      "landing script runs ahead of the commit at the human review",
-      "gate, so no tick ever reaches a commit. Takes no <mode> —",
-      "it means review-mode file pointers and nothing else, never",
-      "qa-mode's answered-question boxes. A missing file writes",
-      "nothing and exits 0",
-    ],
-  },
-  {
-    token: "install",
-    kind: "install",
-    arity: "none",
-    details: [
-      "Print a complete, self-contained briefing that teaches an",
-      "agent (or a human) to build a gtd driver in any shell or",
-      "runtime — the self-serve version of",
-      "https://github.com/pmelab/gtd/blob/main/docs/driver.md's",
-      "'Writing your own driver', and how to get a workflow: gtd",
-      "ships none. It writes nothing.",
-    ],
-  },
-  {
-    token: "summary",
-    kind: "summary",
-    arity: "none",
-    details: [
-      "Print the prompt for an agent to write the process HEAD",
-      "closes or sits inside its own closing message — the entry",
-      "commit, each human-authored commit (a review round, an",
-      "answered question gate), the diff range to inspect, and",
-      "it.processCost/processCostByModel. Writes nothing: no git,",
-      "no state transition, no file, no session identity — the",
-      "driver pipes the output to a cold agent and does what it",
-      "wants with the result (a squash, an amend, a PR body).",
-      "Refuses (exit 1) when the workflow declares no summary:",
-      "template, or when the resolved run has no commits to name —",
-      "it is runnable any time before the next thing lands on the",
-      "branch",
-    ],
-  },
-  {
-    token: "base",
-    kind: "base",
-    arity: "none",
-    details: [
-      "Print the review anchor hash — the diff base an external",
-      "tool (a diff, a PR tool, another agent) should point at —",
-      "bare, newline-terminated, and nothing else. Writes nothing:",
-      "no git, no state transition, no session identity. Before",
-      "the first review round it's the process's diff base;",
-      "afterward it's the most-recent review round's boundary.",
-      "Refuses (exit 1) when no process is underway.",
-    ],
+    group: "Core loop",
+    summary: "Print the script that checks the steering file",
+    details: `Print the script that formats, then validates, the current step's steering file with its mode's commands. gtd runs nothing: the script's exit code is the verdict, and on a failure it prints a ready-to-send fix prompt. Prints "nothing to validate" when the step declares no file to check.`,
   },
   {
     token: "door",
     kind: "door",
     arity: { name: "name", variadic: "args" },
-    details: [
-      "Start a process through a named shortcut, mapping the",
-      "positional args to that workflow's process settings — the",
-      "same start `gtd --workflow` makes, printed the same way.",
-      "Each workflow the config exports brings its own doors (gtd's",
-      "`fix`, `review [base]`, `rollout <flag>` and",
-      "`cleanup <flag>`), plus the config's `doors` export. An",
-      "unknown door, or too few or too many args, is a usage error",
-      "(exit 2) naming the doors or the door's synopsis",
-    ],
+    group: "Start and stop",
+    summary: "Start a process through a named shortcut",
+    details: `Start a process through a door: a named shortcut to a workflow that maps its positional args to the workflow's settings. It prints the same start script \`gtd --workflow\` does. Each workflow the config exports brings its own doors, plus the config's \`doors\` export.
+
+With no <name>, an unknown one, or the wrong number of args, it lists the doors and exits 2.`,
   },
   {
     token: "doors",
     kind: "doors",
     arity: "none",
-    details: [
-      "List every door, sorted: one `name [args] → workflow` line",
-      "each. --json prints one JSON array of { name, workflow,",
-      "args: [{ name, optional }] } instead; --json=<path> reads one",
-      "value off it. Writes nothing",
-    ],
+    group: "Start and stop",
+    summary: "List the doors",
+    details: `List every door, sorted: one \`name [args] → workflow\` line each. --json prints a JSON array of { name, workflow, args: [{ name, optional }] }. Writes nothing.`,
   },
   {
-    token: "judge",
-    kind: "judge",
+    token: "abandon",
+    kind: "abandon",
     arity: "none",
-    details: [
-      "Print the resolved rest's pending judgment — the prepared",
-      "state, its typed questions, and their criteria — the same",
-      "judge field `gtd next --json` already carries. Read-only:",
-      "resolves no session, writes nothing. Refuses (exit 1) when",
-      "the resolved rest declares no judge:",
-    ],
+    group: "Start and stop",
+    summary: "Stop the process, keeping its changes",
+    details: `Stop the process underway without finishing it. The printed script moves HEAD back to the commit the process started from and keeps everything it produced as uncommitted changes; \`gtd restore\` undoes it. With no process underway the script does nothing.
+
+  s=$(gtd abandon) && sh -c "$s"`,
   },
   {
-    token: "judge answer",
-    kind: "judgeAnswer",
+    token: "restore",
+    kind: "restore",
     arity: "none",
-    details: [
-      "Read a verdict off stdin — one { id, answer, p } entry per",
-      "question the pending judgment declared — and decode it",
-      "against an Effect Schema built from those same question",
-      "ids. Refuses (exit 1) when the resolved rest declares no",
-      "judge:. Exits 2 (a usage error, like an unknown --json",
-      "selector) when stdin isn't valid JSON or the verdict",
-      "doesn't decode against the pending question ids.",
-    ],
+    group: "Start and stop",
+    summary: "Bring back the last abandoned process",
+    details: `Bring back the process the last \`gtd abandon\` stopped: the printed script resets HEAD to that process's last commit. Refuses on a dirty working tree, when nothing was abandoned, or when commits made since would be lost.`,
   },
   {
-    token: "judge run",
-    kind: "judgeRun",
+    token: "summary",
+    kind: "summary",
     arity: "none",
-    details: [
-      "Answer a judgment: read the `gtd judge --json` document off",
-      "stdin, write a verdict [{ id, answer, p }] on stdout — what",
-      "`gtd judge answer` decodes. --provider fixed answers from",
-      "--answers <path> or GTD_JUDGE_ANSWERS; questions the file",
-      "does not cover are left out. --provider jev asks TypeSafe",
-      "(TYPESAFE_API_KEY). --provider llm asks the `claude` CLI",
-      "on PATH (Claude Code only), model sonnet unless --model.",
-      "No --provider: GTD_JUDGE_PROVIDER, then ~/.config/gtd/",
-      "judge.json, else jev when TYPESAFE_API_KEY is set and no",
-      "model is given, else llm; --model likewise falls back to",
-      "GTD_JUDGE_MODEL, then the file's model. Needs no",
-      "repository. jev and llm exit 1 when they cannot answer",
-      "every question, with nothing on stdout",
-    ],
+    group: "Inspect",
+    summary: "Print the prompt for the closing message",
+    details: `Print the prompt for an agent to write the closing message of the process HEAD closes or sits inside: its first commit, each commit a person made, the diff range to read, and its cost. Writes nothing — what to do with the answer (a squash message, a PR body) is the driver's call.
+
+Refuses when the workflow declares no summary template, or when the process has no commits.`,
+  },
+  {
+    token: "base",
+    kind: "base",
+    arity: "none",
+    group: "Inspect",
+    summary: "Print the commit a review diff starts from",
+    details: `Print the commit a review diff should start from, bare: the process's diff base before the first review round, the latest round's boundary after it. Writes nothing; refuses when no process is underway.`,
   },
   {
     token: "strays",
     kind: "strays",
     arity: { name: "range", variadic: "glob" },
-    details: [
-      "List the files <range> (<base>..<tip>, an empty side is HEAD)",
-      "touched in its committed net diff that match none of the",
-      "globs. Anchored at the repo root: * stays within one path",
-      "segment, ** crosses them, everything else is literal — quote",
-      "globs in the shell. stdout: a sorted JSON array, [] when",
-      "clean; stderr: a summary, plus one stray: line per path with",
-      "--verbose. --json=<n> picks one entry, nothing past the end;",
-      "a symlink is a path like any other, never followed; a",
-      "submodule counts as its path, whatever diff.ignoreSubmodules",
-      "or .gitmodules ignore say. Runs in any git repository, no",
-      "process needed. Exits 10 when",
-      "strays were found, 1 on an unknown revision, 2 on a bad range",
-    ],
+    group: "Inspect",
+    summary: "List changed files outside the globs",
+    details: `List the files changed in <range> (<base>..<tip>, an empty side is HEAD) that match none of the globs. Globs are anchored at the repository root: * stays within one path segment, ** crosses them, everything else is literal — quote them in the shell.
+
+Prints a sorted JSON array ([] when clean) and a summary on stderr; --verbose adds one stray: line per path. Runs in any git repository, no process needed. Exits 10 when strays were found, 1 on an unknown revision, 2 on a bad range.`,
   },
   {
     token: "history list",
     kind: "historyList",
     arity: "none",
-    details: [
-      "List the finished processes kept behind refs/gtd/history/*,",
-      "newest first: entry, branch, tip, date and subject per line.",
-      "--json prints one array of { ref, entry, branch, tip, date,",
-      "subject }. Writes nothing and never replays; with no refs it",
-      "hints at `gtd history fetch | sh` and still exits 0",
-    ],
+    group: "Inspect",
+    summary: "List finished processes",
+    details: `List the finished processes this clone keeps, newest first: entry, branch, tip, date and subject. --json prints an array of { ref, entry, branch, tip, date, subject }. Writes nothing; with none kept it suggests \`gtd history fetch\`.`,
   },
   {
     token: "history show",
     kind: "historyShow",
     arity: { name: "ref" },
-    details: [
-      "Replay one kept process under today's config and print its",
-      "steps, judge verdicts and approvals. <ref> is a full ref, an",
-      "entry hash (or unique prefix) or a branch name. Refuses",
-      "(exit 1) when a config file differs from its content at the",
-      "ref's tip. A version mismatch only warns on stderr. --json",
-      "prints the trail as one document; writes nothing",
-    ],
+    group: "Inspect",
+    summary: "Replay one finished process",
+    details: `Replay one finished process under today's config and print its steps, judge verdicts and approvals. <ref> is a full ref, an entry hash or a unique prefix of one, or a branch name. Refuses when a config file changed since; a different gtd version only warns. --json prints the trail as one document. Writes nothing.`,
   },
   {
     token: "history metrics",
     kind: "historyMetrics",
     arity: { name: "ref", many: true },
-    details: [
-      "Report how the kept processes went: builds whose naive pass",
-      "landed or was rebuilt (the refactor-first rate), Gtd-Cost by",
-      "model and phase with the double work of a rebuild, quality-lap",
-      "findings per lens, and red checks that passed on their",
-      "re-check — per process and in total. Each <ref>",
-      "is read as by history show, but a branch name means every",
-      "process kept from it; none means every ref.",
-      "Reads commit subjects and trailers, never replays, so a",
-      "changed config is no refusal. --json prints { processes, total",
-      "} as one document; writes nothing",
-    ],
+    group: "Inspect",
+    summary: "Report cost and rework of finished processes",
+    details: `Report how finished processes went: builds that landed first time or were rebuilt, cost by model and phase, review findings per lens, and red checks that passed when re-run — per process and in total. <ref> is read as by \`gtd history show\`, but a branch name means every process kept from it; no <ref> means all of them. Never replays, so a changed config is no reason to refuse. --json prints { processes, total }. Writes nothing.`,
   },
   {
     token: "history judges",
     kind: "historyJudges",
     arity: { name: "ref", many: true },
-    details: [
-      "Calibrate the judges of the kept processes from their",
-      "recorded Gtd-Judge verdicts: per judge (retry, triage, clear)",
-      "and p bucket, how many verdicts later events overturned.",
-      "--var <name>=<value> re-decides every past verdict under",
-      "another threshold and prints what would have changed;",
-      "--jsonl prints one { process, judge, commit, step, question,",
-      "state, answer, p, outcome } line per verdict instead. <ref>",
-      "is read as by history metrics. Never replays and asks no",
-      "model. --json prints { processes, total, whatIf }; writes",
-      "nothing",
-    ],
+    group: "Inspect",
+    summary: "Calibrate the judges of finished processes",
+    details: `Calibrate the judges of finished processes from their recorded verdicts: per judge and confidence bucket, how many verdicts later events overturned. <ref> is read as by \`gtd history metrics\`. Never replays and asks no model. --json prints { processes, total, whatIf }. Writes nothing.`,
   },
   {
     token: "history fetch",
     kind: "historyFetch",
     arity: { name: "remote", optional: true },
-    details: [
-      "Print a script that fetches every refs/gtd/history/* from",
-      "<remote> (default origin) and reports how many arrived — run",
-      "it with `gtd history fetch | sh`. Never runs git itself",
-    ],
+    group: "Inspect",
+    summary: "Print a script that fetches finished processes",
+    details: `Print a script that fetches every finished process kept on <remote> (default: origin) and reports how many arrived. gtd runs no git itself:
+
+  s=$(gtd history fetch) && sh -c "$s"`,
+  },
+  {
+    token: "ui",
+    kind: "ui",
+    arity: "none",
+    group: "Inspect",
+    summary: "Serve the web and phone client",
+    details: `Serve gtd's web and phone client for this worktree. By default it publishes through \`tailscale serve\`, reachable from anywhere on the tailnet, on the first of ports 8443, 10000 and 443 that works; when none does it serves HTTPS locally instead of refusing.`,
+  },
+  {
+    token: "install",
+    kind: "install",
+    arity: "none",
+    group: "Driver plumbing",
+    summary: "Print a briefing for writing a driver",
+    details: `Print a self-contained briefing that teaches an agent or a person to build a gtd driver in any shell or runtime, and where to get a workflow — gtd ships none. Writes nothing.`,
+  },
+  {
+    token: "judge",
+    kind: "judge",
+    arity: "none",
+    group: "Driver plumbing",
+    summary: "Print the pending judgment",
+    details: `Print the current step's pending judgment: the prepared state, its questions and their criteria — the judge field \`gtd next --json\` carries. Writes nothing; refuses when the step declares no judge.`,
+  },
+  {
+    token: "judge answer",
+    kind: "judgeAnswer",
+    arity: "none",
+    group: "Driver plumbing",
+    summary: "Land a verdict read from stdin",
+    details: `Read a verdict from stdin — one { id, answer, p } entry per pending question — and land it the way \`gtd land\` does: plain output names the commit, --json=script prints the script. Refuses when the step declares no judge; a verdict that is not JSON, or names a question that was not asked, is a usage error (exit 2).`,
+  },
+  {
+    token: "judge run",
+    kind: "judgeRun",
+    arity: "none",
+    group: "Driver plumbing",
+    summary: "Answer a judgment with a model",
+    details: `Answer a judgment: read the \`gtd judge --json\` document from stdin and print the verdict [{ id, answer, p }] \`gtd judge answer\` reads. Needs no repository.
+
+The fixed answerer reads --answers and leaves out the questions it does not cover; jev asks TypeSafe ($TYPESAFE_API_KEY); llm asks the \`claude\` CLI on PATH. jev and llm exit 1, printing nothing, when they cannot answer every question.`,
+  },
+  {
+    token: "check",
+    kind: "check",
+    arity: { names: ["mode", "file"] },
+    group: "Driver plumbing",
+    summary: "Check a steering file's format",
+    details: `Run the steering format <mode> (qa, review or findings) over <file> and print each finding on a line of its own; exits 1 when there are any. Reads no workflow and runs from any directory — emitted validation scripts call it.`,
+  },
+  {
+    token: "uncheck",
+    kind: "uncheck",
+    arity: { name: "file" },
+    group: "Driver plumbing",
+    summary: "Untick a review file's boxes",
+    details: `Reset every ticked review box (- [x]) in <file> to - [ ], writing the file only when it changes; a missing file writes nothing. Reads no workflow and runs from any directory — the landing script at a review gate calls it, so no tick is ever committed.`,
+  },
+  {
+    token: "lsp",
+    kind: "lsp",
+    arity: "none",
+    group: "Driver plumbing",
+    summary: "Start the steering-file language server",
+    details: `Start the language server for .gtd/ steering files on stdio.`,
   },
 ]
 
 const commandByToken = (token: string): CommandRow | undefined =>
   COMMAND_ROWS.find((r) => r.token === token)
 
+/** Every word that may follow `gtd`, for "did you mean". */
+const COMMAND_WORDS: readonly string[] = [
+  ...new Set([...COMMAND_ROWS.map((r) => r.token.split(" ")[0]!), "help", "version"]),
+]
+
 // ---------------------------------------------------------------------------
 // Help rendering
 // ---------------------------------------------------------------------------
 
-const COLUMN = 19
+const TOP_COLUMN = 28
+const OPTION_COLUMN = 22
 
-const renderBlock = (header: string, lines: readonly string[]): string => {
-  const [first, ...rest] = lines
-  const headerCell = `  ${header}`
-  const headerLine =
-    headerCell.length < COLUMN
-      ? `${headerCell.padEnd(COLUMN)}${first ?? ""}\n`
-      : `${headerCell}\n${" ".repeat(COLUMN)}${first ?? ""}\n`
-  return headerLine + rest.map((l) => `${" ".repeat(COLUMN)}${l}\n`).join("")
+const synopsis = (row: CommandRow): string => {
+  const { token, arity } = row
+  if (arity === "none") return token
+  if ("names" in arity) return `${token} <${arity.names[0]}> <${arity.names[1]}>`
+  if ("variadic" in arity) return `${token} <${arity.name}> [${arity.variadic}...]`
+  if ("optional" in arity) return `${token} [${arity.name}]`
+  if ("many" in arity) return `${token} [${arity.name}...]`
+  return `${token} <${arity.name}>`
 }
-
-const START_SHORT_FORM = renderBlock("(no command) --workflow <name>", [
-  "Starts a new process authenticated as human, e.g.",
-  "'gtd --workflow <name>'",
-])
-
-const VERSION_BLOCK = renderBlock("version", ["Print version and exit"])
-const HELP_BLOCK = renderBlock("help", ["Print this help and exit"])
 
 const SPACE_FORM_FLAGS = new Set(["--workflow", "--var"])
 
 const flagHeader = (row: FlagRow): string => {
   if (row.valueHint === "") return row.name
+  if (row.arity === "optional") return `${row.name}[=${row.valueHint}]`
   return SPACE_FORM_FLAGS.has(row.name)
     ? `${row.name} ${row.valueHint}`
     : `${row.name}=${row.valueHint}`
 }
 
+const START_ROW = {
+  term: "--workflow <name>",
+  summary: "Start a process on a workflow; --var <name>=<value> pins one of its settings",
+}
+
+const GLOBAL_OPTIONS: readonly (readonly [string, string])[] = [
+  ["-v, --verbose", "Narrate on stderr what gtd resolved"],
+  ["-h, --help", "Print help; gtd <command> --help for one command"],
+  ["-V, --version", "Print the version"],
+]
+
+const EXTRA_TOPICS: readonly (readonly [string, string, string])[] = [
+  [
+    "help [command]",
+    "Print help for gtd or one command",
+    "Print gtd's overview, or with <command> that command's own help.",
+  ],
+  ["version", "Print the version", "Print gtd's version."],
+]
+
+const EXAMPLES = `  $ gtd --workflow <name>                       start a process
+  $ gtd next                                    see what happens next
+  $ s=$(gtd land --json=script) && sh -c "$s"   land the turn
+  $ gtd help land                               one command's details`
+
+const lines = (block: readonly string[]): string => block.map((l) => `${l}\n`).join("")
+
+const GROUPS: readonly Group[] = ["Core loop", "Start and stop", "Inspect", "Driver plumbing"]
+
 export const renderHelp = (): string => {
-  const commandBlocks = COMMAND_ROWS.map((row) => {
-    const header =
-      row.arity === "none"
-        ? row.token
-        : "names" in row.arity
-          ? `${row.token} <${row.arity.names[0]}> <${row.arity.names[1]}>`
-          : "variadic" in row.arity
-            ? `${row.token} <${row.arity.name}> [${row.arity.variadic}...]`
-            : "optional" in row.arity
-              ? `${row.token} [${row.arity.name}]`
-              : "many" in row.arity
-                ? `${row.token} [${row.arity.name}...]`
-                : `${row.token} <${row.arity.name}>`
-    return renderBlock(header, row.details)
+  const groups = GROUPS.map((group) => {
+    const rows = COMMAND_ROWS.filter((r) => r.group === group).flatMap((r) =>
+      definition(synopsis(r), r.summary, TOP_COLUMN),
+    )
+    const start =
+      group === "Start and stop" ? definition(START_ROW.term, START_ROW.summary, TOP_COLUMN) : []
+    const extra =
+      group === "Driver plumbing"
+        ? EXTRA_TOPICS.flatMap(([term, summary]) => definition(term, summary, TOP_COLUMN))
+        : []
+    return `${group}:\n${lines([...start, ...rows, ...extra])}`
   })
-  const commands = [
-    commandBlocks[0], // land
-    START_SHORT_FORM,
-    ...commandBlocks.slice(1), // abandon..base
-    VERSION_BLOCK,
-    HELP_BLOCK,
-  ].join("")
-
-  const options = FLAGS.map((row) => renderBlock(flagHeader(row), row.help)).join("")
-  const versionHelpOptions =
-    renderBlock("--version, -V", ["Print version and exit"]) +
-    renderBlock("--help, -h", ["Print this help and exit"])
-
   return (
-    `Usage: gtd [command] [options]\n\n` +
-    `Commands:\n${commands}\n` +
-    `Options:\n${options}${versionHelpOptions}`
+    "Usage: gtd <command> [options]\n\n" +
+    lines(
+      wrap(
+        "gtd reads a repository's git state and prints what should happen next in its workflow. It never acts on it: a driver, or you, runs what it prints.",
+      ),
+    ) +
+    "\n" +
+    groups.join("\n") +
+    "\nOptions:\n" +
+    lines(GLOBAL_OPTIONS.flatMap(([term, text]) => definition(term, text, TOP_COLUMN))) +
+    `\nExamples:\n${EXAMPLES}\n\n` +
+    lines(
+      wrap(
+        "Run `gtd help <command>` for a command's details and options, and `gtd install` to learn how to drive gtd.",
+      ),
+    )
   )
+}
+
+/** Shown on stderr above a bare `gtd`'s usage error — the overview stays one `gtd help` away. */
+const SHORT_USAGE = `Usage: gtd <command> [options]
+
+  gtd --workflow <name>   start a process
+  gtd next                print what should happen next
+  gtd land                record what the tree now shows
+
+`
+
+const renderCommandHelp = (row: CommandRow): string => {
+  const options = FLAGS.filter((f) => f.name !== "--verbose" && f.scope(row.kind)).flatMap((f) =>
+    definition(flagHeader(f), f.helpFor?.[row.kind] ?? f.help, OPTION_COLUMN),
+  )
+  const global = definition("-v, --verbose", "Narrate on stderr what gtd resolved", OPTION_COLUMN)
+  return (
+    `Usage: gtd ${synopsis(row)}${options.length > 0 ? " [options]" : ""}\n\n` +
+    lines(wrap(row.details)) +
+    `\nOptions:\n${lines([...options, ...global])}`
+  )
+}
+
+/** `gtd help <topic…>`'s text: one command's help, every `history` subcommand's for `history`, or undefined for an unknown topic. */
+const renderTopicHelp = (topic: readonly string[]): string | undefined => {
+  const two = commandByToken(topic.slice(0, 2).join(" "))
+  if (two !== undefined && topic.length >= 2) return renderCommandHelp(two)
+  const [first = ""] = topic
+  const one = commandByToken(first)
+  if (one !== undefined) return renderCommandHelp(one)
+  const extra = EXTRA_TOPICS.find(([term]) => term.split(" ")[0] === first)
+  if (extra !== undefined) return `Usage: gtd ${extra[0]}\n\n${lines(wrap(extra[2]))}`
+  const family = COMMAND_ROWS.filter((r) => r.token.startsWith(`${first} `))
+  if (first !== "" && family.length > 0) return family.map(renderCommandHelp).join("\n")
+  return undefined
+}
+
+/** A usage error's tail: the nearest candidate when `word` looks like a typo of one, and where the full list is. */
+const didYouMean = (
+  word: string,
+  candidates: readonly string[],
+  prefix = "",
+  pointer = "`gtd help` for every command",
+): string => {
+  const guess = closest(word, candidates)
+  return guess === undefined
+    ? ` — run ${pointer}`
+    : ` — did you mean \`${prefix}${guess}\`? Run ${pointer}`
 }
 
 // ---------------------------------------------------------------------------
@@ -865,6 +744,17 @@ interface TokenizeOk {
   readonly byFlag: ReadonlyMap<string, readonly string[]>
   readonly present: ReadonlySet<string>
   readonly jsonSeen: boolean
+  /** The positional right after a bare `--json` — most likely a path meant as `--json=<path>`. */
+  readonly afterBareJson?: string
+}
+
+const unknownOption = (tok: string, jsonSeen: boolean): TokenizeError => {
+  const candidates = tok.startsWith("--") ? FLAGS.map((f) => f.name) : []
+  return {
+    kind: "error",
+    message: `gtd: unknown option '${tok}'${didYouMean(tok.split("=")[0]!, candidates, "", "`gtd help <command>` for its options")}`,
+    jsonSeen,
+  }
 }
 
 // fallow-ignore-next-line complexity
@@ -873,35 +763,25 @@ const tokenize = (tail: readonly string[]): TokenizeError | TokenizeOk => {
   const byFlag = new Map<string, string[]>()
   const present = new Set<string>()
   let jsonSeen = false
+  let afterBareJson: string | undefined
 
   for (let i = 0; i < tail.length; i++) {
     const original = tail[i]!
     const tok = SINGLE_DASH_ALIASES.get(original) ?? original
-    if (!tok.startsWith("--")) {
+    if (!tok.startsWith("-") || tok === "-") {
+      if (tail[i - 1] === "--json") afterBareJson ??= original
       positionals.push(original)
       continue
     }
-    const row = flagByToken(tok)
-    if (row === undefined) {
-      return {
-        kind: "error",
-        message: `gtd: unknown option '${tok}' — see \`gtd --help\``,
-        jsonSeen,
-      }
-    }
+    const row = tok.startsWith("--") ? flagByToken(tok) : undefined
+    if (row === undefined) return unknownOption(tok, jsonSeen)
     const eq = tok.indexOf("=")
     const alreadyPresent = present.has(row.name)
     present.add(row.name)
     if (row.name === "--json") jsonSeen = true
 
     if (row.arity === 0) {
-      if (eq !== -1) {
-        return {
-          kind: "error",
-          message: `gtd: unknown option '${tok}' — see \`gtd --help\``,
-          jsonSeen,
-        }
-      }
+      if (eq !== -1) return unknownOption(tok, jsonSeen)
       if (!byFlag.has(row.name)) byFlag.set(row.name, [])
       continue
     }
@@ -959,7 +839,14 @@ const tokenize = (tail: readonly string[]): TokenizeError | TokenizeOk => {
     byFlag.set(row.name, [...existing, raw])
   }
 
-  return { kind: "ok", positionals, byFlag, present, jsonSeen }
+  return {
+    kind: "ok",
+    positionals,
+    byFlag,
+    present,
+    jsonSeen,
+    ...(afterBareJson !== undefined ? { afterBareJson } : {}),
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -1054,24 +941,43 @@ const buildLandCommand = (bag: {
   ...(bag["--model"] !== undefined ? { model: bag["--model"] } : {}),
 })
 
+const HELP_FLAGS = new Set(["--help", "-h"])
+
+/** `--help`/`-h` anywhere: the named command's own help, else the overview — never a usage error, so a typo'd command still gets help. */
+const helpPlan = (argv: readonly string[]): CliPlan => {
+  const tokenized = tokenize(argv.slice(2).filter((tok) => !HELP_FLAGS.has(tok)))
+  const topic = tokenized.kind === "ok" ? tokenized.positionals : []
+  return { kind: "output", stdout: renderTopicHelp(topic) ?? renderHelp() }
+}
+
+/** `gtd help [topic…]`: an unknown topic is a usage error naming the nearest command. */
+const helpCommandPlan = (topic: readonly string[], json: boolean): CliPlan => {
+  if (topic.length === 0) return { kind: "output", stdout: renderHelp() }
+  const text = renderTopicHelp(topic)
+  if (text !== undefined) return { kind: "output", stdout: text }
+  return usagePlan(
+    `gtd: help: no command '${topic.join(" ")}'${didYouMean(topic[0]!, COMMAND_WORDS, "gtd help ")}`,
+    json,
+  )
+}
+
 // fallow-ignore-next-line complexity
 export const parseArgv = (argv: readonly string[]): CliPlan => {
-  if (argv.includes("--help") || argv.includes("-h"))
-    return { kind: "output", stdout: renderHelp() }
+  if (argv.some((tok) => HELP_FLAGS.has(tok))) return helpPlan(argv)
   if (argv.includes("--version") || argv.includes("-V")) {
     return { kind: "output", stdout: `${GTD_VERSION}\n` }
   }
 
   const tokenized = tokenize(argv.slice(2))
   if (tokenized.kind === "error") return usagePlan(tokenized.message, tokenized.jsonSeen)
-  const { positionals, byFlag, present, jsonSeen } = tokenized
+  const { positionals, byFlag, present, jsonSeen, afterBareJson } = tokenized
 
   const first = positionals[0]
   const workflowRaw = byFlag.get("--workflow")?.[0]
   const workflowPresent = workflowRaw !== undefined
 
   if (first === "version") return { kind: "output", stdout: `${GTD_VERSION}\n` }
-  if (first === "help") return { kind: "output", stdout: renderHelp() }
+  if (first === "help") return helpCommandPlan(positionals.slice(1), jsonSeen)
 
   const isHistory = first === "history"
   const row =
@@ -1080,8 +986,14 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       : commandByToken(isHistory ? `history ${positionals[1] ?? ""}` : first)
 
   if (isHistory && row === undefined) {
+    const subcommands = COMMAND_ROWS.filter((r) => r.token.startsWith("history ")).map(
+      (r) => r.token.split(" ")[1]!,
+    )
+    const typo = closest(positionals[1] ?? "", subcommands)
     return usagePlan(
-      "gtd history: expected a subcommand — list, show <ref>, metrics [ref...], judges [ref...] or fetch [remote]",
+      typo !== undefined
+        ? `gtd history: unknown subcommand '${positionals[1]}' — did you mean \`gtd history ${typo}\`?`
+        : "gtd history: expected a subcommand — list, show <ref>, metrics [ref...], judges [ref...] or fetch [remote]",
       jsonSeen,
     )
   }
@@ -1090,7 +1002,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   // "answer" arriving as `positionals[1]`, a second token after "judge" —
   // detected below via `judgeAnswer`, not through a second dispatchable
   // `COMMAND_ROWS` row: the `"judge answer"`-tokened row above exists for
-  // `renderHelp()`'s two-line entry. It CAN also be matched by
+  // its help. It CAN also be matched by
   // `commandByToken` directly, but only if a caller passes the single
   // (space-containing) argv token `"judge answer"` — an unusual shell quoting
   // choice, not the normal two-argv-token invocation `gtd judge answer` — and
@@ -1124,16 +1036,15 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     if (violation !== undefined) return usagePlan(violation, jsonSeen)
     if (first === undefined) {
       return usagePlan(
-        "gtd: missing command — gtd decides and prints, a driver executes; " +
-          "run `gtd install`, or copy one from " +
-          "https://github.com/pmelab/gtd/blob/main/docs/driver.md's " +
-          '"A complete minimal driver" section and run that, or see usage ' +
-          "above (`gtd --help`)",
+        "gtd: missing command — run `gtd help` for every command, or `gtd install` to learn how to drive gtd",
         jsonSeen,
-        renderHelp(),
+        SHORT_USAGE,
       )
     }
-    return usagePlan(`unknown command '${first}'`, jsonSeen)
+    return usagePlan(
+      `gtd: unknown command '${first}'${didYouMean(first, COMMAND_WORDS, "gtd ")}`,
+      jsonSeen,
+    )
   }
 
   // From here, `kind` is a genuine `Command["kind"]`. `judgeAnswer` consumes
@@ -1153,12 +1064,20 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   } else {
     // `kind === "start"` is unreachable here: `selectsStart` only fires when
     // `first === undefined`, which the `if` branch above already handled.
-    const bareCheck =
-      kind === "check" && restPositionals.length === 0 && present.has("--open-threads")
-    const arityMsg = bareCheck
+    // A bare `gtd door` lists the doors — which only the loaded config knows.
+    const bare =
+      (kind === "check" && restPositionals.length === 0 && present.has("--open-threads")) ||
+      (kind === "door" && restPositionals.length === 0)
+    const arityMsg = bare
       ? undefined
       : arityError(isHistory ? row!.token : first!, restPositionals, row!.arity)
-    if (arityMsg !== undefined) return usagePlan(arityMsg, jsonSeen)
+    if (arityMsg !== undefined) {
+      const hint =
+        afterBareJson !== undefined && restPositionals.includes(afterBareJson)
+          ? ` — to print one field, write --json=${afterBareJson}`
+          : ""
+      return usagePlan(arityMsg + hint, jsonSeen)
+    }
   }
 
   const violation = scopeViolation(kind, present)
@@ -1224,7 +1143,11 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   if (kind === "door") {
     return {
       kind: "command",
-      command: { kind: "door", name: restPositionals[0]!, args: restPositionals.slice(1) },
+      command: {
+        kind: "door",
+        ...(restPositionals[0] !== undefined ? { name: restPositionals[0] } : {}),
+        args: restPositionals.slice(1),
+      },
       json,
       verbose,
     }
@@ -1539,7 +1462,7 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
 
   if (plan.kind === "usage") {
     return Effect.sync(() => {
-      // The rendered help text (missing-command only) and the `--json`
+      // The short usage (missing-command only) and the `--json`
       // envelope both move to stderr — stdout stays byte-empty on a usage
       // error exactly like every other failure surface.
       if (plan.stdout.length > 0) io.stderr(plan.stdout)

@@ -52,7 +52,9 @@ export const defineWorkflow = <S extends StandardSchemaV1>(
     // A factory call used to be a flow; awaiting one in a composed flow must fail, not no-op.
     // oxlint-disable-next-line unicorn/no-thenable -- awaiting a call must fail
     then: () => {
-      throw new Error("a configured workflow is not a flow — compose fixFlow/reviewFlow instead")
+      throw new Error(
+        "a configured workflow is not a flow — await the flow functions it is built from instead",
+      )
     },
   })
   return Object.assign(factory, { [FACTORY]: internals }) as never

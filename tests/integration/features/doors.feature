@@ -232,11 +232,6 @@ Feature: doors — named shortcuts that start a workflow with positional args
     Then the exit code is 2
     And stderr contains "missing arguments — usage: gtd door patch <ticket>"
 
-  Scenario: gtd door with no name is a usage error
-    When I run gtd with args "door"
-    Then the exit code is 2
-    And stderr contains "gtd door: missing name argument"
-
   Scenario: a door naming an unknown workflow is a config error
     Given a gtd config file at "gtd.config.ts" with:
       """
@@ -461,3 +456,23 @@ Feature: doors — named shortcuts that start a workflow with positional args
     And stderr contains "door \"review\" is built by workflows \"reviewA\" and \"reviewB\""
     And stderr contains "declare it in the \"doors\" export"
     And stdout contains "fix → fix"
+
+  Scenario: gtd door with no name lists the doors
+    When I run gtd with args "door"
+    Then the exit code is 2
+    And stdout is empty
+    And stderr contains "gtd door: missing door name — doors: fix, review [base]"
+
+  Scenario: gtd doors with no doors says so on stderr
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+      }
+      """
+    When I run gtd with args "doors"
+    Then it succeeds
+    And stdout is empty
+    And stderr contains "gtd doors: this config has no doors"

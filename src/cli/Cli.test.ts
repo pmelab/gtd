@@ -71,7 +71,8 @@ describe("parseArgv — unknown options", () => {
     expect(plan).toEqual({
       kind: "usage",
       stdout: "",
-      message: "gtd: unknown option '--jsn' — see `gtd --help`",
+      message:
+        "gtd: unknown option '--jsn' — did you mean `--json`? Run `gtd help <command>` for its options",
       json: false,
     })
   })
@@ -369,15 +370,50 @@ describe("parseArgv — bare/unknown command under --json", () => {
     }
   })
 
-  it("bare gtd's missing-command message (no --json) points at gtd install, not a bundled loop", () => {
+  it("bare gtd prints a short usage, not the overview, and points at gtd help and gtd install", () => {
     const plan = parseArgv(["node", "gtd.js"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") {
       expect(plan.message).toContain("missing command")
-      expect(plan.message).toContain("gtd decides and prints")
+      expect(plan.message).toContain("`gtd help`")
       expect(plan.message).toContain("gtd install")
-      expect(plan.message).toContain("A complete minimal driver")
+      expect(plan.stdout).toMatch(/^Usage: gtd <command>/)
+      expect(plan.stdout.split("\n").length).toBeLessThan(10)
     }
+  })
+
+  it("an unknown command that looks like a typo names the nearest command", () => {
+    expect(parseArgv(["node", "gtd.js", "nxt"])).toEqual({
+      kind: "usage",
+      stdout: "",
+      message:
+        "gtd: unknown command 'nxt' — did you mean `gtd next`? Run `gtd help` for every command",
+      json: false,
+    })
+  })
+
+  it("an unknown command nothing resembles points at gtd help only", () => {
+    const plan = parseArgv(["node", "gtd.js", "frobnicate"])
+    expect(plan.kind === "usage" && plan.message).toBe(
+      "gtd: unknown command 'frobnicate' — run `gtd help` for every command",
+    )
+  })
+
+  it("a mistyped history subcommand names the nearest one", () => {
+    const plan = parseArgv(["node", "gtd.js", "history", "shwo"])
+    expect(plan.kind === "usage" && plan.message).toContain("did you mean `gtd history show`?")
+  })
+
+  it("a bare --json followed by a word suggests the = form", () => {
+    const plan = parseArgv(["node", "gtd.js", "next", "--json", "kind"])
+    expect(plan.kind === "usage" && plan.message).toBe(
+      "gtd next: too many arguments — expected none, got: kind — to print one field, write --json=kind",
+    )
+  })
+
+  it("an unknown single-dash option is an unknown option, not an extra argument", () => {
+    const plan = parseArgv(["node", "gtd.js", "-j", "next"])
+    expect(plan.kind === "usage" && plan.message).toContain("unknown option '-j'")
   })
 
   it("an unknown command under --json carries json:true, naming --json's own scope error over the subcommand", () => {
@@ -891,10 +927,8 @@ describe("parseArgv — doors", () => {
     })
   })
 
-  it("`gtd door` with no name is a usage error", () => {
-    const plan = parse("door")
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("gtd door: missing name argument")
+  it("`gtd door` with no name parses, so the loaded config can list its doors", () => {
+    expect(parse("door")).toMatchObject({ kind: "command", command: { kind: "door", args: [] } })
   })
 
   it("`gtd doors` parses with every --json shape", () => {
@@ -1061,7 +1095,8 @@ describe("parseArgv — gtd strays", () => {
     const plan = parseArgv(["node", "gtd.js", "lsp", "--json"])
     if (plan.kind === "usage") expect(plan.message).toContain("`gtd strays`")
     expect(renderHelp()).toContain("strays <range> [glob...]")
-    expect(renderHelp()).toContain("gtd strays only")
+    const help = parseArgv(["node", "gtd.js", "help", "strays"])
+    expect(help.kind === "output" && help.stdout).toContain("--json[=<path>]")
   })
 })
 
@@ -1100,56 +1135,93 @@ describe("standaloneKinds / needsOf", () => {
   })
 })
 
+const helpFor = (...args: string[]): string => {
+  const plan = parseArgv(["node", "gtd.js", ...args])
+  if (plan.kind !== "output") throw new Error(`no help for ${args.join(" ")}`)
+  return plan.stdout
+}
+
+/** The command names the overview lists — `  name ` lines, as the docs pins read them. */
+const listedCommands = (): string[] =>
+  [...renderHelp().matchAll(/^ {2}([a-z]+(?:-[a-z]+)?(?: [a-z]+)?)(?= )/gm)].map(([, n]) => n!)
+
 describe("renderHelp", () => {
-  it("mentions every command and flag, and no removed surface", () => {
+  it("groups the commands and mentions no removed surface", () => {
     const help = renderHelp()
-    expect(help).toContain("Usage")
-    expect(help).toContain("land")
+    for (const heading of ["Core loop:", "Start and stop:", "Inspect:", "Driver plumbing:"]) {
+      expect(help).toContain(`\n${heading}\n`)
+    }
     expect(help).toContain("--workflow <name>")
     expect(help).toContain("--var")
-    expect(help).toContain("abandon")
-    expect(help).toContain("restore")
-    expect(help).toContain("next")
-    expect(help).toContain("validate")
-    expect(help).toContain("lsp")
-    expect(help).not.toContain("visualize")
-    expect(help).not.toMatch(/^ {2}init\b/m)
-    expect(help).not.toContain(".gtdrc")
-    expect(help).toMatch(/^ {2}ui\b/m)
     expect(help).toContain("check <mode> <file>")
-    expect(help).toContain("install")
-    expect(help).toContain("base ")
-    expect(help).toMatch(/^ {2}judge\b/m)
-    expect(help).toContain("judge answer")
-    expect(help).toContain("version")
-    expect(help).toContain("help")
-    expect(help).toContain("--json")
-    expect(help).toContain("--port")
-    expect(help).not.toContain("--no-open")
-    expect(help).toContain("--host")
-    expect(help).toContain("--self-signed")
-    expect(help).toContain("--dev")
-    expect(help).toContain("--cost")
-    expect(help).toContain("--model")
-    expect(help).toContain("--open-questions")
-    expect(help).toContain("--verbose")
-    expect(help).toContain("--version, -V")
-    expect(help).toContain("--help, -h")
-    expect(help).not.toContain("review <commitish>")
-    expect(help).not.toContain("format <file>")
-    expect(help).not.toContain("--debug")
-    expect(help).not.toContain("bin/gtd")
-    expect(help).not.toContain("(no command), loop")
-    expect(help).not.toContain("--dispatch")
-    expect(help).not.toContain("--if-resting")
-    expect(help).not.toMatch(/^ {2}serve\b/m)
+    expect(help).toContain("door <name> [args...]")
+    expect(help).toContain("-V, --version")
+    expect(help).toContain("-h, --help")
+    expect(help).toContain("Examples:")
+    for (const removed of [
+      "visualize",
+      ".gtdrc",
+      "--no-open",
+      "--debug",
+      "--dispatch",
+      "bin/gtd",
+    ]) {
+      expect(help).not.toContain(removed)
+    }
+    expect(help).not.toMatch(/^ {2}(init|serve)\b/m)
     expect(help).toMatch(/\n$/)
   })
 
-  it("every flag row's name appears in the Options: block and vice versa", () => {
-    const help = renderHelp()
-    const optionsBlock = help.slice(help.indexOf("Options:"))
-    for (const name of FLAG_NAMES) expect(optionsBlock).toContain(name)
+  it("keeps every line of every help text within 80 columns", () => {
+    for (const text of [renderHelp(), ...listedCommands().map((name) => helpFor("help", name))]) {
+      for (const line of text.split("\n")) expect(line.length, line).toBeLessThanOrEqual(80)
+    }
+  })
+
+  it("names no internals", () => {
+    const all = [renderHelp(), ...listedCommands().map((name) => helpFor("help", name))].join("")
+    for (const internal of ["it.processCost", "refs/worktree/gtd/history", "Effect Schema"]) {
+      expect(all).not.toContain(internal)
+    }
+  })
+
+  it("every flag is in the help of a command it is valid for", () => {
+    const all = [renderHelp(), ...listedCommands().map((name) => helpFor("help", name))].join("")
+    for (const name of FLAG_NAMES) expect(all).toContain(name)
+  })
+
+  it("gtd <cmd> --help, gtd <cmd> -h and gtd help <cmd> print that command's own help", () => {
+    const help = helpFor("help", "land")
+    expect(help).toMatch(/^Usage: gtd land \[options\]\n/)
+    expect(help).toContain("--cost=<n>")
+    expect(help).not.toContain("--port")
+    expect(helpFor("land", "--help")).toBe(help)
+    expect(helpFor("land", "-h")).toBe(help)
+  })
+
+  it("a two-word command's help is its own", () => {
+    expect(helpFor("judge", "run", "--help")).toMatch(/^Usage: gtd judge run \[options\]/)
+    expect(helpFor("help", "history", "show")).toMatch(/^Usage: gtd history show <ref>/)
+  })
+
+  it("a flag that means something else per command is described per command", () => {
+    expect(helpFor("help", "land")).toContain("With --cost: the model")
+    expect(helpFor("help", "judge", "run")).toContain("The claude model")
+  })
+
+  it("--help after an unknown command still prints the overview", () => {
+    expect(helpFor("bogus", "--help")).toBe(renderHelp())
+  })
+
+  it("gtd help <unknown> is a usage error naming the nearest command", () => {
+    const plan = parseArgv(["node", "gtd.js", "help", "lnad"])
+    expect(plan).toEqual({
+      kind: "usage",
+      stdout: "",
+      message:
+        "gtd: help: no command 'lnad' — did you mean `gtd help land`? Run `gtd help` for every command",
+      json: false,
+    })
   })
 
   it("the docs/cli.md Commands fenced block equals renderHelp()", () => {
@@ -1157,6 +1229,15 @@ describe("renderHelp", () => {
     const match = doc.match(/## Commands\n\n```\n([\s\S]*?)\n```/)
     expect(match).not.toBeNull()
     expect(match![1] + "\n").toBe(renderHelp())
+  })
+
+  it("docs/cli.md's Every command section is every command's help, in the overview's order", () => {
+    const doc = readFileSync(resolve(import.meta.dirname, "../../docs/cli.md"), "utf8")
+    const section = doc.slice(doc.indexOf("\n## Every command\n"))
+    const documented = [...section.matchAll(/^### `gtd ([^`]+)`\n\n```\n([\s\S]*?)```\n/gm)].map(
+      ([, name, help]) => [name, help],
+    )
+    expect(documented).toEqual(listedCommands().map((name) => [name, helpFor("help", name)]))
   })
 
   it("README.md and COMPATIBILITY.md list exactly the commands", () => {
@@ -1419,7 +1500,7 @@ describe("runCli — stdout stays byte-empty on every failing surface", () => {
     const { stdout, stderr, exitCode } = captured()
     expect(exitCode).toBe(EXIT_RUNTIME_ERROR)
     expect(stdout).toBe("")
-    expect(stderr).toContain("gtd requires a repository with at least one commit")
+    expect(stderr).toContain("gtd: the repository has no commits yet")
   })
 
   it("runtime error: a handler's own Effect.fail (not the shared repo-root/commit guard) leaves stdout byte-empty", async () => {

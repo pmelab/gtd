@@ -46,7 +46,6 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     And stdout contains "abandon"
     And stdout contains "next"
     And stdout contains "check <mode> <file>"
-    And stdout contains "--open-questions"
     And stdout contains "uncheck <file>"
     And stdout contains "base "
 

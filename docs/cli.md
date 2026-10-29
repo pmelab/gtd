@@ -3,284 +3,63 @@
 ## Commands
 
 ```
-Usage: gtd [command] [options]
+Usage: gtd <command> [options]
 
-Commands:
-  land             Land whatever the tree now shows at the currently resolved
-                   rest — a human capture, an agent/check turn, or an empty
-                   attempt (a fruitless prompt turn). Pass
-                   --cost=<n> (optionally --model=<name>) to record the
-                   just-finished invocation's token cost and model on the
-                   turn commit (summed into it.processCost/
-                   processCostByModel). Plain (the default) prints one
-                   human-readable sentence naming the commit subject (or a
-                   no-op note) plus a pointer to `gtd land --json=script | sh`
-                   to get the landing script — never the script itself.
-                   --json emits script (the actual POSIX sh
-                   a driver runs) alongside settled, idle, state (the
-                   post-land target), subject, cost and model. Exits 0 on
-                   success, 1 on any refusal — see the Exit codes section
-                   below
-  (no command) --workflow <name>
-                   Starts a new process authenticated as human, e.g.
-                   'gtd --workflow <name>'
-  abandon          End the process currently underway without completing it:
-                   rewind HEAD to the commit the process started from,
-                   keeping everything it produced as uncommitted changes. A
-                   no-op when no process is underway
-  restore          Hard-reset HEAD back to the tip retained by the last
-                   abandon (refs/worktree/gtd/history), bringing back an
-                   abandoned process's turns. Refuses on a dirty working
-                   tree, when there is no retained history, or when HEAD has
-                   advanced past the retained tip with commits that would be
-                   lost
-  next             Print the resolved rest's beat (no mutation, safe to
-                   poll), in one of three encodings. Plain (the default): a
-                   status summary, a blank line, then the step verbatim — at a
-                   script/capture rest an instruction line ('Run this
-                   script:' / 'The edit is already made — run `gtd land` to
-                   land it.') precedes the status summary; at a prompt rest
-                   it's the bare step (plus the self-validation instruction
-                   when applicable) with no header at all, since those bytes
-                   are the agent's own input. --json emits the one structured
-                   surface gtd has: kind (capture|message|script|prompt|
-                   stalled) selects what a driver does, content is what it
-                   runs or shows, idle marks the workflow's initial state with
-                   a clean tree, plus the prompt session, model, validate
-                   script, log path, changes, next and the resting state's own
-                   fields. --json=<path> (a dotted key path into that same
-                   document, e.g. kind, content, session.id) prints just that
-                   value instead of the whole document — see --json's own help
-                   above. Exits 0 — see the Exit codes section below
-  validate         Print the script that formats (when declared) then
-                   validates the resolved rest's steering file, using its
-                   mode's commands (its file:/mode:), instead of running it —
-                   a driver runs the script and reads the findings from its
-                   own exit code/output. Always exits 0; prints "nothing to
-                   validate" when the resolved rest declares nothing to run.
-                   On a non-zero validate exit the emitted script prints a
-                   ready-to-send fix prompt (instruction + findings) and
-                   exits with the validator's own code
-  lsp              Start the LSP server for .gtd/ steering files (stdio)
-  ui               Expose gtd's web/phone client for THIS worktree — the
-                   invoking directory, never a configured list of roots — and
-                   refuses outside a repository like every other state command.
-                   By default, publishes through `tailscale serve` (reachable
-                   from anywhere on the tailnet, including over a DERP relay)
-                   with tailscaled terminating TLS, walking 8443, then 10000,
-                   then 443 until one publishes; falls back to binding a local
-                   HTTPS server directly, never refusing, when none of the
-                   three works. --host <addr> opts out of serve and binds that
-                   address directly instead; --port <n> overrides the serve
-                   port (default: the first free of 8443, 10000, 443), or the
-                   bind port when --host is given (default: a free port);
-                   --self-signed also opts out of serve, generating a
-                   throwaway TLS certificate instead of the configured
-                   ui.cert/ui.key; --dev runs against local development sources
-                   instead of the packaged build
-  check <mode> <file>
-                   Read <file> and run the built-in steering format named
-                   <mode> (see `gtd validate`'s modes: qa, review, findings)
-                   over its contents, printing each finding one per line and
-                   exiting non-zero when there are any. Resolves no workflow
-                   state and reads no config — standalone, runnable from any
-                   directory with <mode>/<file> given explicitly. This is what a
-                   workflow's emitted validation script invokes as a leaf step.
-                   --open-questions runs the qa unanswered-questions predicate
-                   instead (see --help); --open-threads lists open threads.
-                   `gtd check --open-threads` alone lists open code-comment
-                   threads (`// H: ...`) in the files the process changed;
-                   it prints nothing when no process is underway.
-  uncheck <file>   Read <file> and reset every review-mode `- [x]`/`- [X]`
-                   file-pointer box back to `- [ ]`, writing the result back
-                   only when the bytes actually changed. Resolves no workflow
-                   state and reads no config — standalone, runnable from any
-                   directory with <file> given explicitly. This is what the
-                   landing script runs ahead of the commit at the human review
-                   gate, so no tick ever reaches a commit. Takes no <mode> —
-                   it means review-mode file pointers and nothing else, never
-                   qa-mode's answered-question boxes. A missing file writes
-                   nothing and exits 0
-  install          Print a complete, self-contained briefing that teaches an
-                   agent (or a human) to build a gtd driver in any shell or
-                   runtime — the self-serve version of
-                   https://github.com/pmelab/gtd/blob/main/docs/driver.md's
-                   'Writing your own driver', and how to get a workflow: gtd
-                   ships none. It writes nothing.
-  summary          Print the prompt for an agent to write the process HEAD
-                   closes or sits inside its own closing message — the entry
-                   commit, each human-authored commit (a review round, an
-                   answered question gate), the diff range to inspect, and
-                   it.processCost/processCostByModel. Writes nothing: no git,
-                   no state transition, no file, no session identity — the
-                   driver pipes the output to a cold agent and does what it
-                   wants with the result (a squash, an amend, a PR body).
-                   Refuses (exit 1) when the workflow declares no summary:
-                   template, or when the resolved run has no commits to name —
-                   it is runnable any time before the next thing lands on the
-                   branch
-  base             Print the review anchor hash — the diff base an external
-                   tool (a diff, a PR tool, another agent) should point at —
-                   bare, newline-terminated, and nothing else. Writes nothing:
-                   no git, no state transition, no session identity. Before
-                   the first review round it's the process's diff base;
-                   afterward it's the most-recent review round's boundary.
-                   Refuses (exit 1) when no process is underway.
-  door <name> [args...]
-                   Start a process through a named shortcut, mapping the
-                   positional args to that workflow's process settings — the
-                   same start `gtd --workflow` makes, printed the same way.
-                   Each workflow the config exports brings its own doors (gtd's
-                   `fix`, `review [base]`, `rollout <flag>` and
-                   `cleanup <flag>`), plus the config's `doors` export. An
-                   unknown door, or too few or too many args, is a usage error
-                   (exit 2) naming the doors or the door's synopsis
-  doors            List every door, sorted: one `name [args] → workflow` line
-                   each. --json prints one JSON array of { name, workflow,
-                   args: [{ name, optional }] } instead; --json=<path> reads one
-                   value off it. Writes nothing
-  judge            Print the resolved rest's pending judgment — the prepared
-                   state, its typed questions, and their criteria — the same
-                   judge field `gtd next --json` already carries. Read-only:
-                   resolves no session, writes nothing. Refuses (exit 1) when
-                   the resolved rest declares no judge:
-  judge answer     Read a verdict off stdin — one { id, answer, p } entry per
-                   question the pending judgment declared — and decode it
-                   against an Effect Schema built from those same question
-                   ids. Refuses (exit 1) when the resolved rest declares no
-                   judge:. Exits 2 (a usage error, like an unknown --json
-                   selector) when stdin isn't valid JSON or the verdict
-                   doesn't decode against the pending question ids.
-  judge run        Answer a judgment: read the `gtd judge --json` document off
-                   stdin, write a verdict [{ id, answer, p }] on stdout — what
-                   `gtd judge answer` decodes. --provider fixed answers from
-                   --answers <path> or GTD_JUDGE_ANSWERS; questions the file
-                   does not cover are left out. --provider jev asks TypeSafe
-                   (TYPESAFE_API_KEY). --provider llm asks the `claude` CLI
-                   on PATH (Claude Code only), model sonnet unless --model.
-                   No --provider: GTD_JUDGE_PROVIDER, then ~/.config/gtd/
-                   judge.json, else jev when TYPESAFE_API_KEY is set and no
-                   model is given, else llm; --model likewise falls back to
-                   GTD_JUDGE_MODEL, then the file's model. Needs no
-                   repository. jev and llm exit 1 when they cannot answer
-                   every question, with nothing on stdout
-  strays <range> [glob...]
-                   List the files <range> (<base>..<tip>, an empty side is HEAD)
-                   touched in its committed net diff that match none of the
-                   globs. Anchored at the repo root: * stays within one path
-                   segment, ** crosses them, everything else is literal — quote
-                   globs in the shell. stdout: a sorted JSON array, [] when
-                   clean; stderr: a summary, plus one stray: line per path with
-                   --verbose. --json=<n> picks one entry, nothing past the end;
-                   a symlink is a path like any other, never followed; a
-                   submodule counts as its path, whatever diff.ignoreSubmodules
-                   or .gitmodules ignore say. Runs in any git repository, no
-                   process needed. Exits 10 when
-                   strays were found, 1 on an unknown revision, 2 on a bad range
-  history list     List the finished processes kept behind refs/gtd/history/*,
-                   newest first: entry, branch, tip, date and subject per line.
-                   --json prints one array of { ref, entry, branch, tip, date,
-                   subject }. Writes nothing and never replays; with no refs it
-                   hints at `gtd history fetch | sh` and still exits 0
-  history show <ref>
-                   Replay one kept process under today's config and print its
-                   steps, judge verdicts and approvals. <ref> is a full ref, an
-                   entry hash (or unique prefix) or a branch name. Refuses
-                   (exit 1) when a config file differs from its content at the
-                   ref's tip. A version mismatch only warns on stderr. --json
-                   prints the trail as one document; writes nothing
-  history metrics [ref...]
-                   Report how the kept processes went: builds whose naive pass
-                   landed or was rebuilt (the refactor-first rate), Gtd-Cost by
-                   model and phase with the double work of a rebuild, quality-lap
-                   findings per lens, and red checks that passed on their
-                   re-check — per process and in total. Each <ref>
-                   is read as by history show, but a branch name means every
-                   process kept from it; none means every ref.
-                   Reads commit subjects and trailers, never replays, so a
-                   changed config is no refusal. --json prints { processes, total
-                   } as one document; writes nothing
-  history judges [ref...]
-                   Calibrate the judges of the kept processes from their
-                   recorded Gtd-Judge verdicts: per judge (retry, triage, clear)
-                   and p bucket, how many verdicts later events overturned.
-                   --var <name>=<value> re-decides every past verdict under
-                   another threshold and prints what would have changed;
-                   --jsonl prints one { process, judge, commit, step, question,
-                   state, answer, p, outcome } line per verdict instead. <ref>
-                   is read as by history metrics. Never replays and asks no
-                   model. --json prints { processes, total, whatIf }; writes
-                   nothing
-  history fetch [remote]
-                   Print a script that fetches every refs/gtd/history/* from
-                   <remote> (default origin) and reports how many arrived — run
-                   it with `gtd history fetch | sh`. Never runs git itself
-  version          Print version and exit
-  help             Print this help and exit
+gtd reads a repository's git state and prints what should happen next in its
+workflow. It never acts on it: a driver, or you, runs what it prints.
+
+Core loop:
+  next                      Print what should happen next
+  land                      Record what the tree now shows
+  validate                  Print the script that checks the steering file
+
+Start and stop:
+  --workflow <name>         Start a process on a workflow; --var <name>=<value>
+                            pins one of its settings
+  door <name> [args...]     Start a process through a named shortcut
+  doors                     List the doors
+  abandon                   Stop the process, keeping its changes
+  restore                   Bring back the last abandoned process
+
+Inspect:
+  summary                   Print the prompt for the closing message
+  base                      Print the commit a review diff starts from
+  strays <range> [glob...]  List changed files outside the globs
+  history list              List finished processes
+  history show <ref>        Replay one finished process
+  history metrics [ref...]  Report cost and rework of finished processes
+  history judges [ref...]   Calibrate the judges of finished processes
+  history fetch [remote]    Print a script that fetches finished processes
+  ui                        Serve the web and phone client
+
+Driver plumbing:
+  install                   Print a briefing for writing a driver
+  judge                     Print the pending judgment
+  judge answer              Land a verdict read from stdin
+  judge run                 Answer a judgment with a model
+  check <mode> <file>       Check a steering file's format
+  uncheck <file>            Untick a review file's boxes
+  lsp                       Start the steering-file language server
+  help [command]            Print help for gtd or one command
+  version                   Print the version
 
 Options:
-  --json=<path>    (gtd next/gtd land/gtd judge/gtd judge answer/gtd doors/gtd history
-                   list/gtd history show/gtd history metrics/gtd history judges/gtd strays only) output structured JSON. Bare --json prints the whole document;
-                   --json=<path> (a dotted key path into that document, e.g.
-                   kind, content, session.id) prints just that value: a
-                   scalar raw and unquoted, a boolean as true/false, a list
-                   one JSON entry per line — a numeric segment (e.g.
-                   skills.0) indexes into one entry of a list field instead.
-                   An absent optional field prints nothing and exits 0 —
-                   including when an earlier segment of <path> is itself
-                   absent/null (e.g. session.id at a non-prompt rest), which
-                   never counts as unknown; an unknown path is a usage error
-                   (exit 2).
-  --port=<n>       (gtd ui only) the tailscale serve port (default: the first
-                   free of 8443, 10000, 443), or the bind port when --host
-                   opts out of serve (default: a free port)
-  --host=<addr>    (gtd ui only) opt out of the default tailscale serve front
-                   door and bind this address directly instead, showing it in
-                   the printed URL
-  --self-signed    (gtd ui only) generate a throwaway self-signed TLS
-                   certificate instead of the configured ui.cert/ui.key
-  --dev            (gtd ui only) run against local development sources
-                   instead of the packaged build
-  --provider=<name>
-                   (gtd judge run only) the answerer: fixed | jev | llm;
-                   omitted: GTD_JUDGE_PROVIDER, then judge.json, then jev
-                   when TYPESAFE_API_KEY is set, else llm
-  --answers=<path> (gtd judge run --provider fixed only) a JSON verdict array
-                   [{ id, answer, p }]; else the GTD_JUDGE_ANSWERS env var
-                   (inline JSON) is read
-  --cost=<n>       (gtd land only) record the invocation's token cost
-  --model=<name>   (gtd land, with --cost) tag that cost's model
-                   (gtd judge run, llm answerer) the claude model; omitted:
-                   GTD_JUDGE_MODEL, then judge.json, then sonnet
-  --workflow <name>
-                   (with no command at all) start a brand new process on
-                   the named workflow — authenticated as human
-  --var <name>=<value>
-                   (with --workflow; repeatable) pin a process setting for the
-                   new process; the name must already be declared by the
-                   workflow's defaults (environment settings are not
-                   pinnable). (gtd history judges) re-decide past verdicts
-                   under this threshold: judgeIdenticalMinP or
-                   qualityTriageMinP
-  --jsonl          (gtd history judges only) print one JSON line per verdict
-                   instead of the report
-  --open-questions (gtd check only) ignore <mode>'s structural findings and
-                   instead run the qa open-questions predicate over <file>,
-                   printing each unanswered question one per line and exiting
-                   non-zero when any remain
-  --open-threads   (gtd check only) ignore <mode>'s structural findings and
-                   instead list every open thread (a footnote whose last
-                   entry is the agent's) over <file>, one per line with its
-                   first H entry, exiting non-zero when any are open. With no
-                   <mode>/<file>, lists code-comment threads in the files the
-                   current process changed (read from its diff base, unlike
-                   the rest of `gtd check`)
-  --verbose        enable stderr narration for this invocation: which rest
-                   resolved and how config resolved across layers. Aliased
-                   to -v
-  --version, -V    Print version and exit
-  --help, -h       Print this help and exit
+  -v, --verbose             Narrate on stderr what gtd resolved
+  -h, --help                Print help; gtd <command> --help for one command
+  -V, --version             Print the version
+
+Examples:
+  $ gtd --workflow <name>                       start a process
+  $ gtd next                                    see what happens next
+  $ s=$(gtd land --json=script) && sh -c "$s"   land the turn
+  $ gtd help land                               one command's details
+
+Run `gtd help <command>` for a command's details and options, and `gtd install`
+to learn how to drive gtd.
 ```
+
+`gtd help <command>` — or `gtd <command> --help` — prints one command's own
+help; every one is under [Every command](#every-command).
 
 ### Plain output is not a parsing surface
 
@@ -317,8 +96,8 @@ other: exit `1`, with a message naming the found and supported formats (see
 
 A driver reads whose turn is next off `gtd next --json`'s own `kind` field
 (`capture`/`message`/`script`/`prompt`/`stalled`), never off gtd's exit code.
-Plain `gtd next` prints a status header at every kind except `prompt`, whose
-output is exactly the agent's input.
+Plain `gtd next` prints a status header at every kind; at `prompt` it goes to
+stderr, since stdout is exactly the agent's input.
 
 Every usage mistake — an unknown option or command, missing/extra arguments, a
 scope violation (e.g. `--cost` on a command other than `gtd land`), a bad flag
@@ -332,17 +111,18 @@ not a short-circuit — it gates narration for whatever command follows (see
 [Narration and remediation](#narration-and-remediation) below). Bare `gtd` (no
 subcommand) is a usage error that exits 2 — gtd decides and prints, full stop;
 driving a loop is a driver's job, not a bundled command (see
-[Driving the loop](./driver.md#driving-the-loop)) — printing its help text to
+[Driving the loop](./driver.md#driving-the-loop)) — printing a short usage to
 **stderr**, not stdout: stdout stays byte-empty on every failure, a usage error
 included (see [Error envelope](#error-envelope) below). Any other, truly unknown
-subcommand is likewise a usage error exiting 2 without touching the repository.
-The state commands (`land`, `--workflow`, `door`, `doors`, `abandon`, `restore`,
-`next`, `status`, `validate`, `summary`, `ui`, `judge`, `judge answer`,
-`history list`, `history show`, `history fetch`) must run from the **repository
-root** — gtd derives the workflow, pending changes, and process history relative
-to cwd, so they refuse with a clear error from a subdirectory; `lsp`, `check`,
-`uncheck` and `strays` are standalone and run from anywhere (see each command's
-own help entry).
+subcommand is likewise a usage error exiting 2 without touching the repository;
+its message names the nearest command when it looks like a typo of one. The
+state commands (`land`, `--workflow`, `door`, `doors`, `abandon`, `restore`,
+`next`, `validate`, `summary`, `ui`, `judge`, `judge answer`, `history list`,
+`history show`, `history fetch`) must run from the **repository root** — gtd
+derives the workflow, pending changes, and process history relative to cwd, so
+they refuse with a clear error from a subdirectory; `lsp`, `check`, `uncheck`
+and `strays` are standalone and run from anywhere (see each command's own help
+entry).
 
 `install` is described on its own above: it installs knowledge into the calling
 agent's context — including where to get a workflow, since gtd ships none — and
@@ -423,12 +203,13 @@ in `judge`). `gtd doors --json` is a bare array and carries none.
 
 ### Narration and remediation
 
-Stderr carries three things beyond the `gtd: ` message line above: NARRATION,
-gated by `--verbose`/`-v`, REMEDIATION, unconditional, and a WARNING, which
+Stderr carries four things beyond the `gtd: ` message line above: NARRATION,
+gated by `--verbose`/`-v`, REMEDIATION, unconditional, a WARNING, which
 `gtd history show` prints when a finished process was recorded by another gtd
-version. When it refuses because of config drift or replay divergence, the
-warning is the last line of the refusal message (and of the `--json` `prompt`)
-instead of its own line.
+version, and plain `gtd next`'s status header at a `prompt` rest. When it
+refuses because of config drift or replay divergence, the warning is the last
+line of the refusal message (and of the `--json` `prompt`) instead of its own
+line.
 
 `--verbose` (alias `-v`) turns on one line of commentary per in-process fact a
 command's dispatch already computes — which rest resolved, and which
@@ -453,3 +234,418 @@ blocks — a question fails with a code when the tty cannot be opened rather tha
 hanging. The reason is the section above: stderr already has several occupants,
 narration, remediation and warnings, and a question mixed into that stream would
 deadlock a driver that never reads stderr.
+
+## Every command
+
+### `gtd next`
+
+```
+Usage: gtd next [options]
+
+Print what should happen next in the process, changing nothing — safe to poll.
+
+Plain output is for a person: a status header (the step, who acts, the pending
+changes, where landing them would go), then the step's content. At a prompt the
+header goes to stderr, so stdout is exactly the agent's input.
+
+--json prints one JSON document for a driver: its kind (capture, message,
+script, prompt or stalled) says what to do, its content what to run or show.
+--json=<path> prints one field of it; an unknown path is a usage error (exit 2).
+
+Options:
+  --json[=<path>]     Print the JSON document, or with --json=<path> one field
+                      of it (e.g. --json=kind): a scalar bare, a list one entry
+                      per line, nothing for an absent field
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd land`
+
+```
+Usage: gtd land [options]
+
+Record what the working tree now shows at the current step: a person's edit, an
+agent's or a check's turn, or an empty attempt when an agent changed nothing.
+
+gtd writes nothing itself. Plain output names the commit it would make;
+--json=script prints the script that makes it:
+
+  s=$(gtd land --json=script) && sh -c "$s"
+
+--json prints the whole document: the script, the step the process lands at, the
+commit subject, and the recorded cost and model. A refusal exits 1.
+
+Options:
+  --json[=<path>]     Print the JSON document, or with --json=<path> one field
+                      of it (e.g. --json=kind): a scalar bare, a list one entry
+                      per line, nothing for an absent field
+  --cost=<n>          Record the token cost of the invocation that just finished
+                      on the commit
+  --model=<name>      With --cost: the model that cost was spent on
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd validate`
+
+```
+Usage: gtd validate
+
+Print the script that formats, then validates, the current step's steering file
+with its mode's commands. gtd runs nothing: the script's exit code is the
+verdict, and on a failure it prints a ready-to-send fix prompt. Prints "nothing
+to validate" when the step declares no file to check.
+
+Options:
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd door`
+
+```
+Usage: gtd door <name> [args...]
+
+Start a process through a door: a named shortcut to a workflow that maps its
+positional args to the workflow's settings. It prints the same start script
+`gtd --workflow` does. Each workflow the config exports brings its own doors,
+plus the config's `doors` export.
+
+With no <name>, an unknown one, or the wrong number of args, it lists the doors
+and exits 2.
+
+Options:
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd doors`
+
+```
+Usage: gtd doors [options]
+
+List every door, sorted: one `name [args] → workflow` line each. --json prints a
+JSON array of { name, workflow, args: [{ name, optional }] }. Writes nothing.
+
+Options:
+  --json[=<path>]     Print the JSON document, or with --json=<path> one field
+                      of it (e.g. --json=kind): a scalar bare, a list one entry
+                      per line, nothing for an absent field
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd abandon`
+
+```
+Usage: gtd abandon
+
+Stop the process underway without finishing it. The printed script moves HEAD
+back to the commit the process started from and keeps everything it produced as
+uncommitted changes; `gtd restore` undoes it. With no process underway the
+script does nothing.
+
+  s=$(gtd abandon) && sh -c "$s"
+
+Options:
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd restore`
+
+```
+Usage: gtd restore
+
+Bring back the process the last `gtd abandon` stopped: the printed script resets
+HEAD to that process's last commit. Refuses on a dirty working tree, when
+nothing was abandoned, or when commits made since would be lost.
+
+Options:
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd summary`
+
+```
+Usage: gtd summary
+
+Print the prompt for an agent to write the closing message of the process HEAD
+closes or sits inside: its first commit, each commit a person made, the diff
+range to read, and its cost. Writes nothing — what to do with the answer (a
+squash message, a PR body) is the driver's call.
+
+Refuses when the workflow declares no summary template, or when the process has
+no commits.
+
+Options:
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd base`
+
+```
+Usage: gtd base
+
+Print the commit a review diff should start from, bare: the process's diff base
+before the first review round, the latest round's boundary after it. Writes
+nothing; refuses when no process is underway.
+
+Options:
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd strays`
+
+```
+Usage: gtd strays <range> [glob...] [options]
+
+List the files changed in <range> (<base>..<tip>, an empty side is HEAD) that
+match none of the globs. Globs are anchored at the repository root: * stays
+within one path segment, ** crosses them, everything else is literal — quote
+them in the shell.
+
+Prints a sorted JSON array ([] when clean) and a summary on stderr; --verbose
+adds one stray: line per path. Runs in any git repository, no process needed.
+Exits 10 when strays were found, 1 on an unknown revision, 2 on a bad range.
+
+Options:
+  --json[=<path>]     Print one entry of the array (--json=0), nothing past its
+                      end
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd history list`
+
+```
+Usage: gtd history list [options]
+
+List the finished processes this clone keeps, newest first: entry, branch, tip,
+date and subject. --json prints an array of { ref, entry, branch, tip, date,
+subject }. Writes nothing; with none kept it suggests `gtd history fetch`.
+
+Options:
+  --json[=<path>]     Print the JSON document, or with --json=<path> one field
+                      of it (e.g. --json=kind): a scalar bare, a list one entry
+                      per line, nothing for an absent field
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd history show`
+
+```
+Usage: gtd history show <ref> [options]
+
+Replay one finished process under today's config and print its steps, judge
+verdicts and approvals. <ref> is a full ref, an entry hash or a unique prefix of
+one, or a branch name. Refuses when a config file changed since; a different gtd
+version only warns. --json prints the trail as one document. Writes nothing.
+
+Options:
+  --json[=<path>]     Print the JSON document, or with --json=<path> one field
+                      of it (e.g. --json=kind): a scalar bare, a list one entry
+                      per line, nothing for an absent field
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd history metrics`
+
+```
+Usage: gtd history metrics [ref...] [options]
+
+Report how finished processes went: builds that landed first time or were
+rebuilt, cost by model and phase, review findings per lens, and red checks that
+passed when re-run — per process and in total. <ref> is read as by
+`gtd history show`, but a branch name means every process kept from it; no <ref>
+means all of them. Never replays, so a changed config is no reason to refuse.
+--json prints { processes, total }. Writes nothing.
+
+Options:
+  --json[=<path>]     Print the JSON document, or with --json=<path> one field
+                      of it (e.g. --json=kind): a scalar bare, a list one entry
+                      per line, nothing for an absent field
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd history judges`
+
+```
+Usage: gtd history judges [ref...] [options]
+
+Calibrate the judges of finished processes from their recorded verdicts: per
+judge and confidence bucket, how many verdicts later events overturned. <ref> is
+read as by `gtd history metrics`. Never replays and asks no model. --json prints
+{ processes, total, whatIf }. Writes nothing.
+
+Options:
+  --json[=<path>]     Print the JSON document, or with --json=<path> one field
+                      of it (e.g. --json=kind): a scalar bare, a list one entry
+                      per line, nothing for an absent field
+  --var <name>=<value>
+                      Re-decide every past verdict under this threshold:
+                      judgeIdenticalMinP or qualityTriageMinP (repeatable)
+  --jsonl             Print one JSON line per verdict instead of the report
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd history fetch`
+
+```
+Usage: gtd history fetch [remote]
+
+Print a script that fetches every finished process kept on <remote> (default:
+origin) and reports how many arrived. gtd runs no git itself:
+
+  s=$(gtd history fetch) && sh -c "$s"
+
+Options:
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd ui`
+
+```
+Usage: gtd ui [options]
+
+Serve gtd's web and phone client for this worktree. By default it publishes
+through `tailscale serve`, reachable from anywhere on the tailnet, on the first
+of ports 8443, 10000 and 443 that works; when none does it serves HTTPS locally
+instead of refusing.
+
+Options:
+  --port=<n>          The tailscale serve port (default: the first free of 8443,
+                      10000, 443), or with --host the port to bind (default: any
+                      free one)
+  --host=<addr>       Bind this address directly instead of publishing through
+                      tailscale serve
+  --self-signed       Bind directly with a throwaway self-signed certificate
+                      instead of the configured ui.cert/ui.key
+  --dev               Serve local development sources instead of the packaged
+                      build
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd install`
+
+```
+Usage: gtd install
+
+Print a self-contained briefing that teaches an agent or a person to build a gtd
+driver in any shell or runtime, and where to get a workflow — gtd ships none.
+Writes nothing.
+
+Options:
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd judge`
+
+```
+Usage: gtd judge [options]
+
+Print the current step's pending judgment: the prepared state, its questions and
+their criteria — the judge field `gtd next --json` carries. Writes nothing;
+refuses when the step declares no judge.
+
+Options:
+  --json[=<path>]     Print the JSON document, or with --json=<path> one field
+                      of it (e.g. --json=kind): a scalar bare, a list one entry
+                      per line, nothing for an absent field
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd judge answer`
+
+```
+Usage: gtd judge answer [options]
+
+Read a verdict from stdin — one { id, answer, p } entry per pending question —
+and land it the way `gtd land` does: plain output names the commit,
+--json=script prints the script. Refuses when the step declares no judge; a
+verdict that is not JSON, or names a question that was not asked, is a usage
+error (exit 2).
+
+Options:
+  --json[=<path>]     Print the JSON document, or with --json=<path> one field
+                      of it (e.g. --json=kind): a scalar bare, a list one entry
+                      per line, nothing for an absent field
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd judge run`
+
+```
+Usage: gtd judge run [options]
+
+Answer a judgment: read the `gtd judge --json` document from stdin and print the
+verdict [{ id, answer, p }] `gtd judge answer` reads. Needs no repository.
+
+The fixed answerer reads --answers and leaves out the questions it does not
+cover; jev asks TypeSafe ($TYPESAFE_API_KEY); llm asks the `claude` CLI on PATH.
+jev and llm exit 1, printing nothing, when they cannot answer every question.
+
+Options:
+  --provider=<name>   The answerer: fixed, jev or llm (default:
+                      $GTD_JUDGE_PROVIDER, then ~/.config/gtd/judge.json, then
+                      jev when $TYPESAFE_API_KEY is set, else llm)
+  --answers=<path>    With --provider fixed: a JSON verdict file [{ id, answer,
+                      p }] (default: $GTD_JUDGE_ANSWERS, inline JSON)
+  --model=<name>      The claude model the llm answerer uses (default:
+                      $GTD_JUDGE_MODEL, then judge.json, then sonnet)
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd check`
+
+```
+Usage: gtd check <mode> <file> [options]
+
+Run the steering format <mode> (qa, review or findings) over <file> and print
+each finding on a line of its own; exits 1 when there are any. Reads no workflow
+and runs from any directory — emitted validation scripts call it.
+
+Options:
+  --open-questions    Instead of <mode>'s findings, list the unanswered
+                      questions in <file>; exits 1 when any remain
+  --open-threads      Instead of <mode>'s findings, list the open threads in
+                      <file>; exits 1 when any are open. Alone, lists the open
+                      code-comment threads in the files the current process
+                      changed
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd uncheck`
+
+```
+Usage: gtd uncheck <file>
+
+Reset every ticked review box (- [x]) in <file> to - [ ], writing the file only
+when it changes; a missing file writes nothing. Reads no workflow and runs from
+any directory — the landing script at a review gate calls it, so no tick is ever
+committed.
+
+Options:
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd lsp`
+
+```
+Usage: gtd lsp
+
+Start the language server for .gtd/ steering files on stdio.
+
+Options:
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd help`
+
+```
+Usage: gtd help [command]
+
+Print gtd's overview, or with <command> that command's own help.
+```
+
+### `gtd version`
+
+```
+Usage: gtd version
+
+Print gtd's version.
+```

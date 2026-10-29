@@ -359,7 +359,7 @@ describe("real repo — an assembled script end to end", () => {
 describe("combinedScript — the plain-text write commands' single pasteable script", () => {
   it("DID_NOT_RUN_COMMENT points the reader at sh, not bash", () => {
     expect(DID_NOT_RUN_COMMENT).toBe(
-      "# gtd emitted this and did NOT run it — pipe it into `sh` to land the turn",
+      "# gtd emitted this and did NOT run it — run it with `sh` to apply it",
     )
     expect(DID_NOT_RUN_COMMENT).not.toContain("bash")
   })

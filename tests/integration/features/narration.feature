@@ -65,12 +65,12 @@ Feature: The stderr narration channel, and the -v/-V swap
     Then it fails
     And stderr contains "missing command"
 
-  Scenario: the rendered help shows --version, -V and --verbose, -v
+  Scenario: the rendered help shows -V, --version and -v, --verbose
     Given a test project
     When I run gtd with "--help"
     Then it succeeds
-    And stdout contains "--version, -V"
-    And stdout contains "--verbose"
+    And stdout contains "-V, --version"
+    And stdout contains "-v, --verbose"
 
   Scenario: --verbose narrates which declared pattern each pending change matched
     Given a test project

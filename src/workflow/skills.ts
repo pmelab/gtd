@@ -7,7 +7,7 @@ import type { Diagnostic } from "./Diagnostic.js"
 import { failOnErrors } from "./load.js"
 
 const fail = (origin: string, message: string): GtdError =>
-  new GtdError(`gtd config:\n  - ${origin}: ${message}`)
+  new GtdError(`gtd: config:\n  - ${origin}: ${message}`)
 
 const checkShape = (value: unknown): Record<string, readonly string[]> => {
   if (typeof value !== "object" || value === null || Array.isArray(value)) {

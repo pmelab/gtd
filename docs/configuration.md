@@ -97,9 +97,8 @@ gtd resolves every `@pmelab/gtd/*` subpath but the testkit's (see
 [Entrypoints](https://github.com/pmelab/gtd/blob/main/README.md#entrypoints)),
 to its own copy, so a repository — JavaScript or not (Python, Rust, notes) —
 needs no `package.json`, `node_modules` or install: a root `gtd.config.ts` is
-all it takes. The workflows a config imports are always the running gtd's, so
-pinning the gtd version pins them. Add `@pmelab/gtd` as a dev dependency only if
-you want editor type-checking for it.
+all it takes. Add `@pmelab/gtd` as a dev dependency only if you want editor
+type-checking for it.
 
 A direct `@pmelab/gtd/flows` import in `gtd.config.ts` always gets the engine's
 own copy, so it cannot mismatch; a dev-dependency pin only feeds editor
@@ -153,7 +152,7 @@ Every step takes an options object; all keys are optional.
 | ------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `label`       | all                  | Display name shown by `gtd next` and viewers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `file`        | all                  | The step's steering file, a repository path under `.gtd/`.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `mode`        | all, requires `file` | The steering file's mode: `qa`, `review`, or a name declared in `config.modes`. An unknown name is a load error.                                                                                                                                                                                                                                                                                                                                                                                              |
+| `mode`        | all, requires `file` | The steering file's mode: `qa`, `review`, `findings`, or a name declared in `config.modes`. An unknown name fails the process once it rests at the step.                                                                                                                                                                                                                                                                                                                                                      |
 | `message`     | `human`, `judge`     | The text shown to the person at this rest.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -329,8 +328,8 @@ is how a larger workflow is written.
 - `wrote(path)` and `codeChanges()` — whether the last step wrote `path`, and
   its changes outside `.gtd/`
 
-Three checks refuse a turn from flow code, called right after the step whose
-turn they check:
+The `require*` checks refuse a turn from flow code, called right after the step
+whose turn they check:
 
 - `requireProgress(file)` — refuses a turn that deleted `file` without changing
   any code, unless the deleted content starts with `NOTHING ACTIONABLE`
@@ -367,7 +366,7 @@ or uncalled (then with its default options), it is a workflow, and gtd
 every command, naming the workflow, the key and what was expected:
 
 ```text
-gtd config:
+gtd: config:
   - /repo/gtd.config.ts: testComand: workflow "default" option "testComand": is unexpected, expected: "reviewBase" | … | "coderModel"
 ```
 
@@ -447,9 +446,10 @@ no verdict leaves every answer `undefined`, so write the flow so that
 `judgeDiffShape(name, { changes, allow, exempt?, minP? })` is a ready-made judge
 for the shape of a diff, such as `kept(name).changes` or `changesSince(hash)`.
 It asks one `choice` question, `shape`, and resolves to
-`{ choice, strays, judgment }`: `strays` is the sorted list of changed paths no
-`allow` glob matches and no `exempt` path names, and `judgment` is the whole
-`judge()` result (`judgment.truncated` included). The choice is one of:
+`{ choice, strays, unreadable, judgment }`: `strays` is the sorted list of
+changed paths no `allow` glob matches and no `exempt` path names, and `judgment`
+is the whole `judge()` result (`judgment.truncated` included). The choice is one
+of:
 
 - `land` — every stray is incidental (a needed import, a test fixture, a renamed
   call site)
@@ -607,10 +607,10 @@ steps its commits name, gtd refuses loudly with a **divergence** error and tells
 you to run `gtd abandon`. Finish or abandon an in-flight process before changing
 the workflow under it.
 
-**Breaking change.** BREAKING CHANGE: a workflow whose first step reads a
-process or environment setting (any vars/env access, enumeration included) fails
-to load; a setting name outside [A-Za-z_][A-Za-z0-9_]* — in workflow
-defaults/envDefaults or --var — fails to load or is refused.
+A workflow whose first step reads a process or environment setting (enumerating
+them included) fails to load: that step is where a finished process waits. A
+setting name must match `[A-Za-z_][A-Za-z0-9_]*`; any other name in `defaults`,
+`envDefaults` or `--var` fails to load or is refused.
 
 #### History format
 
@@ -753,7 +753,7 @@ object exported as `config` the same way. A key that moved out of the repository
 config (`vars`, `env`, `judge`) therefore fails loudly instead of doing nothing:
 
 ```text
-gtd config:
+gtd: config:
   - /repo/gtd.config.ts: config.env: is not a known key
 ```
 
@@ -1051,7 +1051,7 @@ before anything touches the repository — never partially. Each line names the
 file and the config path:
 
 ```
-gtd config:
+gtd: config:
   - /path/to/repo/gtd.config.ts: config.ui.port: must be an integer
 ```
 
@@ -1059,7 +1059,7 @@ A step naming a mode nothing declares fails the same way, as soon as the process
 rests at it:
 
 ```
-gtd config: step "idle": mode "adrs" is not a mode this workflow knows (qa, review, findings)
+gtd: config: step "idle": mode "adrs" is not a mode this workflow knows (qa, review, findings)
 ```
 
 A `config.skills` key that is not a scope running a turn fails the same way,
@@ -1067,7 +1067,7 @@ listing the known scope keys. It is reported when gtd resolves the current
 state, not by every config read (see [Skills](#skills)):
 
 ```
-gtd config:
+gtd: config:
   - /path/to/repo/gtd.config.ts: config.skills.build.fix: "skills.build.fix" is not a scope that runs a turn — known scopes: build, build.fix.quality, …
 ```
 

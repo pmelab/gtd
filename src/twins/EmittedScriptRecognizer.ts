@@ -16,7 +16,6 @@ import {
   softResetTo,
   updateRef,
   binaryGuard,
-  DID_NOT_RUN_COMMENT,
   failurePromptWrapper,
   fileExistsGuard,
   PRESENTATION_FAILURE_WARNING,
@@ -552,13 +551,11 @@ const recognizeGtdUncheck = (repo: InMemRepo, block: string): BlockOutcome | und
 }
 
 /**
- * `Emit.ts`'s `combinedScript` leading comment — `gtd land`/`gtd --workflow`'s
- * whole plain-text artifact opens with this line ahead of the required
- * script, so recognizing it as a no-op (like the retry-helper function
- * definition) keeps the `@inmem` tier green.
+ * A block of nothing but comments is a no-op in `sh` too — `combinedScript`'s
+ * leading `DID_NOT_RUN_COMMENT`, and the list of paths a start commits.
  */
-const recognizeDidNotRunComment = (block: string): BlockOutcome | undefined =>
-  block === DID_NOT_RUN_COMMENT ? { kind: "noop" } : undefined
+const recognizeCommentBlock = (block: string): BlockOutcome | undefined =>
+  block.split("\n").every((line) => line.startsWith("#")) ? { kind: "noop" } : undefined
 
 /** `combinedScript`'s optional half. Reports `noop` whatever the inner result, mirroring bash's `( … ) || <warning>`. Exception: under `git: false` any unrecognized inner block fails the outer script (git or not), so the in-memory twin knowingly diverges from `sh` rather than run git unseen. */
 const PRESENTATION_FAILURE_TEXT = `${extractQuotedTokens(PRESENTATION_FAILURE_WARNING)[0]!.replace(/\\n$/, "")}\n`
@@ -695,7 +692,7 @@ const recognizersFor = (
   git: boolean,
 ): ReadonlyArray<(block: string) => BlockOutcome | undefined> => [
   (block) => recognizeSetFlags(block),
-  (block) => recognizeDidNotRunComment(block),
+  (block) => recognizeCommentBlock(block),
   (block) => recognizePrecondition(repo, block),
   (block) => recognizeFileExistsGuard(repo, block),
   (block) => recognizeBinaryGuard(commands, block),

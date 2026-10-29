@@ -394,7 +394,7 @@ script the driver runs. The five commands that change anything — `gtd land`,
 `gtd --workflow <name>` (and `gtd door`), `gtd abandon`, `gtd restore`, and
 `gtd judge answer` — perform no git write when run: each one's `--json=script`
 form carries ONE POSIX sh script for YOU to execute — a leading comment ("gtd
-emitted this and did NOT run it — pipe it into `sh` to land the turn"), then the
+emitted this and did NOT run it — run it with `sh` to apply it"), then the
 REQUIRED half verbatim, then, only when there's a presentation-only follow-up, a
 second comment ("presentation only — safe to skip") and the OPTIONAL half
 wrapped in a subshell whose own non-zero exit is swallowed (reported to stderr

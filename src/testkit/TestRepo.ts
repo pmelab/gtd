@@ -204,6 +204,30 @@ const runLines = (repo: InMemRepo, commands: CommandTable, script: string): void
 const failed = (what: string, result: CapturedCliResult): Error =>
   new Error(`${what} exited ${result.exitCode}\n${result.stderr}${result.stdout}`)
 
+const ANSWER: Readonly<Record<string, string>> = {
+  noul: "true",
+  choice: '"<option>"',
+  score: "0.5",
+}
+
+/** The verdict a judge beat's questions take, as a template to copy. */
+const expectedVerdict = (doc: BeatDocument): string => {
+  let questions: readonly { id: string; primitive: string }[] = []
+  try {
+    questions = (JSON.parse(doc.judge ?? "") as { questions: typeof questions }).questions
+  } catch {
+    // An unreadable judge document leaves the template without entries.
+  }
+  const entries = questions.map(
+    ({ id, primitive }) =>
+      `{ "id": ${JSON.stringify(id)}, "answer": ${ANSWER[primitive] ?? '"<answer>"'}, "p": 0.9 }`,
+  )
+  return [
+    "expected a JSON array, one entry per question — answer a boolean for a noul, a string for a choice, a number for a score; p between 0 and 1:",
+    `[${entries.join(", ")}]`,
+  ].join("\n")
+}
+
 export const testRepo = (options: TestRepoOptions): TestRepo => {
   const repo = new InMemRepo()
   const env = { ...options.env }
@@ -261,11 +285,15 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
   }
 
   /** Runs a write command, then the script its `--json=script` twin prints. */
-  const runWrite = async (args: readonly string[], stdin?: string): Promise<CapturedCliResult> => {
+  const runWrite = async (
+    args: readonly string[],
+    stdin?: string,
+    refused: (error: Error) => Error = (error) => error,
+  ): Promise<CapturedCliResult> => {
     const call = (...extra: string[]) =>
       stdin === undefined ? gtd(...args, ...extra) : withStdin(stdin, () => gtd(...args, ...extra))
     const reported = await call()
-    if (reported.exitCode !== EXIT_OK) throw failed(`gtd ${args.join(" ")}`, reported)
+    if (reported.exitCode !== EXIT_OK) throw refused(failed(`gtd ${args.join(" ")}`, reported))
     const script = await call("--json=script")
     apply(`gtd ${args.join(" ")}`, script.stdout)
     return reported
@@ -286,16 +314,29 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
   }
 
   /** Lands what an actor did: a judge's verdict answered, anything else validated and landed. */
-  const act = async (doc: BeatDocument, verdict: void | string): Promise<void> => {
+  const act = async (doc: BeatDocument, verdict: unknown): Promise<void> => {
     if (doc.actor !== "judge") {
       if (doc.validate !== undefined) apply(`validating ${doc.file ?? doc.state}`, doc.validate)
       await runWrite(["land"])
       return
     }
-    if (typeof verdict !== "string") {
-      throw new Error(`the actor for judge step "${doc.state}" returned no verdict`)
+    const actor = `the actor for judge step "${doc.state}"`
+    if (verdict === undefined) {
+      throw new Error(`${actor} returned no verdict\n${expectedVerdict(doc)}`)
     }
-    await runWrite(["judge", "answer"], verdict)
+    if (typeof verdict !== "string") {
+      throw new Error(
+        `${actor} returned ${Array.isArray(verdict) ? "an array" : typeof verdict === "object" ? "an object" : `a ${typeof verdict}`}, not a JSON string — JSON.stringify it\n${expectedVerdict(doc)}`,
+      )
+    }
+    await runWrite(
+      ["judge", "answer"],
+      verdict,
+      (error) =>
+        new Error(
+          `${actor} sent a verdict gtd refused:\n${verdict}\n${expectedVerdict(doc)}\n${error.message}`,
+        ),
+    )
   }
 
   const self: TestRepo = {
@@ -327,8 +368,10 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
     land: () => runWrite(["land"]),
     next,
     drive: async (actors = {}, { maxBeats = 50 } = {}) => {
+      const passed: string[] = []
       for (let beat = 0; beat < maxBeats; beat++) {
         const doc = await next()
+        passed.push(doc.state)
         if (doc.kind === "stalled") return doc
         if (doc.kind === "capture") {
           await runWrite(["land"])
@@ -338,7 +381,9 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
         if (actor === undefined) return doc
         await act(doc, await actor(doc, self))
       }
-      throw new Error(`the process did not rest within ${maxBeats} beats`)
+      throw new Error(
+        `the process did not rest within ${maxBeats} beats; it passed through:\n${passed.join(" → ")}`,
+      )
     },
     subjects: () => repo.commitHistory().map(({ message }) => message.split("\n")[0] ?? ""),
     messages: () => repo.commitHistory().map(({ message }) => message),

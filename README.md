@@ -155,14 +155,14 @@ gtd land
 
 ```
 commit everything with this message: gtd(human): idle → unwind
-(run `gtd land --json=script | sh` to get the landing script)
+(to land it: s=$(gtd land --json=script) && sh -c "$s")
 ```
 
 You could run that commit by hand. Take the script instead — it spells out the
 exact message and reports what landed:
 
 ```bash
-gtd land --json=script | sh
+s=$(gtd land --json=script) && sh -c "$s"
 ```
 
 ```
@@ -205,7 +205,7 @@ before:
 
 ```bash
 sh -c "$(gtd next --json=content)"
-gtd land --json=script | sh
+s=$(gtd land --json=script) && sh -c "$s"
 ```
 
 `--json=<field>` is how a script reads one value out of a beat. Bare `--json`
@@ -278,7 +278,7 @@ The prompt tells the agent to asses your request and write
 `.gtd/REQUIREMENTS.md`, and that file is the turn. Land it like any other beat:
 
 ```bash
-gtd land --json=script | sh
+s=$(gtd land --json=script) && sh -c "$s"
 ```
 
 `gtd next --json=validate` is there if you want to check the agent's work first:
@@ -303,7 +303,7 @@ while :; do
     # Nothing left to do, abort.
     stalled) gtd next >&2; exit 1 ;;
   esac
-  gtd land --json=script | sh
+  s=$(gtd land --json=script) && sh -c "$s"
 done
 ```
 

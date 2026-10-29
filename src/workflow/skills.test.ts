@@ -17,24 +17,24 @@ describe("resolveScopeSkills", () => {
     const message = await failure(() => {
       throw new Error("boom")
     })
-    expect(message).toContain(`gtd config:\n  - ${FILE}: boom`)
+    expect(message).toContain(`gtd: config:\n  - ${FILE}: boom`)
   })
 
   it("rejects a non-object return", async () => {
     expect(await failure(() => ["a"])).toContain(
-      `gtd config:\n  - ${FILE}: skills export must return an object of scope -> skill names`,
+      `gtd: config:\n  - ${FILE}: skills export must return an object of scope -> skill names`,
     )
   })
 
   it("rejects a non-array value", async () => {
     expect(await failure(() => ({ a: "x" }))).toContain(
-      `gtd config:\n  - ${FILE}: skills export: "a" must be an array of skill names`,
+      `gtd: config:\n  - ${FILE}: skills export: "a" must be an array of skill names`,
     )
   })
 
   it("rejects a non-string entry", async () => {
     expect(await failure(() => ({ a: ["x", 1] }))).toContain(
-      `gtd config:\n  - ${FILE}: skills export: "a" must be an array of skill names`,
+      `gtd: config:\n  - ${FILE}: skills export: "a" must be an array of skill names`,
     )
   })
 
@@ -80,7 +80,7 @@ describe("resolveScopeAccess", () => {
 
   it("rejects a malformed export with the file", async () => {
     expect(message(await run({ access: () => ["a"] }))).toContain(
-      `gtd config:\n  - ${FILE}: access export must return an object`,
+      `gtd: config:\n  - ${FILE}: access export must return an object`,
     )
     expect(message(await run({ access: () => ({ a: { write: "x" } }) }))).toContain(
       `${FILE}: access export: "a": access.write must be an array`,
