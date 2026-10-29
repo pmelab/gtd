@@ -35,7 +35,7 @@ import {
   type ScriptedCommand,
   InMemRepo,
   applyEmittedScript,
-} from "../../../src/testkit/index.js"
+} from "../../../src/twins/index.js"
 import {
   runUiCommand,
   UiUsageError,
@@ -224,7 +224,7 @@ const applyScriptToFake = (
   if (error.startsWith("unrecognized script block:")) {
     throw new Error(
       `the in-memory tier could not apply an emitted script — ${error}\n` +
-        `Teach src/testkit/EmittedScriptRecognizer.ts about it.\nScript:\n${script}`,
+        `Teach src/twins/EmittedScriptRecognizer.ts about it.\nScript:\n${script}`,
     )
   }
   return { exitCode: applied.status, output: applied.output }

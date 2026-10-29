@@ -357,14 +357,14 @@ const shippedModules = (): Promise<ShippedModules> =>
     return { modules, missing }
   })())
 
-/** The file each subpath a config may import serves: all but `flows`, the engine's own, and `testkit`. */
+/** The file each subpath a config may import serves: all but `flows`, the engine's own, and the testkit's. */
 const subpathFiles = (condition: string): ReadonlyMap<string, string> => {
   const { root, pkg } = ownPackage()
   const files = new Map<string, string>()
   for (const [subpath, target] of Object.entries(pkg.exports)) {
     const file = typeof target === "string" ? target : target[condition]
-    // testkit imports the consumer's test runner, and no config runs one.
-    if (subpath === "./flows" || subpath === "./testkit" || file === undefined) continue
+    // A config runs no tests, and the gherkin steps import the consumer's test runner.
+    if (subpath === "./flows" || subpath.startsWith("./testkit") || file === undefined) continue
     files.set(`${PACKAGE}/${subpath.replace(/^\.\//, "")}`, join(root, file))
   }
   return files

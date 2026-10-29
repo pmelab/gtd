@@ -7,11 +7,11 @@ import { Cause, Effect, Exit, Option } from "effect"
 import { describe, expect, it } from "vitest"
 import { GitService, InvalidRefError, resolvedRefOrCorrupted } from "./Git.js"
 import { Host } from "./index.js"
-import { gitTiers, runGitServiceContract, runGitScriptContract } from "../testkit/index.js"
+import { gitTiers, runGitServiceContract, runGitScriptContract } from "../twins/index.js"
 
 /**
  * The `GitOperations` contract, run identically against both the Live and
- * InMemory tiers (`src/testkit/GitTiers.ts`) — 20 operations × 2 tiers.
+ * InMemory tiers (`src/twins/GitTiers.ts`) — 20 operations × 2 tiers.
  */
 for (const makeTier of gitTiers) {
   const name = makeTier().name

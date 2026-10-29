@@ -54,13 +54,13 @@ Feature: the packed package — gtd installed from its own tarball
       export const typed: string = WIRE_SCHEMA
       export const all = [FLOWS_PROTOCOL, reviewNotes, lensesOf, shipped, feature, review, fix, legacy, InMemRepo]
       """
-    # `./testkit` runs inside the consumer's vitest.
+    # `./testkit/gherkin` registers steps with the consumer's quickpickle.
     And a file "check.mjs" with:
       """
       import { readFileSync } from "node:fs"
 
       const { exports } = JSON.parse(readFileSync("node_modules/@pmelab/gtd/package.json", "utf8"))
-      const subpaths = Object.keys(exports).filter((subpath) => subpath !== "./testkit")
+      const subpaths = Object.keys(exports).filter((subpath) => subpath !== "./testkit/gherkin")
       for (const subpath of subpaths) await import(subpath.replace(".", "@pmelab/gtd"))
       console.log(`imported ${subpaths.join(" ")}`)
       """
@@ -76,7 +76,7 @@ Feature: the packed package — gtd installed from its own tarball
       node node_modules/typescript/bin/tsc -p . && node check.mjs && node node_modules/vitest/vitest.mjs run testkit.test.mjs
       """
     Then it succeeds
-    And stdout contains "imported ./flows ./wire ./steering ./workflow-kit ./workflows ./workflows/feature ./workflows/review ./workflows/fix ./workflow"
+    And stdout contains "imported ./flows ./wire ./steering ./workflow-kit ./workflows ./workflows/feature ./workflows/review ./workflows/fix ./workflow ./workflows/rollout ./workflows/cleanup ./testkit"
     And stdout contains "1 passed"
 
   Scenario: the driver from docs/driver.md runs the feature workflow on the installed gtd

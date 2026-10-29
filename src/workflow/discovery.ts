@@ -38,7 +38,7 @@ export const WORKFLOW_MODULE = "gtd.config.ts"
  * The file names gtd read repository settings from before `gtd.config.ts` took
  * them over. Still looked for, only to refuse them: a leftover one would
  * otherwise be silently ignored. Shared with the in-memory counterpart in
- * `src/testkit/Layers.ts`, so both tiers refuse the same names.
+ * `src/twins/Layers.ts`, so both tiers refuse the same names.
  */
 export const LEGACY_RC_FILES = [
   ".gtdrc",
@@ -71,7 +71,7 @@ const legacyRcFileAt = (path: string): LegacyRcFile | undefined => {
  * the user's home dir (inclusive, when it is an ancestor) or after reaching the
  * filesystem root — whichever comes first. Returned innermost→outermost.
  * Exported (via the barrel) for the same reason `SEARCH_PLACES` is — one
- * shared implementation, not a second copy in `src/testkit/Layers.ts` that
+ * shared implementation, not a second copy in `src/twins/Layers.ts` that
  * could silently diverge.
  */
 export const walkUp = (from: string, home: string): ReadonlyArray<string> => {
@@ -115,7 +115,7 @@ const workflowModule = (
  * reads; discovery is effectful and environment-dependent: `.Live` reads
  * REAL disk, so an `@inmem` scenario's fake
  * `Workspace` — a pure in-memory `Map`, no real files anywhere on disk —
- * cannot back it. `src/testkit/Layers.ts` provides the in-memory
+ * cannot back it. `src/twins/Layers.ts` provides the in-memory
  * counterpart instead, mirroring how `Workspace`/`Host`/`GitService` already
  * each have a production and a fake layer behind one Tag.
  */

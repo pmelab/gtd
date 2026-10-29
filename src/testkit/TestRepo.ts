@@ -2,10 +2,13 @@ import { Effect } from "effect"
 import { PassThrough } from "node:stream"
 import { runCli } from "../cli/index.js"
 import { EXIT_OK, type BeatDocument } from "../wire/index.js"
-import { makeCapturingCliIo, type CapturedCliResult } from "./cliIo.js"
-import { applyEmittedScript } from "./EmittedScriptRecognizer.js"
-import { applyFlowScript } from "./FlowScripts.js"
-import { InMemRepo } from "./InMemRepo.js"
+import {
+  applyEmittedScript,
+  applyFlowScript,
+  InMemRepo,
+  makeCapturingCliIo,
+  type CapturedCliResult,
+} from "../twins/index.js"
 
 /**
  * The repository's `gtd.config.ts`: its source, or the module itself. A module

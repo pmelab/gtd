@@ -881,10 +881,11 @@ gtd is one package, `@pmelab/gtd`, and every entrypoint shares its version and
 | `@pmelab/gtd/workflow-kit`                                                                                                                                     | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails.                                                                                  |
 | `@pmelab/gtd/workflows`                                                                                                                                        | Every shipped workflow and all its parts in one module; also resolvable as `@pmelab/gtd/workflow`.                                                                                                     |
 | `@pmelab/gtd/workflows/feature`, `@pmelab/gtd/workflows/review`, `@pmelab/gtd/workflows/fix`, `@pmelab/gtd/workflows/rollout`, `@pmelab/gtd/workflows/cleanup` | One shipped workflow each: its factory as the default export, its parts, and the reserved exports (`defaults`, `envDefaults`, `summary`, `steering`, `skills`, `access`). `gtd install` imports these. |
-| `@pmelab/gtd/testkit`                                                                                                                                          | Runs any workflow against the real engine, in an in-memory or a real repository. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                         |
+| `@pmelab/gtd/testkit`                                                                                                                                          | Runs any workflow against the real engine in an in-memory repository, under any test runner. See [Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md).                        |
+| `@pmelab/gtd/testkit/gherkin`                                                                                                                                  | The testkit as quickpickle steps for vitest. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                                                             |
 
 Types come from the TypeScript sources the package ships. Configs never need an
-install for any of these but `./testkit`: gtd resolves a `gtd.config.ts`'s
+install for any of these but the testkit's: gtd resolves a `gtd.config.ts`'s
 `@pmelab/gtd/*` imports to its own copy.
 
 The `gtd` bin's commands — `next`, `land`, `abandon`, `restore`, `validate`,

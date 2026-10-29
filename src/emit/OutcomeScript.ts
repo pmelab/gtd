@@ -19,7 +19,7 @@ const printfLine = (fmt: string, args: readonly string[]): string =>
 
 /**
  * Marks an emitted block as print-only. Load-bearing beyond documentation:
- * `src/testkit/EmittedScriptRecognizer.ts` recognizes an outcome block by
+ * `src/twins/EmittedScriptRecognizer.ts` recognizes an outcome block by
  * this line, and a bare `printf` would be ambiguous with a workflow
  * `script:` command that happens to start the same way.
  */

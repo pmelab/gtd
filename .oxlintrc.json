@@ -26,9 +26,12 @@
               "../testing/*",
               "**/testkit/*",
               "./testkit/*",
-              "../testkit/*"
+              "../testkit/*",
+              "**/twins/*",
+              "./twins/*",
+              "../twins/*"
             ],
-            "message": "src/testkit/** and src/web/testing/** are test-only and must never reach src/main.ts's import graph"
+            "message": "src/testkit/**, src/twins/** and src/web/testing/** are test-only and must never reach src/main.ts's import graph"
           }
         ]
       }
@@ -49,7 +52,7 @@
       }
     },
     {
-      "files": ["src/testkit/**", "**/*.steps.ts"],
+      "files": ["src/testkit/**", "src/twins/**", "src/gherkin/**", "**/*.steps.ts"],
       "rules": {
         "no-restricted-imports": "off"
       }

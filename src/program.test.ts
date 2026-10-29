@@ -22,7 +22,7 @@ import { runCli, ToolCommands } from "./cli/index.js"
 import { CONFIG_SCAFFOLD } from "./install/index.js"
 import { CommandRunner, GtdError, GtdUsageError } from "./platform/index.js"
 import { liveToolCommands } from "./program.js"
-import { InMemRepo, makeCapturingCliIo } from "./testkit/index.js"
+import { InMemRepo, makeCapturingCliIo } from "./twins/index.js"
 import { EXIT_RUNTIME_ERROR } from "./wire/index.js"
 
 const tools = liveToolCommands.pipe(

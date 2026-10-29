@@ -6,7 +6,7 @@ import { NodeContext } from "@effect/platform-node"
 import { Effect, Layer } from "effect"
 import { afterEach, describe, expect, it } from "vitest"
 import { GitService, Host, Narrator, Workspace } from "../platform/index.js"
-import { InMemRepo, testLayers } from "../testkit/index.js"
+import { InMemRepo, testLayers } from "../twins/index.js"
 import { ConfigDiscovery, ConfigService } from "./index.js"
 
 // A config and the local modules it imports load the same from disk, where

@@ -1,9 +1,15 @@
-export { runsItsScript, testRepo, type Actor, type TestRepo } from "./TestRepo.js"
-export { InMemRepo } from "./InMemRepo.js"
-export { makeInMemoryWorkspaceOps, testLayers, type ScriptedCommand } from "./Layers.js"
-export { makeCapturingCliIo } from "./cliIo.js"
-export { applyEmittedScript } from "./EmittedScriptRecognizer.js"
-export { gitTiers, runGitServiceContract, runGitScriptContract, type GitTier } from "./GitTiers.js"
-export { strictGitOperations } from "./StrictGitOperations.js"
-export { fakeGitOperations } from "./FakeGitOperations.js"
-export type { TestkitWorld } from "./steps.js"
+// The public testkit: runs any workflow against the real engine in an in-memory
+// repository. It imports no test runner, so any runner can use it; the
+// gherkin steps are the opt-in \`@pmelab/gtd/testkit/gherkin\`.
+export {
+  runsItsScript,
+  testRepo,
+  type Actor,
+  type Actors,
+  type DriveOptions,
+  type TestRepo,
+  type TestRepoOptions,
+  type WorkflowModule,
+} from "./TestRepo.js"
+export { InMemRepo, type CapturedCliResult } from "../twins/index.js"
+export type { TestkitWorld } from "../gherkin/index.js"

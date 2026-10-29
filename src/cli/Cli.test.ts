@@ -25,7 +25,7 @@ import {
 import { EXIT_CODES, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 import { Host } from "../platform/index.js"
 import { type CommandRequirements } from "./Cli.js"
-import { InMemRepo, makeCapturingCliIo, testLayers } from "../testkit/index.js"
+import { InMemRepo, makeCapturingCliIo, testLayers } from "../twins/index.js"
 import { CONFIG_SCAFFOLD } from "../install/index.js"
 
 const FLAG_NAMES = [

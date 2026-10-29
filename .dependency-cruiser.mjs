@@ -51,11 +51,25 @@ const units = {
   drivers: "^claude/",
   tools: "^src/(ui|web|lsp|judges)/",
   testkit: "^src/testkit/",
+  // The in-memory twins of git, the workspace and the CLI io the testkit and
+  // gtd's own tests run on. Never a package subpath: their shape follows the engine.
+  twins: "^src/twins/",
+  // The testkit's opt-in quickpickle steps, `@pmelab/gtd/testkit/gherkin`.
+  gherkin: "^src/gherkin/",
 }
 // What any import of repository code resolves to, as opposed to a package or builtin.
 const local = ["^(src|claude|tests|evals|scripts)/", "^[^/]+\\.[cm]?[jt]sx?$"]
 // Test support outside a test file: the web client's Storybook/Vitest browser helpers.
-const testSupport = [productionExcluded, units.testkit, "^src/web/testing/"]
+const testSupport = [
+  productionExcluded,
+  units.testkit,
+  units.twins,
+  units.gherkin,
+  "^src/web/testing/",
+]
+// The public testkit core is runner-agnostic: only its opt-in gherkin subpath,
+// the twins and tests import a test runner.
+const testRunnerUsers = testSupport.filter((unit) => unit !== units.testkit)
 // Repository-root tooling config (vitest.config.ts, …) the tests import.
 const rootConfig = "^[^/]+\\.[cm]?[jt]s$"
 
@@ -71,6 +85,7 @@ const npmAllowList = [
       units.core,
       units.workflows,
       units.testkit,
+      units.twins,
       "^src/(lsp|ui)/",
       ...compositionRoots,
       ...compositionRootTests,
@@ -79,12 +94,19 @@ const npmAllowList = [
   },
   {
     packages: ["@effect/platform"],
-    units: [units.testkit, "^src/(platform|ui)/", ...compositionRoots, ...compositionRootTests],
+    units: [
+      units.testkit,
+      units.twins,
+      "^src/(platform|ui)/",
+      ...compositionRoots,
+      ...compositionRootTests,
+    ],
   },
   {
     packages: ["@effect/platform-node"],
     units: [
       units.testkit,
+      units.twins,
       "^src/cli/",
       ...compositionRoots,
       "^src/(platform|ui|workflow)/.+\\.test\\.ts$",
@@ -133,7 +155,7 @@ const npmAllowList = [
       "vite",
       "yaml",
     ],
-    units: testSupport,
+    units: testRunnerUsers,
     label: "tests and test support",
   },
 ]
@@ -200,10 +222,15 @@ export default {
     // --- spec 03 ---
     {
       name: "no-circular",
-      comment: "Production modules form no import cycle.",
+      comment:
+        "Production modules form no import cycle. A type-only edge is erased at compile time, so a cycle through one is none at runtime.",
       severity: "error",
       from: { pathNot: productionExcluded },
-      to: { circular: true, pathNot: productionExcluded },
+      to: {
+        circular: true,
+        pathNot: productionExcluded,
+        viaOnly: { dependencyTypesNot: ["type-only"] },
+      },
     },
     {
       name: "root-no-boundary",
@@ -371,17 +398,36 @@ export default {
     {
       name: "testkit-imports-only-core-and-flows",
       comment:
-        "Unit map, testkit imports only core and flows: src/testkit/ runs any workflow against the real engine — never a workflow, the kit, a driver or a tool. Core's own vocabulary, src/wire/ and src/steering/, comes with it.",
+        "Unit map, testkit imports only core and flows: src/testkit/ and src/twins/ run any workflow against the real engine — never a workflow, the kit, a driver or a tool. Core's own vocabulary, src/wire/ and src/steering/, comes with it. The testkit builds on the twins and names the gherkin world's type; the twins build on nothing of the testkit's.",
       severity: "error",
-      from: { path: units.testkit },
-      to: { path: "^src/", pathNot: [units.testkit, units.core, units.contracts] },
+      from: { path: [units.testkit, units.twins] },
+      to: {
+        path: "^src/",
+        pathNot: [units.testkit, units.twins, units.gherkin, units.core, units.contracts],
+      },
+    },
+    {
+      name: "twins-never-import-the-testkit",
+      comment:
+        "Unit map, the twins sit below the testkit: they import neither it nor its gherkin steps.",
+      severity: "error",
+      from: { path: units.twins, pathNot: productionExcluded },
+      to: { path: [units.testkit, units.gherkin] },
+    },
+    {
+      name: "gherkin-imports-only-testkit",
+      comment:
+        "Unit map, the gherkin steps are the public testkit spoken as quickpickle steps: they import only it.",
+      severity: "error",
+      from: { path: units.gherkin, pathNot: productionExcluded },
+      to: { path: "^src/", pathNot: [units.gherkin, units.testkit] },
     },
     {
       name: "production-never-imports-testkit",
-      comment: "Unit map, production code never imports testkit.",
+      comment: "Unit map, production code never imports testkit, its twins or its gherkin steps.",
       severity: "error",
-      from: { pathNot: [productionExcluded, units.testkit] },
-      to: { path: units.testkit },
+      from: { pathNot: [productionExcluded, units.testkit, units.twins, units.gherkin] },
+      to: { path: [units.testkit, units.twins, units.gherkin] },
     },
     {
       name: "only-composition-roots-import-drivers-and-tools",
