@@ -1,7 +1,13 @@
 import { describe, expect, it } from "vitest"
-import { agent, human } from "../flows/index.js"
+import { agent, human, workflow } from "../flows/index.js"
 import { testRepo } from "../testkit/index.js"
-import { assertContains, assertLacks, refusedWith, restDescription } from "./messages.js"
+import {
+  assertContains,
+  assertLacks,
+  assertRestsAt,
+  refusedWith,
+  restDescription,
+} from "./messages.js"
 
 const flow = async (): Promise<void> => {
   await agent("plan", "Write PLAN.md.\nKeep it short.\n3\n4\n5\n6\n7")
@@ -86,5 +92,25 @@ describe("contains", () => {
       '"a.md" does not exist, so it cannot contain "x"',
     )
     expect(await thrown(() => assertLacks('"a.md"', "x", undefined))).toBe('"a.md" does not exist')
+  })
+})
+
+describe("assertRestsAt", () => {
+  it("fails on a stall at the step, pointing to the stall assertion", async () => {
+    const repo = testRepo({ workflow: { default: flow, flow: workflow(flow) } })
+    await repo.start("flow")
+    const stall = await repo.drive({ plan: () => undefined })
+    expect(stall.kind).toBe("stalled")
+    expect(await thrown(() => assertRestsAt(stall, "plan"))).toBe(
+      'expected a rest at "plan", but the process stalls at "plan" — assert a stall with: the process stalls at "plan"',
+    )
+  })
+
+  it("passes at a rest at the step, and fails at another", async () => {
+    const repo = testRepo({ workflow: { default: flow } })
+    repo.write("go", "\n")
+    const rest = await repo.drive({ plan: (_, r) => r.write("PLAN.md", "p\n") })
+    assertRestsAt(rest, "sign-off")
+    expect(await thrown(() => assertRestsAt(rest, "plan"))).toContain("sign-off")
   })
 })

@@ -1,5 +1,5 @@
 import type { LspIo } from "../../../src/lsp/index.js"
-import type { InMemRepo } from "../../../src/testkit/index.js"
+import type { InMemRepo } from "../../../src/twins/index.js"
 
 export interface GtdRun {
   readonly exitCode: number

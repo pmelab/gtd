@@ -9,17 +9,17 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
   package) invokes as a leaf step, from any directory. A clean parse exits 0
   with no output; a non-clean parse exits non-zero with stdout byte-empty and
   each finding, one per line, on stderr instead (folded into the failing
-  command's own message); an absent file mirrors gtd validate's own
-  absent-file behavior (exit 0, nothing to check); an unrecognized <mode> is a
-  usage error naming the modes that do exist.
+  command's own message); an absent file is a refusal (exit 1, "no such
+  file") — an emitted validation script checks the file is there before it
+  calls this; an unrecognized <mode> is a usage error (exit 2) naming the modes
+  that do exist.
 
   `--open-questions` (mode "qa" only) replaces that structural check with
   src/steering/index.ts's `unansweredQuestions` predicate — the SAME one a
   flow's `openQuestions()` reads — printing each
-  unanswered question's heading and exiting non-zero when any remain. Unlike
-  the structural path, a missing (or unreadable) file is itself a non-zero
-  exit naming the path, not "nothing to check": a workflow's gate script must
-  stop and show the human rather than silently pass.
+  unanswered question's heading and exiting non-zero when any remain. A
+  missing file is a non-zero exit naming the path here too: a workflow's gate
+  script must stop and show the human rather than silently pass.
 
   @inmem
   Scenario: a well-formed qa file validates cleanly and exits 0 silently
@@ -245,10 +245,11 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     And stderr contains "# Review: <hash>"
 
   @inmem
-  Scenario: a file that does not exist has nothing to check — exits 0 silently
+  Scenario: a file that does not exist is a refusal naming it
     When I run gtd with args "check qa MISSING.md"
-    Then it succeeds
+    Then the exit code is 1
     And stdout is empty
+    And stderr contains "gtd check: no such file: MISSING.md"
 
   @inmem
   Scenario: an unrecognized mode is a usage error naming the modes that do exist
@@ -257,7 +258,7 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
       anything
       """
     When I run gtd with args "check bogus-mode whatever.md"
-    Then it fails
+    Then the exit code is 2
     And stderr contains "unknown mode"
     And stderr contains "qa, review"
 
@@ -336,10 +337,10 @@ Feature: gtd check <mode> <file> — the standalone leaf validator
     And stderr contains "Which storage backend?"
 
   @inmem
-  Scenario: --open-questions on a missing file fails and names the path — unlike the no-flag path's silent exit 0
+  Scenario: --open-questions on a missing file fails and names the path
     When I run gtd with args "check qa MISSING.md --open-questions"
-    Then it fails
-    And stderr contains "MISSING.md"
+    Then the exit code is 1
+    And stderr contains "no such file: MISSING.md"
 
   @inmem
   Scenario: a thread item without an H:/A: prefix is a finding

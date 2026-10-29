@@ -42,11 +42,11 @@ Feature: the packed package — gtd installed from its own tarball
       import { WIRE_SCHEMA } from "@pmelab/gtd/wire"
       import { reviewNotes } from "@pmelab/gtd/steering"
       import { lensesOf } from "@pmelab/gtd/workflow-kit"
-      import { InMemRepo } from "@pmelab/gtd/testkit"
+      import { verdict } from "@pmelab/gtd/testkit"
 
       // @ts-expect-error each export is typed, never `any`
       export const typed: string = WIRE_SCHEMA
-      export const all = [FLOWS_PROTOCOL, reviewNotes, lensesOf, InMemRepo]
+      export const all = [FLOWS_PROTOCOL, reviewNotes, lensesOf, verdict]
       """
     # `./testkit/gherkin` registers steps with the consumer's quickpickle.
     And a file "check.mjs" with:
@@ -61,9 +61,10 @@ Feature: the packed package — gtd installed from its own tarball
     And a file "testkit.test.mjs" with:
       """
       import { expect, it } from "vitest"
-      import { InMemRepo } from "@pmelab/gtd/testkit"
+      import { testRepo } from "@pmelab/gtd/testkit"
 
-      it("loads testkit", () => expect(new InMemRepo().readFile("missing")).toBeUndefined())
+      it("loads testkit", () =>
+        expect(testRepo({ workflow: { default: async () => {} } }).read("missing")).toBeUndefined())
       """
     When I run in the shell within 110 seconds:
       """

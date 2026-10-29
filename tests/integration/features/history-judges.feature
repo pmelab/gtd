@@ -4,13 +4,13 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, judge, scope } from "@pmelab/gtd/flows"
+      import { agent, human, judge, scope, workflow } from "@pmelab/gtd/flows"
 
-      export const defaults = { qualityTriageMinP: "0.7" }
+      const defaults = { qualityTriageMinP: "0.7" }
 
       const finding = (id: string) => ({ id, primitive: "choice", instructions: "i", criteria: "c" })
 
-      export default async () => {
+      export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await scope("build", async () => {
           await scope("quality", async () => {
@@ -24,7 +24,7 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
           await agent("composing", "compose the review")
           await human("review", { message: "review it" })
         })
-      }
+      }, { defaults })
       """
     And the working tree is committed as "chore: gtd config"
     And a file "NOTE.md" with:
@@ -89,30 +89,21 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
       """
 
   @inmem
-  Scenario: --var re-decides past verdicts under another threshold, with no model call
-    When I run gtd with args "history judges --var qualityTriageMinP=0.9"
-    Then it succeeds
-    And stdout contains "what-if qualityTriageMinP=0.9: 1 noise drop becomes a note (1 overturned)"
-    When I run gtd with args "history judges --var qualityTriageMinP=0.5"
-    Then stdout contains "what-if qualityTriageMinP=0.5: no decision changes"
-
-  @inmem
-  Scenario: --threshold re-decides past verdicts the same way --var, its deprecated spelling, does
+  Scenario: --threshold re-decides past verdicts under another threshold, with no model call
     When I run gtd with args "history judges --threshold qualityTriageMinP=0.9"
     Then it succeeds
     And stdout contains "what-if qualityTriageMinP=0.9: 1 noise drop becomes a note (1 overturned)"
-    When I run gtd with args "history judges --threshold=qualityTriageMinP=0.9 --var qualityTriageMinP=0.8"
-    Then the exit code is 2
-    And stderr contains "qualityTriageMinP given as both --threshold and --var"
+    When I run gtd with args "history judges --threshold=qualityTriageMinP=0.5"
+    Then stdout contains "what-if qualityTriageMinP=0.5: no decision changes"
+
+  @inmem
+  Scenario: --threshold takes judge thresholds only, and --var is no history judges option
     When I run gtd with args "history judges --threshold reviewBase=main"
     Then the exit code is 2
     And stderr contains "--threshold reviewBase is no judge threshold"
-
-  @inmem
-  Scenario: --var takes judge thresholds only
-    When I run gtd with args "history judges --var reviewBase=main"
+    When I run gtd with args "history judges --var qualityTriageMinP=0.9"
     Then the exit code is 2
-    And stderr contains "no judge threshold"
+    And stderr contains "--var is only valid for `gtd start <name>`"
 
   @inmem
   Scenario: --jsonl exports one line per verdict, with the evidence and outcome
@@ -134,7 +125,7 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
         await human("idle", { message: "write NOTE.md to start a process" })
         await scope("build", async () => {
           let red = 0
-          while (!(await scope("health", () => check("check", "npm test", { report: ".gtd/FEEDBACK.md" })))) {
+          while (!(await scope("health", () => check("check", "npm test", ".gtd/FEEDBACK.md")))) {
             if (++red > 1)
               await scope("health", () => judge("judge", { questions: [verdict], evidence: {}, message: "same?" }))
             await agent("fix", "fix it")

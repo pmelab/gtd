@@ -9,14 +9,16 @@ scrollback.
 
 ### Engine
 
-**Workflow**: A named [flow](#flow) a `gtd.config.ts` exports, started by
-`gtd start <name>`. gtd ships none; `feature`, `review` and `fix` come from
-gtd-workflows' `default`, and their own words are in its glossary. _Avoid_:
-state machine, config, pipeline, entry
+**Workflow**: A named [flow](#flow) a `gtd.config.ts` exports through
+`workflow(flow, options?)` — or a [workflow factory](#workflow-factory) —
+started by `gtd start <name>`. gtd ships none; `feature`, `review` and `fix`
+come from gtd-workflows' `default`, and their own words are in its glossary.
+_Avoid_: state machine, config, pipeline, entry
 
-**Default workflow**: The workflow an ordinary start (no `--workflow`) runs —
-the config's required `default` export. It goes by the named export it also is,
-else `default`, and is not startable as `--workflow default`.
+**Default workflow**: The workflow an ordinary start (no `gtd start`) runs — the
+config's required `default` export, which may be a plain flow. It goes by the
+named export it also is, else `default`, and is not startable as
+`gtd start default`.
 
 **gtd.config.ts**: The TypeScript module a workflow lives in — the innermost one
 walking up from the current directory, never merged. Code gtd evaluates on every
@@ -42,15 +44,13 @@ _Avoid_: machine, state table, graph
 subject that lands it and, up to its last dot, its
 [memory scope](#memory-scope). _Avoid_: state, node, phase
 
-**Workflow module**: A TypeScript module in which every exported function or
-[workflow factory](#workflow-factory) (bar the reserved exports) is a workflow
-named by its export; its `defaults`, `envDefaults`, `steering`, `skills`,
-`access`, `doors`, `summary` and `base` exports configure every workflow in the
-file, and `config` the repository. `workflow()` marks an exported function as
-meant to be one; once a module marks any, the rest warn. A module the config
-only imports is never scanned: its helpers — a single step or a phase such as a
-health loop or a review round — stay helpers a workflow may import. _Avoid_:
-machine, sub-workflow, fragment
+**Workflow module**: A TypeScript module in which every export passed through
+`workflow()` and every [workflow factory](#workflow-factory) (bar `default` and
+`config`) is a workflow named by its export; any other exported function is a
+helper. A workflow's settings, doors, base, steering files, skills, access and
+summary are its **workflow options** — `workflow(flow, options)` or a factory
+build — never file-level exports; `config` configures the repository. _Avoid_:
+machine, sub-workflow, fragment, reserved export (for an option)
 
 **Workflow factory**: A function, made with `defineWorkflow`, that returns a
 workflow configured by its options; gtd validates the options when it loads the
@@ -244,17 +244,17 @@ consumes.
 carrying `Gtd-Kept: <hash>` instead. Never listed by `gtd history`, never
 deleted by a landing. _Avoid_: beat tip, discarded tip.
 
-**Process setting**: A flat string value flow code reads as `settings` (also
-`vars`) and may branch on — the workflow's `defaults` (or a factory option),
-then the `--var` on `--workflow`, then `GTD_<NAME>`. Resolved once at process
-start and recorded in the process's first commit; a later edit does not reach
-the running process. gtd blesses no names. Avoid: "Vars".
+**Process setting**: A flat string value flow code reads as `settings` and may
+branch on — the workflow's `defaults` (or a factory option), then the `--var` on
+`gtd start`, then `GTD_<NAME>`. Resolved once at process start and recorded in
+the process's first commit; a later edit does not reach the running process. gtd
+blesses no names. Avoid: "Vars", `vars` (removed name).
 
-**Environment setting**: A flat string value flow code reads as `envSettings`
-(also `env`), only where it cannot change the next step — the workflow's
-`envDefaults`, then `GTD_<NAME>`. Read live on every call, never recorded; a
-test command is a workflow's data, not a key gtd interprets. Avoid: "Vars", "env
-var" (that is a shell variable).
+**Environment setting**: A flat string value flow code reads as `envSettings`,
+only where it cannot change the next step — the workflow's `envDefaults`, then
+`GTD_<NAME>`. Read live on every call, never recorded; a test command is a
+workflow's data, not a key gtd interprets. Avoid: "Vars", `env` (removed name),
+"env var" (that is a shell variable).
 
 **Chunk**: One coherent group of changes in a `review`-mode steering file: a
 title, a sentence on what it changes and why, and its hunk pointers.

@@ -9,7 +9,7 @@ import {
   type UiHandler,
   type UiHostOps,
 } from "../../../src/ui/index.js"
-import type { InMemRepo } from "../../../src/testkit/index.js"
+import type { InMemRepo } from "../../../src/twins/index.js"
 import type { GtdRun } from "./lsp-io.js"
 
 /** What a `tailscale` CLI would hold: the published serve mappings, by port. */

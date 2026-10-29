@@ -32,7 +32,7 @@ import { agent, check, human, read } from "@pmelab/gtd/flows"
 export const calculator = async (): Promise<void> => {
   await agent("plan", "Write PLAN.md.")
   await agent("build", `Build what PLAN.md says:\n${read("PLAN.md") ?? ""}`)
-  const green = await check("test", "npm test", { report: ".gtd/FEEDBACK.md" })
+  const green = await check("test", "npm test", ".gtd/FEEDBACK.md")
   if (!green) await agent("repair", "Make the suite pass.")
   await human("sign-off")
 }
@@ -83,7 +83,7 @@ the repository:
 
 - `workflow` — the workflow module, as the test imported it. Its exports are
   read as a `gtd.config.ts`'s would be: the default export starts on a change in
-  the tree, every exported function is startable by name. A
+  the tree, every `workflow()` export and factory is startable by name. A
   `{ default: feature({ … }) }` object works too.
 - `files` — committed with the config before anything runs.
 - `env` — the environment gtd sees. The real `process.env` is never read, except
@@ -106,9 +106,9 @@ actor is keyed by the step's full name and gets the beat and the repository:
 - `runsItsScript` runs the step's own script: file moves, copies and removals
   run in memory, and every other command runs as canned.
 
-An actor's type is `ScriptedActor` (`Actor` is its deprecated name). The beat is
-a `BeatDocument`, what `gtd next --json` prints; the testkit re-exports the type
-from `@pmelab/gtd/wire`:
+An actor's type is `ScriptedActor`. The beat is a `BeatDocument`, what
+`gtd next --json` prints; the testkit re-exports the type from
+`@pmelab/gtd/wire`:
 
 ```ts
 import type { BeatDocument, ScriptedActor } from "@pmelab/gtd/testkit"
@@ -121,14 +121,23 @@ without resting fails the test instead of hanging it.
 `repo.drive(actors, { checks: "run" })` runs a check step without an actor as
 `runsItsScript` would, its commands canned.
 
-`repo.drive(actors, { strict: true })` fails where a lenient drive lets a
-mistake pass:
+A drive is strict: it fails where a mistake would otherwise pass unnoticed:
 
-- an actor whose step the drive never reached;
-- a check step without an actor (unless `checks: "run"`);
+- an actor in this call's map whose step no drive of the repository has reached
+  — checked at the end of every `repo.drive` call, since each call passes its
+  own map; a later drive need not revisit a step an earlier one passed;
+- a check step without an actor (unless `checks: "run"`) — a driver never rests
+  at one, it runs the check;
 - a human step whose actor changes nothing — the drive would repeat it until
   `maxBeats`;
 - an actor returning a verdict anywhere but at a judge step.
+
+`repo.drive(actors, { strict: false })` lets each of them pass. Reach for it
+when the mistake is the point: one actor map shared by tests whose drives reach
+different steps, or a drive left to rest at a check step to inspect its script.
+`repo.drive(actors, { unreachedActors: "pass" })` leaves out only the first
+check, for a harness that checks it once at its own end — as the Gherkin world
+does.
 
 ### Composing actors
 
@@ -157,7 +166,8 @@ const rest = await repo.drive({
 ### Where a drive rests
 
 - **A step without an actor.** `rest.state` is its name, `rest.actor` who acts
-  there. A judge step without an actor rests too, as a `message` beat.
+  there. A judge step without an actor rests too, as a `message` beat; a check
+  step without one fails a strict drive.
 - **A stall.** An agent actor that changes nothing lands one empty attempt, and
   the drive returns a beat whose `kind` is `stalled` — unless the step sets
   `allowEmpty`.
@@ -170,8 +180,9 @@ const rest = await repo.drive({
 
 A human step is scripted like any other: its actor edits the tree, and the edit
 lands as the human's turn. An actor that changes nothing lands nothing, unless
-the step sets `acceptClean` — the drive stays at the step and fails once it runs
-out of beats. Leave the step without an actor to have the drive rest there.
+the step sets `acceptClean`, and fails the drive — a drive with `strict: false`
+stays at the step until it runs out of beats. Leave the step without an actor to
+have the drive rest there.
 
 ### A judge's verdict
 
@@ -194,14 +205,14 @@ array with one entry per question,
 not fit the questions fails the drive, echoing what was sent and the shape
 expected.
 
-The repository is also driven by hand: `repo.start(name, ...args)`,
-`repo.door(name, ...args)`, `repo.land()`, `repo.next()` and
-`repo.gtd(...args)`. It is read with `repo.read(path)`, `repo.show(ref, path)`,
-`repo.subjects()`, `repo.messages()` and `repo.hashes()`, and changed outside a
-process with `repo.write`, `repo.remove` and `repo.commit(message)`.
-`repo.commits()` lists every commit, oldest first, as
-`{ hash, subject, message, trailers }`; `trailers` maps each trailer of the
-message's last paragraph to its values in order:
+The repository is also driven by hand: `repo.start(name, ...args)` (what
+`gtd start` does: a door of that name, or else the workflow; `repo.door` is the
+same), `repo.land()`, `repo.next()` and `repo.gtd(...args)`. It is read with
+`repo.read(path)`, `repo.show(ref, path)`, `repo.subjects()`, `repo.messages()`
+and `repo.hashes()`, and changed outside a process with `repo.write`,
+`repo.remove` and `repo.commit(message)`. `repo.commits()` lists every commit,
+oldest first, as `{ hash, subject, message, trailers }`; `trailers` maps each
+trailer of the message's last paragraph to its values in order:
 
 ```ts
 const last = repo.commits().at(-1)!
@@ -270,6 +281,56 @@ The config's `import` and `export … from` statements naming a specifier in
 `modules` read that module; `import type` lines are dropped. Only the config is
 rewritten, not files it imports.
 
+## The flow-context harness
+
+A prompt a workflow renders, or a helper that branches on what a step left, can
+be tested without a repository: install a fake replay context, call the flow
+code, and look at what it asked for. Everything runs synchronously against the
+context; no engine, git or driver is involved.
+
+`installContext(context)` from `@pmelab/gtd/testkit` installs `context` for
+every `@pmelab/gtd/flows` call that follows, and `installContext(undefined)`
+removes it. A `FlowContext` answers the reads (`read`, `glob`, `changes`,
+`settings` as `vars`, `envSettings` as `env`, …) and receives each step as a
+`StepRequest`; implement only what the code under test touches.
+
+```ts
+import assert from "node:assert/strict"
+import { afterEach, test } from "node:test"
+import { agent, read } from "@pmelab/gtd/flows"
+import {
+  installContext,
+  type FlowContext,
+  type StepRequest,
+} from "@pmelab/gtd/testkit"
+
+afterEach(() => installContext(undefined))
+
+test("the build prompt quotes the plan", async () => {
+  const requests: StepRequest[] = []
+  installContext({
+    read: (path: string) => (path === "PLAN.md" ? "add a button" : undefined),
+    step: async (request: StepRequest) => {
+      requests.push(request)
+    },
+  } as Partial<FlowContext> as FlowContext)
+
+  await agent("build", `Build: ${read("PLAN.md")}`)
+
+  assert.deepEqual(requests, [
+    {
+      kind: "agent",
+      name: "build",
+      prompt: "Build: add a button",
+      options: {},
+    },
+  ])
+})
+```
+
+A step's promise resolves to what `step` returns — a judge step's
+`{ answers, truncated }`, say — so a test can steer the code past it.
+
 ## Gherkin steps
 
 `@pmelab/gtd/testkit/gherkin` speaks the testkit as
@@ -326,10 +387,24 @@ npx vitest run
 The step wording is public API: a step is renamed only in a major release.
 
 Every actor step for one step name adds to that step's script, run in the order
-the scenario gives them. `step "build" is prompted with "…"` is one of them: it
-checks the beat, and on its own it scripts the step to change nothing: the drive
-does not rest at `build` for the scenario to inspect, it lands an empty attempt
-there and stalls. Pair it with a step that writes, as the example above does.
+the scenario gives them. `step "build" is prompted with "…"` is no actor: beside
+a script, as in the example above, it checks the beat at every visit before the
+step acts; on its own, the step stays unscripted, so the drive rests there,
+checks the beat at the rest and lands nothing.
+
+`the process is driven` is a strict drive (see
+[Driving a workflow](#driving-a-workflow)) with one difference: a step the
+scenario scripts, or expects a prompt at, is not checked at the end of each
+drive but once, at the end of the scenario — so a Background, or a step before
+the first drive, may script a step only a later drive reaches. A scenario whose
+steps all passed fails at its end on any such step no drive reached, naming it.
+That end check is left out when no drive was strict, or when a drive was refused
+(`driving the process is refused with …`). Every other strict check — a check
+step without an actor, a human step whose actor changes nothing, a verdict at a
+step that is no judge — still fails the drive it happens in.
+`the process is driven leniently` is the `strict: false` drive, e.g. to rest at
+a check step and inspect its script. `the process rests at {string}` fails on a
+stall; assert one with `the process stalls at {string}`.
 
 A failed outcome step ends with where the process rests: its step, kind and the
 first lines of its content, the last commit subjects, and the actors the
@@ -359,12 +434,15 @@ printing the text.
 - `world.importable(specifier, module)` — what
   `the module {string} is importable as {string}` does;
 - `world.act(step, actor)`, `world.rescript(step, actor)`,
-  `world.unscript(step)` — queue, replace or drop a step's actors;
+  `world.unscript(step)` — queue, replace or drop a step's actors (the last two
+  drop its prompts too);
+- `world.expectPrompt(step, text)` — what
+  `step {string} is prompted with {string}` does;
 - `world.answer(step, verdict)`, `world.answerWhen(step, text, verdict)`;
-- `world.drive()`.
-
-Its `actions`, `verdicts` and `conditionalVerdicts` maps are deprecated; use the
-methods.
+- `world.drive(options)` — `options` as `repo.drive` takes them, steps no drive
+  reached left to the scenario's end;
+- `world.assertReached()` — that end check, which
+  `@pmelab/gtd/testkit/gherkin`'s `After` hook runs.
 
 A support file can make the workflow under test importable in every scenario:
 
@@ -385,14 +463,12 @@ Setup:
 - `a gtd config from the module {string}`
 - `a gtd config with:`
 - `the gtd config ends with:`
-- `an environment variable {string} set to {string}`
 - `the environment variable {string} is {string}`
 - `from now on the environment variable {string} is {string}`
 - `the module {string} is importable as {string}`
 - `a file {string} with:`
 - `the file {string} is deleted`
 - `the text {string} in {string} is replaced with {string}`
-- `{string} gets appended:`
 - `text is appended to {string}:`
 - `the working tree is committed as {string}`
 - `the working tree is committed with the message:`
@@ -416,7 +492,6 @@ Actors:
 - `step {string} replaces the text {string} in {string} with {string}`
 - `step {string} deletes {string}`
 - `step {string} is prompted with {string}`
-- `step {string} rewrites {string} with:`
 - `step {string} overwrites {string}, if it exists, with:`
 - `step {string} runs its script`
 - `check step {string} passes`
@@ -432,6 +507,7 @@ Actions:
 - `gtd opens door {string} with {string}`
 - `gtd lands`
 - `the process is driven`
+- `the process is driven leniently`
 
 Outcomes:
 

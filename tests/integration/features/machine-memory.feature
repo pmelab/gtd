@@ -72,7 +72,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
           for (;;) {
             await agent("fix", "fix it")
             const green = await scope("health", async () => {
-              if (await check("check", "npm test", { report: ".gtd/FEEDBACK.md" })) return true
+              if (await check("check", "npm test", ".gtd/FEEDBACK.md")) return true
               if (++reds < 2) return false
               reds = 0
               await agent("describe", "describe the failure", { file: ".gtd/ESCALATION.md" })
@@ -128,7 +128,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
           for (;;) {
             await agent("fix", "fix it")
             const green = await scope("health", async () => {
-              if (await check("check", "npm test", { report: ".gtd/FEEDBACK.md" })) return true
+              if (await check("check", "npm test", ".gtd/FEEDBACK.md")) return true
               if (++reds < 2) return false
               reds = 0
               await agent("describe", "describe the failure", { file: ".gtd/ESCALATION.md" })
@@ -248,7 +248,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
 
       const healthy = () =>
         scope("health", async () => {
-          while (!(await check("check", "npm test", { report: ".gtd/FEEDBACK.md" })))
+          while (!(await check("check", "npm test", ".gtd/FEEDBACK.md")))
             await agent("fixing", "fix it")
         })
 

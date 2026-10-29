@@ -1,5 +1,5 @@
 import assert from "node:assert"
-import type { TestRepo } from "../testkit/index.js"
+import type { BeatDocument, TestRepo } from "../testkit/index.js"
 
 const CONTENT_LINES = 5
 const SUBJECTS = 5
@@ -81,4 +81,13 @@ export const assertContains = (where: string, text: string, content: string | un
 export const assertLacks = (where: string, text: string, content: string | undefined): void => {
   if (content === undefined || content.includes(text))
     assert.fail(containsFailure(where, text, content, false))
+}
+
+/** A rest at `step`; a stall there is no rest, so it points to the step that asserts one. */
+export const assertRestsAt = (beat: BeatDocument, step: string): void => {
+  if (beat.kind === "stalled")
+    assert.fail(
+      `expected a rest at "${step}", but the process stalls at "${beat.state}" — assert a stall with: the process stalls at "${beat.state}"`,
+    )
+  assert.strictEqual(beat.state, step)
 }

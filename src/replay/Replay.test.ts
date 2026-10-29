@@ -702,7 +702,7 @@ describe("replay: keep", () => {
   it("rejects keep together with allowEmpty", async () => {
     const flow: Flow = async () => {
       await human("idle")
-      await agent("naive", "p", { keep: true, allowEmpty: true })
+      await agent("naive", "p", { keep: true, allowEmpty: true } as never)
     }
     const h = new History().land("human", "idle", 1, "naive", {})
     const outcome = await replayOf(flow, h)
@@ -1166,6 +1166,17 @@ describe("human({ approve })", () => {
     }
   })
 
+  it.each([
+    ["human", async () => human("gate", { mode: "qa" } as never)],
+    ["agent", async () => agent("gate", "p", { mode: "qa" } as never)],
+    ["run", async () => run("gate", "true", { mode: "qa" } as never)],
+  ] as const)("refuses a %s step's mode without a file", async (kind, flow) => {
+    expect(await replayOf(flow, new History())).toEqual({
+      kind: "failed",
+      message: `gtd: step "gate": mode requires file in ${kind}() options — name the steering file the mode checks`,
+    })
+  })
+
   describe("refuses mode and file", () => {
     const tail =
       "in human() options — an approval records exactly the judged tree, and a steering file is rewritten on landing"
@@ -1189,7 +1200,7 @@ describe("human({ approve })", () => {
       for (const options of [
         { approve: true, label: "x" },
         { approve: true, base: "start" },
-        { approve: false, mode: "review" },
+        { approve: false, mode: "review", file: ".gtd/REVIEW.md" },
         { approve: true, mode: undefined },
       ]) {
         expect((await outcomeOf(options)).kind).toBe("rest")

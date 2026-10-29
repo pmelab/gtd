@@ -13,23 +13,24 @@ import type {
 // engine's copy — the same reason the replay context is.
 const FACTORY = Symbol.for("@pmelab/gtd/workflow-factory")
 
+/** What a `defineWorkflow` build returns; `workflow(flow, options)` takes the same keys but `flow`. */
 export interface WorkflowBuild {
   readonly flow: Flow
-  /** Process settings this workflow declares, over its file's `defaults` export. */
+  /** Process settings this workflow declares. */
   readonly defaults?: Readonly<Record<string, string>> | undefined
-  /** Environment settings this workflow declares, over its file's `envDefaults` export. */
+  /** Environment settings this workflow declares. */
   readonly envDefaults?: Readonly<Record<string, string>> | undefined
-  /** Doors onto this workflow. Two workflows building the same door is a load error unless the config's `doors` export declares that name; a declared door always wins. */
+  /** Doors onto this workflow. Two workflows building the same door build none unless one is exported under the door's name. */
   readonly doors?: WorkflowDoors | undefined
-  /** This workflow's diff base; the config's `base` export wins when it answers, `undefined` falls through to this. */
+  /** This workflow's diff base. */
   readonly base?: WorkflowBase | undefined
-  /** This workflow's scope skill lists; an entry of the file's `skills` export wins over the same scope here. */
+  /** This workflow's scope skill lists; a `config.skills` entry wins over the same scope here. */
   readonly skills?: SkillsExport | undefined
-  /** This workflow's scope access; an entry of the file's `access` export wins over the same scope here. */
+  /** This workflow's scope access; a `config.access` entry wins over the same scope here. */
   readonly access?: AccessExport | undefined
-  /** This workflow's steering files; an entry of the file's `steering` export wins over the same path here. */
+  /** This workflow's steering files, path -> mode. */
   readonly steering?: Steering | undefined
-  /** `gtd summary`'s prompt for this workflow; the file's `summary` export wins. */
+  /** `gtd summary`'s prompt for this workflow. */
   readonly summary?: Summary | undefined
 }
 

@@ -15,7 +15,7 @@ Feature: a config change during a running process is visible
       """
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
       import { brief } from "./brief.js"
 
       const work = async () => {
@@ -28,16 +28,16 @@ Feature: a config change during a running process is visible
         await work()
       }
 
-      export const working = work
+      export const working = workflow(work)
       """
 
   @inmem
-  Scenario: a "--workflow" start records the hash of the config and of its local import
-    When I run gtd with args "--workflow working"
+  Scenario: a "gtd start" start records the hash of the config and of its local import
+    When I run gtd with args "start working"
     Then it succeeds
     And the last commit subject is "gtd(human): working"
     And the last commit body contains "Gtd-Config: c59960854e8032b7 brief.ts"
-    And the last commit body contains "Gtd-Config: c7f10857be1c6f92 gtd.config.ts"
+    And the last commit body contains "Gtd-Config: 9875344c246128be gtd.config.ts"
 
   @inmem
   Scenario: the landing that starts an ordinary process records the hashes too
@@ -52,7 +52,7 @@ Feature: a config change during a running process is visible
 
   @inmem
   Scenario: an unchanged config warns about nothing
-    When I run gtd with args "--workflow working"
+    When I run gtd with args "start working"
     Then it succeeds
     When I run gtd next
     Then it succeeds
@@ -60,7 +60,7 @@ Feature: a config change during a running process is visible
 
   @inmem
   Scenario: changing a local import mid-process warns, naming the file, and the process goes on
-    When I run gtd with args "--workflow working"
+    When I run gtd with args "start working"
     Then it succeeds
     Given a file "brief.ts" with:
       """
@@ -139,7 +139,7 @@ Feature: a config change during a running process is visible
   Scenario: answering a judge step after a config change warns once
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, judge } from "@pmelab/gtd/flows"
+      import { agent, human, judge, workflow } from "@pmelab/gtd/flows"
       import { brief } from "./brief.js"
 
       export default async () => {
@@ -147,16 +147,16 @@ Feature: a config change during a running process is visible
         await agent("working", brief)
       }
 
-      export const judged = async () => {
+      export const judged = workflow(async () => {
         await judge("judging", {
           questions: [{ id: "q1", primitive: "noul", instructions: brief, criteria: "c" }],
           evidence: { note: "x" },
           message: "judge it",
         })
         await agent("acting", brief)
-      }
+      })
       """
-    When I run gtd with args "--workflow judged"
+    When I run gtd with args "start judged"
     Then it succeeds
     And the last commit subject is "gtd(human): judging"
     Given a file "brief.ts" with:

@@ -65,15 +65,15 @@ Feature: skills are declared per scope
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, scope } from "@pmelab/gtd/flows"
+      import { agent, scope, workflow } from "@pmelab/gtd/flows"
 
-      export const skills = { outer: ["bundled"], "outer.inner": ["bundled-inner"] }
+      const skills = { outer: ["bundled"], "outer.inner": ["bundled-inner"] }
 
-      export default async () => {
+      export default workflow(async () => {
         await scope({ name: "outer", skills: ["parent-skill"] }, () =>
           scope("deeper", () => agent("doing", "do the work", { allowEmpty: true })),
         )
-      }
+      }, { skills })
 
       export const config = {
         skills: {
@@ -90,17 +90,17 @@ Feature: skills are declared per scope
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, scope } from "@pmelab/gtd/flows"
+      import { agent, scope, workflow } from "@pmelab/gtd/flows"
 
-      export const skills = { outer: ["bundled"], "outer.inner": ["bundled-inner"] }
+      const skills = { outer: ["bundled"], "outer.inner": ["bundled-inner"] }
 
-      export default async () => {
+      export default workflow(async () => {
         await scope("outer", () =>
           scope({ name: "inner", skills: ["child-skill"] }, () =>
             agent("doing", "do the work", { allowEmpty: true }),
           ),
         )
-      }
+      }, { skills })
 
       export const config = {
         skills: {
@@ -149,16 +149,16 @@ Feature: skills are declared per scope
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, scope } from "@pmelab/gtd/flows"
+      import { agent, scope, workflow } from "@pmelab/gtd/flows"
 
-      export const skills = { design: [], "build.review": [] }
+      const skills = { design: [], "build.review": [] }
 
-      export default async () => {
+      export default workflow(async () => {
         await scope("design", () => agent("triage", "design it", { allowEmpty: true }))
         await scope("build", () =>
           scope("review", () => agent("reviewing", "review it", { allowEmpty: true })),
         )
-      }
+      }, { skills })
 
       export const config = {
         skills: {
@@ -176,15 +176,15 @@ Feature: skills are declared per scope
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, scope } from "@pmelab/gtd/flows"
+      import { agent, scope, workflow } from "@pmelab/gtd/flows"
 
-      export const skills = { idle: ["a-default-skill"] }
+      const skills = { idle: ["a-default-skill"] }
 
-      export default async () => {
+      export default workflow(async () => {
         await scope({ name: "idle", skills: ["a-default-skill"] }, () =>
           agent("doing", "do the work", { allowEmpty: true }),
         )
-      }
+      }, { skills })
 
       export const config = {
         skills: {
@@ -200,13 +200,13 @@ Feature: skills are declared per scope
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, scope } from "@pmelab/gtd/flows"
+      import { agent, scope, workflow } from "@pmelab/gtd/flows"
 
-      export const skills = { custom: ["bundled-default"] }
+      const skills = { custom: ["bundled-default"] }
 
-      export default async () => {
+      export default workflow(async () => {
         await scope("custom", () => agent("doing", "do the custom work", { allowEmpty: true }))
-      }
+      }, { skills })
       """
     When I run gtd next with "--json=skills"
     Then it succeeds
@@ -224,10 +224,10 @@ Feature: skills are declared per scope
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, scope, vars } from "@pmelab/gtd/flows"
+      import { agent, human, scope, settings, workflow } from "@pmelab/gtd/flows"
 
-      export const defaults = { lenses: "" }
-      export const skills = (v) => ({
+      const defaults = { lenses: "" }
+      const skills = (v) => ({
         work: [],
         ...Object.fromEntries(
           (v.lenses ?? "")
@@ -238,14 +238,14 @@ Feature: skills are declared per scope
         ),
       })
 
-      export default async () => {
+      export default workflow(async () => {
         await human("idle", { message: "nothing to do" })
-      }
+      }, { defaults, skills })
 
-      export const review = async () => {
-        for (const lens of (vars.lenses ?? "").split(",").map((l) => l.trim()).filter((l) => l !== ""))
+      export const review = workflow(async () => {
+        for (const lens of (settings.lenses ?? "").split(",").map((l) => l.trim()).filter((l) => l !== ""))
           await scope("work", () => scope(lens, () => agent("reviewing", "review it", { allowEmpty: true })))
-      }
+      }, { defaults, skills })
 
       export const config = {
         skills: {
@@ -254,7 +254,7 @@ Feature: skills are declared per scope
       }
       """
     And an environment variable "GTD_LENSES" set to "my-lens"
-    When I run gtd with args "--workflow review"
+    When I run gtd with args "start review"
     Then it succeeds
     And the last commit subject is "gtd(human): work.my-lens.reviewing"
     Given the environment variable "GTD_LENSES" is unset
@@ -267,10 +267,10 @@ Feature: skills are declared per scope
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, scope, vars } from "@pmelab/gtd/flows"
+      import { agent, human, scope, settings, workflow } from "@pmelab/gtd/flows"
 
-      export const defaults = { lenses: "" }
-      export const skills = (v) => ({
+      const defaults = { lenses: "" }
+      const skills = (v) => ({
         work: [],
         ...Object.fromEntries(
           (v.lenses ?? "")
@@ -281,14 +281,14 @@ Feature: skills are declared per scope
         ),
       })
 
-      export default async () => {
+      export default workflow(async () => {
         await human("idle", { message: "nothing to do" })
-      }
+      }, { defaults, skills })
 
-      export const review = async () => {
-        for (const lens of (vars.lenses ?? "").split(",").map((l) => l.trim()).filter((l) => l !== ""))
+      export const review = workflow(async () => {
+        for (const lens of (settings.lenses ?? "").split(",").map((l) => l.trim()).filter((l) => l !== ""))
           await scope("work", () => scope(lens, () => agent("reviewing", "review it", { allowEmpty: true })))
-      }
+      }, { defaults, skills })
 
       export const config = {
         skills: {
@@ -296,7 +296,7 @@ Feature: skills are declared per scope
         },
       }
       """
-    When I run gtd with args "--workflow review --var lenses=my-lens"
+    When I run gtd with args "start review --var lenses=my-lens"
     Then it succeeds
     And the last commit subject is "gtd(human): work.my-lens.reviewing"
     When I run gtd next with "--json=skills"

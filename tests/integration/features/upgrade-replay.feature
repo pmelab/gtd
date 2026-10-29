@@ -4,7 +4,7 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
   Before gtd stopped shipping its workflows as a built-in default, a repository
   with no `gtd.config.ts` ran them anyway. A process such a gtd started records
   what it ran the same way every process does: an ordinary start records no
-  workflow (it replays on the default export), a door or `--workflow` start
+  workflow (it replays on the default export), a door or `gtd start <name>`
   records `Gtd-Workflow: <name>`. Once a config exports workflows under those
   same names, declaring the vars the history records, the process picks up
   where it stopped. The opening commits below are verbatim what gtd 20.3.0
@@ -53,31 +53,30 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
       """
     And a file "gtd.config.ts" with:
       """
-      import { agent, human, run, scope } from "@pmelab/gtd/flows"
+      import { agent, human, run, scope, workflow } from "@pmelab/gtd/flows"
 
-      export const defaults = {
+      const defaults = {
         judgeBudgetBytes: "32768",
         judgeIdenticalMinP: "0.7",
         qualityReviews: "",
         reviewBase: "",
         reviewNoteActionable: "0.7",
       }
-
-      export const base = (workflow, vars) =>
+      const base = (workflow, vars) =>
         workflow === "review" ? (vars.reviewBase ?? "") : undefined
 
-      export default async () => {
+      export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await run("unwind", "git checkout HEAD~1 -- .")
         await scope("start-gate", () => run("check", "true"))
-      }
+      }, { defaults, base })
 
-      export const review = async () => {
+      export const review = workflow(async () => {
         await scope("review-gate", () => run("check", "true"))
         await scope("build", () =>
           scope("quality", () => scope("correctness", () => agent("reviewing", "Review it."))),
         )
-      }
+      }, { defaults, base })
       """
     When I run gtd next
     Then it succeeds
@@ -113,31 +112,30 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
       """
     And a file "gtd.config.ts" with:
       """
-      import { agent, human, run, scope } from "@pmelab/gtd/flows"
+      import { agent, human, run, scope, workflow } from "@pmelab/gtd/flows"
 
-      export const defaults = {
+      const defaults = {
         judgeBudgetBytes: "32768",
         judgeIdenticalMinP: "0.7",
         qualityReviews: "",
         reviewBase: "",
         reviewNoteActionable: "0.7",
       }
-
-      export const base = (workflow, vars) =>
+      const base = (workflow, vars) =>
         workflow === "review" ? (vars.reviewBase ?? "") : undefined
 
-      export default async () => {
+      export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await run("unwind", "git checkout HEAD~1 -- .")
         await scope("start-gate", () => run("check", "true"))
-      }
+      }, { defaults, base })
 
-      export const review = async () => {
+      export const review = workflow(async () => {
         await scope("review-gate", () => run("check", "true"))
         await scope("build", () =>
           scope("quality", () => scope("correctness", () => agent("reviewing", "Review it."))),
         )
-      }
+      }, { defaults, base })
       """
     When I run gtd next
     Then it succeeds

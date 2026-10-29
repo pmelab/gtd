@@ -69,9 +69,6 @@ export type ScriptedActor = (
   repo: TestRepo,
 ) => void | string | Verdict | Promise<void | string | Verdict>
 
-/** @deprecated Use {@link ScriptedActor}: "actor" names who acts at a step (`agent`, `human`, …). */
-export type Actor = ScriptedActor
-
 /**
  * Scripted actors, keyed by full step name. At a judge step the actor returns
  * the verdict, which is answered through `gtd judge answer`; anywhere else it
@@ -83,12 +80,18 @@ export interface DriveOptions {
   /** Fail instead of looping forever on a workflow that never rests. */
   readonly maxBeats?: number
   /**
-   * Fail on what a lenient drive lets pass: an actor whose step the drive
-   * never reached, a check step without an actor, a human step whose actor
-   * changes nothing (the drive would repeat it), and an actor returning a
-   * verdict anywhere but at a judge step.
+   * Defaults to `true`: fail on an actor whose step no drive of this
+   * repository has reached, a check step without an actor, a human step whose
+   * actor changes nothing (the drive would repeat it), and an actor returning a
+   * verdict anywhere but at a judge step. `false` lets each of them pass.
    */
   readonly strict?: boolean
+  /**
+   * `"pass"`: a strict drive skips only its check for actors no drive has
+   * reached, for a harness that checks that once at its own end, as the
+   * gherkin world does at scenario end.
+   */
+  readonly unreachedActors?: "fail" | "pass"
   /** `"run"`: a check step without an actor runs its own script, as `runsItsScript` would. */
   readonly checks?: "run"
 }
@@ -135,9 +138,9 @@ export interface TestRepo {
   runScript(script: string, options?: RunScriptOptions): void
   /** One in-process invocation; nothing it prints is run. */
   gtd(...args: string[]): Promise<CapturedCliResult>
-  /** `gtd --workflow <name> [...args]`, its script applied. */
-  start(workflow: string, ...args: string[]): Promise<CapturedCliResult>
-  /** `gtd door <name> [...args]`, its script applied. */
+  /** `gtd start <name> [...args]`, its script applied: a door of that name, or else the workflow. */
+  start(name: string, ...args: string[]): Promise<CapturedCliResult>
+  /** The same as {@link TestRepo.start}. */
   door(name: string, ...args: string[]): Promise<CapturedCliResult>
   land(): Promise<CapturedCliResult>
   next(): Promise<BeatDocument>
@@ -362,21 +365,22 @@ const actorAt = (
   return { scripted: false, actor: runs ? runsItsScript : undefined }
 }
 
-/** A strict drive's rest: refused at an unscripted check step, or with an actor never reached. */
+/** A strict drive's rest: refused at an unscripted check step, or with an actor no drive reached. */
 const strictRest = (
   doc: BeatDocument,
   actors: Actors,
-  reached: ReadonlySet<string>,
+  reached: ReadonlySet<string> | undefined,
 ): BeatDocument => {
   if (doc.kind !== "stalled" && doc.actor === "check") {
     throw new Error(
       `strict drive: check step "${doc.state}" has no actor — script it, or drive with checks: "run"`,
     )
   }
-  const never = Object.keys(actors).filter((step) => !reached.has(step))
+  const never =
+    reached === undefined ? [] : Object.keys(actors).filter((step) => !reached.has(step))
   if (never.length > 0) {
     throw new Error(
-      `strict drive: the process rests at "${doc.state}", and never reached the actors for ${quoted(never)}`,
+      `strict drive: the process rests at "${doc.state}", and never reached the actors for ${quoted(never)} — script a step only for the drive that reaches it`,
     )
   }
   return doc
@@ -491,7 +495,7 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
     return reported
   }
 
-  // A start prints its script plainly; it has no `--json=script` twin.
+  // A start prints its script plainly.
   const begin = async (args: readonly string[]): Promise<CapturedCliResult> => {
     const result = await gtd(...args)
     if (result.exitCode !== EXIT_OK) throw failed(`gtd ${args.join(" ")}`, result)
@@ -532,19 +536,24 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
     )
   }
 
+  // Across drives, so a later drive need not revisit a step an earlier one passed.
+  const reached = new Set<string>()
+
   /** One beat of a drive: the beat it rests at, or `undefined` to read the next. */
   const beat = async (
     doc: BeatDocument,
     actors: Actors,
-    { strict = false, checks }: DriveOptions,
-    reached: Set<string>,
+    { strict = true, checks, unreachedActors = "fail" }: DriveOptions,
   ): Promise<BeatDocument | undefined> => {
     if (doc.kind === "capture") {
       await runWrite(["land"])
       return undefined
     }
     const { scripted, actor } = actorAt(doc, actors, checks)
-    if (actor === undefined) return strict ? strictRest(doc, actors, reached) : doc
+    if (actor === undefined)
+      return strict
+        ? strictRest(doc, actors, unreachedActors === "fail" ? reached : undefined)
+        : doc
     if (scripted) reached.add(doc.state)
     const returned = await actor(doc, self)
     if (strict) refuseVerdict(doc, returned)
@@ -583,18 +592,17 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
       else if (!flow.ok) throw new Error(`testkit: ${flow.error ?? ""}`)
     },
     gtd,
-    start: (workflow, ...args) => begin(["--workflow", workflow, ...args]),
-    door: (name, ...args) => begin(["door", name, ...args]),
+    start: (name, ...args) => begin(["start", name, ...args]),
+    door: (name, ...args) => begin(["start", name, ...args]),
     land: () => runWrite(["land"]),
     next,
     drive: async (actors = {}, options = {}) => {
       const { maxBeats = 50 } = options
       const passed: string[] = []
-      const reached = new Set<string>()
       for (let n = 0; n < maxBeats; n++) {
         const doc = await next()
         passed.push(doc.state)
-        const rest = await beat(doc, actors, options, reached)
+        const rest = await beat(doc, actors, options)
         if (rest !== undefined) return rest
       }
       throw new Error(

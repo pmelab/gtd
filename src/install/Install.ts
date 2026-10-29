@@ -175,7 +175,7 @@ if [ -z "\${1:-}" ]; then
   exit 2
 fi
 cd "$(git rev-parse --show-toplevel)"
-script="$(gtd door "$@")"
+script="$(gtd start "$@")"
 sh -c "$script"
 exec "$GTD_BUILD"`
 
@@ -365,7 +365,7 @@ const DRIVER_OBLIGATIONS = `
     \`--json=judge\`, pipes that rendered \`{ schema, state, questions }\` document to a
     judge model, and pipes ITS verdict (one \`{ id, answer, p }\` per pending
     question, as JSON on stdin) to \`gtd judge answer\` — the FIFTH command
-    that changes anything, alongside \`gtd land\`/\`gtd --workflow\`/\`gtd
+    that changes anything, alongside \`gtd land\`/\`gtd start\`/\`gtd
     abandon\`/\`gtd restore\`. It follows the exact same required-half /
     optional-half script contract as \`gtd land\` in obligation 8 above:
     read \`--json=script\` (and, if you want them, \`--json=settled\`/
@@ -565,9 +565,9 @@ ${EDIT_COMMAND}
 
 ### \`gtd-door <name> [args...]\` — start a process through a door and drive it
 
-Runs \`gtd door <name> [args...]\`, captured by command substitution — never a
+Runs \`gtd start <name> [args...]\`, captured by command substitution — never a
 pipe: a pipeline reports only its LAST command's exit status, so
-\`gtd door ... | sh\` under \`set -e\` would sail past a refusal and \`exec\` a
+\`gtd start ... | sh\` under \`set -e\` would sail past a refusal and \`exec\` a
 loop over a process that was never started. It runs the captured script, then
 \`exec\`s the suite's RESOLVED \`gtd-build\` path — never the literal string
 \`gtd-build\`. This is one invocation that carries the process all the way to
@@ -575,9 +575,9 @@ its next human gate, not just a starter: \`gtd-door review\` on a RED baseline
 hands off to \`gtd-build\`, which halts at the blocked gate and prints it,
 rather than starting the review; \`gtd-door fix\` on a GREEN suite is a no-op
 straight back to \`idle\` — the exec'd \`gtd-build\` exits immediately on it.
-\`gtd doors\` lists the doors a repository offers (those of the workflows its
-config exports — gtd-workflows' \`default\` brings \`fix\` and
-\`review [base]\` — plus any the config declares). Refuses with
+A bare \`gtd start\` lists what a repository can start: its workflows, and
+the doors those workflows bring (gtd-workflows' \`default\` brings \`fix\`
+and \`review [base]\`) plus any the config declares. Refuses with
 \`usage: gtd-door <name> [args...]\` on stderr and exit \`2\` when the name is
 missing — nothing was even attempted. Default path: \`~/.local/bin/gtd-door\`.
 
@@ -682,7 +682,7 @@ const PREREQUISITES = `
 ## Prerequisites and portability
 
 - A POSIX \`sh\` (dash, ash, bash's own POSIX mode, etc.) — gtd's own emitted
-  scripts (\`gtd land --json=script\`, \`gtd --workflow <name>\`, \`gtd abandon\`,
+  scripts (\`gtd land --json=script\`, \`gtd start <name>\`, \`gtd abandon\`,
   \`gtd restore\`, \`gtd judge answer --json=script\`) are POSIX sh; captured,
   then piped into it (see obligation 8 above). Reading
   \`gtd next --json=<path>\`/\`gtd land --json=<path>\`'s own output needs

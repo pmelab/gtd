@@ -142,20 +142,11 @@ export type Command =
     }
   | {
       readonly kind: "start"
-      readonly actor: string
-      readonly workflow: string
-      readonly vars: Readonly<Record<string, string>>
-      readonly label: string
-    }
-  | { readonly kind: "door"; readonly name?: string; readonly args: readonly string[] }
-  | {
-      readonly kind: "startNamed"
       /** A door or a workflow; absent lists both. */
       readonly name?: string
       readonly args: readonly string[]
       readonly vars: Readonly<Record<string, string>>
     }
-  | { readonly kind: "doors" }
   | { readonly kind: "abandon" }
   | { readonly kind: "restore" }
   | { readonly kind: "next" }
@@ -169,7 +160,7 @@ export type Command =
       readonly openThreads?: boolean
     }
   | { readonly kind: "uncheck"; readonly file: string }
-  | { readonly kind: "install"; readonly name: "guide" | "install" }
+  | { readonly kind: "guide" }
   | { readonly kind: "summary" }
   | { readonly kind: "base" }
   | { readonly kind: "judge" }
@@ -221,8 +212,7 @@ const runLspCommand = (): Effect.Effect<void, Error, ToolCommands> =>
  * gtd ships no workflow, so where no `gtd.config.ts` governs it says where to
  * get one; it writes nothing.
  */
-const runInstallCommand = (
-  name: "guide" | "install",
+const runGuideCommand = (
   out: ArtifactOut,
 ): Effect.Effect<void, Error, GitService | Host | ConfigDiscovery | Narrator> =>
   Effect.gen(function* () {
@@ -234,7 +224,7 @@ const runInstallCommand = (
     if ((yield* host.realPath(topLevel.right)) !== (yield* host.realPath(host.root))) return
     if ((yield* (yield* ConfigDiscovery).workflowModule(host.root, host.home)) !== undefined) return
     yield* (yield* Narrator).warn(
-      `gtd ${name}: no ${WORKFLOW_MODULE} governs here, and gtd ships no workflow — get one from ${WORKFLOWS_REPO} or write your own (step 2 of the briefing above)`,
+      `gtd guide: no ${WORKFLOW_MODULE} governs here, and gtd ships no workflow — get one from ${WORKFLOWS_REPO} or write your own (step 2 of the briefing above)`,
     )
   })
 
@@ -258,7 +248,7 @@ interface LandResult {
 /**
  * `combinedScript`, narrowed to accept only an already-guarded
  * `RunnableScript` for `required` — the one boundary `ScriptSurface`'s brand
- * exists to protect: `gtd land`/`gtd --workflow`'s emitted script. Every OTHER
+ * exists to protect: `gtd land`/`gtd start`'s emitted script. Every OTHER
  * `combinedScript` call (`abandon`/`restore`/steering validate, below) builds
  * from `emitScripts` directly and keeps the unbranded signature — those
  * paths land no guard-gated git write for a brand to protect.
@@ -426,6 +416,20 @@ const readStdin = (): Effect.Effect<string, Error> =>
     catch: (e) => (e instanceof Error ? e : new Error(String(e))),
   })
 
+/** A stdin that is no judgment is the caller's mistake, a usage error like `gtd judge answer`'s. */
+const judgmentShape = (input: string): Effect.Effect<void, GtdUsageError> => {
+  let doc: unknown
+  try {
+    doc = JSON.parse(input)
+  } catch {
+    return Effect.fail(new GtdUsageError("gtd judge run: stdin is not valid JSON"))
+  }
+  const questions = (doc as { questions?: unknown } | null)?.questions
+  return Array.isArray(questions)
+    ? Effect.void
+    : Effect.fail(new GtdUsageError('gtd judge run: stdin has no "questions" array'))
+}
+
 /** Stdout is written once, after the answerer resolves — a rejection leaves it empty. */
 const runJudgeRunCommand = (
   command: Extract<Command, { kind: "judgeRun" }>,
@@ -436,6 +440,7 @@ const runJudgeRunCommand = (
     const tools = yield* ToolCommands
     yield* refuseLegacyRc
     const input = yield* readStdin()
+    yield* judgmentShape(input)
     const verdict = yield* Effect.tryPromise({
       try: () =>
         tools.judge({
@@ -557,8 +562,7 @@ const runLandCommand = (
  * `base` renders to something that is not an ancestor of (and differs from)
  * HEAD.
  */
-const runStartCommand = (
-  actor: string,
+const startWorkflow = (
   workflow: string,
   varOverrides: Record<string, string>,
   json: JsonMode,
@@ -574,7 +578,7 @@ const runStartCommand = (
           ? `startable: ${config.workflowNames.join(", ")}`
           : "this config exports no workflow besides its default, which an ordinary start runs"
       return yield* Effect.fail(
-        new GtdUsageError(`gtd --workflow: unknown workflow "${workflow}" — ${startable}`),
+        new GtdUsageError(`${commandLabel}: unknown workflow "${workflow}" — ${startable}`),
       )
     }
     const rest = yield* restAt(undefined, varOverrides)
@@ -584,7 +588,7 @@ const runStartCommand = (
         state: rest.state,
         idle: noProcessUnderway(rest),
       },
-      actor,
+      "human",
       {
         workflow: resolved,
         first: started,
@@ -624,41 +628,8 @@ const doorSynopsis = (name: string, door: Door): string =>
     ...(door.args ?? []).map((arg) => (arg.optional === true ? `[${arg.name}]` : `<${arg.name}>`)),
   ].join(" ")
 
-const noSuchDoor = (name: string | undefined, doors: ReadonlyMap<string, Door>): GtdUsageError => {
-  const listing =
-    doors.size > 0
-      ? `doors: ${[...doors].map(([n, d]) => doorSynopsis(n, d)).join(", ")}`
-      : "this config has no doors"
-  return new GtdUsageError(
-    name === undefined
-      ? `gtd door: missing door name — ${listing}`
-      : `gtd door: unknown door "${name}" — ${listing}`,
-  )
-}
-
-/**
- * `gtd door <name> [args…]`: `gtd --workflow` with the door's workflow and the
- * process settings its `vars` derive from the positional args. A wrong name or
- * arity is a usage error naming what would have worked.
- */
-const runDoorCommand = (
-  name: string | undefined,
-  args: readonly string[],
-  json: JsonMode,
-  out: ArtifactOut,
-): Effect.Effect<void, Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    const config = yield* (yield* ConfigService).load
-    const door = name === undefined ? undefined : config.doors.get(name)
-    if (name === undefined || door === undefined) {
-      return yield* Effect.fail(noSuchDoor(name, config.doors))
-    }
-    yield* startThroughDoor("gtd door", name, door, args, {}, json, out)
-  })
-
 /** A door's start: its args mapped to process settings, `extra` (`--var`) pinned on top. */
 const startThroughDoor = (
-  verb: "gtd door" | "gtd start",
   name: string,
   door: Door,
   args: readonly string[],
@@ -667,13 +638,13 @@ const startThroughDoor = (
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const label = `${verb} ${name}`
+    const label = `gtd start ${name}`
     const declared = door.args ?? []
     const required = declared.filter((arg) => arg.optional !== true).length
     if (args.length < required || args.length > declared.length) {
       return yield* Effect.fail(
         new GtdUsageError(
-          `${label}: ${args.length < required ? "missing" : "too many"} arguments — usage: ${verb} ${doorSynopsis(name, door)}`,
+          `${label}: ${args.length < required ? "missing" : "too many"} arguments — usage: gtd start ${doorSynopsis(name, door)}`,
         ),
       )
     }
@@ -685,16 +656,16 @@ const startThroughDoor = (
       try: () => door.vars?.(named) ?? {},
       catch: (e) => new Error(`${label}: ${e instanceof Error ? e.message : String(e)}`),
     })
-    yield* runStartCommand("human", door.workflow, { ...vars, ...extra }, json, out, label)
+    yield* startWorkflow(door.workflow, { ...vars, ...extra }, json, out, label)
   })
 
 /**
  * `gtd start <name> [args…]`: a door when `<name>` is one — so a door shadows
- * the workflow it shares a name with, which `--workflow` still reaches —
- * else a workflow, which takes no args. No name lists both.
+ * the workflow it shares a name with — else a workflow, which takes no args.
+ * No name lists both.
  */
-const runStartNamedCommand = (
-  command: Extract<Command, { kind: "startNamed" }>,
+const runStartCommand = (
+  command: Extract<Command, { kind: "start" }>,
   json: JsonMode,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
@@ -705,7 +676,7 @@ const runStartNamedCommand = (
     const config = yield* (yield* ConfigService).load
     const door = config.doors.get(name)
     if (door !== undefined) {
-      return yield* startThroughDoor("gtd start", name, door, args, vars, json, out)
+      return yield* startThroughDoor(name, door, args, vars, json, out)
     }
     if (config.workflowNamed(name) === undefined) {
       return yield* Effect.fail(
@@ -721,17 +692,21 @@ const runStartNamedCommand = (
         ),
       )
     }
-    yield* runStartCommand("human", name, { ...vars }, json, out, label)
+    yield* startWorkflow(name, { ...vars }, json, out, label)
   })
 
-/** Bare `gtd start`: every workflow startable by name, then every door — plain lines, or one JSON array. */
+/**
+ * Bare `gtd start`: every workflow startable by name, then every door — plain
+ * lines, or one JSON array. A workflow a door shadows is left out: its name
+ * opens the door.
+ */
 const runStartListCommand = (
   json: JsonMode,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
     const config = yield* (yield* ConfigService).load
-    const workflows = [...config.workflowNames].sort()
+    const workflows = [...config.workflowNames].filter((name) => !config.doors.has(name)).sort()
     const doors = [...config.doors]
     const document = [
       ...workflows.map((name) => ({ kind: "workflow", name })),
@@ -754,32 +729,6 @@ const runStartListCommand = (
         ...doors.map(([n, d]) => `door ${doorSynopsis(n, d)} → ${d.workflow}\n`),
       ].join(""),
     )
-  })
-
-/** `gtd doors`: every door and its args, sorted by name — plain lines, or one JSON array. */
-const runDoorsCommand = (
-  json: JsonMode,
-  out: ArtifactOut,
-): Effect.Effect<void, Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    const config = yield* (yield* ConfigService).load
-    const doors = [...config.doors]
-    if (json.kind === "off") {
-      if (doors.length === 0) {
-        yield* (yield* Narrator).warn(
-          "gtd doors: this config has no doors — a workflow factory's `doors` option or the config's `doors` export adds one",
-        )
-      }
-      out.write(doors.map(([n, d]) => `${doorSynopsis(n, d)} → ${d.workflow}\n`).join(""))
-      return
-    }
-    const document = doors.map(([n, d]) => ({
-      name: n,
-      workflow: d.workflow,
-      args: (d.args ?? []).map((arg) => ({ name: arg.name, optional: arg.optional === true })),
-    }))
-    if (json.kind === "document") out.write(`${JSON.stringify(document)}\n`)
-    else yield* writeSelection(out, document, json.path)
   })
 
 /**
@@ -1005,8 +954,10 @@ const runValidateCommand = (
  * Resolves no workflow state and reads no config — this is what a seeded
  * `validate:` command invokes as a leaf step, and it formats nothing.
  *
- * An absent file exits 0, like `gtd validate`. Findings ride the failing
- * Effect's message, so the shared refusal path reports them on stderr.
+ * An unknown mode is a usage error; an absent file is a refusal (the emitted
+ * validate script guards on the file's presence before it calls this).
+ * Findings ride the failing Effect's message, so the shared refusal path
+ * reports them on stderr.
  */
 const runCheckCommand = (
   mode: string,
@@ -1018,7 +969,7 @@ const runCheckCommand = (
     const format = steeringFormatFor(mode)
     if (format === undefined) {
       return yield* Effect.fail(
-        new Error(
+        new GtdUsageError(
           `gtd check: unknown mode "${mode}" — known modes: ${BUILT_IN_MODE_NAMES.join(", ")}`,
         ),
       )
@@ -1052,12 +1003,8 @@ const runCheckCommand = (
       return yield* runOpenQuestionsCheckCommand(format, file)
     }
 
-    const workspace = yield* Workspace
-    const content = workspace.atPath(file)
-    const errors =
-      content !== undefined
-        ? format.validate(content).map((finding) => formatFinding(file, finding))
-        : []
+    const content = yield* existingFile(file)
+    const errors = format.validate(content).map((finding) => formatFinding(file, finding))
 
     if (errors.length === 0) return
 
@@ -1067,6 +1014,14 @@ const runCheckCommand = (
           errors.join("\n"),
       ),
     )
+  })
+
+const existingFile = (file: string): Effect.Effect<string, Error, Workspace> =>
+  Effect.flatMap(Workspace, (workspace) => {
+    const content = workspace.atPath(file)
+    return content === undefined
+      ? Effect.fail(new Error(`gtd check: no such file: ${file}`))
+      : Effect.succeed(content)
   })
 
 /**
@@ -1096,18 +1051,13 @@ const runCodeThreadsCheckCommand = (): Effect.Effect<void, Error, CommandRequire
     return yield* Effect.fail(new Error(lines.join("\n")))
   })
 
-/** Prints one `file:line: [^name]: <first H entry>` line per open thread; a missing file fails, like `--open-questions`. */
+/** Prints one `file:line: [^name]: <first H entry>` line per open thread. */
 const runOpenThreadsCheckCommand = (
   format: SteeringFormat,
   file: string,
 ): Effect.Effect<void, Error, Workspace> =>
   Effect.gen(function* () {
-    const workspace = yield* Workspace
-    const content = workspace.atPath(file)
-    if (content === undefined) {
-      return yield* Effect.fail(new Error(`gtd check: ${file} does not exist`))
-    }
-
+    const content = yield* existingFile(file)
     const errors = openThreads(format, content).map(
       (t) => `${file}:${t.line + 1}: [^${t.name}]: ${t.firstMe}`,
     )
@@ -1120,20 +1070,14 @@ const runOpenThreadsCheckCommand = (
 
 /**
  * Runs the SAME `unansweredQuestions` predicate a flow's `openQuestions()`
- * reads, so the gate script and the flow's own check stay in sync. A missing
- * file is a non-zero exit here, unlike the structural path above.
+ * reads, so the gate script and the flow's own check stay in sync.
  */
 const runOpenQuestionsCheckCommand = (
   format: SteeringFormat,
   file: string,
 ): Effect.Effect<void, Error, Workspace> =>
   Effect.gen(function* () {
-    const workspace = yield* Workspace
-    const content = workspace.atPath(file)
-    if (content === undefined) {
-      return yield* Effect.fail(new Error(`gtd check: ${file} does not exist`))
-    }
-
+    const content = yield* existingFile(file)
     const errors = unansweredQuestions(format, content).map(
       (q) => `${file}:${q.headingLine + 1}: ${q.question}`,
     )
@@ -1307,7 +1251,7 @@ const assertRepositoryHasCommits = (git: GitOperations): Effect.Effect<void, Err
 export const needsOf = (kind: Command["kind"]): Needs => {
   switch (kind) {
     case "lsp":
-    case "install":
+    case "guide":
     case "judgeRun":
     case "strays":
       return "none"
@@ -1324,7 +1268,7 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
   "lsp",
   "check",
   "uncheck",
-  "install",
+  "guide",
   "judgeRun",
   "strays",
 ]
@@ -1365,20 +1309,7 @@ const dispatchVoidCommand = (
         out,
       )
     case "start":
-      return runStartCommand(
-        command.actor,
-        command.workflow,
-        command.vars,
-        json,
-        out,
-        command.label,
-      )
-    case "startNamed":
-      return runStartNamedCommand(command, json, out)
-    case "door":
-      return runDoorCommand(command.name, command.args, json, out)
-    case "doors":
-      return runDoorsCommand(json, out)
+      return runStartCommand(command, json, out)
     case "abandon":
       return runAbandonCommand(json, out)
     case "restore":
@@ -1399,8 +1330,8 @@ const dispatchVoidCommand = (
       )
     case "uncheck":
       return runUncheckCommand(command.file)
-    case "install":
-      return runInstallCommand(command.name, out)
+    case "guide":
+      return runGuideCommand(out)
     case "summary":
       return runSummaryCommand(out)
     case "base":

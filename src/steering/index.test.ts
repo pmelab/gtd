@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import * as published from "./index.js"
 import { BUILT_IN_MODE_NAMES, steeringFormatFor, unansweredQuestions, viewOf } from "./internal.js"
@@ -64,25 +63,20 @@ describe("viewOf", () => {
 })
 
 describe("@pmelab/gtd/steering", () => {
-  const internalOnly = [
-    "FOOTNOTE_ACTION_TITLE",
-    "THREAD_REPLY_ACTION_TITLE",
-    "getParseCount",
-    "BUILT_IN_MODE_NAMES",
-    "steeringFormatOrFreeForm",
-    "viewOf",
-    "SteeringEditorView",
-  ]
-
-  it("marks every internal-use name deprecated, and still publishes it", () => {
-    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8")
-    for (const name of internalOnly) {
-      expect(source, name).toMatch(
-        new RegExp(`/\\*\\* @deprecated [^\\n]*\\*/\\nexport (const|type) ${name} =`),
-      )
+  it("publishes no engine-only name, nor a duplicate of the pure text reads", () => {
+    for (const name of [
+      "FOOTNOTE_ACTION_TITLE",
+      "THREAD_REPLY_ACTION_TITLE",
+      "getParseCount",
+      "BUILT_IN_MODE_NAMES",
+      "steeringFormatOrFreeForm",
+      "viewOf",
+      "headingSections",
+      "headingSectionBodies",
+      "unansweredQuestions",
+    ]) {
+      expect(published, name).not.toHaveProperty(name)
     }
-    expect(published.BUILT_IN_MODE_NAMES).toBe(BUILT_IN_MODE_NAMES)
-    expect(published.viewOf).toBe(viewOf)
   })
 
   it("publishes the pure text reads a flow also has", () => {

@@ -1,4 +1,4 @@
-// Every exported function is startable with `gtd --workflow <name>`; the
+// Every exported workflow is startable with `gtd start <name>`; the
 // default export is what a change in the tree starts. The workflows come from
 // a pinned checkout of pmelab/gtd-workflows on this machine (`gtd-wf pin`);
 // the path is absolute, so another machine needs its checkout at the same place.
@@ -20,17 +20,6 @@ export const fix = shippedFix({ qualityReviews })
 export const rollout = shippedRollout()
 export const cleanup = shippedCleanup()
 export default feature
-
-export {
-  defaults,
-  envDefaults,
-  summary,
-  base,
-  steering,
-  skills,
-  access,
-  doors,
-} from "/Users/pmelab/.local/share/gtd/workflows/dist/default.mjs"
 
 const format = 'npx oxfmt --no-error-on-unmatched-pattern --write "$GTD_FILE"'
 

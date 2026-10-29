@@ -1,4 +1,4 @@
-// Doors are the workflow's named shortcuts into a process (`gtd doors`). gtd
+// Doors are the workflow's named shortcuts into a process (`gtd start` lists them). gtd
 // prints the script that starts one; running it is the driver's job, as with
 // every git write gtd plans. The mod hardcodes no door: it asks gtd.
 
@@ -12,19 +12,23 @@ export type Door = {
 
 const fail = (text: string): Shipped => ({ ok: false, text })
 
+type Startable = { kind: "workflow"; name: string } | ({ kind: "door" } & Door)
+
 // Every door the repository offers; none when gtd cannot say.
 export async function doors(io: ShipIo): Promise<Door[]> {
-  const listed = await io.run(["gtd", "doors", "--json"])
+  const listed = await io.run(["gtd", "start", "--json"])
   if (listed.code !== 0) return []
   try {
-    return JSON.parse(listed.out) as Door[]
+    return (JSON.parse(listed.out) as Startable[]).flatMap((s) =>
+      s.kind === "door" ? [{ name: s.name, workflow: s.workflow, args: s.args }] : [],
+    )
   } catch {
     return []
   }
 }
 
 export async function enter(io: ShipIo, name: string, args: string[]): Promise<Shipped> {
-  const argv = ["gtd", "door", name, ...args]
+  const argv = ["gtd", "start", name, ...args]
   const planned = await io.run(argv)
   if (planned.code !== 0)
     return fail(planned.err.trim() || `${argv.join(" ")} exited ${planned.code}`)

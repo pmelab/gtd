@@ -7,9 +7,9 @@ Feature: testkit drives any workflow against the real engine
   Background:
     Given a gtd config with:
       """
-      import { agent, human, judge, read, refuse, run } from "@pmelab/gtd/flows"
+      import { agent, human, judge, read, refuse, run, workflow } from "@pmelab/gtd/flows"
 
-      export const tiny = async () => {
+      export const tiny = workflow(async () => {
         await agent("plan", "Write PLAN.md.")
         await run("check", "npm test > .gtd/FEEDBACK.md 2>&1 && rm .gtd/FEEDBACK.md")
         if (read(".gtd/FEEDBACK.md") !== undefined) await agent("repair", "Make the suite pass.")
@@ -18,11 +18,11 @@ Feature: testkit drives any workflow against the real engine
           evidence: { plan: read("PLAN.md") ?? "" },
         })
         await human(answers.ready?.answer === "yes" ? "ship" : "rework")
-      }
+      })
 
-      export const picky = async () => {
+      export const picky = workflow(async () => {
         refuse("gtd: picky refuses every start")
-      }
+      })
 
       export default tiny
       """
@@ -83,9 +83,12 @@ Feature: testkit drives any workflow against the real engine
     And "PLAN.md" contains "add two numbers"
 
   Scenario: a judge step with queued actions refuses the drive
-    Given step "plan" changes nothing
+    Given step "plan" writes "PLAN.md" with:
+      """
+      add two numbers
+      """
     And step "check" changes nothing
-    And step "ready" is prompted with "never seen"
+    And step "ready" changes nothing
     And judge step "ready" answers:
       """
       [{ "id": "ready", "answer": true, "p": 0.9 }]
@@ -97,6 +100,80 @@ Feature: testkit drives any workflow against the real engine
     Given step "plan" is prompted with "Write a poem"
     When gtd starts workflow "tiny"
     Then driving the process is refused with 'was not prompted with "Write a poem"'
+
+  Scenario: a step only asserted to be prompted is where the drive rests, and nothing lands there
+    Given step "plan" is prompted with "Write PLAN.md."
+    When gtd starts workflow "tiny"
+    And the process is driven
+    Then the process rests at "plan"
+    And the last commit subject is "gtd(human): plan"
+
+  Scenario: a prompt asserted beside a script is checked at every visit, before the step acts
+    Given step "check" is prompted with "npm test"
+    And step "check" writes ".gtd/FEEDBACK.md" with:
+      """
+      1 test failing
+      """
+    And step "plan" writes "PLAN.md" with:
+      """
+      add two numbers
+      """
+    When gtd starts workflow "tiny"
+    And the process is driven
+    Then the process rests at "repair"
+
+  @fails
+  Scenario: a prompt asserted at a step no drive reaches fails the scenario at its end
+    Given step "plan" changes nothing
+    And step "repair" is prompted with "Make the suite pass."
+    When gtd starts workflow "tiny"
+    And the process is driven
+    Then the process stalls at "plan"
+
+  Scenario: a human step scripted to change nothing refuses the drive instead of repeating it
+    Given step "plan" writes "PLAN.md" with:
+      """
+      add two numbers
+      """
+    And step "check" changes nothing
+    And judge step "ready" answers:
+      """
+      [{ "id": "ready", "answer": true, "p": 0.9 }]
+      """
+    And step "ship" changes nothing
+    When gtd starts workflow "tiny"
+    Then driving the process is refused with 'the actor for human step "ship" changed nothing'
+
+  Scenario: a lenient drive rests at an unscripted check step, past actors it never reaches
+    Given step "plan" writes "PLAN.md" with:
+      """
+      add two numbers
+      """
+    And step "repair" changes nothing
+    When gtd starts workflow "tiny"
+    And the process is driven leniently
+    Then the process rests at "check"
+    And the resting step's content contains "npm test"
+
+  Scenario: a step scripted for a later drive counts once any drive reached it
+    Given step "plan" writes "PLAN.md" with:
+      """
+      add two numbers
+      """
+    And step "check" writes ".gtd/FEEDBACK.md" with:
+      """
+      1 test failing
+      """
+    When gtd starts workflow "tiny"
+    And the process is driven
+    Then the process rests at "repair"
+    Given step "repair" deletes ".gtd/FEEDBACK.md"
+    And judge step "ready" answers:
+      """
+      [{ "id": "ready", "answer": false, "p": 0.9 }]
+      """
+    When the process is driven
+    Then the process rests at "rework"
 
   Scenario: a start the workflow refuses is reported with its message
     Then starting workflow "picky" with "--var mode=bad" is refused with "picky refuses every start"

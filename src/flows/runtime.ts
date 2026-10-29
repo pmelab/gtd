@@ -3,55 +3,87 @@
 // a registered symbol, not a module-local variable, so a copy of this file
 // loaded through a user's `gtd.config.ts` (jiti) and the copy bundled into the
 // gtd binary drive the same replay.
+import type { WorkflowBuild } from "./factory.js"
 
 /** A steering-file mode: a built-in format's name or a `config.modes` entry. */
 export type ModeName = "qa" | "review" | "findings" | (string & {})
 
-/** A steering-file declaration shared by the steps that rest on one. */
-export interface SteeringOptions {
-  /** The steering file — a repository path under `.gtd/`. */
-  readonly file?: string | undefined
-  /** The steering file's mode — a built-in name or a `modes:` entry. Requires `file`. */
-  readonly mode?: ModeName | undefined
+interface SteeringCommon {
   /** Display name for drivers and viewers. */
   readonly label?: string | undefined
   /** The commit this step reviews changes since — what `gtd base` prints while it rests here. */
   readonly base?: string | undefined
 }
 
-export interface AgentOptions extends SteeringOptions {
+/** A step's steering file: none, or a file with an optional mode. */
+type SteeringFile =
+  | {
+      /** The steering file — a repository path under `.gtd/`. */
+      readonly file?: string | undefined
+      readonly mode?: undefined
+    }
+  | {
+      readonly file: string
+      /** The steering file's mode — a built-in name or a `modes:` entry. Requires `file`. */
+      readonly mode: ModeName
+    }
+
+/** A steering-file declaration shared by the steps that rest on one. `mode` requires `file`. */
+export type SteeringOptions = SteeringCommon & SteeringFile
+
+interface AgentCommon {
   readonly model?: string | undefined
   readonly system?: string | undefined
-  /**
-   * A turn that changes nothing completes the step. Without this an empty turn
-   * is an attempt: recorded, but the process stays at the step (a stall).
-   */
-  readonly allowEmpty?: boolean | undefined
-  /**
-   * Set the turn aside: its tip goes to `refs/gtd/kept/<entry>/<step>/<hash>` and the
-   * branch stays where it was, a marker commit recording that the step ran.
-   * The step's full name must be usable as a git ref component.
-   */
-  readonly keep?: boolean | undefined
 }
 
-export interface HumanOptions extends SteeringOptions {
+export type AgentOptions = SteeringOptions &
+  AgentCommon &
+  (
+    | {
+        /**
+         * A turn that changes nothing completes the step. Without this an empty turn
+         * is an attempt: recorded, but the process stays at the step (a stall).
+         */
+        readonly allowEmpty?: boolean | undefined
+        readonly keep?: false | undefined
+      }
+    | {
+        /**
+         * Set the turn aside: its tip goes to `refs/gtd/kept/<entry>/<step>/<hash>` and the
+         * branch stays where it was, a marker commit recording that the step ran.
+         * The step's full name must be usable as a git ref component. Excludes `allowEmpty`.
+         */
+        readonly keep: true
+        readonly allowEmpty?: false | undefined
+      }
+  )
+
+interface HumanCommon {
   readonly message?: string | undefined
   /**
    * A landing that changes nothing completes the gate — accepting as-is.
    * Without this a clean landing is a no-op: the gate waits for a change.
    */
   readonly acceptClean?: boolean | undefined
-  /**
-   * A sign-off gate: only a clean landing completes it, and that commit
-   * carries `Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}`.
-   * A dirty landing is refused. Implies `acceptClean`. Cannot be combined with
-   * `mode` or `file`: an approval records exactly the judged tree.
-   */
-  readonly approve?: boolean | undefined
 }
 
-export interface RunOptions extends SteeringOptions {}
+export type HumanOptions = HumanCommon &
+  (
+    | (SteeringOptions & { readonly approve?: false | undefined })
+    | (SteeringCommon & {
+        /**
+         * A sign-off gate: only a clean landing completes it, and that commit
+         * carries `Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}`.
+         * A dirty landing is refused. Implies `acceptClean`. Excludes `mode` and
+         * `file`: an approval records exactly the judged tree.
+         */
+        readonly approve: true
+        readonly file?: undefined
+        readonly mode?: undefined
+      })
+  )
+
+export type RunOptions = SteeringOptions
 
 export type JudgePrimitive = "noul" | "choice" | "score"
 
@@ -71,15 +103,14 @@ export interface JudgeQuestionInput<Id extends string = string> extends Omit<
   readonly primitive: JudgePrimitive | "yesno"
 }
 
-export interface JudgeSpec<
-  Q extends readonly JudgeQuestionInput[] = readonly JudgeQuestion[],
-> extends SteeringOptions {
-  readonly questions: Q
-  /** What the judge sees. The `judgeBudgetBytes` budget is split evenly across the keys; a value over its share keeps its end. */
-  readonly evidence: Readonly<Record<string, string>>
-  /** The human-facing message a driver unaware of judge gates shows. */
-  readonly message?: string | undefined
-}
+export type JudgeSpec<Q extends readonly JudgeQuestionInput[] = readonly JudgeQuestion[]> =
+  SteeringOptions & {
+    readonly questions: Q
+    /** What the judge sees. The `judgeBudgetBytes` budget is split evenly across the keys; a value over its share keeps its end. */
+    readonly evidence: Readonly<Record<string, string>>
+    /** The human-facing message a driver unaware of judge gates shows. */
+    readonly message?: string | undefined
+  }
 
 /** One recorded answer. A `noul`'s boolean reads as `"yes"`/`"no"`, a `score` as its decimal string. */
 export interface JudgeAnswer {
@@ -90,10 +121,9 @@ export interface JudgeAnswer {
 export interface Judgment<Id extends string = string> {
   /**
    * Every question's answer, `undefined` when the turn landed without a verdict for it.
-   * Keyed by the question ids; the string index keeps a computed id readable.
+   * Keyed by the question ids: literal ids allow only themselves, a computed id reads as any string.
    */
-  readonly answers: Readonly<Record<Id, JudgeAnswer | undefined>> &
-    Readonly<Record<string, JudgeAnswer | undefined>>
+  readonly answers: Readonly<Record<Id, JudgeAnswer | undefined>>
   /** The evidence keys the budget cut. */
   readonly truncated: readonly string[]
 }
@@ -119,17 +149,17 @@ export interface ScopeAccess {
   readonly write?: readonly string[] | undefined
 }
 
-/** A workflow module's `access` export, or a factory build's: scope full name -> access, or a function of the process settings returning that. */
+/** A workflow's `access` option: scope full name -> access, or a function of the process settings returning that. */
 export type AccessExport =
   | Readonly<Record<string, ScopeAccess>>
   | ((vars: Settings) => Readonly<Record<string, ScopeAccess>>)
 
-/** A workflow module's `skills` export, or a factory build's: scope full name -> skill names, or a function of the process settings returning that. */
+/** A workflow's `skills` option: scope full name -> skill names, or a function of the process settings returning that. */
 export type SkillsExport =
   | Readonly<Record<string, readonly string[]>>
   | ((vars: Settings) => Readonly<Record<string, readonly string[]>>)
 
-/** A workflow module's `steering` export, or a factory build's: steering file path -> its mode. */
+/** A workflow's `steering` option: steering file path -> its mode. */
 export type Steering = Readonly<Record<string, ModeName>>
 
 /** Settings as flow code reads them; `K` narrows to the names a workflow declares. */
@@ -280,9 +310,12 @@ const ctx = (): FlowContext => {
 export const agent = (name: string, prompt: string, options: AgentOptions = {}): Promise<void> =>
   ctx().step({ kind: "agent", name, prompt, options }) as Promise<void>
 
+// `Omit` over a union collapses it; this keeps each member's own rules.
+type OmitEach<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
+
 export interface Human {
   /** `message` is what the person sees, so `options` take none. */
-  (name: string, message: string, options?: Omit<HumanOptions, "message">): Promise<void>
+  (name: string, message: string, options?: OmitEach<HumanOptions, "message">): Promise<void>
   (name: string, options?: HumanOptions): Promise<void>
 }
 
@@ -290,7 +323,7 @@ export interface Human {
 export const human: Human = (
   name: string,
   messageOrOptions?: string | HumanOptions,
-  options?: Omit<HumanOptions, "message">,
+  options?: OmitEach<HumanOptions, "message">,
 ): Promise<void> =>
   ctx().step({
     kind: "human",
@@ -443,7 +476,7 @@ export const mark = (name: string, value: string): void => {
 /** The commit the process stands on at this point of the flow. */
 export const head = (): string => ctx().head()
 
-/** The process's diff base: the commit before it began, or the base `gtd --workflow` fixed. */
+/** The process's diff base: the commit before it began, or the base `gtd start` fixed. */
 export const start = (): string => ctx().start()
 
 /** The skill list `localName` (scoped from here, same as `agent()`) resolves to — for a prompt preamble. */
@@ -470,20 +503,14 @@ const settingsProxy = (
   )
 
 /** The process settings: pinned at process start, so flow code may branch on them. */
-export const vars: Readonly<Record<string, string>> = settingsProxy(() => ctx().vars)
+export const settings: Settings = settingsProxy(() => ctx().vars)
 
 /**
  * The environment settings: resolved live on every invocation. Flow code must
  * read them only where they cannot change the next step (step options, script
  * bodies) — replay cannot enforce this.
  */
-export const env: Readonly<Record<string, string>> = settingsProxy(() => ctx().env)
-
-/** The process settings — the same object as `vars`, under the glossary's name. */
-export const settings: Settings = vars
-
-/** The environment settings — the same object as `env`, under the glossary's name. */
-export const envSettings: Settings = env
+export const envSettings: Settings = settingsProxy(() => ctx().env)
 
 /**
  * `settings`, typed by the names `declared` holds — pass the workflow's
@@ -492,12 +519,12 @@ export const envSettings: Settings = env
  */
 export const settingsOf = <D extends Readonly<Record<string, string>>>(
   _declared: D,
-): Settings<keyof D & string> => vars as Settings<keyof D & string>
+): Settings<keyof D & string> => settings as Settings<keyof D & string>
 
 /** `envSettings`, typed by the names `declared` holds — pass the workflow's `envDefaults`. */
 export const envSettingsOf = <D extends Readonly<Record<string, string>>>(
   _declared: D,
-): Settings<keyof D & string> => env as Settings<keyof D & string>
+): Settings<keyof D & string> => envSettings as Settings<keyof D & string>
 
 // ── Text utilities ──────────────────────────────────────────────────────────
 
@@ -558,19 +585,29 @@ export type Flow = () => Promise<void>
 // Registered, like the replay context: any copy of this file marks for the engine's.
 const MARKED = Symbol.for("@pmelab/gtd/workflow")
 
+/** What `workflow(flow, options)` takes: a factory build's keys but `flow`. */
+export type WorkflowOptions = Omit<WorkflowBuild, "flow">
+
 /**
- * Mark an exported function as a workflow on purpose. Opt-in: once a config
- * module marks one, loading it warns about every other exported function it
- * leaves unmarked — most likely a helper exported by mistake.
+ * Make `flow` a workflow: exported from `gtd.config.ts`, it is startable by its
+ * export name. An exported function not passed through this is a plain helper.
+ * `options` are the ones a `defineWorkflow` build returns, checked the same way.
+ * Returns a new function that runs `flow`, leaving `flow` itself untouched, so
+ * an already-marked flow can be wrapped again: like a build, the options given
+ * are the whole set — the wrapped flow's own are not inherited.
  */
-export const workflow = <F extends Flow>(flow: F): F => {
-  Object.defineProperty(flow, MARKED, { value: true })
-  return flow
+export const workflow = (flow: Flow, options: WorkflowOptions = {}): Flow => {
+  const marked: Flow = () => flow()
+  Object.defineProperty(marked, "name", { value: flow.name })
+  Object.defineProperty(marked, MARKED, { value: { ...options } })
+  return marked
 }
 
-/** Whether `value` went through `workflow()`. */
-export const isMarkedWorkflow = (value: unknown): boolean =>
+/** The options `value` was marked with, or `undefined` when it went through no `workflow()`. */
+export const markedOptions = (value: unknown): Readonly<Record<string, unknown>> | undefined =>
   typeof value === "function" && MARKED in value
+    ? (value as unknown as Record<symbol, Readonly<Record<string, unknown>>>)[MARKED]
+    : undefined
 
 export interface SummaryContext {
   readonly entryCommit: string
@@ -585,23 +622,23 @@ export interface SummaryContext {
   readonly env: Readonly<Record<string, string>>
 }
 
-/** `gtd summary`'s prompt — a workflow module's optional `summary` export. */
+/** `gtd summary`'s prompt — a workflow's optional `summary` option. */
 export type Summary = (context: SummaryContext) => string
 
 /**
- * A workflow file's optional `base` export: the commitish that fixes the diff
- * base of a process `gtd --workflow <workflow>` starts, or `undefined` for
- * none. Runs when the process is started, with the vars `--var` sets.
+ * A workflow's optional `base` option: the commitish that fixes the diff base
+ * of a process `gtd start <workflow>` starts, or `undefined` for none. Runs
+ * when the process is started, with the settings `--var` sets.
  */
 export type WorkflowBase = (
   workflow: string,
   vars: Readonly<Record<string, string>>,
 ) => string | undefined
 
-/** A named shortcut: `gtd door <name> [args…]` starts `workflow` with the positional args mapped to process settings. */
+/** A named shortcut: `gtd start <name> [args…]` starts `workflow` with the positional args mapped to process settings. */
 export interface Door {
   readonly workflow: string
-  /** Static, so `gtd doors --json` can list them. */
+  /** Static, so `gtd start --json` can list them. */
   readonly args?: readonly { readonly name: string; readonly optional?: boolean }[]
   /** A pure function of the args: no git runs at declaration time. */
   readonly vars?: (
@@ -609,8 +646,5 @@ export interface Door {
   ) => Readonly<Record<string, string>>
 }
 
-/** A workflow module's reserved `doors` export. */
-export type Doors = Readonly<Record<string, Door>>
-
-/** Doors a workflow factory declares on itself: each starts whatever name the config exports the workflow under. */
+/** Doors a workflow declares on itself: each starts whatever name the config exports the workflow under. */
 export type WorkflowDoors = Readonly<Record<string, Omit<Door, "workflow">>>

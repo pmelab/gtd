@@ -18,14 +18,18 @@ const recording = () => {
 }
 
 describe("check()", () => {
-  it("takes the report positionally and renders the same step as the options form", async () => {
+  it("takes the report positionally and renders a run step", async () => {
     const requests = recording()
     expect(await check("suite", "npm test", ".gtd/FEEDBACK.md", { label: "Tests" })).toBe(true)
-    expect(await check("suite", "npm test", { report: ".gtd/FEEDBACK.md", label: "Tests" })).toBe(
-      true,
-    )
-    expect(requests).toHaveLength(2)
-    expect(requests[0]).toEqual(requests[1])
+    expect(requests).toHaveLength(1)
     expect(requests[0]).toMatchObject({ kind: "run", name: "suite", options: { label: "Tests" } })
+  })
+
+  it("refuses the removed options form, which an untyped config can still write", async () => {
+    recording()
+    const removed = check as unknown as (n: string, c: string, o: object) => Promise<boolean>
+    await expect(removed("suite", "npm test", { report: ".gtd/FEEDBACK.md" })).rejects.toThrow(
+      'gtd: check("suite"): the report path is the third argument — check(name, command, report, options?)',
+    )
   })
 })

@@ -1,6 +1,7 @@
 // Generic quickpickle steps over `testRepo`: they name no workflow, so any
 // workflow's `.feature` can use them. A workflow's own steps live beside it.
 import {
+  After,
   Given,
   QuickPickleWorld,
   Then,
@@ -17,14 +18,19 @@ import {
   runsItsScript,
   testRepo,
   type CannedCommand,
+  type DriveOptions,
   type ScriptedActor,
   type TestRepo,
   type WorkflowModule,
 } from "../testkit/index.js"
-import { assertContains, assertLacks, refusal, refusedWith, restDescription } from "./messages.js"
-
-// Kept off the class so the exported world's type stays as it is.
-const usedActors = new WeakMap<TestkitWorld, Set<string>>()
+import {
+  assertContains,
+  assertLacks,
+  assertRestsAt,
+  refusal,
+  refusedWith,
+  restDescription,
+} from "./messages.js"
 
 export class TestkitWorld extends QuickPickleWorld {
   // Re-declared: under `nodenext` a subclass loses the base's members from TS's view.
@@ -38,18 +44,13 @@ export class TestkitWorld extends QuickPickleWorld {
   private env: Record<string, string> = {}
   private commands: CannedCommand[] = []
   private modules: Record<string, Readonly<Record<string, unknown>>> = {}
-  /**
-   * Per step, what its scripted actor does, in the order the scenario declared it.
-   * @deprecated Use `act`, `rescript` and `unscript`.
-   */
-  actions = new Map<string, ScriptedActor[]>()
-  /** @deprecated Use `answer`. */
-  verdicts = new Map<string, string>()
-  /**
-   * Per judge step, a verdict for each text its questions may contain; the first match answers.
-   * @deprecated Use `answerWhen`.
-   */
-  conditionalVerdicts = new Map<string, [text: string, verdict: string][]>()
+  private actions = new Map<string, ScriptedActor[]>()
+  private verdicts = new Map<string, string>()
+  private conditionalVerdicts = new Map<string, [text: string, verdict: string][]>()
+  private prompts = new Map<string, string[]>()
+  private used = new Set<string>()
+  private strictDrives = false
+  private refusedDrives = false
   private created: TestRepo | undefined = undefined
 
   // The repository is created on first use and keeps the config and
@@ -115,14 +116,25 @@ export class TestkitWorld extends QuickPickleWorld {
     this.actions.set(step, [...(this.actions.get(step) ?? []), action])
   }
 
-  /** Drops every action queued for `step`, leaving `action` alone. */
+  /** Drops every action and prompt queued for `step`, leaving `action` alone. */
   rescript(step: string, action: ScriptedActor): void {
     this.actions.set(step, [action])
+    this.prompts.delete(step)
   }
 
-  /** Drops every action queued for `step`, so a drive rests there. */
+  /** Drops every action and prompt queued for `step`, so a drive rests there. */
   unscript(step: string): void {
     this.actions.delete(step)
+    this.prompts.delete(step)
+  }
+
+  /**
+   * `step`'s beat content must contain `text`. A scripted step is checked at
+   * every visit, before its actor acts; a step with nothing else scripted is
+   * not scripted at all, so a drive rests there and checks it at the rest.
+   */
+  expectPrompt(step: string, text: string): void {
+    this.prompts.set(step, [...(this.prompts.get(step) ?? []), text])
   }
 
   /** Judge step `step` answers `verdict`, a JSON array. */
@@ -138,10 +150,26 @@ export class TestkitWorld extends QuickPickleWorld {
     ])
   }
 
-  async drive(): Promise<void> {
+  /** The steps the scenario scripted, or expects a prompt at, that no drive has reached. */
+  neverUsed(): string[] {
+    const scripted = new Set([
+      ...this.actions.keys(),
+      ...this.verdicts.keys(),
+      ...this.conditionalVerdicts.keys(),
+      ...this.prompts.keys(),
+    ])
+    return [...scripted].filter((step) => !this.used.has(step))
+  }
+
+  private checkPrompts(step: string, content: string): void {
+    for (const text of this.prompts.get(step) ?? []) {
+      if (!content.includes(text))
+        throw new Error(`step "${step}" was not prompted with "${text}":\n${content}`)
+    }
+  }
+
+  private actors(): Record<string, ScriptedActor> {
     const actors: Record<string, ScriptedActor> = {}
-    const used = usedActors.get(this) ?? new Set<string>()
-    usedActors.set(this, used)
     for (const [step, actions] of this.actions) {
       actors[step] = async (beat, repo) => {
         for (const action of actions) await action(beat, repo)
@@ -169,16 +197,55 @@ export class TestkitWorld extends QuickPickleWorld {
         return hit[1]
       }
     }
+    return actors
+  }
+
+  /**
+   * `strict: false` lets what a strict drive refuses pass. A strict drive
+   * leaves scripted steps it never reached to `assertReached`: a Background or
+   * an earlier step may script one for a later drive.
+   */
+  async drive(options: DriveOptions = {}): Promise<void> {
+    const actors = this.actors()
     const tracked: Record<string, ScriptedActor> = {}
     for (const [step, actor] of Object.entries(actors)) {
       tracked[step] = (beat, repo) => {
-        used.add(step)
+        this.used.add(step)
+        this.checkPrompts(step, beat.content)
         return actor(beat, repo)
       }
     }
-    await this.repo().drive(tracked)
+    if (options.strict !== false) this.strictDrives = true
+    try {
+      const rest = await this.repo().drive(tracked, { ...options, unreachedActors: "pass" })
+      if (rest.kind !== "stalled" && this.prompts.has(rest.state) && !(rest.state in actors)) {
+        this.used.add(rest.state)
+        this.checkPrompts(rest.state, rest.content)
+      }
+    } catch (error) {
+      this.refusedDrives = true
+      throw error
+    }
+  }
+
+  /**
+   * Fails on a step the scenario scripted, or expects a prompt at, that no
+   * drive reached. Run at scenario end; a scenario with no strict drive, or
+   * with a refused one, passes.
+   */
+  async assertReached(): Promise<void> {
+    const never = this.neverUsed()
+    if (!this.strictDrives || this.refusedDrives || never.length === 0) return
+    throw new Error(
+      `strict drive: at scenario end, no drive reached the steps scripted for ${never.map((step) => `"${step}"`).join(", ")} — script a step only for a drive that reaches it\n\n${await restDescription(() => this.repo(), never)}`,
+    )
   }
 }
+
+// Only for a scenario whose steps all passed: a failed one already reports.
+After(async (world: QuickPickleWorldInterface) => {
+  if (world instanceof TestkitWorld && world.info.errors.length === 0) await world.assertReached()
+})
 
 setWorldConstructor(TestkitWorld)
 
@@ -191,16 +258,6 @@ const args = (list: string): string[] =>
     quote === undefined ? word : inner!,
   )
 
-const neverUsed = (world: TestkitWorld): string[] => {
-  const used = usedActors.get(world) ?? new Set<string>()
-  const scripted = new Set([
-    ...world.actions.keys(),
-    ...world.verdicts.keys(),
-    ...world.conditionalVerdicts.keys(),
-  ])
-  return [...scripted].filter((step) => !used.has(step))
-}
-
 /** An outcome step: a failure ends with where the process rests. */
 const outcome =
   <A extends unknown[]>(check: (world: TestkitWorld, ...rest: A) => unknown) =>
@@ -209,7 +266,7 @@ const outcome =
       await check(world, ...rest)
     } catch (error) {
       const failure = error instanceof Error ? error : new Error(String(error))
-      failure.message += `\n\n${await restDescription(() => world.repo(), neverUsed(world))}`
+      failure.message += `\n\n${await restDescription(() => world.repo(), world.neverUsed())}`
       throw failure
     }
   }
@@ -228,13 +285,6 @@ Given("a gtd config from the module {string}", async (world: TestkitWorld, path:
 Given("the gtd config ends with:", (world: TestkitWorld, source: string) => {
   world.extendConfig(withNewline(source))
 })
-
-Given(
-  "an environment variable {string} set to {string}",
-  (world: TestkitWorld, name: string, value: string) => {
-    world.setEnv(name, value)
-  },
-)
 
 Given(
   "the environment variable {string} is {string}",
@@ -320,14 +370,10 @@ Given(
   },
 )
 
-const append = (world: TestkitWorld, path: string, text: string): void => {
+Given("text is appended to {string}:", (world: TestkitWorld, path: string, text: string) => {
   const content = world.repo().read(path) ?? ""
   world.repo().write(path, `${content.trimEnd()}\n\n${text}\n`)
-}
-
-Given("{string} gets appended:", append)
-
-Given("text is appended to {string}:", append)
+})
 
 Given("the working tree is committed as {string}", (world: TestkitWorld, message: string) => {
   world.repo().commit(message)
@@ -396,30 +442,25 @@ Given("step {string} deletes {string}", (world: TestkitWorld, step: string, path
   world.act(step, (_, repo) => repo.remove(path))
 })
 
-// A standing assertion like any queued action: it applies on every later visit
-// to the step until `from now on` clears the list.
+// A standing assertion: it applies on every later visit to the step until
+// `from now on` or `no longer scripted` clears it.
 Given(
   "step {string} is prompted with {string}",
   (world: TestkitWorld, step: string, text: string) => {
-    world.act(step, (beat) => {
-      if (!beat.content.includes(text)) {
-        throw new Error(`step "${step}" was not prompted with "${text}":\n${beat.content}`)
-      }
-    })
+    world.expectPrompt(step, text)
   },
 )
 
 // A closing step deletes the file before its collecting turn runs, so this edit
 // leaves a closed turn changing nothing while still answering an in-gate one.
-const overwrite = (world: TestkitWorld, step: string, path: string, content: string): void => {
-  world.act(step, (_, repo) => {
-    if (repo.read(path) !== undefined) repo.write(path, withNewline(content))
-  })
-}
-
-Given("step {string} rewrites {string} with:", overwrite)
-
-Given("step {string} overwrites {string}, if it exists, with:", overwrite)
+Given(
+  "step {string} overwrites {string}, if it exists, with:",
+  (world: TestkitWorld, step: string, path: string, content: string) => {
+    world.act(step, (_, repo) => {
+      if (repo.read(path) !== undefined) repo.write(path, withNewline(content))
+    })
+  },
+)
 
 Given("step {string} runs its script", (world: TestkitWorld, step: string) => {
   world.act(step, runsItsScript)
@@ -483,6 +524,10 @@ When("the process is driven", async (world: TestkitWorld) => {
   await world.drive()
 })
 
+When("the process is driven leniently", async (world: TestkitWorld) => {
+  await world.drive({ strict: false })
+})
+
 Then(
   "opening door {string} is refused with {string}",
   outcome(async (world, door: string, message: string) => {
@@ -523,7 +568,7 @@ Then(
 Then(
   "the process rests at {string}",
   outcome(async (world, step: string) => {
-    assert.strictEqual((await world.repo().next()).state, step)
+    assertRestsAt(await world.repo().next(), step)
   }),
 )
 

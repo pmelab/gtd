@@ -7,12 +7,7 @@ import { GtdError, Narrator } from "../platform/index.js"
 import { accessShapeFault, replay, type TreeView } from "../replay/index.js"
 // The published facade: what a config's `@pmelab/gtd/flows` import is served.
 import * as flows from "../flows/index.js"
-import {
-  configure,
-  isFactoryWorkflow,
-  isMarkedWorkflow,
-  type OptionIssue,
-} from "../flows/internal.js"
+import { configure, isFactoryWorkflow, markedOptions, type OptionIssue } from "../flows/internal.js"
 import type { StateMode, WorkflowDefinition } from "./Workflow.js"
 import type { Door, Flow, ScopeAccess } from "../flows/index.js"
 import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
@@ -40,10 +35,10 @@ export interface ConfigOperations {
   readonly workflow: WorkflowDefinition
   /** The default, resolved like a named one; its name is what status shows: the named export it also is, else `"default"`. */
   readonly defaultWorkflow: ResolvedWorkflow
-  /** Every name `gtd --workflow` accepts, sorted — never `"default"`. */
+  /** Every workflow name `gtd start` accepts, sorted — never `"default"`. */
   readonly workflowNames: readonly string[]
   readonly workflowNamed: (name: string) => ResolvedWorkflow | undefined
-  /** Every door `gtd door` accepts. A door's `workflow` resolves through `workflowNamed`. */
+  /** Every door `gtd start` accepts. A door's `workflow` resolves through `workflowNamed`. */
   readonly doors: ReadonlyMap<string, Door>
   /** `config.ui` (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
   readonly ui?: flows.UiSettings
@@ -94,8 +89,8 @@ export const refuseLegacyRc: Effect.Effect<void, GtdError, Host | ConfigDiscover
           "gtd: config:",
           ...found.map((file) => `  - ${file}: no longer read — delete it`),
           "  gtd 23 removed the .gtdrc files; move each key they set:",
-          "    vars    → an option of the workflow factory in gtd.config.ts, or its `defaults` export",
-          "    env     → an option of the workflow factory in gtd.config.ts, or its `envDefaults` export",
+          "    vars    → an option of the workflow factory in gtd.config.ts, or `workflow(flow, { defaults })`",
+          "    env     → an option of the workflow factory in gtd.config.ts, or `workflow(flow, { envDefaults })`",
           "    judge   → ~/.config/gtd/judge.json, or GTD_JUDGE_PROVIDER / GTD_JUDGE_MODEL",
           "    modes, ui, skills, access → the `config` export of gtd.config.ts (`defineConfig`)",
           "    $schema → nothing; drop it",
@@ -152,8 +147,7 @@ export const load: Effect.Effect<
   const define = (entry: LoadedWorkflow): WorkflowDefinition => ({
     flow: entry.flow,
     summary: entry.summary,
-    // A config's own `base` export wins when it answers; else the factory's.
-    base: (w, v) => entry.file.base?.(w, v) ?? entry.base?.(w, v),
+    base: (w, v) => entry.base?.(w, v),
     steering: entry.steering as Record<string, StateMode>,
     modes: compiled.modes,
     skills: entry.skills,
@@ -203,10 +197,7 @@ interface Settings {
   readonly envDefaults: Readonly<Record<string, string>>
 }
 
-interface LoadedFile
-  extends
-    Pick<WorkflowDefinition, "summary" | "base" | "steering" | "skills" | "access">,
-    Settings {
+interface LoadedFile {
   readonly origin: string
   /**
    * Every real file this module's evaluation touched — `origin` itself plus
@@ -220,7 +211,7 @@ interface LoadedFile
   readonly dependencyFiles: readonly string[]
 }
 
-/** A startable workflow; its settings are its file's, under whatever its factory declared. */
+/** A startable workflow, built from a factory or a `workflow()` call's options. */
 interface LoadedWorkflow
   extends Settings, Pick<WorkflowDefinition, "summary" | "steering" | "skills" | "access"> {
   readonly flow: Flow
@@ -391,7 +382,7 @@ const requiredOnUse = (
   })
 }
 
-/** `what` names the value in an error: `the "steering" export`, or what a factory builds. */
+/** `what` names the value in an error: `workflow "x"'s "steering"`. */
 const stringRecord = (value: unknown, what: string): Readonly<Record<string, string>> => {
   const record = value ?? {}
   if (
@@ -421,7 +412,7 @@ const checkSkillsRecord = (
   return value as Readonly<Record<string, readonly string[]>>
 }
 
-/** A `skills` export or build — a scope full name -> skill list record, or a function of the vars returning one. */
+/** A workflow's `skills` option — a scope full name -> skill list record, or a function of the vars returning one. */
 const skillsFrom = (value: unknown, what: string): WorkflowDefinition["skills"] => {
   if (typeof value === "function") {
     return (vars) => checkSkillsRecord((value as (v: typeof vars) => unknown)(vars), what)
@@ -444,7 +435,7 @@ const checkAccessRecord = (value: unknown, what: string): Readonly<Record<string
 }
 
 /**
- * An `access` export or build — a scope full name -> `{ read?, write? }`
+ * A workflow's `access` option — a scope full name -> `{ read?, write? }`
  * record, checked now, or a function of the vars returning one, checked when
  * the process's settings are known.
  */
@@ -462,22 +453,34 @@ const optionalFunction = <T>(value: unknown, what: string): T | undefined => {
   return value as T
 }
 
-const exportNamed = (name: string): string => `the "${name}" export`
-
-const RESERVED_EXPORTS: ReadonlySet<string> = new Set([
-  "default",
-  "summary",
-  "base",
+// What each file-level export of earlier versions became: an option of the
+// workflow it configured. Exporting one is a load error, never silently ignored.
+const RETIRED_EXPORTS: ReadonlySet<string> = new Set([
   "defaults",
   "envDefaults",
   "steering",
   "skills",
   "access",
   "doors",
-  "config",
+  "summary",
+  "base",
 ])
 
-/** The rules every declared setting meets, whether a file's export or a factory's build. */
+/** Names that are never a workflow. */
+const RESERVED_EXPORTS: ReadonlySet<string> = new Set(["default", "config", ...RETIRED_EXPORTS])
+
+const retiredExports = (exports: Record<string, unknown>, origin: string): Diagnostic[] =>
+  Object.keys(exports)
+    .filter((name) => RETIRED_EXPORTS.has(name))
+    .sort()
+    .map((name) => ({
+      severity: "error",
+      path: [name],
+      origin,
+      message: `the "${name}" export is no longer read — pass it to the workflow it configures: \`workflow(flow, { ${name} })\`, or the build a workflow factory returns`,
+    }))
+
+/** The rules every declared setting meets. */
 const checkSettings = (
   defaults: Readonly<Record<string, unknown>>,
   envDefaults: Readonly<Record<string, unknown>>,
@@ -503,28 +506,6 @@ const checkSettings = (
     throw new Error(
       `${both.map((name) => `"${name}"`).join(", ")} declared in both "defaults" and "envDefaults" — a setting is a process setting or an environment setting, not both`,
     )
-  }
-}
-
-/** A module's per-file exports: `defaults`, `envDefaults`, `steering`, `skills`, `access`, `summary`, `base`. */
-const fileFrom = (
-  exports: Record<string, unknown>,
-  origin: string,
-  dependencyFiles: readonly string[],
-): LoadedFile => {
-  const defaults = stringRecord(exports["defaults"], exportNamed("defaults"))
-  const envDefaults = stringRecord(exports["envDefaults"], exportNamed("envDefaults"))
-  checkSettings(defaults, envDefaults, (kind) => `the "${kind}" export declares`)
-  return {
-    defaults,
-    envDefaults,
-    steering: stringRecord(exports["steering"], exportNamed("steering")),
-    skills: skillsFrom(exports["skills"], exportNamed("skills")),
-    access: accessFrom(exports["access"], exportNamed("access")),
-    summary: optionalFunction(exports["summary"], exportNamed("summary")),
-    base: optionalFunction(exports["base"], exportNamed("base")),
-    origin,
-    dependencyFiles,
   }
 }
 
@@ -557,27 +538,12 @@ const doorProblem = (name: string, door: unknown): string | undefined => {
   return argsProblem(args) ?? (varsOk ? undefined : `has "vars" that is not a function`)
 }
 
-/** A module's `doors` export, shape-checked; the workflow names are checked later, against the catalogue. */
-const doorsFrom = (exports: Record<string, unknown>): ReadonlyMap<string, Door> => {
-  const value = exports["doors"]
-  if (value === undefined) return new Map()
-  if (typeof value !== "object" || value === null || Array.isArray(value)) {
-    throw new Error(`the "doors" export is not a record of doors`)
-  }
-  for (const [name, door] of Object.entries(value)) {
-    const problem = doorProblem(name, door)
-    if (problem !== undefined) throw new Error(`door "${name}" ${problem}`)
-  }
-  return new Map(Object.entries(value) as [string, Door][])
-}
-
 /**
- * Each exported workflow's own doors, onto the name it is exported under. The
- * `doors` export adds to them and declares a name several workflows clash on.
+ * Each exported workflow's own doors, onto the name it is exported under. A
+ * door several workflows build and none is exported under is a clash: no door.
  */
 const derivedDoors = (
   catalogue: ReadonlyMap<string, LoadedWorkflow>,
-  declared: ReadonlyMap<string, Door>,
 ): {
   readonly doors: ReadonlyMap<string, Door>
   readonly clashes: ReadonlyMap<string, readonly string[]>
@@ -597,45 +563,29 @@ const derivedDoors = (
   for (const [name, built] of builders) {
     const owner = ownerOf(name, built)
     if (owner !== undefined) doors.set(name, owner)
-    else if (!declared.has(name))
+    else
       clashes.set(
         name,
         built.map((door) => door.workflow),
       )
   }
-  return { doors: new Map([...doors, ...declared]), clashes }
+  return { doors, clashes }
 }
 
 /** The export named after the door owns it, else the sole builder; a clash of several builds no door. */
 const ownerOf = (name: string, built: readonly Door[]): Door | undefined =>
   built.find((door) => door.workflow === name) ?? (built.length === 1 ? built[0] : undefined)
 
-/** Sort the doors and check each names a startable workflow. */
-const checkDoors = (
-  declared: ReadonlyMap<string, Door>,
-  catalogue: ReadonlyMap<string, LoadedWorkflow>,
-): ReadonlyMap<string, Door> => {
-  const doors = new Map([...declared].sort(([a], [b]) => a.localeCompare(b)))
-  for (const [name, door] of doors) {
-    if (!catalogue.has(door.workflow)) {
-      throw new Error(
-        `door "${name}" names workflow "${door.workflow}", which is not startable — known: ${[...catalogue.keys()].sort().join(", ")}`,
-      )
-    }
-  }
-  return doors
-}
-
 const namespaceOf = (exported: unknown): Record<string, unknown> =>
   (typeof exported === "object" && exported !== null ? exported : {}) as Record<string, unknown>
 
 /**
- * Evaluate `gtd.config.ts`. Every exported function or factory workflow but
- * the reserved names is a workflow named by its export. `cache` is jiti's OWN
- * per-call module cache (unrelated to the instance's `moduleCache: false`) —
- * passing an empty object in has the side effect of collecting every real file
- * jiti resolved evaluating this module, module AND every relative import it
- * pulled in, transitively.
+ * Evaluate `gtd.config.ts`. Every export but the reserved names that went
+ * through `workflow()` or is a factory workflow is a workflow named by its
+ * export. `cache` is jiti's OWN per-call module cache (unrelated to the
+ * instance's `moduleCache: false`) — passing an empty object in has the side
+ * effect of collecting every real file jiti resolved evaluating this module,
+ * module AND every relative import it pulled in, transitively.
  */
 const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded => {
   const { exports: evaluated, files } =
@@ -643,7 +593,7 @@ const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded 
       ? evaluateFromDisk(module, shipped)
       : evaluateRead(module, module.read, shipped)
   const exports = namespaceOf(evaluated)
-  const file = fileFrom(exports, module.filepath, files)
+  const file: LoadedFile = { origin: module.filepath, dependencyFiles: files }
   const exported = Object.entries(exports).filter(
     ([name, value]) => !RESERVED_EXPORTS.has(name) && isWorkflow(value),
   )
@@ -668,21 +618,23 @@ const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded 
   const derived =
     rejections.length > 0
       ? { doors: new Map<string, Door>(), clashes: new Map<string, readonly string[]>() }
-      : derivedDoors(catalogue, doorsFrom(exports))
+      : derivedDoors(catalogue)
+  const doors = new Map([...derived.doors].sort(([a], [b]) => a.localeCompare(b)))
   return {
     file,
     catalogue,
-    doors: checkDoors(derived.doors, catalogue),
+    doors,
     default: defaultWorkflow && { ...defaultWorkflow, name: defaultName },
     config: compileConfig(exports["config"], module.filepath),
     diagnostics: [
-      ...unmarkedWorkflows(exports, exported, value, file.origin),
+      ...retiredExports(exports, file.origin),
       ...nameRejections(rejections),
+      ...shadowingDoors(doors, catalogue, file.origin),
       ...[...derived.clashes].map(([name, builders]): Diagnostic => {
         const names = [...builders].sort().map((b) => JSON.stringify(b))
         return {
           severity: "warning",
-          message: `door "${name}" is built by workflows ${names.slice(0, -1).join(", ")} and ${names.at(-1)} and none is exported under that name — declare it in the "doors" export`,
+          message: `door "${name}" is built by workflows ${names.slice(0, -1).join(", ")} and ${names.at(-1)} and none is exported under that name — rename the export that should own it to "${name}"`,
           path: ["doors", name],
           origin: file.origin,
         }
@@ -691,34 +643,20 @@ const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded 
   }
 }
 
-/**
- * Once a module marks one export with `workflow()`, every other exported plain
- * function it leaves unmarked warns: likely a helper exported by mistake. A
- * module that marks nothing, a factory and the default export never warn.
- */
-const unmarkedWorkflows = (
-  exports: Record<string, unknown>,
-  exported: readonly (readonly [string, unknown])[],
-  defaultValue: unknown,
+/** `gtd start <name>` takes the door, so a door named like a workflow it does not start hides that workflow. */
+const shadowingDoors = (
+  doors: ReadonlyMap<string, Door>,
+  catalogue: ReadonlyMap<string, unknown>,
   origin: string,
-): Diagnostic[] => {
-  if (!Object.values(exports).some(isMarkedWorkflow)) return []
-  return exported
-    .filter(
-      ([, value]) =>
-        typeof value === "function" &&
-        value !== defaultValue &&
-        !isMarkedWorkflow(value) &&
-        !isFactoryWorkflow(value),
-    )
-    .map(([name]) => ({
+): Diagnostic[] =>
+  [...doors]
+    .filter(([name, door]) => catalogue.has(name) && door.workflow !== name)
+    .map(([name, door]) => ({
       severity: "warning",
-      message:
-        "is a startable workflow not marked with workflow() — mark it, or stop exporting it if it is a helper",
-      path: [name],
+      message: `door "${name}" starts workflow ${JSON.stringify(door.workflow)} and hides the workflow of the same name from \`gtd start ${name}\` — rename one of them`,
+      path: ["doors", name],
       origin,
     }))
-}
 
 const evaluateFromDisk = (
   module: WorkflowModule,
@@ -775,20 +713,22 @@ const evaluateRead = (
 }
 
 const isWorkflow = (value: unknown): boolean =>
-  typeof value === "function" || isFactoryWorkflow(value)
+  markedOptions(value) !== undefined || isFactoryWorkflow(value)
 
 const defaultExport = (exports: Record<string, unknown>): unknown => {
   const value = exports.default
   if (value === undefined) {
     throw new Error(
-      "no default export — export the workflow an ordinary start runs (`gtd guide` scaffolds one)",
+      "no default export — export the workflow an ordinary start runs; `gtd guide` says where to get one, or write your own",
     )
   }
-  if (!isWorkflow(value)) throw new Error("the default export is not a function")
+  if (typeof value !== "function" && !isFactoryWorkflow(value)) {
+    throw new Error("the default export is not a function")
+  }
   return value
 }
 
-/** One exported workflow: a plain flow as-is, a factory validated and built. */
+/** One exported workflow: a factory validated and built, a `workflow()` call's options checked alike. */
 const buildWorkflow = (
   name: string,
   value: unknown,
@@ -796,63 +736,64 @@ const buildWorkflow = (
   rejections: Rejection[],
 ): LoadedWorkflow | undefined => {
   const result = configure(value)
-  if (result === undefined)
-    return {
-      flow: value as Flow,
-      file,
-      defaults: file.defaults,
-      envDefaults: file.envDefaults,
-      summary: file.summary,
-      steering: file.steering,
-      skills: file.skills,
-      access: file.access,
-    }
+  if (result === undefined) {
+    // A plain function only gets here as the default export: a flow without options.
+    return checkedBuild(name, file, { ...markedOptions(value), flow: value as Flow })
+  }
   if (!result.ok) {
     for (const issue of result.issues) rejections.push(optionDiagnostic(name, issue, file))
     return undefined
   }
-  return {
-    flow: result.build.flow,
-    file,
-    ...builtSettings(name, file, result.build),
-    ...builtExports(name, file, result.build),
-    doors: result.build.doors,
-    base: result.build.base,
-  }
+  return checkedBuild(name, file, result.build)
 }
 
-/**
- * What a factory builds beside its flow, held to the rules the file's own
- * exports are. The file's exports win: per entry for `steering`, `skills` and
- * `access`, whole for `summary`.
- */
-const builtExports = (
+const BUILD_KEYS: ReadonlySet<string> = new Set([
+  "flow",
+  "defaults",
+  "envDefaults",
+  "doors",
+  "base",
+  "skills",
+  "access",
+  "steering",
+  "summary",
+])
+
+/** A build — a factory's, or a `workflow()` call's options with its flow — held to one set of rules. */
+const checkedBuild = (
   name: string,
   file: LoadedFile,
   build: flows.WorkflowBuild,
-): Pick<LoadedWorkflow, "summary" | "steering" | "skills" | "access"> => {
+): LoadedWorkflow => {
   const what = (key: string): string => `workflow "${name}"'s "${key}"`
-  const skills = skillsFrom(build.skills, what("skills"))
-  const access = accessFrom(build.access, what("access"))
-  return {
-    summary: file.summary ?? optionalFunction<flows.Summary>(build.summary, what("summary")),
-    steering: { ...stringRecord(build.steering, what("steering")), ...file.steering },
-    skills: (vars) => ({ ...skills(vars), ...file.skills(vars) }),
-    access: (vars) => ({ ...access(vars), ...file.access(vars) }),
+  const unknown = Object.keys(build).filter((key) => !BUILD_KEYS.has(key))
+  if (unknown.length > 0) {
+    throw new Error(
+      `workflow "${name}" has unknown option(s) ${unknown.map((key) => JSON.stringify(key)).join(", ")} — known: ${[...BUILD_KEYS].filter((key) => key !== "flow").join(", ")}`,
+    )
   }
-}
-
-/** A factory's settings over its file's, held to the rules a file's own exports are. */
-const builtSettings = (name: string, file: LoadedFile, build: flows.WorkflowBuild): Settings => {
-  checkSettings(
-    build.defaults ?? {},
-    build.envDefaults ?? {},
-    (kind) => `workflow "${name}" builds ${kind}`,
-  )
-  const defaults = { ...file.defaults, ...build.defaults }
-  const envDefaults = { ...file.envDefaults, ...build.envDefaults }
-  checkSettings(defaults, envDefaults, (kind) => `workflow "${name}" builds ${kind}`)
-  return { defaults, envDefaults }
+  if (typeof build.flow !== "function") throw new Error(`${what("flow")} is not a function`)
+  const defaults = stringRecord(build.defaults, what("defaults"))
+  const envDefaults = stringRecord(build.envDefaults, what("envDefaults"))
+  checkSettings(defaults, envDefaults, (kind) => `workflow "${name}" declares ${kind}`)
+  if (
+    build.doors !== undefined &&
+    (typeof build.doors !== "object" || build.doors === null || Array.isArray(build.doors))
+  ) {
+    throw new Error(`${what("doors")} is not a record of doors`)
+  }
+  return {
+    flow: build.flow,
+    file,
+    defaults,
+    envDefaults,
+    summary: optionalFunction<flows.Summary>(build.summary, what("summary")),
+    steering: stringRecord(build.steering, what("steering")),
+    skills: skillsFrom(build.skills, what("skills")),
+    access: accessFrom(build.access, what("access")),
+    doors: build.doors,
+    base: optionalFunction<flows.WorkflowBase>(build.base, what("base")),
+  }
 }
 
 /** A rejected factory option, reported at `gtd.config.ts`. */

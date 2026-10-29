@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { liveJudgeIo, type ClaudeOutcome, type JudgeIo } from "../../src/judges/index.js"
-import { InMemRepo } from "../../src/testkit/index.js"
+import { InMemRepo } from "../../src/twins/index.js"
 import { inMemoryJudgeIo, type ScriptedClaude } from "../integration/support/judge-io.js"
 
 // The judge's file reads and `claude` calls, live and in memory, held to the

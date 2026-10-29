@@ -8,7 +8,6 @@ export {
   verdict,
   verdictWhen,
   whenPrompted,
-  type Actor,
   type Actors,
   type CannedCommand,
   type DriveOptions,
@@ -22,5 +21,8 @@ export {
   type WorkflowModule,
 } from "./TestRepo.js"
 export type { BeatDocument } from "../wire/index.js"
-export { InMemRepo, type CapturedCliResult } from "../twins/index.js"
+export type { CapturedCliResult } from "../twins/index.js"
 export type { TestkitWorld } from "../gherkin/index.js"
+// The flow-context harness: render a prompt or stub a step synchronously,
+// against a replay context the test installs instead of the engine.
+export { installContext, type FlowContext, type StepRequest } from "../flows/internal.js"

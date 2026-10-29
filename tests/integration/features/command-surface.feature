@@ -1,13 +1,10 @@
 @inmem
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
-  gtd v3 exposes `land` (with `--cost=<n>`/`--model=<name>`),
+  gtd exposes `land` (with `--cost=<n>`/`--model=<name>`), `start`,
   `abandon`, `restore`, `next`, `validate`, `check <mode> <file>`,
-  `uncheck <file>`, `lsp`, `version`, and `help` as its
-  subcommands. `--workflow
-  <name>` is only the bare form (no command at all) — landing and starting
-  are different verbs. Bare `gtd` (no subcommand) is a usage error unless
-  `--workflow <name>` is given. `--help`/`help` and `--version`/`version`
+  `uncheck <file>`, `lsp`, `version`, and `help` among its subcommands.
+  Bare `gtd` (no subcommand) is a usage error. `--help`/`help` and `--version`/`version`
   short-circuit before any repo-state work and exit 0 everywhere, including
   outside a workflow state.
 
@@ -42,7 +39,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     Then it succeeds
     And stdout contains "land"
     And stdout contains "start [name] [args...]"
-    And stdout contains "--workflow <name>"
+    And stdout does not contain "--workflow"
     And stdout contains "abandon"
     And stdout contains "next"
     And stdout contains "check <mode> <file>"
@@ -105,7 +102,6 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
       | lsp --json               |
       | check qa TODO.md --json  |
       | uncheck REVIEW.md --json |
-      | install --json           |
       | guide --json             |
       | summary --json           |
       | base --json              |
@@ -122,12 +118,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     Then it fails
     And stderr contains "unknown option"
 
-  Scenario: gtd --workflow version refuses as an unknown workflow and prints no version
-    # The regression this RFC exists to fix: a flag-unaware positional
-    # extractor used to read "version" as `--workflow`'s VALUE and the whole
-    # invocation as a bare `gtd --version`-equivalent, printing the version.
-    # The table-driven tokenizer now hands "version" to `--workflow` as an
-    # ordinary (unknown) workflow name instead.
+  Scenario: gtd start version refuses as an unknown name and prints no version
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -137,9 +128,10 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
         await human("idle", { message: "write NOTE.md to start a process" })
       }
       """
-    When I run gtd with args "--workflow version"
+    When I run gtd with args "start version"
     Then the exit code is 2
-    And stderr contains "unknown workflow \"version\""
+    And stdout is empty
+    And stderr contains "no workflow or door is named \"version\""
 
   Scenario: a usage error under --json writes the envelope on stderr, leaving stdout byte-empty
     Given a test project
@@ -148,12 +140,6 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     And stdout is empty
     And stderr contains "\"state\":\"error\""
     And stderr matches "gtd: [^\n]*\n$"
-
-  Scenario: gtd --workflow --json fails with --workflow requires a value
-    Given a test project
-    When I run gtd with args "--workflow --json"
-    Then it fails
-    And stderr contains "--workflow requires a value"
 
   Scenario: gtd uncheck resets a review-mode file's ticked boxes back to unticked
     Given a test project

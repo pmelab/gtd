@@ -9,17 +9,17 @@ Feature: a scenario controls the commands and the history a workflow sees
   Background:
     Given a gtd config with:
       """
-      import { check, human, run, showScript } from "@pmelab/gtd/flows"
+      import { check, human, run, showScript, workflow } from "@pmelab/gtd/flows"
 
-      export const tested = async () => {
-        const green = await check("test", "npm test", { report: ".gtd/FEEDBACK.md" })
+      export const tested = workflow(async () => {
+        const green = await check("test", "npm test", ".gtd/FEEDBACK.md")
         await human(green ? "sign-off" : "red")
-      }
+      })
 
-      export const restored = async () => {
+      export const restored = workflow(async () => {
         await run("restore", showScript("origin/main", "a.txt", "a.txt"))
         await human("done")
-      }
+      })
 
       export default tested
       """

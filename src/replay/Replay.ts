@@ -290,6 +290,13 @@ const approveConflict = (step: ReachedStep): string | undefined => {
   return `gtd: step "${step.name}": approve cannot be combined with ${keys.join(", ")} in human() options — an approval records exactly the judged tree, and a steering file is rewritten on landing`
 }
 
+// A mode names how a steering file is checked; with no file there is nothing to check.
+const modeWithoutFile = (step: ReachedStep): string | undefined => {
+  const options = step.request.options
+  if (options.mode === undefined || options.file !== undefined) return undefined
+  return `gtd: step "${step.name}": mode requires file in ${step.kind}() options — name the steering file the mode checks`
+}
+
 export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
   const commits: readonly ParsedCommit[] = input.episode.commits.map((c) => ({
     ...c,
@@ -523,7 +530,8 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
         message: `gtd: commit ${short(expected.hash)} names "${expected.name}" as the next step, but replay reached "${step.name}" — ${DIVERGED}`,
       }
     }
-    const error = unknownOptions(step) ?? approveConflict(step) ?? checkIdentity(step)
+    const error =
+      unknownOptions(step) ?? approveConflict(step) ?? modeWithoutFile(step) ?? checkIdentity(step)
     return error === undefined ? undefined : { kind: "failed", message: error }
   }
 
@@ -603,7 +611,7 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     const name = scoped(request.name)
     if (request.options.keep === true) {
       // A clean allowEmpty keep would land an ordinary commit with no Gtd-Kept: a silent skip.
-      if (request.options.allowEmpty === true) {
+      if ((request.options as { readonly allowEmpty?: unknown }).allowEmpty === true) {
         return `gtd: step "${name}": keep: true cannot be combined with allowEmpty — a turn that changes nothing has nothing to keep`
       }
       // "/" would let one step's ref directory collide with another step's ref (git refuses `a` and `a/b` together).

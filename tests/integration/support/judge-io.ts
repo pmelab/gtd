@@ -1,5 +1,5 @@
 import type { JudgeIo } from "../../../src/judges/index.js"
-import type { InMemRepo } from "../../../src/testkit/index.js"
+import type { InMemRepo } from "../../../src/twins/index.js"
 
 /** What a scripted `claude` prints and exits with. */
 export interface ScriptedClaude {

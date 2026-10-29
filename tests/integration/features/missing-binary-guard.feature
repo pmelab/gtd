@@ -105,6 +105,7 @@ Feature: A declared mode command guards its own missing binary
       """
     And the shell command "gtd-test-nonexistent-binary .gtd/docs/adr.md | cat" exits 0 with:
       """
+
       """
     And a file ".gtd/docs/adr.md" with:
       """

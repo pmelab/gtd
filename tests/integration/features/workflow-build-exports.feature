@@ -2,10 +2,8 @@
 Feature: a workflow factory's build carries skills, access, steering and summary
 
   A factory's build may return `skills`, `access`, `steering` and `summary`
-  beside its flow, so `export default feature()` needs no re-exported file
-  exports. They are checked like the file's own exports, and the file's
-  exports win: per scope for `skills` and `access`, per path for `steering`,
-  whole for `summary`.
+  beside its flow, so `export default feature()` is a whole config. They are
+  checked when the config loads, like every other build key.
 
   Background:
     Given a test project
@@ -33,28 +31,6 @@ Feature: a workflow factory's build carries skills, access, steering and summary
     When I run gtd next with "--json=access.write"
     Then it succeeds
     And stdout contains "out/**"
-
-  Scenario: the file's skills export wins over the build's for the same scope
-    Given a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, defineWorkflow, scope } from "@pmelab/gtd/flows"
-
-      const any = { "~standard": { version: 1, vendor: "test", validate: (value) => ({ value }) } }
-
-      const feature = defineWorkflow(any, () => ({
-        flow: async () => {
-          await scope("work", () => agent("doing", "do the work", { allowEmpty: true }))
-        },
-        skills: { work: ["from-build"] },
-      }))
-
-      export default feature()
-      export const skills = { work: ["from-file"] }
-      """
-    When I run gtd next with "--json=skills"
-    Then it succeeds
-    And stdout contains "\"from-file\""
-    And stdout does not contain "from-build"
 
   Scenario: a build-carried summary is what gtd summary prints
     Given a gtd config file at "gtd.config.ts" with:

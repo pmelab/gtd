@@ -181,15 +181,15 @@ Feature: file access is declared per scope
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, scope } from "@pmelab/gtd/flows"
+      import { agent, scope, workflow } from "@pmelab/gtd/flows"
 
-      export const access = { outer: { write: ["bundled/**"] } }
+      const access = { outer: { write: ["bundled/**"] } }
 
-      export default async () => {
+      export default workflow(async () => {
         await scope({ name: "outer", access: { write: ["declared/**"] } }, () =>
           scope("inner", () => agent("doing", "do the work", { allowEmpty: true })),
         )
-      }
+      }, { access })
 
       export const config = {
         access: {
@@ -210,16 +210,16 @@ Feature: file access is declared per scope
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, scope } from "@pmelab/gtd/flows"
+      import { agent, scope, workflow } from "@pmelab/gtd/flows"
 
-      export const skills = { design: [], "build.review": [] }
+      const skills = { design: [], "build.review": [] }
 
-      export default async () => {
+      export default workflow(async () => {
         await scope("design", () => agent("triage", "design it", { allowEmpty: true }))
         await scope("build", () =>
           scope("review", () => agent("reviewing", "review it", { allowEmpty: true })),
         )
-      }
+      }, { skills })
 
       export const config = {
         access: {
@@ -238,16 +238,16 @@ Feature: file access is declared per scope
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, scope } from "@pmelab/gtd/flows"
+      import { agent, scope, workflow } from "@pmelab/gtd/flows"
 
-      export const skills = { design: [], "build.review": [] }
+      const skills = { design: [], "build.review": [] }
 
-      export default async () => {
+      export default workflow(async () => {
         await scope("design", () => agent("triage", "design it", { allowEmpty: true }))
         await scope("build", () =>
           scope("review", () => agent("reviewing", "review it", { allowEmpty: true })),
         )
-      }
+      }, { skills })
 
       export const config = {
         access: {
@@ -265,14 +265,14 @@ Feature: file access is declared per scope
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, scope, human } from "@pmelab/gtd/flows"
+      import { agent, scope, human, workflow } from "@pmelab/gtd/flows"
 
-      export const access = { work: { write: ["one/**"] } }
+      const access = { work: { write: ["one/**"] } }
 
-      export default async () => {
+      export default workflow(async () => {
         await scope("work", () => agent("doing", "do the work", { allowEmpty: true }))
         await human("done")
-      }
+      }, { access })
       """
     When I run gtd next with "--json=access.write"
     Then it succeeds

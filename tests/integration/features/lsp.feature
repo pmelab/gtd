@@ -116,24 +116,24 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, vars } from "@pmelab/gtd/flows"
+      import { agent, human, settings, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { planFile: "PLAN.md" }
+
+      export default workflow(async () => {
         await human("idle", { message: "go" })
-        await agent("working", "develop the plan", { file: `.gtd/${vars.planFile}`, mode: "qa" })
-      }
+        await agent("working", "develop the plan", { file: `.gtd/${settings.planFile}`, mode: "qa" })
+      }, { defaults })
 
-      export const reviewCheck = async () => {
+      export const reviewCheck = workflow(async () => {
         await human("review-check", {
-          file: `.gtd/${vars.planFile}`,
+          file: `.gtd/${settings.planFile}`,
           mode: "qa",
           message: "reviewing",
         })
-      }
-
-      export const defaults = { planFile: "PLAN.md" }
+      }, { defaults })
       """
-    And I run gtd with args "--workflow reviewCheck --var planFile=OTHER.md"
+    And I run gtd with args "start reviewCheck --var planFile=OTHER.md"
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error

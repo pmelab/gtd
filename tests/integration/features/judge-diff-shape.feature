@@ -146,9 +146,11 @@ Feature: judgeDiffShape — a naive pass's strays judged as land, refactor-first
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, judgeDiffShape, kept } from "@pmelab/gtd/flows"
+      import { agent, human, judgeDiffShape, kept, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { judgeShapeMinP: "0.95" }
+
+      export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("naive", "write the naive version", { keep: true })
         const { choice, judgment } = await judgeDiffShape("shape", {
@@ -160,9 +162,7 @@ Feature: judgeDiffShape — a naive pass's strays judged as land, refactor-first
         } else if (choice === "land") await agent("landing", "land the naive pass")
         else if (choice === "refactor-first") await agent("refactoring", "refactor first")
         else await agent("rejecting", "discard and re-implement")
-      }
-
-      export const defaults = { judgeShapeMinP: "0.95" }
+      }, { defaults })
       """
     And the working tree is committed as "chore: gtd config"
     And a file "NOTE.md" with:

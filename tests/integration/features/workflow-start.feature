@@ -1,15 +1,15 @@
 @inmem
-Feature: gtd --workflow <name> — start a brand new process on a named workflow
+Feature: gtd start <name> — start a brand new process on a named workflow
 
-  `gtd --workflow <name>` (always authenticated as `human`) starts a process on
-  the named workflow; an ordinary start runs the default. Every exported
-  function of a `gtd.config.ts` is a workflow named by its export. The
+  `gtd start <name>` (always authenticated as `human`) starts a process on
+  the named workflow; an ordinary start runs the default. Every
+  `workflow()` export of a `gtd.config.ts` is a workflow named by its export. The
   workflow's name is recorded on the opening commit (`Gtd-Workflow:`), so every
   later command replays that workflow. Repeatable `--var <name>=<value>`
   supplies that process's fixed vars, which must already be declared by the
-  workflow file's `defaults` (or its factory's options).
+  workflow's `defaults` option (or its factory's options).
 
-  A config's `base` export fixes a workflow's diff base: below, `review`'s is
+  A workflow's `base` option fixes its diff base: below, `review`'s is
   the merge-base of `--var reviewBase=<commitish>` and HEAD; the empty string
   means the default branch (`origin/HEAD`, else `main`). A base with nothing
   between it and HEAD is refused. `fix` has no base and needs no `--var`.
@@ -22,38 +22,37 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, run, scope, start } from "@pmelab/gtd/flows"
+      import { agent, human, run, scope, start, workflow } from "@pmelab/gtd/flows"
 
-      export default async function feature() {
+      const defaults = { reviewBase: "" }
+      const base = (workflow, vars) =>
+        workflow === "review" ? (vars.reviewBase ?? "") : undefined
+
+      export default workflow(async function feature() {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("working", "develop the note")
-      }
+      }, { defaults, base })
 
-      export async function review() {
+      export const review = workflow(async function review() {
         await scope("review-gate", () => run("check", "true"))
         await scope("build", async () => {
           await scope("health", () => run("check", "true"))
           await scope("review", () => agent("reviewing", `Review everything since ${start()}.`))
         })
-      }
+      }, { defaults, base })
 
-      export async function fix() {
+      export const fix = workflow(async function fix() {
         await run("fix-precheck", "true")
-      }
-
-      export const defaults = { reviewBase: "" }
-
-      export const base = (workflow, vars) =>
-        workflow === "review" ? (vars.reviewBase ?? "") : undefined
+      }, { defaults, base })
       """
 
-  Scenario: happy path — a local branch started for review via the space-separated "--workflow" form, gated then resting at build.review.reviewing
+  Scenario: happy path — a local branch started for review, gated then resting at build.review.reviewing
     And I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b
       """
-    When I run gtd with args "--workflow review --var reviewBase=base"
+    When I run gtd with args "start review --var reviewBase=base"
     Then it succeeds
     And the last commit subject is "gtd(human): review-gate.check"
     When I run gtd land
@@ -69,15 +68,6 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     And stdout does not contain "## Full diff under review"
     And stdout does not contain "diff --git"
 
-  Scenario: the "--workflow=<name>" equals-sign form works identically to the space-separated form
-    Given I mark the current commit as "base"
-    And a commit "feat: add calculator" that adds "src/calc.ts" with:
-      """
-      export const add = (a: number, b: number) => a + b
-      """
-    When I run gtd with args "--workflow=review --var reviewBase=base"
-    Then it succeeds
-    And the last commit subject is "gtd(human): review-gate.check"
   Scenario: a dirty working tree is captured into the opening commit, not refused
     Given I mark the current commit as "base"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -88,34 +78,34 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
       """
       not committed yet
       """
-    When I run gtd with args "--workflow review --var reviewBase=base"
+    When I run gtd with args "start review --var reviewBase=base"
     Then it succeeds
     And the last commit subject is "gtd(human): review-gate.check"
 
-  Scenario: an unknown workflow name is a usage error listing every startable name
+  Scenario: an unknown workflow name is a usage error pointing at the list
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "go" })
         await agent("working", "do it")
       }
 
-      export const hotfix = async () => {
+      export const hotfix = workflow(async () => {
         await agent("patch", "Patch it.")
-      }
+      })
       """
     And I record the commit count
-    When I run gtd with args "--workflow release"
+    When I run gtd with args "start release"
     Then the exit code is 2
-    And stderr contains "gtd --workflow: unknown workflow \"release\" — startable: hotfix"
+    And stderr contains "gtd start release: no workflow or door is named \"release\" — run `gtd start` to list them"
     And the commit count is unchanged
 
   Scenario: "default" is not a startable name
-    When I run gtd with args "--workflow default"
+    When I run gtd with args "start default"
     Then the exit code is 2
-    And stderr contains "unknown workflow"
+    And stderr contains "no workflow or door is named \"default\""
 
   Scenario: "--entry" is gone — an ordinary unknown flag
     When I run gtd with args "--entry review-gate.check"
@@ -129,14 +119,14 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
       """
     And I run gtd land
     And I record the commit count
-    When I run gtd with args "--workflow review"
+    When I run gtd with args "start review"
     Then it fails
     And stderr contains "a process is already underway"
     And the commit count is unchanged
 
-  Scenario: refuses an undeclared "--var" name
-    When I run gtd with args "--workflow review --var bogus=1"
-    Then it fails
+  Scenario: an undeclared "--var" name is a usage error
+    When I run gtd with args "start review --var bogus=1"
+    Then the exit code is 2
     And stderr contains "--var name(s) not declared by this workflow"
 
   Scenario: a blank "reviewBase" reviews since the default branch's merge-base
@@ -145,13 +135,13 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
       """
       export const add = (a: number, b: number) => a + b
       """
-    When I run gtd with args "--workflow review"
+    When I run gtd with args "start review"
     Then it succeeds
     And stdout contains the hash of "main"
     And the last commit subject is "gtd(human): review-gate.check"
 
   Scenario: a blank "reviewBase" with nothing beyond the default branch is refused — nothing to review
-    When I run gtd with args "--workflow review"
+    When I run gtd with args "start review"
     Then it fails
     And stderr contains "nothing to review: HEAD has no commits beyond main"
 
@@ -171,41 +161,41 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
       """
       b
       """
-    When I run gtd with args "--workflow review --var reviewBase=branch-a"
+    When I run gtd with args "start review --var reviewBase=branch-a"
     Then it succeeds
     And stdout contains the hash of "shared"
     And stdout does not contain the hash of "branch-a"
 
   Scenario: refuses a "reviewBase" that does not resolve
-    When I run gtd with args "--workflow review --var reviewBase=no-such-ref"
+    When I run gtd with args "start review --var reviewBase=no-such-ref"
     Then it fails
     And stderr contains "\"no-such-ref\" does not resolve to a commit"
 
   Scenario: refuses a "reviewBase" that resolves to HEAD — nothing to review
     Given I mark the current commit as "here"
-    When I run gtd with args "--workflow review --var reviewBase=here"
+    When I run gtd with args "start review --var reviewBase=here"
     Then it fails
     And stderr contains "nothing to review: HEAD has no commits beyond here"
 
-  Scenario: two exported functions plus a default — "--workflow hotfix" starts hotfix, an ordinary start runs the default, and every later command replays on the pinned workflow
+  Scenario: two exported functions plus a default — "gtd start hotfix" starts hotfix, an ordinary start runs the default, and every later command replays on the pinned workflow
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "go" })
       }
 
-      export const hotfix = async () => {
+      export const hotfix = workflow(async () => {
         await agent("patch", "Patch the login.")
         await agent("verify", "Verify the patch.")
-      }
+      })
 
-      export const release = async () => {
+      export const release = workflow(async () => {
         await agent("tag", "Tag it.")
-      }
+      })
       """
-    When I run gtd with args "--workflow hotfix"
+    When I run gtd with args "start hotfix"
     Then it succeeds
     And the last commit subject is "gtd(human): patch"
     And the last commit body contains "Gtd-Workflow: hotfix"
@@ -229,15 +219,15 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
   Scenario: an ordinary start runs the default export, and status names it "default"
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { human } from "@pmelab/gtd/flows"
+      import { human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "go" })
       }
 
-      export const hotfix = async () => {
+      export const hotfix = workflow(async () => {
         await human("patching", { message: "patch" })
-      }
+      })
       """
     When I run gtd next
     Then it succeeds
@@ -256,43 +246,43 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     When I run gtd next
     Then it fails
     And stderr contains "no default export"
-    And stderr contains "gtd guide"
+    And stderr contains "`gtd guide` says where to get one"
 
-  Scenario: a helper re-exported from another module is a startable workflow
+  Scenario: a workflow re-exported from another module is startable
     Given a gtd config file at "helpers.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export const feature = async () => {
         await human("idle", { message: "go" })
       }
 
-      export const unwind = async () => {
+      export const unwind = workflow(async () => {
         await agent("unwinding", "Unwind it.")
-      }
+      })
       """
     And a gtd config file at "gtd.config.ts" with:
       """
       export { feature as default, unwind } from "./helpers"
       """
-    When I run gtd with args "--workflow unwind"
+    When I run gtd with args "start unwind"
     Then it succeeds
     And the last commit body contains "Gtd-Workflow: unwind"
 
   Scenario: removing the pinned export mid-process is refused with the abandon advice
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "go" })
       }
 
-      export const hotfix = async () => {
+      export const hotfix = workflow(async () => {
         await agent("patch", "Patch it.")
-      }
+      })
       """
-    And I run gtd with args "--workflow hotfix"
+    And I run gtd with args "start hotfix"
     And "gtd.config.ts" is modified to:
       """
       import { human } from "@pmelab/gtd/flows"
@@ -309,28 +299,28 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
   Scenario: editing the default mid-process does not change the pinned workflow
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "go" })
       }
 
-      export const hotfix = async () => {
+      export const hotfix = workflow(async () => {
         await agent("patch", "Patch it.")
-      }
+      })
       """
-    And I run gtd with args "--workflow hotfix"
+    And I run gtd with args "start hotfix"
     And "gtd.config.ts" is modified to:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("something-else", { message: "go" })
       }
 
-      export const hotfix = async () => {
+      export const hotfix = workflow(async () => {
         await agent("patch", "Patch it.")
-      }
+      })
       """
     When I run gtd next with "--json=state"
     Then it succeeds
@@ -339,16 +329,16 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
   Scenario: an opening commit with no Gtd-Workflow trailer is a removed --entry process, refused with the abandon advice
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "go" })
       }
 
-      export const hotfix = async () => {
+      export const hotfix = workflow(async () => {
         await agent("patch", "Patch it.")
         await agent("verify", "Verify it.")
-      }
+      })
       """
     And a commit "gtd(human): patch" that adds "NOTE.md" with:
       """
@@ -371,7 +361,7 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     When I run gtd next
     Then it fails
     And stderr contains "opened by `gtd --entry`"
-    When I run gtd with args "--workflow fix"
+    When I run gtd with args "start fix"
     Then it fails
     When I run gtd with args "abandon"
     Then it succeeds
@@ -379,19 +369,19 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
   Scenario: a named workflow cannot land on the default's first step — it would read back as finished
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "go" })
       }
 
-      export const hotfix = async () => {
+      export const hotfix = workflow(async () => {
         await agent("patch", "Patch it.")
         await human("idle", { message: "done?" })
         await agent("verify", "Verify it.")
-      }
+      })
       """
-    And I run gtd with args "--workflow hotfix"
+    And I run gtd with args "start hotfix"
     And a file "fix.txt" with:
       """
       fixed

@@ -1,16 +1,19 @@
 @inmem
-Feature: workflow() marks an exported workflow on purpose
+Feature: workflow() makes an exported function a workflow
 
-  Every exported function is a startable workflow. `workflow(fn)` marks one
-  as meant; once a config marks any, loading it warns about each other
-  exported function left unmarked — most likely a helper exported by
-  mistake. The warning never stops a command. A config that marks nothing,
-  a workflow factory and the default export never warn.
+  Only an export passed through `workflow(flow, options?)`, a workflow
+  factory (or a call of one) and the `default` export are workflows. Any
+  other exported function is a plain helper: never startable, never warned
+  about. `workflow()`'s options are the keys a factory build returns
+  (`defaults`, `envDefaults`, `doors`, `base`, `skills`, `access`,
+  `steering`, `summary`), checked the same way. The file-level exports of
+  those names are gone: exporting one fails the load, naming the
+  replacement.
 
   Background:
     Given a test project
 
-  Scenario: an unmarked exported helper warns once the config marks a workflow
+  Scenario: an unmarked exported function is a helper, not a workflow
     Given a gtd config file at "gtd.config.ts" with:
       """
       import { human, workflow } from "@pmelab/gtd/flows"
@@ -20,57 +23,81 @@ Feature: workflow() marks an exported workflow on purpose
       }
 
       export const hotfix = workflow(async () => {
-        await human("fixing")
+        await helper()
       })
-
-      export default workflow(async () => {
-        await human("idle")
-      })
-      """
-    When I run gtd next
-    Then it succeeds
-    And stderr contains "gtd: warning:"
-    And stderr contains "helper: is a startable workflow not marked with workflow()"
-    And stderr does not contain "hotfix: is a startable workflow"
-
-  Scenario: a config that marks nothing does not warn
-    Given a gtd config file at "gtd.config.ts" with:
-      """
-      import { human } from "@pmelab/gtd/flows"
-
-      export const helper = async () => {
-        await human("helping")
-      }
 
       export default async () => {
         await human("idle")
       }
       """
-    When I run gtd next
+    When I run gtd with args "start"
     Then it succeeds
-    And stderr does not contain "not marked with workflow()"
+    And stdout contains "hotfix"
+    And stdout does not contain "helper"
+    And stderr does not contain "warning"
+    When I run gtd with args "start helper"
+    Then the exit code is 2
 
-  Scenario: a factory and the default export are never warned about
+  Scenario: workflow() carries the settings a factory build declares
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { defineWorkflow, human, workflow } from "@pmelab/gtd/flows"
+      import { human, settings, workflow } from "@pmelab/gtd/flows"
 
-      const any = { "~standard": { version: 1, vendor: "test", validate: (value) => ({ value }) } }
-
-      export const fix = defineWorkflow(any, () => ({
-        flow: async () => {
-          await human("fixing")
+      export const hotfix = workflow(
+        async () => {
+          await human("fixing", `ticket ${settings.ticket}`)
         },
-      }))
+        { defaults: { ticket: "none" } },
+      )
 
-      export const hotfix = workflow(async () => {
-        await human("hotfixing")
-      })
-
-      export default async function feature() {
+      export default async () => {
         await human("idle")
       }
       """
+    When I run gtd with args "start hotfix --var ticket=T-1"
+    Then it succeeds
     When I run gtd next
     Then it succeeds
-    And stderr does not contain "not marked with workflow()"
+    And stdout contains "ticket T-1"
+
+  Scenario: workflow() options are checked like a factory build's
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { human, workflow } from "@pmelab/gtd/flows"
+
+      export default workflow(
+        async () => {
+          await human("idle")
+        },
+        { steering: { ".gtd/PLAN.md": 1 }, defualts: {} },
+      )
+      """
+    When I run gtd next
+    Then it fails
+    And stderr contains "workflow \"default\" has unknown option(s) \"defualts\""
+
+  Scenario Outline: a file-level <name> export fails the load, naming its replacement
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle")
+      }
+
+      export const <name> = <value>
+      """
+    When I run gtd next
+    Then it fails
+    And stderr contains "<name>: the \"<name>\" export is no longer read — pass it to the workflow it configures: `workflow(flow, { <name> })`, or the build a workflow factory returns"
+
+    Examples:
+      | name        | value                                 |
+      | defaults    | { ticket: "none" }                    |
+      | envDefaults | { testCommand: "npm test" }           |
+      | steering    | { ".gtd/PLAN.md": "qa" }              |
+      | skills      | { build: ["tdd"] }                    |
+      | access      | { build: { write: [] } }              |
+      | doors       | { go: { workflow: "default" } }       |
+      | summary     | () => "summary"                       |
+      | base        | () => undefined                       |

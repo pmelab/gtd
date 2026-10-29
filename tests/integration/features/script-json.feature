@@ -1,7 +1,7 @@
 @inmem
 Feature: --json on every command that prints a script
 
-  `gtd start`, `gtd --workflow`, `gtd door`, `gtd abandon`, `gtd restore`,
+  `gtd start`, `gtd abandon`, `gtd restore`,
   `gtd validate` and `gtd history fetch` print a script. Under `--json` each
   prints the script document `{ schema, script }`, and `--json=script` the
   script alone — the one idiom `gtd land` and `gtd judge answer` already take.
@@ -11,7 +11,7 @@ Feature: --json on every command that prints a script
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -19,11 +19,12 @@ Feature: --json on every command that prints a script
         await agent("reviewing", "review it")
       }
 
-      export const hotfix = async () => {
-        await agent("patch", "Patch it.")
-      }
-
-      export const doors = { patch: { workflow: "hotfix" } }
+      export const hotfix = workflow(
+        async () => {
+          await agent("patch", "Patch it.")
+        },
+        { doors: { patch: {} } },
+      )
       """
 
   Scenario: gtd abandon --json prints the script document, writing nothing
@@ -66,18 +67,18 @@ Feature: --json on every command that prints a script
     And stdout is empty
     And stderr contains "{\"state\":\"error\",\"prompt\":\"gtd restore: no retained history to restore.\"}"
 
-  Scenario: gtd --workflow and gtd door take --json=script
+  Scenario: gtd start takes --json=script, for a workflow and for a door
     Given I record the commit count
     When I run in the shell:
       """
-      gtd --workflow hotfix --json=script | sh
+      gtd start hotfix --json=script | sh
       """
     Then it succeeds
     And the commit count increased by 1
     And the last commit body contains "Gtd-Workflow: hotfix"
     When I run gtd with args "abandon"
     Then it succeeds
-    When I run gtd with args "door patch --json"
+    When I run gtd with args "start patch --json"
     Then it succeeds
     And the json field "script" contains "gtd(human): patch"
 
