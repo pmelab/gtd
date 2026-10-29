@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { readFile as readFileFs, mkdir, writeFile as writeFileFs } from "node:fs/promises"
 import { dirname } from "node:path"
 import type { SteeringAnchor } from "../steering/index.js"
-import { applySteeringEdits, steeringFormatOrFreeForm } from "../steering/index.js"
+import { applySteeringEdits, steeringFormatOrFreeForm } from "../steering/internal.js"
 import type { ReadFileResult, RunInWorktree } from "./Ports.js"
 import { resolveWithinRoot } from "./SafePath.js"
 

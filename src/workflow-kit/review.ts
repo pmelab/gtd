@@ -195,13 +195,13 @@ const converse = async (
 }
 
 /** What `finish` hands back to `review`: an outcome, or another lap at the gate. */
-type Finish =
+export type Finish =
   | ReviewOutcome
   | { readonly next: "await"; readonly reviewed: string }
   | { readonly next: "rereview"; readonly carry: string | undefined }
 
 /** What a round's routing needs from `finish`: its closing step and the ways it ends. */
-interface Round {
+export interface Round {
   readonly round: string
   readonly close: () => Promise<void>
   readonly outcome: (verdict: "signoff" | "feedback") => ReviewOutcome

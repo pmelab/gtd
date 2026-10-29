@@ -93,6 +93,23 @@ other non-function export. **A helper you export is a workflow too**, startable
 by name — keep helpers un-exported, or export them from another module you
 import.
 
+To say which exports are meant, wrap them in `workflow()` from
+`@pmelab/gtd/flows`: `export const hotfix = workflow(async () => { … })`. It
+returns the function unchanged. It is opt-in: once a config marks one export,
+loading it warns about every other exported function left unmarked — on every
+command that loads the config, never failing it:
+
+```text
+gtd: warning: /repo/gtd.config.ts: helper: is a startable workflow not marked with workflow() — mark it, or stop exporting it if it is a helper
+```
+
+A config that marks nothing never warns, and neither does a workflow factory or
+the `default` export.
+
+`@pmelab/gtd/flows` types the reserved exports: `Steering` for `steering`,
+`SkillsExport` for `skills`, `AccessExport` for `access`, `Summary`, `Doors` and
+`WorkflowBase` for `base`.
+
 gtd resolves every `@pmelab/gtd/*` subpath but the testkit's (see
 [Entrypoints](https://github.com/pmelab/gtd/blob/main/README.md#entrypoints)),
 to its own copy, so a repository — JavaScript or not (Python, Rust, notes) —
@@ -116,13 +133,13 @@ number as `FLOWS_PROTOCOL`.
 A step is one position a process can rest at. Each step function takes a
 **literal string name** first, and resolves once that step's turn has landed.
 
-| Step                         | Actor   | What the rest asks for                                                                                                                   |
-| ---------------------------- | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent(name, prompt, opts?)` | `agent` | An agent turn. `prompt` is printed as the beat's content; the driver hands it to an agent and lands whatever the agent left in the tree. |
-| `human(name, opts?)`         | `human` | A person. The process waits until someone edits and lands. `opts.message` is what gtd shows.                                             |
-| `run(name, body, opts?)`     | `check` | A script. `body` is a POSIX `sh` string the driver runs verbatim.                                                                        |
-| `judge(name, spec)`          | `judge` | A judgment. A `message` rest carrying typed questions; `gtd judge answer` records the verdict. See [Judges](#judges).                    |
-| `restart()`                  | —       | Ends the episode from any depth (see [Episodes](#episodes-replay-and-divergence)). Never rests.                                          |
+| Step                           | Actor   | What the rest asks for                                                                                                                   |
+| ------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent(name, prompt, opts?)`   | `agent` | An agent turn. `prompt` is printed as the beat's content; the driver hands it to an agent and lands whatever the agent left in the tree. |
+| `human(name, message?, opts?)` | `human` | A person. The process waits until someone edits and lands. `message` (or `opts.message`) is what gtd shows.                              |
+| `run(name, body, opts?)`       | `check` | A script. `body` is a POSIX `sh` string the driver runs verbatim.                                                                        |
+| `judge(name, spec)`            | `judge` | A judgment. A `message` rest carrying typed questions; `gtd judge answer` records the verdict. See [Judges](#judges).                    |
+| `restart()`                    | —       | Ends the episode from any depth (see [Episodes](#episodes-replay-and-divergence)). Never rests.                                          |
 
 Flow code decides; a `run` body only carries the decision out. Render it from
 the values the flow computed — `check()` and the exported script renderers cover
@@ -235,7 +252,8 @@ landed step left — never the live working tree:
   that knows `keep`, else it throws asking for an upgrade. See
   [Kept tips](#kept-tips)
 - `matches(path, pattern)` — whether `path` matches `pattern` in the same glob
-  dialect as `glob()` and `changes(glob)`
+  dialect as `glob()` and `changes(glob)`. `@pmelab/gtd/wire`'s `globMatches` is
+  the same check outside a replay
 - `sections(text)` — the top-level `## ` headings of markdown `text`
 - `sectionBodies(text)` — the same sections as `{ title, body }`, `body` being
   the section's own markdown, its heading line included
@@ -248,12 +266,18 @@ landed step left — never the live working tree:
   `H:` entry's text, `faults` its syntax faults). Reads committed trees
 - `openQuestions(text)` — the unanswered questions of a `qa` document, each
   `{ question, line }`
-- `vars` — the process settings, pinned at process start (see
+- `settings` (also `vars`) — the process settings, pinned at process start (see
   [Settings](#settings))
-- `env` — the environment settings, read live (see [Settings](#settings))
+- `envSettings` (also `env`) — the environment settings, read live (see
+  [Settings](#settings))
 - `head()` — the commit the process stands on at this point of the flow;
   `start()` — the process's diff base. Name them in a prompt for an agent to
   inspect a range itself
+
+`sections`, `sectionBodies`, `threads` and `openQuestions` read only the text
+they are given, yet throw outside a replay, like every helper here.
+`@pmelab/gtd/steering` exports the same four under the same names as plain
+functions — for a test, or a module's top level.
 
 Flow code is plain code, so it can also keep what it needs across steps in local
 variables — a counter, the previous round's report, the commit a review round
@@ -308,13 +332,13 @@ is how a larger workflow is written.
 
 `@pmelab/gtd/flows` also exports a few helpers:
 
-- `check(name, command, { report, label?, sweep?, sweepOnGreen?, preamble? })` —
-  a `run` step gtd renders for the driver: it removes `sweep`, runs `command` in
-  a subshell and, on failure, writes its output (stamped with the commit) to
-  `report`; on success it removes `report` and `sweepOnGreen`. `preamble` is
-  shell lines run first, outside the output capture; an `exit 0` in them skips
-  the command and leaves `report` untouched. Resolves `true` unless the run
-  wrote `report`
+- `check(name, command, report, { label?, sweep?, sweepOnGreen?, preamble? }?)`
+  — also `check(name, command, { report, … })` — a `run` step gtd renders for
+  the driver: it removes `sweep`, runs `command` in a subshell and, on failure,
+  writes its output (stamped with the commit) to `report`; on success it removes
+  `report` and `sweepOnGreen`. `preamble` is shell lines run first, outside the
+  output capture; an `exit 0` in them skips the command and leaves `report`
+  untouched. Resolves `true` unless the run wrote `report`
 - `answered(answer, expected, minP)` — whether a judge answer is `expected` at a
   probability of at least `minP`
 - `numeric(value, fallback)` — a numeric var, or `fallback` when it is blank or
@@ -348,6 +372,9 @@ whose turn they check:
   footnote thread in `file` or any code thread
 - `requireRevert(edited, base)` — refuses a turn that left any of the `edited`
   changes differing from their content before them
+
+`@pmelab/gtd/workflow-kit` has larger building blocks — health loops, quality
+laps, review rounds; see [Workflow kit](./workflow-kit.md).
 
 The script renderers (`checkScript`, `revertScript`, `applyScript`,
 `restoreScript`, `removeScript`, `moveScript`, `showScript`, and `quote`) are
@@ -398,9 +425,32 @@ The build may also return `doors`, keyed by door name, each a door without its
 diff base. The config's own `base` export wins when it returns a value; on
 `undefined` this one applies.
 
-Read a setting through `vars`/`env` in flow code, as before, when `--var` or
-`GTD_<NAME>` should reach it; an option read straight from `options` is fixed by
-the config.
+It may return `skills`, `access`, `steering` and `summary` too, shaped and
+checked like the file exports of the same names, so `export default feature()`
+alone is a whole config. The file's exports win: an entry of the file's `skills`
+or `access` export replaces the build's for that scope, a `steering` entry the
+build's for that path, and a `summary` export the build's whole. (`defaults` and
+`envDefaults` go the other way: the build's lie over the file's.)
+
+Read a setting through `settings`/`envSettings` (or `vars`/`env`) in flow code
+when `--var` or `GTD_<NAME>` should reach it; an option read straight from
+`options` is fixed by the config. `settingsOf(defaults)` and
+`envSettingsOf(envDefaults)` return the same settings typed by the names you
+pass in, so a declared name reads as a `string` and a misspelled one is a type
+error:
+
+```ts
+const defaults = { greeting: "hello" }
+const typed = settingsOf(defaults)
+
+export const greeter = defineWorkflow(schema, () => ({
+  defaults,
+  flow: async () => {
+    await human("idle")
+    await human("greet", typed.greeting)
+  },
+}))
+```
 
 `--var`, `GTD_<NAME>` and the pinned value never pass through the schema, so a
 schema that transforms (trims, lowercases) or constrains a setting does not bind
@@ -411,21 +461,25 @@ flows it is built from instead.
 
 ### Judges
 
-`judge(name, { questions, evidence, message?, label? })` asks one or more
-questions and resolves to `{ answers, truncated }`. A question is
-`{ id, primitive, instructions, criteria }`, where `primitive` is `noul`
-(yes/no, read back as `"yes"`/`"no"`), `choice`, or `score` (read back as its
-decimal string). A `choice` or `score` question's `criteria` lists at least two
-options as `label: description` — a label is a letter then letters, digits, `_`
-or `-`, and starts the string or follows `. ` (a newline does not separate
-options). `evidence` is what the judge sees as its `state`: an object of
-strings, built from `read`/`sections`/`changes`, never from anything the working
-tree holds uncommitted. The `judgeBudgetBytes` var is split evenly across its
-keys; a value over its share keeps its end, cut on a line boundary.
+`judge(name, { questions, evidence, message?, label?, file?, mode?, base? })`
+asks one or more questions and resolves to `{ answers, truncated }`. `file`,
+`mode`, `base` and `label` are the step options every step takes (see
+[Step options](#step-options)). A question is
+`{ id, primitive, instructions, criteria }`, where `primitive` is `noul` (also
+spelled `yesno`; yes/no, read back as `"yes"`/`"no"`), `choice`, or `score`
+(read back as its decimal string). A `yesno` question reaches the driver as
+`noul`. A `choice` or `score` question's `criteria` lists at least two options
+as `label: description` — a label is a letter then letters, digits, `_` or `-`,
+and starts the string or follows `. ` (a newline does not separate options).
+`evidence` is what the judge sees as its `state`: an object of strings, built
+from `read`/`sections`/`changes`, never from anything the working tree holds
+uncommitted. The `judgeBudgetBytes` var is split evenly across its keys; a value
+over its share keeps its end, cut on a line boundary.
 
 `answers` holds one `{ answer, p }` per question id, or `undefined` for a
-question the verdict left out. `truncated` lists the evidence keys the budget
-cut. The flow decides what an answer means with plain comparisons:
+question the verdict left out; with the questions written inline, its type names
+their ids. `truncated` lists the evidence keys the budget cut. The flow decides
+what an answer means with plain comparisons:
 
 ```ts
 const { answers, truncated } = await judge("same", {
@@ -1038,9 +1092,12 @@ export const config = defineConfig({
 An entry key other than `read`/`write`, or a scope name that is not a scope
 running a turn, is a load error, exit 1; the message lists the known scopes. A
 custom workflow's own scopes are addressable through its `access` export (a
-record, or a function of the resolved vars, of scope -> `{ read?, write? }`).
-Precedence: `config.access` entry, then a `scope()` option, then the workflow's
-`access` export.
+record, or a function of the resolved vars, of scope -> `{ read?, write? }`). A
+record is checked when the config loads: an entry that is not
+`{ read?, write? }` glob arrays fails every command, naming the scope. A
+function's result is checked once the process's settings are known. Precedence:
+`config.access` entry, then a `scope()` option, then the workflow's `access`
+export.
 
 ### Validation and errors
 
@@ -1106,10 +1163,11 @@ provider outside the three fails `gtd judge run`:
 A workflow's settings come in two kinds, told apart by what they may change.
 
 - A **process setting** changes which step comes next — flow code branches on
-  it, so every replay must see the same value. Flow code reads `vars`.
+  it, so every replay must see the same value. Flow code reads `settings` (or
+  `vars`, the same object).
 - An **environment setting** only changes how a step runs on this machine — the
   test command, a model hint — so it follows the machine, even mid-process. Flow
-  code reads `env`.
+  code reads `envSettings` (or `env`).
 
 A workflow declares process settings in `defaults` and environment settings in
 `envDefaults` — a file's exports, or a [factory](#workflow-factories)'s build,

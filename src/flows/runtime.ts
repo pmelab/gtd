@@ -4,12 +4,15 @@
 // loaded through a user's `gtd.config.ts` (jiti) and the copy bundled into the
 // gtd binary drive the same replay.
 
+/** A steering-file mode: a built-in format's name or a `config.modes` entry. */
+export type ModeName = "qa" | "review" | "findings" | (string & {})
+
 /** A steering-file declaration shared by the steps that rest on one. */
 export interface SteeringOptions {
   /** The steering file — a repository path under `.gtd/`. */
   readonly file?: string | undefined
   /** The steering file's mode — a built-in name or a `modes:` entry. Requires `file`. */
-  readonly mode?: string | undefined
+  readonly mode?: ModeName | undefined
   /** Display name for drivers and viewers. */
   readonly label?: string | undefined
   /** The commit this step reviews changes since — what `gtd base` prints while it rests here. */
@@ -59,13 +62,23 @@ export interface JudgeQuestion {
   readonly criteria: string
 }
 
-export interface JudgeSpec {
-  readonly questions: readonly JudgeQuestion[]
+/** A question as `judge()` takes it: `"yesno"` is another name for `"noul"`. */
+export interface JudgeQuestionInput<Id extends string = string> extends Omit<
+  JudgeQuestion,
+  "id" | "primitive"
+> {
+  readonly id: Id
+  readonly primitive: JudgePrimitive | "yesno"
+}
+
+export interface JudgeSpec<
+  Q extends readonly JudgeQuestionInput[] = readonly JudgeQuestion[],
+> extends SteeringOptions {
+  readonly questions: Q
   /** What the judge sees. The `judgeBudgetBytes` budget is split evenly across the keys; a value over its share keeps its end. */
   readonly evidence: Readonly<Record<string, string>>
   /** The human-facing message a driver unaware of judge gates shows. */
   readonly message?: string | undefined
-  readonly label?: string | undefined
 }
 
 /** One recorded answer. A `noul`'s boolean reads as `"yes"`/`"no"`, a `score` as its decimal string. */
@@ -74,9 +87,13 @@ export interface JudgeAnswer {
   readonly p: number
 }
 
-export interface Judgment {
-  /** Every question's answer, `undefined` when the turn landed without a verdict for it. */
-  readonly answers: Readonly<Record<string, JudgeAnswer | undefined>>
+export interface Judgment<Id extends string = string> {
+  /**
+   * Every question's answer, `undefined` when the turn landed without a verdict for it.
+   * Keyed by the question ids; the string index keeps a computed id readable.
+   */
+  readonly answers: Readonly<Record<Id, JudgeAnswer | undefined>> &
+    Readonly<Record<string, JudgeAnswer | undefined>>
   /** The evidence keys the budget cut. */
   readonly truncated: readonly string[]
 }
@@ -101,6 +118,22 @@ export interface ScopeAccess {
   readonly read?: readonly string[] | undefined
   readonly write?: readonly string[] | undefined
 }
+
+/** A workflow module's `access` export, or a factory build's: scope full name -> access, or a function of the process settings returning that. */
+export type AccessExport =
+  | Readonly<Record<string, ScopeAccess>>
+  | ((vars: Settings) => Readonly<Record<string, ScopeAccess>>)
+
+/** A workflow module's `skills` export, or a factory build's: scope full name -> skill names, or a function of the process settings returning that. */
+export type SkillsExport =
+  | Readonly<Record<string, readonly string[]>>
+  | ((vars: Settings) => Readonly<Record<string, readonly string[]>>)
+
+/** A workflow module's `steering` export, or a factory build's: steering file path -> its mode. */
+export type Steering = Readonly<Record<string, ModeName>>
+
+/** Settings as flow code reads them; `K` narrows to the names a workflow declares. */
+export type Settings<K extends string = string> = Readonly<Record<K, string>>
 
 /** A resolved access: `null` is an unrestricted side. */
 export interface AccessDef {
@@ -247,18 +280,48 @@ const ctx = (): FlowContext => {
 export const agent = (name: string, prompt: string, options: AgentOptions = {}): Promise<void> =>
   ctx().step({ kind: "agent", name, prompt, options }) as Promise<void>
 
+export interface Human {
+  /** `message` is what the person sees, so `options` take none. */
+  (name: string, message: string, options?: Omit<HumanOptions, "message">): Promise<void>
+  (name: string, options?: HumanOptions): Promise<void>
+}
+
 /** A human gate: the process rests until a person lands a turn. */
-export const human = (name: string, options: HumanOptions = {}): Promise<void> =>
-  ctx().step({ kind: "human", name, options }) as Promise<void>
+export const human: Human = (
+  name: string,
+  messageOrOptions?: string | HumanOptions,
+  options?: Omit<HumanOptions, "message">,
+): Promise<void> =>
+  ctx().step({
+    kind: "human",
+    name,
+    options:
+      typeof messageOrOptions === "string"
+        ? { ...options, message: messageOrOptions }
+        : (messageOrOptions ?? {}),
+  }) as Promise<void>
 
 /** A check: `body` runs at the edge and its effect on the tree is committed. */
 export const run = (name: string, body: string, options: RunOptions = {}): Promise<void> =>
   ctx().step({ kind: "run", name, body, options }) as Promise<void>
 
 /** A judge gate: resolves to what the judge answered, for the flow to decide on. */
-export const judge = (name: string, spec: JudgeSpec): Promise<Judgment> => {
+export const judge = <const Q extends readonly JudgeQuestionInput[] = readonly JudgeQuestion[]>(
+  name: string,
+  spec: JudgeSpec<Q>,
+): Promise<Judgment<Q[number]["id"]>> => {
   const { questions, evidence, ...options } = spec
-  return ctx().step({ kind: "judge", name, questions, evidence, options }) as Promise<Judgment>
+  // Normalized here, so the engine and every driver only ever see `noul`.
+  const canonical = questions.map((q) =>
+    q.primitive === "yesno" ? { ...q, primitive: "noul" as const } : (q as JudgeQuestion),
+  )
+  return ctx().step({
+    kind: "judge",
+    name,
+    questions: canonical,
+    evidence,
+    options,
+  }) as Promise<Judgment<Q[number]["id"]>>
 }
 
 /** End the episode from any depth. The next episode starts the flow afresh. */
@@ -416,6 +479,26 @@ export const vars: Readonly<Record<string, string>> = settingsProxy(() => ctx().
  */
 export const env: Readonly<Record<string, string>> = settingsProxy(() => ctx().env)
 
+/** The process settings — the same object as `vars`, under the glossary's name. */
+export const settings: Settings = vars
+
+/** The environment settings — the same object as `env`, under the glossary's name. */
+export const envSettings: Settings = env
+
+/**
+ * `settings`, typed by the names `declared` holds — pass the workflow's
+ * `defaults`. Every declared name resolves to a string, so none reads as
+ * possibly `undefined`, and a misspelled one is a type error.
+ */
+export const settingsOf = <D extends Readonly<Record<string, string>>>(
+  _declared: D,
+): Settings<keyof D & string> => vars as Settings<keyof D & string>
+
+/** `envSettings`, typed by the names `declared` holds — pass the workflow's `envDefaults`. */
+export const envSettingsOf = <D extends Readonly<Record<string, string>>>(
+  _declared: D,
+): Settings<keyof D & string> => env as Settings<keyof D & string>
+
 // ── Text utilities ──────────────────────────────────────────────────────────
 
 /** The top-level `## ` heading texts of markdown `text`. */
@@ -471,6 +554,23 @@ export const openQuestions = (text: string): readonly OpenQuestion[] => ctx().op
 
 /** A workflow's one flow. */
 export type Flow = () => Promise<void>
+
+// Registered, like the replay context: any copy of this file marks for the engine's.
+const MARKED = Symbol.for("@pmelab/gtd/workflow")
+
+/**
+ * Mark an exported function as a workflow on purpose. Opt-in: once a config
+ * module marks one, loading it warns about every other exported function it
+ * leaves unmarked — most likely a helper exported by mistake.
+ */
+export const workflow = <F extends Flow>(flow: F): F => {
+  Object.defineProperty(flow, MARKED, { value: true })
+  return flow
+}
+
+/** Whether `value` went through `workflow()`. */
+export const isMarkedWorkflow = (value: unknown): boolean =>
+  typeof value === "function" && MARKED in value
 
 export interface SummaryContext {
   readonly entryCommit: string

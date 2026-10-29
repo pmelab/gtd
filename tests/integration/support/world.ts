@@ -155,12 +155,20 @@ const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set([
 const requestsStructuredOutput = (args: readonly string[]): boolean =>
   args.some((a) => a === "--json" || a.startsWith("--json="))
 
+const isWriteCommand = (args: readonly string[]): boolean =>
+  !requestsStructuredOutput(args) && (writesFirst(args[0] ?? "") || startsByName(args))
+
 /** `--workflow` takes both spellings, `--workflow <name>` and `--workflow=<name>`. */
-const isWriteCommand = (args: readonly string[]): boolean => {
-  if (requestsStructuredOutput(args)) return false
-  const first = args[0] ?? ""
-  return WRITE_COMMAND_TOKENS.has(first) || first.startsWith("--workflow=")
-}
+const writesFirst = (first: string): boolean =>
+  WRITE_COMMAND_TOKENS.has(first) || first.startsWith("--workflow=")
+
+/** Bare `gtd start` lists what starts; only a named one prints a script. */
+const startsByName = (args: readonly string[]): boolean =>
+  args[0] === "start" && args.slice(1).some((arg) => !arg.startsWith("-"))
+
+/** `gtd validate`'s plain script is driven; its `--json` document is not. */
+const drivesValidate = (args: readonly string[]): boolean =>
+  args[0] === "validate" && !requestsStructuredOutput(args)
 
 /** `gtd land` exits `EXIT_OK` on any successful landing; only a refusal or usage error has nothing to drive. */
 const landExitDrivable = (exitCode: number): boolean => exitCode === EXIT_OK
@@ -438,7 +446,7 @@ export class GtdWorld extends QuickPickleWorld {
     await this.invokeGtd(...args)
     if (!landExitDrivable(this.lastResult.exitCode)) return
     if (isWriteCommand(args)) await this.driveWriteCommand(args)
-    else if (args[0] === "validate") await this.driveValidateCommand()
+    else if (drivesValidate(args)) await this.driveValidateCommand()
   }
 
   /**

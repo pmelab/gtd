@@ -697,7 +697,7 @@ describe("case-insensitive definition matching", () => {
   })
 })
 
-import { freeFormFormat, getParseCount, steeringFormatFor } from "./index.js"
+import { freeFormFormat, getParseCount, steeringFormatFor } from "./internal.js"
 
 const qaDescriptor = steeringFormatFor("qa")!
 const reviewDescriptor = steeringFormatFor("review")!

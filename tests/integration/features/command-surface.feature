@@ -41,8 +41,8 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     When I run gtd with "--help"
     Then it succeeds
     And stdout contains "land"
+    And stdout contains "start [name] [args...]"
     And stdout contains "--workflow <name>"
-    And stdout contains "--var"
     And stdout contains "abandon"
     And stdout contains "next"
     And stdout contains "check <mode> <file>"
@@ -93,23 +93,22 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     Then it succeeds
     And stdout contains "lsp"
 
-  Scenario Outline: --json is a usage error on every command except gtd next/gtd land — the only structured surfaces
+  Scenario Outline: --json is a usage error on a command that prints neither a document nor a script
     Given a test project
     When I run gtd with args "<args>"
     Then it fails
     And stderr contains "only valid for `gtd next`/`gtd land`"
-    And stderr contains "gtd install"
+    And stderr contains "gtd guide"
 
     Examples:
-      | args                    |
-      | lsp --json              |
-      | validate --json          |
+      | args                     |
+      | lsp --json               |
       | check qa TODO.md --json  |
       | uncheck REVIEW.md --json |
       | install --json           |
-      | abandon --json           |
-      | restore --json           |
-      | --workflow feature --json |
+      | guide --json             |
+      | summary --json           |
+      | base --json              |
 
   Scenario: gtd next --sh is now an unrecognized flag, exit 2
     Given a test project

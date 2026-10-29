@@ -1720,6 +1720,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     land: { kind: "land" },
     start: { kind: "start", actor: "human", workflow: "feature", vars: {}, label: "" },
     door: { kind: "door", name: "fix", args: [] },
+    startNamed: { kind: "startNamed", name: "fix", args: [], vars: {} },
     doors: { kind: "doors" },
     abandon: { kind: "abandon" },
     restore: { kind: "restore" },
@@ -1727,7 +1728,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     validate: { kind: "validate" },
     check: { kind: "check", mode: "qa", file: ".gtd/TODO.md" },
     uncheck: { kind: "uncheck", file: ".gtd/REVIEW.md" },
-    install: { kind: "install" },
+    install: { kind: "install", name: "guide" },
     summary: { kind: "summary" },
     base: { kind: "base" },
     judge: { kind: "judge" },
@@ -1748,7 +1749,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
 
-  it("derives exactly the eighteen non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the nineteen non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
       [
         "abandon",
@@ -1756,6 +1757,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
         "door",
         "doors",
         "start",
+        "startNamed",
         "land",
         "next",
         "restore",

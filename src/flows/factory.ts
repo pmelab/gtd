@@ -1,5 +1,13 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec"
-import type { Flow, WorkflowBase, WorkflowDoors } from "./runtime.js"
+import type {
+  AccessExport,
+  Flow,
+  SkillsExport,
+  Steering,
+  Summary,
+  WorkflowBase,
+  WorkflowDoors,
+} from "./runtime.js"
 
 // Registered, so a factory made by any copy of this file is recognised by the
 // engine's copy — the same reason the replay context is.
@@ -15,6 +23,14 @@ export interface WorkflowBuild {
   readonly doors?: WorkflowDoors | undefined
   /** This workflow's diff base; the config's `base` export wins when it answers, `undefined` falls through to this. */
   readonly base?: WorkflowBase | undefined
+  /** This workflow's scope skill lists; an entry of the file's `skills` export wins over the same scope here. */
+  readonly skills?: SkillsExport | undefined
+  /** This workflow's scope access; an entry of the file's `access` export wins over the same scope here. */
+  readonly access?: AccessExport | undefined
+  /** This workflow's steering files; an entry of the file's `steering` export wins over the same path here. */
+  readonly steering?: Steering | undefined
+  /** `gtd summary`'s prompt for this workflow; the file's `summary` export wins. */
+  readonly summary?: Summary | undefined
 }
 
 interface FactoryInternals {

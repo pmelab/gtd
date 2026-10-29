@@ -1,5 +1,5 @@
 import type { SteeringView } from "../steering/index.js"
-import { steeringFormatOrFreeForm } from "../steering/index.js"
+import { steeringFormatOrFreeForm } from "../steering/internal.js"
 
 /**
  * The phone screen's one dispatch: `mode` → its registered format's own

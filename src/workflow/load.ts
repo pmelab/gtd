@@ -4,10 +4,17 @@ import { dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { Context, Effect, Layer } from "effect"
 import { GtdError, Narrator } from "../platform/index.js"
-import { replay, type TreeView } from "../replay/index.js"
+import { accessShapeFault, replay, type TreeView } from "../replay/index.js"
+// The published facade: what a config's `@pmelab/gtd/flows` import is served.
 import * as flows from "../flows/index.js"
+import {
+  configure,
+  isFactoryWorkflow,
+  isMarkedWorkflow,
+  type OptionIssue,
+} from "../flows/internal.js"
 import type { StateMode, WorkflowDefinition } from "./Workflow.js"
-import type { Door, Flow } from "../flows/index.js"
+import type { Door, Flow, ScopeAccess } from "../flows/index.js"
 import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { compileConfig, type CompiledConfig } from "./compile.js"
 import { SETTING_NAME_RULE, isSettingName } from "./vars.js"
@@ -115,7 +122,7 @@ export const load: Effect.Effect<
     const missing: Diagnostic = {
       severity: "error",
       path: [],
-      message: `no workflows configured: no ${WORKFLOW_MODULE} here or above — gtd ships no workflow; \`gtd install\` says where to get one`,
+      message: `no workflows configured: no ${WORKFLOW_MODULE} here or above — gtd ships no workflow; \`gtd guide\` says where to get one`,
       origin: host.root,
     }
     return yield* Effect.fail(configError([missing]))
@@ -142,17 +149,16 @@ export const load: Effect.Effect<
   }
 
   const initial = yield* firstStep(loaded.default, headTree(yield* Workspace))
-  const steering = loaded.file.steering as Record<string, StateMode>
   const define = (entry: LoadedWorkflow): WorkflowDefinition => ({
     flow: entry.flow,
-    summary: entry.file.summary,
+    summary: entry.summary,
     // A config's own `base` export wins when it answers; else the factory's.
     base: (w, v) => entry.file.base?.(w, v) ?? entry.base?.(w, v),
-    steering,
+    steering: entry.steering as Record<string, StateMode>,
     modes: compiled.modes,
-    skills: entry.file.skills,
+    skills: entry.skills,
     configuredSkills: compiled.skills,
-    access: entry.file.access,
+    access: entry.access,
     configuredAccess: compiled.access,
     skillsOrigin: entry.file.origin,
     initial,
@@ -215,7 +221,8 @@ interface LoadedFile
 }
 
 /** A startable workflow; its settings are its file's, under whatever its factory declared. */
-interface LoadedWorkflow extends Settings {
+interface LoadedWorkflow
+  extends Settings, Pick<WorkflowDefinition, "summary" | "steering" | "skills" | "access"> {
   readonly flow: Flow
   readonly file: LoadedFile
   readonly doors?: flows.WorkflowDoors | undefined
@@ -384,60 +391,78 @@ const requiredOnUse = (
   })
 }
 
-const stringRecord = (
-  exports: Record<string, unknown>,
-  name: string,
-): Readonly<Record<string, string>> => {
-  const value = exports[name] ?? {}
+/** `what` names the value in an error: `the "steering" export`, or what a factory builds. */
+const stringRecord = (value: unknown, what: string): Readonly<Record<string, string>> => {
+  const record = value ?? {}
   if (
-    typeof value !== "object" ||
-    value === null ||
-    Object.values(value).some((entry) => typeof entry !== "string")
+    typeof record !== "object" ||
+    record === null ||
+    Object.values(record).some((entry) => typeof entry !== "string")
   ) {
-    throw new Error(`the "${name}" export is not a record of strings`)
+    throw new Error(`${what} is not a record of strings`)
   }
-  return value as Readonly<Record<string, string>>
+  return record as Readonly<Record<string, string>>
 }
 
 const isStringArray = (v: unknown): v is readonly string[] =>
   Array.isArray(v) && v.every((entry) => typeof entry === "string")
 
-const checkSkillsRecord = (value: unknown): Readonly<Record<string, readonly string[]>> => {
+const checkSkillsRecord = (
+  value: unknown,
+  what: string,
+): Readonly<Record<string, readonly string[]>> => {
   if (
     typeof value !== "object" ||
     value === null ||
     Object.values(value).some((entry) => !isStringArray(entry))
   ) {
-    throw new Error(`the "skills" export is not a record of skill-name arrays`)
+    throw new Error(`${what} is not a record of skill-name arrays`)
   }
   return value as Readonly<Record<string, readonly string[]>>
 }
 
-/** Read a module's optional `skills` export — a scope full name -> skill list record, or a function of the vars returning one. */
-const skillsExport = (exports: Record<string, unknown>): WorkflowDefinition["skills"] => {
-  const value = exports["skills"] ?? {}
+/** A `skills` export or build — a scope full name -> skill list record, or a function of the vars returning one. */
+const skillsFrom = (value: unknown, what: string): WorkflowDefinition["skills"] => {
   if (typeof value === "function") {
-    return (vars) => checkSkillsRecord((value as (v: typeof vars) => unknown)(vars))
+    return (vars) => checkSkillsRecord((value as (v: typeof vars) => unknown)(vars), what)
   }
-  const record = checkSkillsRecord(value)
+  const record = checkSkillsRecord(value ?? {}, what)
   return () => record
 }
 
-/** Read a module's optional `access` export — a scope full name -> `{ read?, write? }` record, or a function of the vars returning one. */
-const accessExport = (exports: Record<string, unknown>): WorkflowDefinition["access"] => {
-  const value = exports["access"] ?? {}
+const checkAccessRecord = (value: unknown, what: string): Readonly<Record<string, ScopeAccess>> => {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(
+      `${what} is not a record of scope access (scope -> { read?, write? }) or a function returning one`,
+    )
+  }
+  for (const [scope, access] of Object.entries(value)) {
+    const fault = accessShapeFault(access)
+    if (fault !== undefined) throw new Error(`${what}: scope "${scope}": ${fault}`)
+  }
+  return value as Readonly<Record<string, ScopeAccess>>
+}
+
+/**
+ * An `access` export or build — a scope full name -> `{ read?, write? }`
+ * record, checked now, or a function of the vars returning one, checked when
+ * the process's settings are known.
+ */
+const accessFrom = (value: unknown, what: string): WorkflowDefinition["access"] => {
   if (typeof value === "function") {
     return (vars) => (value as (v: typeof vars) => never)(vars)
   }
-  return () => value as never
+  const record = checkAccessRecord(value ?? {}, what)
+  return () => record
 }
 
-const optionalFunction = <T>(exports: Record<string, unknown>, name: string): T | undefined => {
-  const value = exports[name]
+const optionalFunction = <T>(value: unknown, what: string): T | undefined => {
   if (value === undefined) return undefined
-  if (typeof value !== "function") throw new Error(`the "${name}" export is not a function`)
+  if (typeof value !== "function") throw new Error(`${what} is not a function`)
   return value as T
 }
+
+const exportNamed = (name: string): string => `the "${name}" export`
 
 const RESERVED_EXPORTS: ReadonlySet<string> = new Set([
   "default",
@@ -487,17 +512,17 @@ const fileFrom = (
   origin: string,
   dependencyFiles: readonly string[],
 ): LoadedFile => {
-  const defaults = stringRecord(exports, "defaults")
-  const envDefaults = stringRecord(exports, "envDefaults")
+  const defaults = stringRecord(exports["defaults"], exportNamed("defaults"))
+  const envDefaults = stringRecord(exports["envDefaults"], exportNamed("envDefaults"))
   checkSettings(defaults, envDefaults, (kind) => `the "${kind}" export declares`)
   return {
     defaults,
     envDefaults,
-    steering: stringRecord(exports, "steering"),
-    skills: skillsExport(exports),
-    access: accessExport(exports),
-    summary: optionalFunction(exports, "summary"),
-    base: optionalFunction(exports, "base"),
+    steering: stringRecord(exports["steering"], exportNamed("steering")),
+    skills: skillsFrom(exports["skills"], exportNamed("skills")),
+    access: accessFrom(exports["access"], exportNamed("access")),
+    summary: optionalFunction(exports["summary"], exportNamed("summary")),
+    base: optionalFunction(exports["base"], exportNamed("base")),
     origin,
     dependencyFiles,
   }
@@ -651,6 +676,7 @@ const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded 
     default: defaultWorkflow && { ...defaultWorkflow, name: defaultName },
     config: compileConfig(exports["config"], module.filepath),
     diagnostics: [
+      ...unmarkedWorkflows(exports, exported, value, file.origin),
       ...nameRejections(rejections),
       ...[...derived.clashes].map(([name, builders]): Diagnostic => {
         const names = [...builders].sort().map((b) => JSON.stringify(b))
@@ -663,6 +689,35 @@ const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded 
       }),
     ],
   }
+}
+
+/**
+ * Once a module marks one export with `workflow()`, every other exported plain
+ * function it leaves unmarked warns: likely a helper exported by mistake. A
+ * module that marks nothing, a factory and the default export never warn.
+ */
+const unmarkedWorkflows = (
+  exports: Record<string, unknown>,
+  exported: readonly (readonly [string, unknown])[],
+  defaultValue: unknown,
+  origin: string,
+): Diagnostic[] => {
+  if (!Object.values(exports).some(isMarkedWorkflow)) return []
+  return exported
+    .filter(
+      ([, value]) =>
+        typeof value === "function" &&
+        value !== defaultValue &&
+        !isMarkedWorkflow(value) &&
+        !isFactoryWorkflow(value),
+    )
+    .map(([name]) => ({
+      severity: "warning",
+      message:
+        "is a startable workflow not marked with workflow() — mark it, or stop exporting it if it is a helper",
+      path: [name],
+      origin,
+    }))
 }
 
 const evaluateFromDisk = (
@@ -720,13 +775,13 @@ const evaluateRead = (
 }
 
 const isWorkflow = (value: unknown): boolean =>
-  typeof value === "function" || flows.isFactoryWorkflow(value)
+  typeof value === "function" || isFactoryWorkflow(value)
 
 const defaultExport = (exports: Record<string, unknown>): unknown => {
   const value = exports.default
   if (value === undefined) {
     throw new Error(
-      "no default export — export the workflow an ordinary start runs (`gtd install` scaffolds one)",
+      "no default export — export the workflow an ordinary start runs (`gtd guide` scaffolds one)",
     )
   }
   if (!isWorkflow(value)) throw new Error("the default export is not a function")
@@ -740,9 +795,18 @@ const buildWorkflow = (
   file: LoadedFile,
   rejections: Rejection[],
 ): LoadedWorkflow | undefined => {
-  const result = flows.configure(value)
+  const result = configure(value)
   if (result === undefined)
-    return { flow: value as Flow, file, defaults: file.defaults, envDefaults: file.envDefaults }
+    return {
+      flow: value as Flow,
+      file,
+      defaults: file.defaults,
+      envDefaults: file.envDefaults,
+      summary: file.summary,
+      steering: file.steering,
+      skills: file.skills,
+      access: file.access,
+    }
   if (!result.ok) {
     for (const issue of result.issues) rejections.push(optionDiagnostic(name, issue, file))
     return undefined
@@ -751,8 +815,30 @@ const buildWorkflow = (
     flow: result.build.flow,
     file,
     ...builtSettings(name, file, result.build),
+    ...builtExports(name, file, result.build),
     doors: result.build.doors,
     base: result.build.base,
+  }
+}
+
+/**
+ * What a factory builds beside its flow, held to the rules the file's own
+ * exports are. The file's exports win: per entry for `steering`, `skills` and
+ * `access`, whole for `summary`.
+ */
+const builtExports = (
+  name: string,
+  file: LoadedFile,
+  build: flows.WorkflowBuild,
+): Pick<LoadedWorkflow, "summary" | "steering" | "skills" | "access"> => {
+  const what = (key: string): string => `workflow "${name}"'s "${key}"`
+  const skills = skillsFrom(build.skills, what("skills"))
+  const access = accessFrom(build.access, what("access"))
+  return {
+    summary: file.summary ?? optionalFunction<flows.Summary>(build.summary, what("summary")),
+    steering: { ...stringRecord(build.steering, what("steering")), ...file.steering },
+    skills: (vars) => ({ ...skills(vars), ...file.skills(vars) }),
+    access: (vars) => ({ ...access(vars), ...file.access(vars) }),
   }
 }
 
@@ -770,11 +856,7 @@ const builtSettings = (name: string, file: LoadedFile, build: flows.WorkflowBuil
 }
 
 /** A rejected factory option, reported at `gtd.config.ts`. */
-const optionDiagnostic = (
-  workflow: string,
-  issue: flows.OptionIssue,
-  file: LoadedFile,
-): Rejection => ({
+const optionDiagnostic = (workflow: string, issue: OptionIssue, file: LoadedFile): Rejection => ({
   workflow,
   severity: "error",
   path: issue.path,

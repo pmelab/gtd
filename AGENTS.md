@@ -108,8 +108,9 @@ never one to record. CI uploads the current graph as the `unit-map` artifact.
 
 Two conventions the rules read: a `*.fixture.ts` beside an implementation is
 test-support any test in that boundary may import, and a test may reach a
-neighbouring module only through its boundary's `index.ts` — if a symbol is not
-worth publishing there, the test wanting it is testing the wrong thing.
+neighbouring module only through its boundary's `index.ts` (or, where a boundary
+publishes a package entrypoint, its non-public `internal.ts`) — if a symbol is
+not worth publishing there, the test wanting it is testing the wrong thing.
 
 ### `.gtd/` is formatted, not ignored
 

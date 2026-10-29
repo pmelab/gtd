@@ -376,23 +376,24 @@ falls back to the `gtd` on your `PATH`.
 
 ## Writing your own driver
 
-Run `gtd install` to print this whole chapter's protocol as a complete,
+Run `gtd guide` to print this whole chapter's protocol as a complete,
 self-contained briefing — paste it into an agent's context (or read it yourself)
 to build a driver without leaving your terminal. The briefing ends by directing
 the agent to INTERVIEW you first — which agent CLI runs the turns, under what
 permission model, how you want to invoke the loop, what should happen at a human
 gate — and to build the driver your answers describe rather than copying the
-reference sh. It writes nothing: "install" means installing knowledge into the
-calling agent's context, and the briefing it prints is always exactly as current
-as the `gtd` that printed it.
+reference sh. It writes nothing — `gtd install`, its older name, meant
+installing knowledge into the calling agent's context — and the briefing it
+prints is always exactly as current as the `gtd` that printed it.
 
 The minimal driver below is gtd's own reference driver, not a privileged one —
 the engine itself is a supported public surface, and anything below holds for
 any driver you write against it. gtd decides and prints; it never commits, never
 moves HEAD or a ref, and never writes the git index — every git write is in a
-script the driver runs. The five commands that change anything — `gtd land`,
-`gtd --workflow <name>` (and `gtd door`), `gtd abandon`, `gtd restore`, and
-`gtd judge answer` — perform no git write when run: each one's `--json=script`
+script the driver runs. The commands that change anything — `gtd land`,
+`gtd start <name>` (and its older spellings `gtd --workflow <name>` and
+`gtd door`), `gtd abandon`, `gtd restore`, `gtd judge answer` and
+`gtd history fetch` — perform no git write when run: each one's `--json=script`
 form carries ONE POSIX sh script for YOU to execute — a leading comment ("gtd
 emitted this and did NOT run it — run it with `sh` to apply it"), then the
 REQUIRED half verbatim, then, only when there's a presentation-only follow-up, a
@@ -401,13 +402,14 @@ wrapped in a subshell whose own non-zero exit is swallowed (reported to stderr
 as a warning, never turning a landed turn into a failing one). Plain `gtd land`
 (and plain `gtd judge answer`) is the one exception: it prints a human-readable
 sentence, never a script (see below) — a driver reads the script from
-`--json=script` instead. Printing gtd's output and never running it is not
+`--json=script` instead, the one form every one of them takes (see
+[Schema](./cli.md#schema)). Printing gtd's output and never running it is not
 driving anything; a driver must pipe or execute what gtd prints — e.g. the
 capture-then-pipe form the reference driver below uses, via
 `gtd land --json=script`.
 
-Every script gtd emits — `gtd land --json=script`, `gtd --workflow <name>`,
-`gtd door <name>`, `gtd abandon`, `gtd restore`,
+Every script gtd emits — `gtd land --json=script`, `gtd start <name>`,
+`gtd --workflow <name>`, `gtd door <name>`, `gtd abandon`, `gtd restore`,
 `gtd judge answer --json=script`, and the format/validate script `gtd validate`
 prints — is POSIX `sh`, portable to `dash`: a driver may run any of them with
 any POSIX-compliant shell, not specifically bash. The same convention extends to
@@ -423,7 +425,7 @@ a script leaves is landed like any other check turn, by `gtd land`'s script,
 whatever its exit code.
 
 - **The required half** is everything that decides what lands in git — the
-  commit itself (`gtd land`, `gtd --workflow <name>`, `gtd door`, and
+  commit itself (`gtd land`, `gtd start <name>`, `gtd door`, and
   `gtd judge answer`, the last carrying one `Gtd-Judge:` trailer per answered
   question alongside its ordinary commit), or the ref update and reset that undo
   a process (`gtd abandon`, `gtd restore`) — and, last, a printed line naming
@@ -433,7 +435,7 @@ whatever its exit code.
   turn never lands, and you never see what it did. A resting step's own
   steering-mode `format:`/`validate:` commands are NOT part of this script —
   they're a separate driver contract via `gtd next --json`'s own `validate`
-  field (see `gtd install`'s obligation 6).
+  field (see `gtd guide`'s obligation 6).
 - **The optional half** is presentation only, wrapped in a subshell whose own
   failure is swallowed (a warning on stderr, nothing more) — skip it (or let it
   fail) and the workflow is still driven correctly either way. No command
@@ -556,7 +558,7 @@ and `gtd land --json=script`'s (POSIX sh) output as subprocesses — no sh
 anywhere in it. A **human** runs plain `gtd next` (there is no JSON form of it
 at all), does what it says, then plain `gtd land`, which names the commit
 subject in one sentence — no script to paste, no shell to pipe into. An
-**agent** gets `gtd install` as its instructions — the same protocol, in a form
+**agent** gets `gtd guide` as its instructions — the same protocol, in a form
 built to be pasted into a context window rather than read. A **CI job** is the
 program case with the `prompt` arm pointed at a headless agent CLI, and
 `kind: "message"`/`kind: "stalled"` mapped onto "stop and report".
@@ -991,8 +993,8 @@ do not queue it, store it, or hand it to another worktree.
 ### Prerequisites
 
 - **A POSIX `sh`** (dash, ash, bash's own POSIX mode, etc.) — gtd's own emitted
-  scripts (`gtd land`, `gtd --workflow <name>`, `gtd door`, `gtd abandon`,
-  `gtd restore`) are POSIX sh; captured, then piped into it (see
+  scripts (`gtd land`, `gtd start <name>`, `gtd abandon`, `gtd restore`, …) are
+  POSIX sh; captured, then piped into it (see
   [Writing your own driver](#writing-your-own-driver) above).
 - **`gtd` on `PATH`** — a mode's seeded `validate:` command (the one gtd fills
   in for the built-in `qa`/`review`/`findings` formats) is literally the string

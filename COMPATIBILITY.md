@@ -43,15 +43,17 @@ histories written by an older or newer gtd.
 
 ## Follows package SemVer
 
-- **CLI** — every command (`next`, `land`, `abandon`, `restore`, `validate`,
-  `check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `strays`,
-  `history list`, `history show`, `history metrics`, `history judges`,
-  `history fetch`, `version`, `help`, `ui`, `lsp`, `judge`, `judge answer`,
-  `judge run`), option and argument in [CLI reference](docs/cli.md), the
-  `gtd doors --json` and `gtd history list --json` arrays (bare arrays with no
-  `schema`), and `gtd history show --json`, `gtd history metrics --json`,
-  `gtd history judges --json` and its `--jsonl` lines (no `schema`; not driver
-  documents).
+- **CLI** — every command (`next`, `land`, `start`, `abandon`, `restore`,
+  `validate`, `check`, `uncheck`, `guide`, `install`, `summary`, `base`, `door`,
+  `doors`, `strays`, `history list`, `history show`, `history metrics`,
+  `history judges`, `history fetch`, `version`, `help`, `ui`, `lsp`, `judge`,
+  `judge answer`, `judge run`), option and argument in
+  [CLI reference](docs/cli.md) — the older spellings `install`, `door`, `doors`,
+  `--workflow` and `history judges --var` included, until a major removes them —
+  the bare `gtd start --json`, `gtd doors --json` and `gtd history list --json`
+  arrays (bare arrays with no `schema`), and `gtd history show --json`,
+  `gtd history metrics --json`, `gtd history judges --json` and its `--jsonl`
+  lines (no `schema`; not driver documents).
 - **The error envelope and stream discipline** — `{ "state": "error", … }` on
   stderr with `--json`, stdout byte-empty on failure (`gtd ui` excepted). See
   [Error envelope](docs/cli.md#error-envelope).
@@ -63,11 +65,17 @@ histories written by an older or newer gtd.
   - `@pmelab/gtd/wire`
   - `@pmelab/gtd/steering`
   - `@pmelab/gtd/workflow-kit`
-  - `@pmelab/gtd/testkit`: `testRepo`, `runsItsScript` and `InMemRepo`, with
-    their types and the `TestkitWorld` type
+  - `@pmelab/gtd/testkit`: `testRepo`, `runsItsScript`, `verdict`,
+    `whenPrompted`, `inTurn`, `verdictWhen` and `InMemRepo`, with their types,
+    the re-exported `BeatDocument` type and the `TestkitWorld` type
   - `@pmelab/gtd/testkit/gherkin`: its `TestkitWorld` and the wording of every
     step it registers (see [Testing a workflow](docs/testing.md#steps)), with
     its optional peers `vitest` and `quickpickle`
+
+  An export marked `@deprecated` — among them the engine-internal names
+  `installContext`, `configure` and `BUILT_IN_MODE_NAMES` — keeps its name, type
+  and behaviour until a major release removes it.
+
 - **The `gtd.config.ts` shape** — every exported function and workflow factory
   (or call of one) is a workflow, and the reserved exports (`defaults`,
   `envDefaults`, `doors`, `skills`, `access`, `config`, …) keep their meaning.
@@ -87,7 +95,7 @@ Anything not listed above, e.g.:
 - **Feature flags** — the `GTD_FLAG_*` variables; any feature flag may appear,
   flip or vanish in any release (see
   [Feature flags](docs/configuration.md#feature-flags)).
-- **Prompts** — the text of `gtd install`.
+- **Prompts** — the text of `gtd guide` (and `gtd install`).
 - **Plain output** — `gtd next` without `--json`, help layout, every message,
   narration and remediation line. See
   [Plain output is not a parsing surface](docs/cli.md#plain-output-is-not-a-parsing-surface).

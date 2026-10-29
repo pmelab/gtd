@@ -30,7 +30,7 @@ import {
   formatFinding,
   steeringFormatFor,
   type SteeringFormat,
-} from "../steering/index.js"
+} from "../steering/internal.js"
 import { refNameFault } from "../replay/index.js"
 import { renderFormat } from "../wire/index.js"
 import { applyFlowScript, rewritten } from "./FlowScripts.js"

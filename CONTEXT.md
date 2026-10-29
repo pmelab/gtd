@@ -10,7 +10,7 @@ scrollback.
 ### Engine
 
 **Workflow**: A named [flow](#flow) a `gtd.config.ts` exports, started by
-`gtd --workflow <name>`. gtd ships none; `feature`, `review` and `fix` come from
+`gtd start <name>`. gtd ships none; `feature`, `review` and `fix` come from
 gtd-workflows' `default`, and their own words are in its glossary. _Avoid_:
 state machine, config, pipeline, entry
 
@@ -46,10 +46,11 @@ subject that lands it and, up to its last dot, its
 [workflow factory](#workflow-factory) (bar the reserved exports) is a workflow
 named by its export; its `defaults`, `envDefaults`, `steering`, `skills`,
 `access`, `doors`, `summary` and `base` exports configure every workflow in the
-file, and `config` the repository. A module the config only imports is never
-scanned: its helpers — a single step or a phase such as a health loop or a
-review round — stay helpers a workflow may import. _Avoid_: machine,
-sub-workflow, fragment
+file, and `config` the repository. `workflow()` marks an exported function as
+meant to be one; once a module marks any, the rest warn. A module the config
+only imports is never scanned: its helpers — a single step or a phase such as a
+health loop or a review round — stay helpers a workflow may import. _Avoid_:
+machine, sub-workflow, fragment
 
 **Workflow factory**: A function, made with `defineWorkflow`, that returns a
 workflow configured by its options; gtd validates the options when it loads the
@@ -154,10 +155,19 @@ straight back to the same step, so re-running it cannot change anything.
 Reported as `settled: true` by `gtd land --json` so a loop exits rather than
 spins. _Avoid_: done, finished, idle
 
-**Gate**: A human step — the process rests there until a person acts. _Avoid_:
-checkpoint, approval, the bare "the gate"
+**Gate**: A human step — the process rests there until a person acts. The
+workflow kit's `gate()` is a loop around one: it holds a scope until a condition
+passes, resting at the step it is given between tries. _Avoid_: checkpoint,
+approval, the bare "the gate"
 
-**Guard**: A check in flow code that refuses a turn right after the step that
+**Check**: Three things, never the bare word: a **check step** — a `run()` step,
+whose actor is `check` (the driver runs its script); `check()`, the flow helper
+that is one such step running a command and keeping a failure's output in a
+report file; and `gtd check`, which validates one steering file against its
+format and reads no workflow. Flow code turning a turn away is a
+[guard](#guard), not a check. _Avoid_: "check" alone
+
+**Guard**: A test in flow code that refuses a turn right after the step that
 took it (`requireProgress`, `requireAnswers`, `requireRevert`, or any
 `refuse()`). The opposite of a gate: a gate waits for someone, a guard turns
 them away.
@@ -208,7 +218,16 @@ conversation across turns in one scope. The one place "session" is the right
 word — the _Avoid_ on **Memory scope** stands.
 
 **Review base**: The commit a review is measured against — the `base` the
-resting step names, falling back to the process start.
+resting step names, falling back to the [process base](#process-base). What
+`gtd base` prints.
+
+**Process base**: The commit a process's diff is measured from — `start()` in
+flow code: the commit before the process began, or the one a workflow's `base`
+export (or its factory's) fixed when `gtd start` started it.
+
+**Base**: Never alone — say [review base](#review-base) or
+[process base](#process-base). The `base` step option sets the first, the `base`
+export the second.
 
 **Retained history**: A rewound process's turn-by-turn commits, kept behind a
 ref so `gtd restore` can bring them back — written only when `gtd abandon`
@@ -225,17 +244,17 @@ consumes.
 carrying `Gtd-Kept: <hash>` instead. Never listed by `gtd history`, never
 deleted by a landing. _Avoid_: beat tip, discarded tip.
 
-**Process setting**: A flat string value flow code reads as `vars` and may
-branch on — the workflow's `defaults` (or a factory option), then the `--var` on
-`--workflow`, then `GTD_<NAME>`. Resolved once at process start and recorded in
-the process's first commit; a later edit does not reach the running process. gtd
-blesses no names. Avoid: "Vars".
+**Process setting**: A flat string value flow code reads as `settings` (also
+`vars`) and may branch on — the workflow's `defaults` (or a factory option),
+then the `--var` on `--workflow`, then `GTD_<NAME>`. Resolved once at process
+start and recorded in the process's first commit; a later edit does not reach
+the running process. gtd blesses no names. Avoid: "Vars".
 
-**Environment setting**: A flat string value flow code reads as `env`, only
-where it cannot change the next step — the workflow's `envDefaults`, then
-`GTD_<NAME>`. Read live on every call, never recorded; a test command is a
-workflow's data, not a key gtd interprets. Avoid: "Vars", "env var" (that is a
-shell variable).
+**Environment setting**: A flat string value flow code reads as `envSettings`
+(also `env`), only where it cannot change the next step — the workflow's
+`envDefaults`, then `GTD_<NAME>`. Read live on every call, never recorded; a
+test command is a workflow's data, not a key gtd interprets. Avoid: "Vars", "env
+var" (that is a shell variable).
 
 **Chunk**: One coherent group of changes in a `review`-mode steering file: a
 title, a sentence on what it changes and why, and its hunk pointers.

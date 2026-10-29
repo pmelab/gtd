@@ -8,6 +8,8 @@
   `config` export), settings, migrating from `.gtdrc`
 - [Setup](./setup.md) — repository requirements, editor integration
 - [Testing a workflow](./testing.md) — the testkit, under any test runner
+- [Workflow kit](./workflow-kit.md) — `@pmelab/gtd/workflow-kit`'s building
+  blocks, one example each
 - [Development](./development.md) — building and testing gtd itself
 - [Compatibility](../COMPATIBILITY.md) — which surfaces are stable, which follow
   package SemVer, which carry no promise

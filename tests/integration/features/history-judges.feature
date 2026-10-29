@@ -97,6 +97,18 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
     Then stdout contains "what-if qualityTriageMinP=0.5: no decision changes"
 
   @inmem
+  Scenario: --threshold re-decides past verdicts the same way --var, its deprecated spelling, does
+    When I run gtd with args "history judges --threshold qualityTriageMinP=0.9"
+    Then it succeeds
+    And stdout contains "what-if qualityTriageMinP=0.9: 1 noise drop becomes a note (1 overturned)"
+    When I run gtd with args "history judges --threshold=qualityTriageMinP=0.9 --var qualityTriageMinP=0.8"
+    Then the exit code is 2
+    And stderr contains "qualityTriageMinP given as both --threshold and --var"
+    When I run gtd with args "history judges --threshold reviewBase=main"
+    Then the exit code is 2
+    And stderr contains "--threshold reviewBase is no judge threshold"
+
+  @inmem
   Scenario: --var takes judge thresholds only
     When I run gtd with args "history judges --var reviewBase=main"
     Then the exit code is 2

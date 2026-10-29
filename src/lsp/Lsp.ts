@@ -37,7 +37,7 @@ import {
   type SteeringLink,
   type SteeringOutlineNode,
   type SteeringPointer,
-} from "../steering/index.js"
+} from "../steering/internal.js"
 
 // ── Domain → protocol translation (pure) ────────────────────────────────────
 

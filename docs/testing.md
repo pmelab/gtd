@@ -78,7 +78,8 @@ node --test workflow.test.ts
 
 ## Driving a workflow
 
-`testRepo({ workflow, files, env, commands })` creates the repository:
+`testRepo({ workflow, files, env, commands, modules, ambientFlags })` creates
+the repository:
 
 - `workflow` — the workflow module, as the test imported it. Its exports are
   read as a `gtd.config.ts`'s would be: the default export starts on a change in
@@ -86,9 +87,14 @@ node --test workflow.test.ts
   `{ default: feature({ … }) }` object works too.
 - `files` — committed with the config before anything runs.
 - `env` — the environment gtd sees. The real `process.env` is never read, except
-  `GTD_FLAG_*`.
+  `GTD_FLAG_*`. `repo.setEnv(name, value)` changes a variable from gtd's next
+  call on, mid-process included; `undefined` unsets it.
+- `ambientFlags` — `false` keeps the runner's `GTD_FLAG_*` out too, so gtd sees
+  `env` alone. Defaults to `true`.
 - `commands` — the programs a step's script may run; see
   [Canned commands](#canned-commands).
+- `modules` — modules a config given as source imports by specifier; see
+  [A config as source](#a-config-as-source).
 
 `repo.drive(actors)` runs the process beat by beat, as a driver would, and
 returns the beat it rests at: the first step without an actor, or a stall. An
@@ -96,20 +102,57 @@ actor is keyed by the step's full name and gets the beat and the repository:
 
 - at an agent, check or human step, it edits the tree (`r.write`, `r.remove`),
   and the beat lands;
-- at a judge step, it returns the verdict as a JSON string;
+- at a judge step, it returns the verdict: `verdict({ … })`, or a JSON string;
 - `runsItsScript` runs the step's own script: file moves, copies and removals
   run in memory, and every other command runs as canned.
 
-The beat is a `BeatDocument`, what `gtd next --json` prints. Its type comes from
-`@pmelab/gtd/wire`:
+An actor's type is `ScriptedActor` (`Actor` is its deprecated name). The beat is
+a `BeatDocument`, what `gtd next --json` prints; the testkit re-exports the type
+from `@pmelab/gtd/wire`:
 
 ```ts
-import type { BeatDocument } from "@pmelab/gtd/wire"
+import type { BeatDocument, ScriptedActor } from "@pmelab/gtd/testkit"
 ```
 
 `repo.drive(actors, { maxBeats })` gives up after `maxBeats` beats (50 by
 default) and fails, listing the steps it passed through — a workflow that loops
 without resting fails the test instead of hanging it.
+
+`repo.drive(actors, { checks: "run" })` runs a check step without an actor as
+`runsItsScript` would, its commands canned.
+
+`repo.drive(actors, { strict: true })` fails where a lenient drive lets a
+mistake pass:
+
+- an actor whose step the drive never reached;
+- a check step without an actor (unless `checks: "run"`);
+- a human step whose actor changes nothing — the drive would repeat it until
+  `maxBeats`;
+- an actor returning a verdict anywhere but at a judge step.
+
+### Composing actors
+
+```ts
+import { inTurn, verdict, verdictWhen, whenPrompted } from "@pmelab/gtd/testkit"
+
+const rest = await repo.drive({
+  build: inTurn([
+    whenPrompted("add two numbers", (_, r) => r.write("src/add.ts", "…\n")),
+    whenPrompted("subtract", (_, r) => r.write("src/sub.ts", "…\n")),
+  ]),
+  ready: inTurn([
+    verdictWhen("Is the plan ready?", verdict({ ready: true })),
+    verdictWhen("Is the build ready?", verdict({ ready: false })),
+  ]),
+})
+```
+
+- `whenPrompted(text, actor)` runs `actor` only at a visit whose beat content
+  contains `text`; any other visit changes nothing.
+- `inTurn(actors)` runs every actor in order, at every visit; the first verdict
+  any of them returns is the result.
+- `verdictWhen(text, verdict)` answers `verdict` when the judge's pending
+  questions, as `gtd judge` prints them, contain `text`.
 
 ### Where a drive rests
 
@@ -134,25 +177,36 @@ out of beats. Leave the step without an actor to have the drive rest there.
 
 At a judge step, `rest.judge` holds the pending judgment as a JSON string:
 `{ schema, state, questions }`, each question
-`{ id, primitive, instructions, criteria }`. The actor returns a JSON string of
-an array with one entry per question:
+`{ id, primitive, instructions, criteria }`. The actor returns a verdict, keyed
+by question id:
 
 ```ts
 const rest = await repo.drive({
-  ready: () => JSON.stringify([{ id: "ready", answer: true, p: 0.9 }]),
+  ready: () => verdict({ ready: true, tier: { answer: "low", p: 0.6 } }),
 })
 ```
 
 `answer` is a boolean for a `noul` question (read back as `"yes"`/`"no"`), one
 of the listed options for a `choice`, a number for a `score`; `p` is between 0
-and 1. A verdict that does not fit the questions fails the drive, echoing what
-was sent and the shape expected.
+and 1, 0.9 unless given. The actor may instead return the JSON string of an
+array with one entry per question,
+`JSON.stringify([{ id: "ready", answer: true, p: 0.9 }])`. A verdict that does
+not fit the questions fails the drive, echoing what was sent and the shape
+expected.
 
 The repository is also driven by hand: `repo.start(name, ...args)`,
 `repo.door(name, ...args)`, `repo.land()`, `repo.next()` and
 `repo.gtd(...args)`. It is read with `repo.read(path)`, `repo.show(ref, path)`,
 `repo.subjects()`, `repo.messages()` and `repo.hashes()`, and changed outside a
 process with `repo.write`, `repo.remove` and `repo.commit(message)`.
+`repo.commits()` lists every commit, oldest first, as
+`{ hash, subject, message, trailers }`; `trailers` maps each trailer of the
+message's last paragraph to its values in order:
+
+```ts
+const last = repo.commits().at(-1)!
+assert.deepEqual(last.trailers["Gtd-Step"], ["build#1"])
+```
 
 ### Canned commands
 
@@ -173,6 +227,9 @@ repo.command({ run: "npm run lint" })
 
 `exit` defaults to 0 and `output` to nothing; `effect` is what the command does
 to the tree. A command none matches fails the script, naming the command.
+
+`repo.runScript(script, { commands })` runs a script with `commands` tried
+before the repository's own, for that run only.
 
 ### Branches and refs
 
@@ -196,6 +253,22 @@ command.
 the way it loads a repository's config, which is slow, and the config's relative
 imports resolve only to files written into the in-memory repository. Pass the
 module unless the test is about loading the config itself.
+
+`modules` lets such a config import a module the test imported, by any
+specifier:
+
+```ts
+import * as workflow from "./index.ts"
+
+const repo = testRepo({
+  workflow: `export { feature as default, feature } from "#workflow"\n`,
+  modules: { "#workflow": workflow },
+})
+```
+
+The config's `import` and `export … from` statements naming a specifier in
+`modules` read that module; `import type` lines are dropped. Only the config is
+rewritten, not files it imports.
 
 ## Gherkin steps
 
@@ -262,6 +335,49 @@ A failed outcome step ends with where the process rests: its step, kind and the
 first lines of its content, the last commit subjects, and the actors the
 scenario scripted that no drive used.
 
+`the resting step's {word} is {string}` and `… includes {string}` read a field
+of the beat document by its dotted path — `model`, `idle`, `skills`,
+`access.write`. A string is compared as is, anything else as JSON; `includes`
+looks for an element of an array, or a substring of a string.
+
+`with {string}` splits its arguments on spaces; a word in quotes keeps them:
+`gtd starts workflow "feature" with "--var 'title=a calculator'"`.
+
+`check step {string} passes` runs the check step's script with every command it
+runs exiting 0; `check step {string} fails with:` with every command exiting 1,
+printing the text.
+
+### The world
+
+`TestkitWorld` is the scenario's state; a step of your own extends it:
+
+- `world.repo()` — the repository, created on first use;
+- `world.configure(config)`, `world.extendConfig(source)`;
+- `world.setEnv(name, value)` before the repository exists,
+  `world.changeEnv(name, value)` at any time;
+- `world.command(canned)`;
+- `world.importable(specifier, module)` — what
+  `the module {string} is importable as {string}` does;
+- `world.act(step, actor)`, `world.rescript(step, actor)`,
+  `world.unscript(step)` — queue, replace or drop a step's actors;
+- `world.answer(step, verdict)`, `world.answerWhen(step, text, verdict)`;
+- `world.drive()`.
+
+Its `actions`, `verdicts` and `conditionalVerdicts` maps are deprecated; use the
+methods.
+
+A support file can make the workflow under test importable in every scenario:
+
+```ts
+import { Before } from "quickpickle"
+import type { TestkitWorld } from "@pmelab/gtd/testkit/gherkin"
+import * as workflow from "./index.ts"
+
+Before((world: TestkitWorld) => {
+  world.importable("#workflow", workflow)
+})
+```
+
 ### Steps
 
 Setup:
@@ -270,15 +386,22 @@ Setup:
 - `a gtd config with:`
 - `the gtd config ends with:`
 - `an environment variable {string} set to {string}`
+- `the environment variable {string} is {string}`
+- `from now on the environment variable {string} is {string}`
+- `the module {string} is importable as {string}`
 - `a file {string} with:`
 - `the file {string} is deleted`
 - `the text {string} in {string} is replaced with {string}`
 - `{string} gets appended:`
+- `text is appended to {string}:`
 - `the working tree is committed as {string}`
 - `the working tree is committed with the message:`
 - `the command {string} exits {int}`
 - `the command {string} exits {int} with:`
+- `the command matching {string} exits {int}`
+- `the command matching {string} exits {int} with:`
 - `a branch {string}`
+- `a branch {string} at {string}`
 - `{string} is checked out`
 - `the ref {string} points at HEAD`
 
@@ -294,7 +417,10 @@ Actors:
 - `step {string} deletes {string}`
 - `step {string} is prompted with {string}`
 - `step {string} rewrites {string} with:`
+- `step {string} overwrites {string}, if it exists, with:`
 - `step {string} runs its script`
+- `check step {string} passes`
+- `check step {string} fails with:`
 - `judge step {string} answers:`
 - `judge step {string}, when its questions contain {string}, answers:`
 
@@ -315,17 +441,24 @@ Outcomes:
 - `driving the process is refused with {string}`
 - `driving the process is refused without {string}`
 - `the process rests at {string}`
+- `the process stalls at {string}`
+- `the resting step's {word} is {string}`
+- `the resting step's {word} includes {string}`
 - `the resting step's content contains {string}`
 - `the resting step's content contains the hash of the commit {string}`
 - `the resting step's content does not contain {string}`
 - `the last commit subject is {string}`
 - `the commit subjects end with:`
+- `the last commit body contains {string}`
+- `the commit {string} has a body containing {string}`
+- `no commit body contains {string}`
 - `the output of gtd {string} contains {string}`
 - `the output of gtd {string} does not contain {string}`
 - `the output lines of gtd {string} start with:`
 - `{string} contains {string}`
 - `{string} contains:`
 - `{string} contains the short hash of the commit {string}`
+- `{string} as committed at {string} contains {string}`
 - `{string} contains {string} exactly once`
 - `{string} does not contain {string}`
 - `{string} does not exist`

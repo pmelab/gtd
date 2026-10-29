@@ -205,11 +205,11 @@ describe("ConfigService", () => {
     expect(cfg.defaultWorkflow.vars["testCommand"]).toBeUndefined()
   })
 
-  it("with no gtd.config.ts anywhere: fails, pointing at gtd install", async () => {
+  it("with no gtd.config.ts anywhere: fails, pointing at gtd guide", async () => {
     rmSync(join(projectDir, "gtd.config.ts"))
 
     await expect(getConfig()).rejects.toThrow(
-      /no workflows configured: no gtd\.config\.ts here or above — gtd ships no workflow; `gtd install` says where to get one/,
+      /no workflows configured: no gtd\.config\.ts here or above — gtd ships no workflow; `gtd guide` says where to get one/,
     )
   })
 
@@ -598,7 +598,7 @@ describe("ConfigService", () => {
         join(projectDir, "gtd.config.ts"),
         [header, `export const hotfix = ${flow("hot")}`, ``].join("\n"),
       )
-      await expect(getConfig()).rejects.toThrow(/no default export.*`gtd install`/)
+      await expect(getConfig()).rejects.toThrow(/no default export.*`gtd guide`/)
     })
 
     it("a default that is also a named export goes by that name", async () => {
@@ -1101,5 +1101,141 @@ describe("ConfigService — a factory's built settings", () => {
     )
 
     await expect(getConfig()).rejects.toThrow(/builds defaults "x", whose value is not a string/)
+  })
+})
+
+describe("ConfigService — what a factory's build carries", () => {
+  const factoryConfig = (build: string, file = ""): void =>
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [
+        `import { defineWorkflow, human } from "@pmelab/gtd/flows"`,
+        `const any = { "~standard": { version: 1, vendor: "t", validate: (value) => ({ value }) } }`,
+        `export default defineWorkflow(any, () => ({`,
+        `  flow: async () => { await human("idle") },`,
+        build,
+        `}))`,
+        file,
+        ``,
+      ].join("\n"),
+    )
+
+  it("skills, access, steering and summary reach the workflow", async () => {
+    factoryConfig(
+      [
+        `  skills: (vars) => ({ work: [vars.lens ?? "none"] }),`,
+        `  access: { work: { write: ["out/**"] } },`,
+        `  steering: { ".gtd/PLAN.md": "qa" },`,
+        `  summary: () => "built",`,
+      ].join("\n"),
+    )
+    const { workflow } = await getConfig()
+    expect(workflow.skills({ lens: "x" })).toEqual({ work: ["x"] })
+    expect(workflow.access({})).toEqual({ work: { write: ["out/**"] } })
+    expect(workflow.steering).toEqual({ ".gtd/PLAN.md": "qa" })
+    expect(workflow.summary?.({} as never)).toBe("built")
+  })
+
+  it("the file's exports win: per scope, per path, and whole for summary", async () => {
+    factoryConfig(
+      [
+        `  skills: { work: ["build"], other: ["build"] },`,
+        `  access: () => ({ work: { write: ["build/**"] }, other: {} }),`,
+        `  steering: { ".gtd/PLAN.md": "qa", ".gtd/B.md": "review" },`,
+        `  summary: () => "built",`,
+      ].join("\n"),
+      [
+        `export const skills = { work: ["file"] }`,
+        `export const access = { work: { write: ["file/**"] } }`,
+        `export const steering = { ".gtd/PLAN.md": "findings" }`,
+        `export const summary = () => "file"`,
+      ].join("\n"),
+    )
+    const { workflow } = await getConfig()
+    expect(workflow.skills({})).toEqual({ work: ["file"], other: ["build"] })
+    expect(workflow.access({})).toEqual({ work: { write: ["file/**"] }, other: {} })
+    expect(workflow.steering).toEqual({ ".gtd/PLAN.md": "findings", ".gtd/B.md": "review" })
+    expect(workflow.summary?.({} as never)).toBe("file")
+  })
+
+  it("checks them as it checks the file's own exports", async () => {
+    factoryConfig(`  skills: { work: "one" },`)
+    await expect(getConfig()).rejects.toThrow(
+      `workflow "default"'s "skills" is not a record of skill-name arrays`,
+    )
+    factoryConfig(`  summary: "text",`)
+    await expect(getConfig()).rejects.toThrow(`workflow "default"'s "summary" is not a function`)
+    factoryConfig(`  access: { work: { read: "src/**" } },`)
+    await expect(getConfig()).rejects.toThrow(
+      `workflow "default"'s "access": scope "work": access.read must be an array of glob strings`,
+    )
+  })
+})
+
+describe("ConfigService — the access export", () => {
+  const withAccess = (access: string): void =>
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      `${minimalWorkflow("first")}export const access = ${access}\n`,
+    )
+
+  it("accepts a record of { read?, write? } glob arrays, and a function", async () => {
+    withAccess(`{ a: { read: ["x/**"], write: [] }, b: {}, c: { read: undefined } }`)
+    expect((await getConfig()).workflow.access({})).toEqual({
+      a: { read: ["x/**"], write: [] },
+      b: {},
+      c: { read: undefined },
+    })
+    withAccess(`(vars) => ({ [vars.k ?? "none"]: { write: "unchecked until resolved" } })`)
+    expect(Object.keys((await getConfig()).workflow.access({ k: "b" }))).toEqual(["b"])
+  })
+
+  it.each([
+    [`{ a: { wirte: [] } }`, `the "access" export: scope "a": unknown access key "wirte"`],
+    [`{ a: { read: [1] } }`, `the "access" export: scope "a": access.read must be an array`],
+    [`{ a: ["x/**"] }`, `the "access" export: scope "a": access must be an object`],
+    [`["x/**"]`, `the "access" export is not a record of scope access`],
+    [`"x/**"`, `the "access" export is not a record of scope access`],
+  ])("refuses %s at load", async (access, message) => {
+    withAccess(access)
+    await expect(getConfig()).rejects.toThrow(message)
+  })
+})
+
+describe("ConfigService — workflow() marks", () => {
+  const origin = () => join(projectDir, "gtd.config.ts")
+  const unmarked = async (): Promise<readonly string[]> =>
+    (await getConfig()).warnings
+      .filter((w) => w.message.includes("not marked with workflow()"))
+      .map((w) => `${w.origin === origin() ? "" : "elsewhere:"}${w.path.join(".")}`)
+
+  it("warns about each unmarked exported function once one is marked", async () => {
+    writeFileSync(
+      origin(),
+      [
+        `import { human, workflow } from "@pmelab/gtd/flows"`,
+        `export const helper = async () => { await human("h") }`,
+        `export const other = async () => { await human("o") }`,
+        `export const hotfix = workflow(async () => { await human("f") })`,
+        `export default async () => { await human("idle") }`,
+        ``,
+      ].join("\n"),
+    )
+    expect(await unmarked()).toEqual(["helper", "other"])
+  })
+
+  it("warns about nothing when nothing is marked, nor about factories or the default", async () => {
+    writeFileSync(origin(), `${minimalWorkflow("first")}export const helper = async () => {}\n`)
+    expect(await unmarked()).toEqual([])
+    withFactories(
+      [
+        `import { workflow } from "@pmelab/gtd/flows"`,
+        `export { feature, fix } from "./workflows"`,
+        `export { unwind as default } from "./workflows"`,
+        `export const marked = workflow(async () => {})`,
+        ``,
+      ].join("\n"),
+    )
+    expect(await unmarked()).toEqual([])
   })
 })

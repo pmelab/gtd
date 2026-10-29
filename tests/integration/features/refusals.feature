@@ -135,7 +135,7 @@ Feature: Refusals — no-match steps commit nothing
       """
     When I run gtd with args "--var reviewBase=a"
     Then it fails
-    And stderr contains "--var requires --workflow"
+    And stderr contains "--var is only valid for `gtd start <name>` and `gtd --workflow <name>`"
 
   Scenario: "--cost" combined with "--workflow" is a usage error
     Given a test project

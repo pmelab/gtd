@@ -11,7 +11,7 @@ import {
   steeringFormatFor,
   type SteeringFormat,
   type SteeringViewNode,
-} from "../../src/steering/index.js"
+} from "../../src/steering/internal.js"
 
 // Steering files are committed under the repo's own formatter: these pin that
 // oxfmt's markdown output stays readable by every steering format.
