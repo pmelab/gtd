@@ -79,7 +79,7 @@ node --test workflow.test.ts
 
 ## Driving a workflow
 
-`testRepo({ workflow, files, env })` creates the repository:
+`testRepo({ workflow, files, env, commands })` creates the repository:
 
 - `workflow` — the workflow module, as the test imported it. Its exports are
   read as a `gtd.config.ts`'s would be: the default export starts on a change in
@@ -88,6 +88,8 @@ node --test workflow.test.ts
 - `files` — committed with the config before anything runs.
 - `env` — the environment gtd sees. The real `process.env` is never read, except
   `GTD_FLAG_*`.
+- `commands` — the programs a step's script may run; see
+  [Canned commands](#canned-commands).
 
 `repo.drive(actors)` runs the process beat by beat, as a driver would, and
 returns the beat it rests at: the first step without an actor, or a human step.
@@ -96,17 +98,50 @@ An actor is keyed by the step's full name and gets the beat and the repository:
 - at an agent or check step, it edits the tree (`r.write`, `r.remove`), and the
   beat lands;
 - at a judge step, it returns the verdict as a JSON string;
-- `runsItsScript` runs the step's own script, for steps that only move, copy or
-  remove files.
-
-A step whose script runs anything else (a test suite, a formatter) needs an
-actor that stands in for it.
+- `runsItsScript` runs the step's own script: file moves, copies and removals
+  run in memory, and every other command runs as canned.
 
 The repository is also driven by hand: `repo.start(name, ...args)`,
 `repo.door(name, ...args)`, `repo.land()`, `repo.next()` and
 `repo.gtd(...args)`. It is read with `repo.read(path)`, `repo.show(ref, path)`,
 `repo.subjects()`, `repo.messages()` and `repo.hashes()`, and changed outside a
 process with `repo.write`, `repo.remove` and `repo.commit(message)`.
+
+### Canned commands
+
+Nothing runs a real program. A command a step's script runs — `npm test` under
+`check`, or a whole line of a `run` script — runs as the first canned command
+whose `run` matches it, exactly or by pattern:
+
+```ts
+const repo = testRepo({
+  workflow,
+  commands: [
+    { run: "npm test", exit: 1, output: "1 failing" },
+    { run: /^npx oxfmt /, effect: (r) => r.write("src/add.ts", "formatted\n") },
+  ],
+})
+repo.command({ run: "npm run lint" })
+```
+
+`exit` defaults to 0 and `output` to nothing; `effect` is what the command does
+to the tree. A command none matches fails the script, naming the command.
+
+### Branches and refs
+
+Before a process starts, or after it ends, the history can be set up:
+
+```ts
+repo.branch("feature/x") // at HEAD, or repo.branch(name, ref)
+repo.checkout("feature/x") // refuses uncommitted changes
+repo.ref("refs/remotes/origin/main") // at HEAD, or repo.ref(name, ref)
+repo.branchName() // "feature/x"
+```
+
+The default branch is `main`. A remote is its refs: `origin/main` resolves to
+`refs/remotes/origin/main`, so a review of `origin/main..HEAD` works. There is
+no fetch, push, merge or rebase; a workflow that runs one needs a canned
+command.
 
 ### A config as source
 
@@ -183,6 +218,11 @@ Setup:
 - `{string} gets appended:`
 - `the working tree is committed as {string}`
 - `the working tree is committed with the message:`
+- `the command {string} exits {int}`
+- `the command {string} exits {int} with:`
+- `a branch {string}`
+- `{string} is checked out`
+- `the ref {string} points at HEAD`
 
 Actors:
 

@@ -134,7 +134,10 @@ export class InMemRepo {
     const refHash = this.refs.get(ref)
     if (refHash !== undefined) return refHash
 
-    return this.branches.get(ref) ?? null
+    // git's own short names: `origin/main` for refs/remotes/origin/main, …
+    const short = this.refs.get(`refs/tags/${ref}`) ?? this.refs.get(`refs/remotes/${ref}`)
+    if (short !== undefined) return short
+    return this.branches.get(ref.replace(/^refs\/heads\//, "")) ?? null
   }
 
   lastCommitSubject(ref = "HEAD"): string | null {
@@ -152,6 +155,28 @@ export class InMemRepo {
 
   branchName(): string {
     return this.currentBranch
+  }
+
+  /** `git branch <name> <ref>`. */
+  createBranch(name: string, ref: string): void {
+    if (this.branches.has(name)) throw new Error(`a branch named '${name}' already exists`)
+    const hash = this.resolveRef(ref)
+    if (hash === null) throw new Error(`not a valid object name: '${ref}'`)
+    this.branches.set(name, hash)
+  }
+
+  /** `git checkout <name>`, refusing any uncommitted change rather than carrying it over. */
+  checkoutBranch(name: string): void {
+    const hash = this.branches.get(name)
+    if (hash === undefined) throw new Error(`pathspec '${name}' did not match any branch`)
+    if (this.statusPorcelain().trim() !== "") {
+      throw new Error(`cannot check out '${name}': the working tree has uncommitted changes`)
+    }
+    const tree = this.getCommit(hash)?.files ?? new Map<string, string>()
+    this.head = hash
+    this.currentBranch = name
+    this.worktree = new Map(tree)
+    this.index = new Map(tree)
   }
 
   /** Refs under `prefix`, newest tip first; the commit sequence number stands in for the committer date. */

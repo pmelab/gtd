@@ -36,7 +36,7 @@ import { refNameFault } from "../replay/index.js"
 import { renderFormat } from "../wire/index.js"
 import { applyFlowScript, rewritten } from "./FlowScripts.js"
 import type { InMemRepo } from "./InMemRepo.js"
-import type { ScriptedCommand } from "./Layers.js"
+import type { CommandTable } from "./Layers.js"
 
 export interface AppliedScriptResult {
   readonly ok: boolean
@@ -266,10 +266,7 @@ const recognizeFileExistsGuard = (repo: InMemRepo, block: string): BlockOutcome 
 /** `binaryGuard`. The in-memory tier has no `$PATH`: a binary is present unless declared `missing`. */
 const BINARY_GUARD_MESSAGE_RE = /^gtd: mode "([^"]+)": "(format|validate)" command not found: (.+)$/
 
-const recognizeBinaryGuard = (
-  commands: ReadonlyMap<string, ScriptedCommand>,
-  block: string,
-): BlockOutcome | undefined => {
+const recognizeBinaryGuard = (commands: CommandTable, block: string): BlockOutcome | undefined => {
   const [binary, , message] = extractQuotedTokens(block)
   if (binary === undefined || message === undefined) return undefined
   const match = BINARY_GUARD_MESSAGE_RE.exec(message)
@@ -330,7 +327,7 @@ const expandFileVar = (text: string): string | undefined => {
  */
 const recognizeModeCommand = (
   repo: InMemRepo,
-  commands: ReadonlyMap<string, ScriptedCommand>,
+  commands: CommandTable,
   block: string,
 ): BlockOutcome | undefined => {
   const command = expandFileVar(block) ?? block
@@ -356,7 +353,7 @@ const FAILURE_PROMPT_FOOTER = ' "$gtd_validate_out"\n  exit "$gtd_validate_statu
 
 const recognizeFailurePromptWrapper = (
   repo: InMemRepo,
-  commands: ReadonlyMap<string, ScriptedCommand>,
+  commands: CommandTable,
   block: string,
 ): BlockOutcome | undefined => {
   if (!block.startsWith(FAILURE_PROMPT_HEADER) || !block.endsWith(FAILURE_PROMPT_FOOTER)) {
@@ -465,7 +462,7 @@ const parseModeContradictionCheck = (block: string): ParsedModeContradictionChec
  */
 const simulateModeContradictionCheck = (
   repo: InMemRepo,
-  commands: ReadonlyMap<string, ScriptedCommand>,
+  commands: CommandTable,
   parsed: ParsedModeContradictionCheck,
 ): BlockOutcome => {
   const { mode, samplePath, sample, formatCommand, format } = parsed
@@ -502,7 +499,7 @@ const simulateModeContradictionCheck = (
  */
 const recognizeModeContradictionCheck = (
   repo: InMemRepo,
-  commands: ReadonlyMap<string, ScriptedCommand>,
+  commands: CommandTable,
   block: string,
 ): BlockOutcome | undefined => {
   const parsed = parseModeContradictionCheck(block)
@@ -570,7 +567,7 @@ const PRESENTATION_SUBSHELL_SUFFIX = `\n) || ${PRESENTATION_FAILURE_WARNING}`
 
 const recognizePresentationSubshell = (
   repo: InMemRepo,
-  commands: ReadonlyMap<string, ScriptedCommand>,
+  commands: CommandTable,
   block: string,
   git: boolean,
 ): BlockOutcome | undefined => {
@@ -595,7 +592,7 @@ const recognizePresentationSubshell = (
 /** Anything left over must be an EXACT hit in the scripted-command table — mirrors `ScriptedCommand`'s two `kind`s (`Layers.ts`). */
 const recognizeScriptedCommand = (
   repo: InMemRepo,
-  commands: ReadonlyMap<string, ScriptedCommand>,
+  commands: CommandTable,
   block: string,
 ): BlockOutcome | undefined => {
   const scripted = commands.get(block)
@@ -607,6 +604,7 @@ const recognizeScriptedCommand = (
   if (scripted.kind === "missing") {
     return { kind: "failed", error: `sh: ${block.split(" ")[0]}: not found`, status: 127 }
   }
+  scripted.effect?.()
   if (scripted.status !== 0) {
     return { kind: "failed", error: scripted.output, status: scripted.status }
   }
@@ -693,7 +691,7 @@ const recognizeWriteLines = (repo: InMemRepo, block: string): BlockOutcome | und
 /** Every recognizer `applyEmittedScript` tries, first match wins — `recognizeScriptedCommand` stays last since it's the exact-hit fallback for anything the rest don't claim. */
 const recognizersFor = (
   repo: InMemRepo,
-  commands: ReadonlyMap<string, ScriptedCommand>,
+  commands: CommandTable,
   git: boolean,
 ): ReadonlyArray<(block: string) => BlockOutcome | undefined> => [
   (block) => recognizeSetFlags(block),
@@ -735,7 +733,7 @@ const recognizeBlock = (
  */
 export const applyEmittedScript = (
   repo: InMemRepo,
-  commands: ReadonlyMap<string, ScriptedCommand>,
+  commands: CommandTable,
   script: string,
   { git = true }: { readonly git?: boolean } = {},
 ): AppliedScriptResult => {
@@ -750,7 +748,7 @@ export const applyEmittedScript = (
 
 const applyBlocks = (
   repo: InMemRepo,
-  commands: ReadonlyMap<string, ScriptedCommand>,
+  commands: CommandTable,
   script: string,
   git: boolean,
 ): AppliedScriptResult => {

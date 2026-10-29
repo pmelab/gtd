@@ -169,7 +169,13 @@ const makeInMemoryConfigDiscovery = (
 
 /** One scripted `bash` command's canned behavior, keyed by the RENDERED command string a scenario's `Given` step declares. */
 export type ScriptedCommand =
-  | { readonly kind: "exit"; readonly status: number; readonly output: string }
+  | {
+      readonly kind: "exit"
+      readonly status: number
+      readonly output: string
+      /** What the command does to the tree before it exits. */
+      readonly effect?: () => void
+    }
   | {
       readonly kind: "rewrite"
       readonly file: string
@@ -179,6 +185,11 @@ export type ScriptedCommand =
     }
   /** Keyed by the binary's name: it is not on `$PATH`. */
   | { readonly kind: "missing" }
+
+/** The scripted commands, by the exact command a script runs; a `Map` is one. */
+export interface CommandTable {
+  get(command: string): ScriptedCommand | undefined
+}
 
 export interface TestWorldOptions {
   readonly env?: Readonly<Record<string, string | undefined>>

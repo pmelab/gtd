@@ -12,7 +12,16 @@ import {
   softResetTo,
   updateRef,
 } from "../emit/index.js"
-import { agent, human, moveScript, read, removeScript, run } from "../flows/index.js"
+import {
+  agent,
+  check,
+  human,
+  moveScript,
+  read,
+  removeScript,
+  run,
+  showScript,
+} from "../flows/index.js"
 import { runsItsScript, testRepo } from "./TestRepo.js"
 
 const tiny = async (): Promise<void> => {
@@ -112,7 +121,7 @@ describe("testRepo", () => {
   it("carries the recognizer's error when a git-free fallback fails", () => {
     const repo = testRepo({ workflow: { default: tiny } })
     expect(() => repo.runScript("printf 'x' > 'y'\n")).toThrow(
-      "testkit: cannot run script in memory — give the step an actor instead\nunrecognized script block: printf 'x' > 'y'",
+      "testkit: cannot run script in memory — add a canned command for it, or give the step an actor\nunrecognized script block: printf 'x' > 'y'",
     )
   })
 
@@ -193,5 +202,112 @@ describe("testRepo", () => {
     await expect(
       repo.drive({ spin: (_, r) => r.write("n", `${++n}\n`) }, { maxBeats: 5 }),
     ).rejects.toThrow(/did not rest within 5 beats/)
+  })
+
+  describe("canned commands", () => {
+    const checked = async (): Promise<void> => {
+      const green = await check("test", "npm test", { report: ".gtd/FEEDBACK.md" })
+      await human(green ? "sign-off" : "red")
+    }
+
+    it("runs a check's command as canned, its output the report", async () => {
+      const repo = testRepo({
+        workflow: { default: checked },
+        commands: [{ run: "npm test", exit: 1, output: "1 failing" }],
+      })
+      repo.write("go", "\n")
+      const rest = await repo.drive({ test: runsItsScript })
+      expect(rest.state).toBe("red")
+      expect(repo.read(".gtd/FEEDBACK.md")).toContain("1 failing")
+    })
+
+    it("exits 0 by default, and matches by pattern", async () => {
+      const repo = testRepo({ workflow: { default: checked }, commands: [{ run: /^npm / }] })
+      repo.write("go", "\n")
+      expect((await repo.drive({ test: runsItsScript })).state).toBe("sign-off")
+    })
+
+    it("lets a command change the tree, and takes the first match", async () => {
+      const repo = testRepo({
+        workflow: { default: checked },
+        commands: [
+          { run: "npm test", effect: (r) => r.write("ran", "first\n") },
+          { run: /npm/, exit: 1 },
+        ],
+      })
+      repo.write("go", "\n")
+      expect((await repo.drive({ test: runsItsScript })).state).toBe("sign-off")
+      expect(repo.read("ran")).toBe("first\n")
+    })
+
+    it("takes a command added later", async () => {
+      const repo = testRepo({ workflow: { default: checked } })
+      repo.command({ run: "npm test", exit: 2 })
+      repo.write("go", "\n")
+      expect((await repo.drive({ test: runsItsScript })).state).toBe("red")
+    })
+
+    it("runs a plain script line as canned", () => {
+      const repo = testRepo({
+        workflow: { default: tiny },
+        commands: [{ run: "make docs", effect: (r) => r.write("docs.html", "<p>\n") }],
+      })
+      repo.runScript("make docs\n")
+      expect(repo.read("docs.html")).toBe("<p>\n")
+    })
+
+    it("fails the drive on a command none matches, naming it", async () => {
+      const repo = testRepo({ workflow: { default: checked } })
+      repo.write("go", "\n")
+      await expect(repo.drive({ test: runsItsScript })).rejects.toThrow(
+        "no canned command matches `npm test`",
+      )
+    })
+  })
+
+  describe("history", () => {
+    it("creates and checks out a branch, refusing uncommitted changes", () => {
+      const repo = testRepo({ workflow: { default: tiny }, files: { "a.txt": "main\n" } })
+      repo.branch("feature/x")
+      repo.checkout("feature/x")
+      expect(repo.branchName()).toBe("feature/x")
+      repo.write("a.txt", "feature\n")
+      expect(() => repo.checkout("main")).toThrow("uncommitted changes")
+      repo.commit("feat: x")
+      repo.checkout("main")
+      expect(repo.branchName()).toBe("main")
+      expect(repo.read("a.txt")).toBe("main\n")
+      expect(repo.show("feature/x", "a.txt")).toBe("feature\n")
+    })
+
+    it("branches at a given ref, and refuses an existing name or a missing ref", () => {
+      const repo = testRepo({ workflow: { default: tiny }, files: { "a.txt": "one\n" } })
+      repo.write("a.txt", "two\n")
+      repo.commit("chore: two")
+      repo.branch("old", "HEAD~1")
+      expect(repo.show("old", "a.txt")).toBe("one\n")
+      expect(() => repo.branch("old")).toThrow("already exists")
+      expect(() => repo.branch("new", "nowhere")).toThrow("not a valid object name")
+    })
+
+    it("points a remote ref that a script reads by its short name", async () => {
+      const restore = async (): Promise<void> => {
+        await run("restore", showScript("origin/main", "a.txt", "a.txt"))
+        await human("done")
+      }
+      const repo = testRepo({ workflow: { default: restore }, files: { "a.txt": "base\n" } })
+      repo.ref("refs/remotes/origin/main")
+      repo.write("a.txt", "local\n")
+      repo.commit("chore: local")
+      repo.write("go", "\n")
+      await repo.drive({ restore: runsItsScript })
+      expect(repo.read("a.txt")).toBe("base\n")
+    })
+
+    it("refuses a ref outside refs/ or at nothing", () => {
+      const repo = testRepo({ workflow: { default: tiny } })
+      expect(() => repo.ref("origin/main")).toThrow("must start with refs/")
+      expect(() => repo.ref("refs/tags/v1", "nowhere")).toThrow("resolves to no commit")
+    })
   })
 })

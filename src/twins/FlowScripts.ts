@@ -15,7 +15,7 @@ import {
   writeScript,
 } from "../flows/index.js"
 import type { InMemRepo } from "./InMemRepo.js"
-import type { ScriptedCommand } from "./Layers.js"
+import type { CommandTable, ScriptedCommand } from "./Layers.js"
 
 export interface FlowScriptResult {
   readonly ok: boolean
@@ -299,16 +299,17 @@ const parseCheck = (script: string): ParsedCheck | undefined => {
 
 const runCommand = (
   repo: InMemRepo,
-  commands: ReadonlyMap<string, ScriptedCommand>,
+  commands: CommandTable,
   command: string,
 ): { readonly status: number; readonly output: string } => {
   const scripted = commands.get(command)
   if (scripted === undefined) {
-    throw new Error(
-      `testkit: cannot run \`${command}\` in memory — script it ("the shell command … exits …")`,
-    )
+    throw new Error(`testkit: no canned command matches \`${command}\` — add one to \`commands\``)
   }
-  if (scripted.kind === "exit") return scripted
+  if (scripted.kind === "exit") {
+    scripted.effect?.()
+    return scripted
+  }
   if (scripted.kind === "missing") return { status: 127, output: `sh: ${command}: not found\n` }
   repo.writeFile(scripted.file, rewritten(repo, scripted))
   return { status: 0, output: "" }
@@ -325,7 +326,7 @@ export const rewritten = (
 
 const recognizeCheck = (
   repo: InMemRepo,
-  commands: ReadonlyMap<string, ScriptedCommand>,
+  commands: CommandTable,
   script: string,
 ): FlowScriptResult | undefined => {
   const parsed = parseCheck(script)
@@ -362,7 +363,7 @@ const recognizeCheck = (
  */
 export const applyFlowScript = (
   repo: InMemRepo,
-  commands: ReadonlyMap<string, ScriptedCommand>,
+  commands: CommandTable,
   script: string,
 ): FlowScriptResult | undefined => {
   if (!script.startsWith(`${SHEBANG}\n`)) return undefined

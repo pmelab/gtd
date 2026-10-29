@@ -8,6 +8,7 @@ import {
   InMemRepo,
   makeCapturingCliIo,
   type CapturedCliResult,
+  type CommandTable,
 } from "../twins/index.js"
 
 /**
@@ -18,8 +19,23 @@ import {
  */
 export type WorkflowModule = string | Readonly<Record<string, unknown>>
 
+/**
+ * What a command a step's script runs does in memory. `run` matches the command
+ * as the script spells it, exactly or by a pattern; the first match wins.
+ */
+export interface CannedCommand {
+  readonly run: string | RegExp
+  /** Defaults to 0. */
+  readonly exit?: number
+  readonly output?: string
+  /** What the command does to the tree, e.g. a formatter's rewrite. */
+  readonly effect?: (repo: TestRepo) => void
+}
+
 export interface TestRepoOptions {
   readonly workflow: WorkflowModule
+  /** The commands a step's script may run. A command none matches fails the script. */
+  readonly commands?: readonly CannedCommand[]
   /** Committed alongside the config, before any process starts. */
   readonly files?: Readonly<Record<string, string>>
   /** The environment gtd sees; the real `process.env` is never read, except ambient `GTD_FLAG_*` (explicit env wins). */
@@ -42,6 +58,15 @@ export interface DriveOptions {
 }
 
 export interface TestRepo {
+  /** Adds a command a step's script may run, after those `testRepo` was given. */
+  command(command: CannedCommand): void
+  /** Creates branch `name` at `ref` (HEAD by default). Outside a process only. */
+  branch(name: string, ref?: string): void
+  /** Checks branch `name` out; refuses with uncommitted changes. Outside a process only. */
+  checkout(name: string): void
+  /** Points ref `name` (`refs/remotes/origin/main`, `refs/tags/v1`) at `ref` (HEAD by default). Outside a process only. */
+  ref(name: string, ref?: string): void
+  branchName(): string
   read(path: string): string | undefined
   write(path: string, content: string): void
   remove(path: string): void
@@ -158,19 +183,21 @@ const LINES: ReadonlyArray<readonly [RegExp, (repo: InMemRepo, words: string[]) 
 const knownLine = (line: string) => LINES.find(([pattern]) => pattern.test(line))
 
 const cannotRun = (error: string): Error =>
-  new Error(`testkit: cannot run script in memory — give the step an actor instead\n${error}`)
+  new Error(
+    `testkit: cannot run script in memory — add a canned command for it, or give the step an actor\n${error}`,
+  )
 
 // A script with a line `LINES` lacks goes to the contract-tested recognizers
 // whole, minus the git builders: they would apply a commit/reset/update-ref in
 // memory, so any git-mutating block is refused whatever its spelling.
-const runLines = (repo: InMemRepo, script: string): void => {
+const runLines = (repo: InMemRepo, commands: CommandTable, script: string): void => {
   const lines = script.split("\n").map((line) => line.trim())
   const known = lines.map(knownLine)
   if (known.every(Boolean)) {
     known.forEach((k, i) => k![1](repo, words(lines[i]!)))
     return
   }
-  const applied = applyEmittedScript(repo, new Map(), script, { git: false })
+  const applied = applyEmittedScript(repo, commands, script, { git: false })
   if (!applied.ok) throw cannotRun(applied.error ?? "")
 }
 
@@ -188,6 +215,18 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
   )
   for (const [path, content] of Object.entries(options.files ?? {})) repo.writeFile(path, content)
   repo.seedCommit("chore: initial commit")
+
+  const canned = [...(options.commands ?? [])]
+  const commands: CommandTable = {
+    get: (command) => {
+      const hit = canned.find(({ run }) =>
+        typeof run === "string" ? run === command : run.test(command),
+      )
+      if (hit === undefined) return undefined
+      const { exit = 0, output = "", effect } = hit
+      return { kind: "exit", status: exit, output, effect: () => effect?.(self) }
+    },
+  }
 
   // The module is registered only while gtd runs, so nothing outlives the
   // call that loads it and no test can reach another's module.
@@ -217,7 +256,7 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
 
   const apply = (what: string, script: string): void => {
     if (script.length === 0) return
-    const applied = applyEmittedScript(repo, new Map(), script)
+    const applied = applyEmittedScript(repo, commands, script)
     if (!applied.ok) throw new Error(`${what}: its script failed — ${applied.error ?? ""}`)
   }
 
@@ -260,14 +299,26 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
   }
 
   const self: TestRepo = {
+    command: (command) => {
+      canned.push(command)
+    },
+    branch: (name, ref = "HEAD") => repo.createBranch(name, ref),
+    checkout: (name) => repo.checkoutBranch(name),
+    ref: (name, ref = "HEAD") => {
+      if (!name.startsWith("refs/")) throw new Error(`testkit: ref "${name}" must start with refs/`)
+      const hash = repo.resolveRef(ref)
+      if (hash === null) throw new Error(`testkit: ref "${ref}" resolves to no commit`)
+      repo.updateRef(name, hash)
+    },
+    branchName: () => repo.branchName(),
     read: (path) => repo.readFile(path),
     write: (path, content) => repo.writeFile(path, content),
     remove: (path) => repo.deleteFile(path),
     commit: (message) => repo.seedCommit(message),
     show: (ref, path) => repo.fileAtRef(ref, path) ?? undefined,
     runScript: (script) => {
-      const flow = applyFlowScript(repo, new Map(), script)
-      if (flow === undefined) runLines(repo, script)
+      const flow = applyFlowScript(repo, commands, script)
+      if (flow === undefined) runLines(repo, commands, script)
       else if (!flow.ok) throw new Error(`testkit: ${flow.error ?? ""}`)
     },
     gtd,
