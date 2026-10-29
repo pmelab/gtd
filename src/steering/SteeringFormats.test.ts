@@ -5,7 +5,7 @@ import {
   parseFootnotes,
   parseThreads,
   steeringFormatFor,
-} from "./index.js"
+} from "./internal.js"
 
 const QA_FORMAT = steeringFormatFor("qa")!
 const REVIEW_FORMAT = steeringFormatFor("review")!

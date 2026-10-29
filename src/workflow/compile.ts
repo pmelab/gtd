@@ -1,7 +1,7 @@
 import { seededValidateCommand } from "./SteeringFormats.js"
-import { BUILT_IN_MODE_NAMES } from "../steering/index.js"
+import { BUILT_IN_MODE_NAMES } from "../steering/internal.js"
 import type { ModeDef } from "./Workflow.js"
-import { configProblems, type GtdConfig, type UiSettings } from "../flows/index.js"
+import { configProblems, type GtdConfig, type UiSettings } from "../flows/internal.js"
 import type { Diagnostic } from "./Diagnostic.js"
 
 export interface CompiledConfig {

@@ -11,7 +11,7 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
   wrote; each continuation is the commit 20.3.0 itself wrote next, against a
   small config that declares the same step names.
 
-  Scenario: until a config exists, the process is pointed at gtd install
+  Scenario: until a config exists, the process is pointed at gtd guide
     Given a test project
     And a file "NOTE.md" with:
       """
@@ -31,7 +31,7 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
       """
     When I run gtd next
     Then it fails
-    And stderr contains "`gtd install` says where to get one"
+    And stderr contains "`gtd guide` says where to get one"
 
   Scenario: an ordinary start replays on the default export and lands its next turn
     Given a test project

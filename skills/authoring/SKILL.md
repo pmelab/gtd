@@ -15,11 +15,14 @@ repository root exports **workflows** — every exported async function is one,
 named by its export, awaiting **steps** built from `@pmelab/gtd/flows`; the
 `default` export is the ordinary start. Optional reserved exports (`defaults`
 process settings, `envDefaults` environment settings, `summary`, `base`,
-`steering`, `skills`, `doors`) are shared by the file's workflows. **Never
-export a helper function you do not want startable** — it becomes a workflow.
-Every step is a commit; gtd finds where a process rests by **replaying** the
-flow over the episode's commits, so the git history IS the state and nothing is
-stored anywhere else.
+`steering`, `skills`, `access`, `doors`) are shared by the file's workflows; a
+`defineWorkflow` build may carry `skills`, `access`, `steering` and `summary`
+itself, the file's exports winning per entry. **Never export a helper function
+you do not want startable** — it becomes a workflow. Wrap the workflows you mean
+in `workflow(async () => …)`: once one is marked, loading warns about every
+other exported function. Every step is a commit; gtd finds where a process rests
+by **replaying** the flow over the episode's commits, so the git history IS the
+state and nothing is stored anywhere else.
 
 Your job is to produce or edit that module so it loads cleanly and does what the
 user wants. Driving a workflow once it exists is a separate concern — that is
@@ -89,27 +92,30 @@ workflow that fails to load breaks every gtd command in the repository.
 
 ## The step API
 
-| Call                         | Actor   | Rest content | Resolves to                            |
-| ---------------------------- | ------- | ------------ | -------------------------------------- |
-| `agent(name, prompt, opts?)` | `agent` | `prompt`     | `void`, once an agent turn landed      |
-| `human(name, opts?)`         | `human` | `message`    | `void`, once a person landed           |
-| `run(name, body, opts?)`     | `check` | `script`     | `void`, once the run's tree landed     |
-| `judge(name, spec)`          | `judge` | `message`    | `{ answers, truncated }`               |
-| `restart()`                  | —       | —            | never: ends the episode from any depth |
+| Call                           | Actor   | Rest content | Resolves to                            |
+| ------------------------------ | ------- | ------------ | -------------------------------------- |
+| `agent(name, prompt, opts?)`   | `agent` | `prompt`     | `void`, once an agent turn landed      |
+| `human(name, message?, opts?)` | `human` | `message`    | `void`, once a person landed           |
+| `run(name, body, opts?)`       | `check` | `script`     | `void`, once the run's tree landed     |
+| `judge(name, spec)`            | `judge` | `message`    | `{ answers, truncated }`               |
+| `restart()`                    | —       | —            | never: ends the episode from any depth |
 
 - `run` body: a POSIX `sh` string the driver runs verbatim. Decide in flow code,
   then render the script from those values — `check(name, command, …)` and the
   exported `checkScript`, `revertScript`, `restoreScript`, `removeScript`,
   `moveScript` and `quote` do that for the common cases. **A run's outcome is
   what it leaves in the tree** — read it back with `changes()` and `read()`.
-- `judge` takes `{ questions, evidence, message?, label? }`. Questions are
-  `{ id, primitive: "noul" | "choice" | "score", instructions, criteria }`;
-  `evidence` is an object of strings, the `judgeBudgetBytes` var split evenly
-  across its keys. It resolves to `answers` — one `{ answer, p }` per question
-  id (a `noul` reads back as `"yes"`/`"no"`), `undefined` when the verdict left
-  it out — and `truncated`, the evidence keys the budget cut. Compare answers
-  with plain `if`s; landing with no verdict leaves every answer `undefined`, so
-  make `undefined` take the conservative branch.
+- `judge` takes
+  `{ questions, evidence, message?, label?, file?, mode?, base? }`. Questions
+  are
+  `{ id, primitive: "noul" | "yesno" | "choice" | "score", instructions, criteria }`
+  (`yesno` is `noul`); `evidence` is an object of strings, the
+  `judgeBudgetBytes` var split evenly across its keys. It resolves to `answers`
+  — one `{ answer, p }` per question id (a `noul` reads back as `"yes"`/`"no"`),
+  `undefined` when the verdict left it out — and `truncated`, the evidence keys
+  the budget cut. Compare answers with plain `if`s; landing with no verdict
+  leaves every answer `undefined`, so make `undefined` take the conservative
+  branch.
 - A person or a driver sees a rest as one of the five content kinds `capture` (a
   dirty tree at a human step), `message`, `script`, `prompt`, `stalled`. Every
   step you add must fit one of them; there is no sixth.
@@ -126,10 +132,11 @@ per path, `status` one of `"added"`/`"modified"`/`"deleted"`, plus `paths` and
 `get(path)`), `sections(text)` (`## ` headings), `openQuestions(text)` (a `qa`
 document's unanswered questions), `vars` (process settings, pinned at process
 start — safe to branch on), `env` (environment settings, read live — only for
-prompt text, step options and `run()` bodies, never a branch), `head()` (the
-commit the flow stands on) and `start()` (the process's diff base). State a flow
-needs across steps — a counter, the previous report, a review round's base —
-lives in local variables; replay rebuilds them.
+prompt text, step options and `run()` bodies, never a branch) — also spelled
+`settings`/`envSettings`, and `settingsOf(defaults)` types them by the declared
+names — `head()` (the commit the flow stands on) and `start()` (the process's
+diff base). State a flow needs across steps — a counter, the previous report, a
+review round's base — lives in local variables; replay rebuilds them.
 
 Composition: `scope(name, fn)` prefixes step names (`build.fix`) and sets their
 **memory scope** (one scope = one agent conversation = one model/system/skills —
@@ -139,7 +146,12 @@ inside. Skills are declared per scope, never on `agent()`, and a driver
 restricts each turn to its scope's list where it can. `refuse(message)` refuses
 the pending landing — call it right after the step whose turn you reject.
 `@pmelab/gtd/flows` exports `requireProgress(file)`, `requireAnswers(file)` and
-`requireRevert(edited, base)` among its ready-made checks.
+`requireRevert(edited, base)` among its ready-made guards, and
+`check(name, command, report)` runs a command as a `run` step.
+`@pmelab/gtd/workflow-kit` adds larger building blocks (`healthy`, `qualityLap`,
+`review`, …; see its reference, `docs/workflow-kit.md`). `sections`, `threads`
+and `openQuestions` throw outside a replay; `@pmelab/gtd/steering` exports pure
+copies under the same names.
 
 ## Names, commits and history
 

@@ -45,16 +45,29 @@ export interface CheckOptions {
   readonly preamble?: readonly string[] | undefined
 }
 
+export interface Check {
+  (
+    name: string,
+    command: string,
+    report: string,
+    options?: Omit<CheckOptions, "report">,
+  ): Promise<boolean>
+  (name: string, command: string, options: CheckOptions): Promise<boolean>
+}
+
 /**
  * A step that runs `command` through the driver and keeps its outcome in the
  * tree: a failure writes `report`, a pass removes it. Resolves `true` when the
  * command passed.
  */
-export const check = async (
+export const check: Check = async (
   name: string,
   command: string,
-  options: CheckOptions,
+  reportOrOptions: string | CheckOptions,
+  rest?: Omit<CheckOptions, "report">,
 ): Promise<boolean> => {
+  const options: CheckOptions =
+    typeof reportOrOptions === "string" ? { ...rest, report: reportOrOptions } : reportOrOptions
   const { report, label, sweep, sweepOnGreen, preamble } = options
   await run(
     name,

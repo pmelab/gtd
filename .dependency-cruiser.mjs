@@ -17,9 +17,14 @@
 // rejects the natural optional-group spelling as star-height 2.
 // `root-test-owns-impl` gains only `tsx?` here, not depth — its one capture
 // stays `[^/]+` and matches nothing nested, by design.
+// A boundary's barrels: `index.ts` is published (a package subpath, for those
+// that are one); `internal.ts`, where present, adds what only gtd's own code
+// may use, so a published name can be withdrawn without moving its callers.
+const barrel = "(index|internal)\\.ts$"
+
 const testMayReach = (own) => [
   own,
-  "^src/[^/]+/index\\.ts$",
+  `^src/[^/]+/${barrel}`,
   "^src/[^/]+\\.ts$",
   "\\.(ya?ml|json|html)$",
 ]
@@ -171,7 +176,7 @@ export default {
     {
       name: "test-owns-impl",
       comment:
-        "A unit test under src/<boundary>/ imports the file it is named after, published barrels and its boundary's fixtures — never a neighbour's internals.",
+        "A unit test under src/<boundary>/ imports the file it is named after, any boundary's barrels and its boundary's fixtures — never a neighbour's internals.",
       severity: "error",
       from: { path: "^src/([^/]+)/(.+)\\.test\\.tsx?$" },
       to: {
@@ -194,27 +199,27 @@ export default {
     {
       name: "boundary-via-barrel",
       comment:
-        "Files inside one src/<boundary>/ import each other freely; another boundary is reachable only through its index.ts.",
+        "Files inside one src/<boundary>/ import each other freely; another boundary is reachable only through its barrels (index.ts, internal.ts).",
       severity: "error",
       from: { path: "^src/([^/]+)/" },
       to: {
-        path: "^src/(?!$1/)[^/]+/(?!index\\.ts$)",
+        path: `^src/(?!$1/)[^/]+/(?!${barrel})`,
       },
     },
     {
       name: "root-reaches-in-via-barrel",
       comment:
-        "src/*.ts stays deep-importable BY anyone (it has no barrel), but reaches into a boundary only through that boundary's index.ts.",
+        "src/*.ts stays deep-importable BY anyone (it has no barrel), but reaches into a boundary only through that boundary's barrels.",
       severity: "error",
       from: { path: "^src/[^/]+\\.ts$" },
-      to: { path: "^src/[^/]+/(?!index\\.ts$)" },
+      to: { path: `^src/[^/]+/(?!${barrel})` },
     },
     {
       name: "integration-via-barrel",
-      comment: "tests/** sees published barrels only, never a module's internals.",
+      comment: "tests/** sees barrels only, never a module's internals.",
       severity: "error",
       from: { path: "^tests/" },
-      to: { path: "^src/", pathNot: "^src/[^/]+/index\\.ts$" },
+      to: { path: "^src/", pathNot: `^src/[^/]+/${barrel}` },
     },
 
     // --- spec 03 ---

@@ -11,14 +11,13 @@ import {
   type StepRequest,
   type Flow,
   type Mark,
-} from "../flows/index.js"
+} from "../flows/internal.js"
 import {
-  headingSectionBodies,
-  headingSections,
-  steeringFormatFor,
+  openQuestions,
   parseCodeThreads,
-  parseThreadsWithFindings,
-  unansweredQuestions,
+  sectionBodies,
+  sections,
+  threads,
 } from "../steering/index.js"
 import { accessShapeFault, foldAccess, sameAccess } from "./Access.js"
 import { globMatches } from "../wire/index.js"
@@ -667,28 +666,10 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     changes: () => changesBetween(previousPosition.tree, position.tree),
     changesSince,
     matches: globMatches,
-    sections: (text) => headingSections(text),
-    sectionBodies: (text) => headingSectionBodies(text),
-    openQuestions: (text) => {
-      const qa = steeringFormatFor("qa")
-      return qa === undefined
-        ? []
-        : unansweredQuestions(qa, text).map((q) => ({
-            question: q.question,
-            line: q.headingLine + 1,
-          }))
-    },
-    threads: (text) => {
-      const { threads, findings } = parseThreadsWithFindings(text)
-      return threads.map((t) => ({
-        name: t.name,
-        line: t.line + 1,
-        waitingOn: t.waitingOn,
-        faults: findings
-          .filter((f) => f.message.startsWith(`Footnote thread "[^${t.name}]": `))
-          .map((f) => f.message),
-      }))
-    },
+    sections,
+    sectionBodies,
+    openQuestions,
+    threads,
     codeThreads: () =>
       changesBetween(
         treeAt(input.start) ?? input.startTree ?? input.episode.base.tree,

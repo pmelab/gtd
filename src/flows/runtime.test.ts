@@ -1,13 +1,29 @@
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
 import {
   FLOWS_PROTOCOL,
   FlowsProtocolError,
+  env,
+  envSettings,
+  envSettingsOf,
   head,
+  human,
   installContext,
+  isMarkedWorkflow,
+  judge,
   kept,
   mark,
   protocolMismatch,
+  settings,
+  settingsOf,
+  vars,
+  workflow,
   type FlowContext,
+  type HumanOptions,
+  type Judgment,
+  type ModeName,
+  type Settings,
+  type SteeringOptions,
+  type StepRequest,
 } from "./runtime.js"
 
 afterEach(() => installContext(undefined))
@@ -125,5 +141,131 @@ describe("kept()", () => {
       "gtd: kept() needs a newer gtd — upgrade the gtd that runs it",
     )
     expect(FLOWS_PROTOCOL).toBe(1)
+  })
+})
+
+/** A context that records every step request and resolves it with `reply`. */
+const recording = (reply: unknown = undefined) => {
+  const requests: StepRequest[] = []
+  installContext({
+    step: async (request: StepRequest) => {
+      requests.push(request)
+      return reply
+    },
+    vars: { greeting: "hi" },
+    env: { testCommand: "npm test" },
+  } as unknown as FlowContext)
+  return requests
+}
+
+describe("human()", () => {
+  it("takes its message positionally, the rest as options", async () => {
+    const requests = recording()
+    await human("gate", "Sign off.", { acceptClean: true })
+    await human("plain", { message: "As before." })
+    await human("bare")
+    expect(requests.map((r) => (r.kind === "human" ? r.options : undefined))).toEqual([
+      { acceptClean: true, message: "Sign off." },
+      { message: "As before." },
+      {},
+    ])
+  })
+
+  it("types the positional form without a message option", () => {
+    expectTypeOf(human).toBeCallableWith("gate", "Sign off.")
+    expectTypeOf(human).toBeCallableWith("gate", { message: "m" } satisfies HumanOptions)
+    // @ts-expect-error -- the message is positional in this form
+    void (() => human("gate", "m", { message: "twice" }))
+  })
+})
+
+describe("judge()", () => {
+  const question = { id: "ok", instructions: "Is it?", criteria: "yes or no" } as const
+
+  it("hands a yesno question on as noul, and passes file, mode and base through", async () => {
+    const requests = recording({ answers: {}, truncated: [] })
+    await judge("judging", {
+      questions: [{ ...question, primitive: "yesno" }],
+      evidence: { a: "b" },
+      file: ".gtd/J.md",
+      mode: "qa",
+      base: "abc",
+      label: "Judging",
+    })
+    expect(requests).toEqual([
+      {
+        kind: "judge",
+        name: "judging",
+        questions: [{ ...question, primitive: "noul" }],
+        evidence: { a: "b" },
+        options: { file: ".gtd/J.md", mode: "qa", base: "abc", label: "Judging" },
+      },
+    ])
+  })
+
+  it("keys the answers by the question ids, a computed id still readable", () => {
+    const judged = () =>
+      judge("j", {
+        questions: [
+          { ...question, primitive: "noul" },
+          { ...question, id: "shape", primitive: "choice" },
+        ],
+        evidence: {},
+      })
+    expectTypeOf(judged).returns.resolves.toEqualTypeOf<Judgment<"ok" | "shape">>()
+    expectTypeOf<Judgment<"ok">["answers"]>().toHaveProperty("ok")
+    const computed = (j: Judgment<"ok">, id: string) => j.answers[id]
+    expectTypeOf(computed).returns.toEqualTypeOf<
+      { readonly answer: string; readonly p: number } | undefined
+    >()
+    expectTypeOf<Judgment<"ok">>().toMatchTypeOf<Judgment>()
+  })
+})
+
+describe("settings", () => {
+  it("are vars and env under the glossary's names", () => {
+    recording()
+    expect(settings).toBe(vars)
+    expect(envSettings).toBe(env)
+    expect(settings.greeting).toBe("hi")
+    expect(envSettings.testCommand).toBe("npm test")
+  })
+
+  it("settingsOf() types the declared names, reading the same settings", () => {
+    const defaults = { greeting: "hello" }
+    const envDefaults = { testCommand: "npm test" }
+    const typed = settingsOf(defaults)
+    const typedEnv = envSettingsOf(envDefaults)
+    recording()
+    expect(typed.greeting).toBe("hi")
+    expect(typedEnv.testCommand).toBe("npm test")
+    expectTypeOf(typed.greeting).toEqualTypeOf<string>()
+    expectTypeOf(typed).toEqualTypeOf<Settings<"greeting">>()
+    // @ts-expect-error -- not a declared name
+    void typed.greting
+  })
+
+  it("can be taken outside a replay, read inside one", () => {
+    expect(() => settingsOf({ a: "" })).not.toThrow()
+  })
+})
+
+describe("workflow()", () => {
+  it("marks the very function it is given", () => {
+    const flow = async (): Promise<void> => {}
+    expect(isMarkedWorkflow(flow)).toBe(false)
+    expect(workflow(flow)).toBe(flow)
+    expect(isMarkedWorkflow(flow)).toBe(true)
+    expect(isMarkedWorkflow(async () => {})).toBe(false)
+    expect(isMarkedWorkflow({})).toBe(false)
+  })
+})
+
+describe("mode", () => {
+  it("names the built-in modes and still takes any string", () => {
+    expectTypeOf<"qa">().toMatchTypeOf<ModeName>()
+    expectTypeOf<string>().toMatchTypeOf<ModeName>()
+    expectTypeOf<ModeName>().toMatchTypeOf<string>()
+    expectTypeOf<SteeringOptions["mode"]>().toEqualTypeOf<ModeName | undefined>()
   })
 })

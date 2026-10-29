@@ -1,6 +1,12 @@
 import { Effect } from "effect"
 import { CommandRunner, GitService, Host, Narrator, Workspace } from "../platform/index.js"
-import { selectPath, type EXIT_OK, type EXIT_STRAYS_FOUND } from "../wire/index.js"
+import {
+  renderScriptJson,
+  scriptFields,
+  selectPath,
+  type EXIT_OK,
+  type EXIT_STRAYS_FOUND,
+} from "../wire/index.js"
 import { ConfigDiscovery, ConfigService } from "../workflow/index.js"
 import type { ToolCommands } from "./ToolCommands.js"
 
@@ -80,4 +86,28 @@ export const writeJson = (
     if (json.kind === "document") out.write(`${JSON.stringify(document)}\n`)
     else yield* writeSelection(out, document, json.path)
     return true
+  })
+
+/** Exactly one trailing newline: a script embedded in a `--json` document is never re-normalized at its tail. */
+export const normalizeScriptNewline = (script: string): string =>
+  script.length === 0 ? script : `${script.replace(/\n+$/, "")}\n`
+
+/**
+ * A script-printing command's output: the script itself (or `plain`, when
+ * there is none to run), `{ schema, script }` under `--json`, or one field.
+ */
+export const writeScript = (
+  json: JsonMode,
+  out: ArtifactOut,
+  script: string,
+  plain: string = script,
+): Effect.Effect<void, Error> =>
+  Effect.gen(function* () {
+    if (json.kind === "off") {
+      out.write(plain)
+      return
+    }
+    const fields = scriptFields(normalizeScriptNewline(script))
+    if (json.kind === "document") out.write(renderScriptJson(fields))
+    else yield* writeSelection(out, fields, json.path)
   })

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
-import { FOOTNOTE_ACTION_TITLE, steeringFormatFor, viewOf } from "./index.js"
+import { FOOTNOTE_ACTION_TITLE, steeringFormatFor, viewOf } from "./internal.js"
 import { parseReviewDoc, unansweredNotes } from "./review.js"
-import { getParseCount } from "./index.js"
+import { getParseCount } from "./internal.js"
 
 describe("parseReviewDoc", () => {
   it("parses a well-formed review with one chunk, no explanations", () => {

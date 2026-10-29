@@ -1,0 +1,4 @@
+{
+  "schema": 1,
+  "script": "git reset --mixed ...\n"
+}

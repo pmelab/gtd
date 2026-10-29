@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, waitFor, within } from "storybook/test"
-import { BUILT_IN_MODE_NAMES, steeringFormatFor } from "../steering/index.js"
+import { BUILT_IN_MODE_NAMES, steeringFormatFor } from "../steering/internal.js"
 import { App } from "./App.js"
 import { TrpcTestProvider } from "./testing/TrpcTestProvider.js"
 

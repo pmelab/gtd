@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { FOOTNOTE_ACTION_TITLE, steeringFormatFor, unansweredQuestions, viewOf } from "./index.js"
+import {
+  FOOTNOTE_ACTION_TITLE,
+  steeringFormatFor,
+  unansweredQuestions,
+  viewOf,
+} from "./internal.js"
 import { FREE_TEXT_PLACEHOLDER, isAnswered, parseOpenQuestions } from "./qa.js"
-import { getParseCount } from "./index.js"
+import { getParseCount } from "./internal.js"
 
 const qa = steeringFormatFor("qa")!
 

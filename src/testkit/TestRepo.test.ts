@@ -15,6 +15,7 @@ import {
 import {
   agent,
   check,
+  env,
   human,
   judge,
   moveScript,
@@ -22,8 +23,19 @@ import {
   removeScript,
   run,
   showScript,
+  vars,
 } from "../flows/index.js"
-import { runsItsScript, testRepo, type Actor } from "./TestRepo.js"
+import {
+  inTurn,
+  runsItsScript,
+  testRepo,
+  verdict,
+  verdictWhen,
+  whenPrompted,
+  type Actor,
+  type ScriptedActor,
+  type TestRepo,
+} from "./TestRepo.js"
 
 const tiny = async (): Promise<void> => {
   await agent("plan", "Write PLAN.md.")
@@ -353,6 +365,207 @@ describe("testRepo", () => {
       const repo = testRepo({ workflow: { default: tiny } })
       expect(() => repo.ref("origin/main")).toThrow("must start with refs/")
       expect(() => repo.ref("refs/tags/v1", "nowhere")).toThrow("resolves to no commit")
+    })
+  })
+
+  describe("modules a config imports", () => {
+    it("serves a specifier the config's source imports, read off the module the test imported", async () => {
+      const shipped = { tiny, chores: tiny }
+      const repo = testRepo({
+        workflow: [
+          `import tidy, * as all from "#workflow"`,
+          `export { chores } from "#workflow"`,
+          `export const both = all.tiny === tidy ? tidy : undefined`,
+          `export default tidy`,
+        ].join("\n"),
+        modules: { "#workflow": { ...shipped, default: tiny } },
+      })
+      await repo.start("both")
+      expect((await repo.drive({ plan: (_, r) => r.write("PLAN.md", "p\n") })).state).toBe("build")
+      expect(repo.read("gtd.config.ts")).not.toContain('from "#workflow"')
+    })
+  })
+
+  describe("strict drives", () => {
+    const signOff = async (): Promise<void> => {
+      await agent("plan", "Plan.")
+      await human("sign-off")
+      await agent("ship", "Ship.")
+    }
+    const plan: ScriptedActor = (_, r) => r.write("PLAN.md", "p\n")
+
+    it("fails on an actor whose step the drive never reached", async () => {
+      const repo = testRepo({ workflow: { default: signOff } })
+      repo.write("go", "\n")
+      await expect(repo.drive({ plan, ship: () => undefined }, { strict: true })).rejects.toThrow(
+        'strict drive: the process rests at "sign-off", and never reached the actors for "ship"',
+      )
+    })
+
+    it("lets the same drive rest when it is not strict", async () => {
+      const repo = testRepo({ workflow: { default: signOff } })
+      repo.write("go", "\n")
+      expect((await repo.drive({ plan, ship: () => undefined })).state).toBe("sign-off")
+    })
+
+    it("fails on a human step whose actor changes nothing, instead of repeating it", async () => {
+      const repo = testRepo({ workflow: { default: signOff } })
+      repo.write("go", "\n")
+      await expect(
+        repo.drive({ plan, "sign-off": () => undefined }, { strict: true }),
+      ).rejects.toThrow(
+        'strict drive: the actor for human step "sign-off" changed nothing, so nothing landed',
+      )
+    })
+
+    it("fails on a verdict returned at a step that is no judge", async () => {
+      const repo = testRepo({ workflow: { default: signOff } })
+      repo.write("go", "\n")
+      await expect(
+        repo.drive({ plan: (beat, r) => (plan(beat, r), "[]") }, { strict: true }),
+      ).rejects.toThrow('the actor for agent step "plan" returned a verdict')
+    })
+
+    it("fails on a check step without an actor, unless checks run themselves", async () => {
+      const checked = async (): Promise<void> => {
+        const green = await check("test", "npm test", { report: ".gtd/FEEDBACK.md" })
+        await human(green ? "sign-off" : "red")
+      }
+      const strictRepo = testRepo({ workflow: { default: checked } })
+      strictRepo.write("go", "\n")
+      await expect(strictRepo.drive({}, { strict: true })).rejects.toThrow(
+        'strict drive: check step "test" has no actor',
+      )
+      const repo = testRepo({
+        workflow: { default: checked },
+        commands: [{ run: "npm test", exit: 1, output: "1 failing" }],
+      })
+      repo.write("go", "\n")
+      expect((await repo.drive({}, { strict: true, checks: "run" })).state).toBe("red")
+      expect(repo.read(".gtd/FEEDBACK.md")).toContain("1 failing")
+    })
+  })
+
+  describe("actor helpers", () => {
+    const judged = async (): Promise<void> => {
+      await agent("plan", "Plan.")
+      const { answers } = await judge("ready", {
+        questions: [{ id: "ready", primitive: "noul", instructions: "Ready?", criteria: "" }],
+        evidence: { plan: "p" },
+      })
+      await human(answers.ready?.answer === "yes" ? "ship" : "rework")
+    }
+    const plan: ScriptedActor = (_, r) => r.write("PLAN.md", "p\n")
+
+    it("builds a verdict keyed by question id, p defaulting to 0.9", () => {
+      expect(verdict({ ready: true, tier: { answer: "low", p: 0.6 } })).toEqual({
+        answers: [
+          { id: "ready", answer: true, p: 0.9 },
+          { id: "tier", answer: "low", p: 0.6 },
+        ],
+      })
+    })
+
+    it("answers a judge with a verdict object", async () => {
+      const repo = testRepo({ workflow: { default: judged } })
+      repo.write("go", "\n")
+      expect((await repo.drive({ plan, ready: () => verdict({ ready: false }) })).state).toBe(
+        "rework",
+      )
+    })
+
+    it("answers by what the pending questions contain", async () => {
+      const repo = testRepo({ workflow: { default: judged } })
+      repo.write("go", "\n")
+      const ready = inTurn([
+        verdictWhen("Unrelated?", verdict({ ready: false })),
+        verdictWhen("Ready?", verdict({ ready: true })),
+      ])
+      expect((await repo.drive({ plan, ready })).state).toBe("ship")
+    })
+
+    it("runs an actor only at a visit prompted with the text, and every actor in turn", async () => {
+      const repo = testRepo({ workflow: { default: judged } })
+      repo.write("go", "\n")
+      const seen: string[] = []
+      await repo.drive({
+        plan: inTurn([
+          whenPrompted("Plan.", plan),
+          whenPrompted("Something else.", () => {
+            seen.push("else")
+          }),
+          () => {
+            seen.push("always")
+          },
+        ]),
+      })
+      expect(repo.read("PLAN.md")).toBe("p\n")
+      expect(seen).toEqual(["always"])
+    })
+
+    it("runs a script with commands of its own before the canned ones", () => {
+      const repo = testRepo({ workflow: { default: tiny }, commands: [{ run: /.*/, exit: 1 }] })
+      repo.runScript("make docs\n", {
+        commands: [{ run: "make docs", effect: (r) => r.write("docs.html", "<p>\n") }],
+      })
+      expect(repo.read("docs.html")).toBe("<p>\n")
+    })
+  })
+
+  describe("commits and the environment", () => {
+    it("lists every commit with its subject, message and trailers", async () => {
+      const repo = testRepo({ workflow: { default: tiny } })
+      repo.write("IDEA.md", "x\n")
+      repo.commit("feat: x\n\nA body.\n\nRefs: #1\nRefs: #2")
+      const [initial, feat] = repo.commits()
+      expect(initial).toMatchObject({ subject: "chore: initial commit", trailers: {} })
+      expect(feat).toEqual({
+        hash: repo.hashes()[1],
+        subject: "feat: x",
+        message: repo.messages()[1],
+        trailers: { Refs: ["#1", "#2"] },
+      })
+      await repo.drive({ plan: (_, r) => r.write("PLAN.md", "p\n") })
+      expect(repo.commits().at(-1)!.trailers["Gtd-Step"]).toEqual(["plan#1"])
+    })
+
+    const greeter = {
+      envDefaults: { greeting: "hi" },
+      defaults: { flag_probe: "0" },
+      default: async (): Promise<void> => {
+        await agent("wake", "Wake up.")
+        await agent("greet", `Say ${env["greeting"]}, flag ${vars["flag_probe"]}.`)
+      },
+    }
+    const greet = async (repo: TestRepo): Promise<string> => {
+      const rest = await repo.drive({ wake: (_, r) => r.write("awake", "\n") })
+      return rest.content
+    }
+
+    it("changes a variable gtd sees from the next call on", async () => {
+      const repo = testRepo({ workflow: greeter })
+      repo.write("go", "\n")
+      expect(await greet(repo)).toContain("Say hi")
+      repo.setEnv("GTD_GREETING", "hello")
+      expect((await repo.next()).content).toContain("Say hello")
+      repo.setEnv("GTD_GREETING", undefined)
+      expect((await repo.next()).content).toContain("Say hi")
+    })
+
+    it("keeps the runner's GTD_FLAG_* out when ambient flags are off", async () => {
+      const saved = process.env["GTD_FLAG_PROBE"]
+      process.env["GTD_FLAG_PROBE"] = "1"
+      try {
+        const ambient = testRepo({ workflow: greeter })
+        ambient.write("go", "\n")
+        expect(await greet(ambient)).toContain("flag 1")
+        const isolated = testRepo({ workflow: greeter, ambientFlags: false })
+        isolated.write("go", "\n")
+        expect(await greet(isolated)).toContain("flag 0")
+      } finally {
+        if (saved === undefined) delete process.env["GTD_FLAG_PROBE"]
+        else process.env["GTD_FLAG_PROBE"] = saved
+      }
     })
   })
 })

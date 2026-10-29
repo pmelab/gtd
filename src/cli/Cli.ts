@@ -85,6 +85,38 @@ interface FlagRow {
   readonly conflicts?: readonly string[]
 }
 
+/** `<name>=<value>` occurrences of `flag` → one record, each name a setting name given at most once. */
+const decodeAssignments = (
+  flag: string,
+  raws: readonly string[],
+): Either.Either<Readonly<Record<string, string>>, string> => {
+  const vars: Record<string, string> = {}
+  for (const raw of raws) {
+    const eq = raw.indexOf("=")
+    if (eq <= 0) {
+      return Either.left(`gtd: ${flag} must be <name>=<value> with a non-empty name — got "${raw}"`)
+    }
+    const name = raw.slice(0, eq)
+    const value = raw.slice(eq + 1)
+    if (!isSettingName(name)) {
+      return Either.left(
+        `gtd: ${flag} ${JSON.stringify(name)} is not a valid setting name — ${SETTING_NAME_RULE}`,
+      )
+    }
+    if (/[\r\n]/.test(value)) return Either.left(`gtd: ${flag} ${name} must be a single-line value`)
+    if (Object.hasOwn(vars, name))
+      return Either.left(`gtd: ${flag} ${name} specified more than once`)
+    if (!name.startsWith("flag_")) {
+      vars[name] = value
+      continue
+    }
+    const pinned = flagSettingValue(value)
+    if (pinned === undefined) return Either.left(`gtd: ${flag} ${name} must be 1, 0, true or false`)
+    vars[name] = pinned
+  }
+  return Either.right(vars)
+}
+
 const nonNegativeNumber = (raw: string, flag: string): Either.Either<number, string> => {
   const n = Number(raw)
   if (raw.trim() === "" || !Number.isFinite(n) || n < 0) {
@@ -93,7 +125,21 @@ const nonNegativeNumber = (raw: string, flag: string): Either.Either<number, str
   return Either.right(n)
 }
 
+/** The commands whose only output is a script: `--json` prints `{ schema, script }`. */
+const SCRIPT_KINDS: ReadonlySet<Command["kind"]> = new Set<Command["kind"]>([
+  "start",
+  "startNamed",
+  "door",
+  "abandon",
+  "restore",
+  "validate",
+  "historyFetch",
+])
+
+const SCRIPT_JSON_HELP = "Print { schema, script }, or with --json=script the script alone"
+
 const JSON_KINDS: ReadonlySet<Command["kind"] | undefined> = new Set<Command["kind"]>([
+  ...SCRIPT_KINDS,
   "next",
   "land",
   "judge",
@@ -114,12 +160,14 @@ const FLAGS: readonly FlagRow[] = [
     scope: (kind) => JSON_KINDS.has(kind),
     decode: ([raw]) => Either.right(raw ?? ""),
     scopeError:
-      "gtd: --json is only valid for `gtd next`/`gtd land`/`gtd judge`/`gtd judge answer`/`gtd doors`/`gtd history list`/`gtd history show`/`gtd history metrics`/`gtd history judges`/`gtd strays` — " +
-      "every other command prints plain text; see `gtd install` for the driver protocol briefing",
+      "gtd: --json is only valid for `gtd next`/`gtd land`, the commands that print a script, and the listings whose help names it (e.g. `gtd strays`) — " +
+      "every other command prints plain text; see `gtd guide` for the driver protocol briefing",
     valueHint: "<path>",
     help: "Print the JSON document, or with --json=<path> one field of it (e.g. --json=kind): a scalar bare, a list one entry per line, nothing for an absent field",
     helpFor: {
       strays: "Print one entry of the array (--json=0), nothing past its end",
+      ...Object.fromEntries([...SCRIPT_KINDS].map((kind) => [kind, SCRIPT_JSON_HELP])),
+      startNamed: `${SCRIPT_JSON_HELP}. Bare, print the list as a JSON array of { kind, name } (a door adds workflow and args)`,
     },
   },
   {
@@ -215,11 +263,12 @@ const FLAGS: readonly FlagRow[] = [
       raw === undefined || raw.trim() === "" || /[\r\n]/.test(raw)
         ? Either.left("gtd: --model must be a non-empty, single-line value")
         : Either.right(raw),
-    scopeError: "gtd: --model is only valid for `gtd land` (with --cost) or `gtd judge run`",
+    scopeError:
+      "gtd: --model is only valid for `gtd land` (with --cost: the model to record the cost against) or `gtd judge run` (the model that answers)",
     valueHint: "<name>",
     help: "",
     helpFor: {
-      land: "With --cost: the model that cost was spent on",
+      land: "With --cost: the model that cost was spent on — recorded on the commit, nothing runs on it",
       judgeRun:
         "The claude model the llm answerer uses (default: $GTD_JUDGE_MODEL, then judge.json, then sonnet)",
     },
@@ -231,59 +280,36 @@ const FLAGS: readonly FlagRow[] = [
     scope: (kind) => kind === "start",
     decode: ([raw]) => Either.right(raw ?? ""),
     scopeError:
-      "gtd: --workflow is only valid with no other command — use the bare `gtd --workflow <name>` " +
-      "form; landing and starting are different verbs",
+      "gtd: --workflow is only valid with no other command — write `gtd start <name>`, " +
+      "or the bare `gtd --workflow <name>`; landing and starting are different verbs",
     valueHint: "<name>",
     help: "Start a new process on the named workflow",
+  },
+  {
+    name: "--threshold",
+    arity: 1,
+    repeatable: true,
+    scope: (kind) => kind === "historyJudges",
+    decode: (raws) => decodeAssignments("--threshold", raws),
+    scopeError: "gtd: --threshold is only valid for `gtd history judges`",
+    valueHint: "<name>=<value>",
+    help: "Re-decide every past verdict under this threshold: judgeIdenticalMinP or qualityTriageMinP (repeatable)",
   },
   {
     name: "--var",
     arity: 1,
     repeatable: true,
-    scope: (kind) => kind === "start" || kind === "historyJudges",
-    decode: (raws) => {
-      const vars: Record<string, string> = {}
-      const seen = new Set<string>()
-      for (const raw of raws) {
-        const eq = raw.indexOf("=")
-        if (eq <= 0) {
-          return Either.left(
-            `gtd: --var must be <name>=<value> with a non-empty name — got "${raw}"`,
-          )
-        }
-        const name = raw.slice(0, eq)
-        const value = raw.slice(eq + 1)
-        if (!isSettingName(name)) {
-          return Either.left(
-            `gtd: --var ${JSON.stringify(name)} is not a valid setting name — ${SETTING_NAME_RULE}`,
-          )
-        }
-        if (/[\r\n]/.test(value)) {
-          return Either.left(`gtd: --var ${name} must be a single-line value`)
-        }
-        if (seen.has(name)) {
-          return Either.left(`gtd: --var ${name} specified more than once`)
-        }
-        seen.add(name)
-        if (name.startsWith("flag_")) {
-          const pinned = flagSettingValue(value)
-          if (pinned === undefined) {
-            return Either.left(`gtd: --var ${name} must be 1, 0, true or false`)
-          }
-          vars[name] = pinned
-          continue
-        }
-        vars[name] = value
-      }
-      return Either.right(vars)
-    },
-    scopeError: "gtd: --var requires --workflow (or `gtd history judges`)",
+    scope: (kind) => kind === "start" || kind === "startNamed" || kind === "historyJudges",
+    decode: (raws) => decodeAssignments("--var", raws),
+    scopeError:
+      "gtd: --var is only valid for `gtd start <name>` and `gtd --workflow <name>` (or, deprecated, `gtd history judges`)",
     valueHint: "<name>=<value>",
     help: "",
     helpFor: {
       start: "Pin one of the workflow's declared settings for the new process (repeatable)",
-      historyJudges:
-        "Re-decide every past verdict under this threshold: judgeIdenticalMinP or qualityTriageMinP (repeatable)",
+      startNamed:
+        "Pin one of the workflow's declared settings for the new process (repeatable); through a door, on top of the settings its args set",
+      historyJudges: "Deprecated: the same as --threshold",
     },
   },
   {
@@ -295,7 +321,7 @@ const FLAGS: readonly FlagRow[] = [
     scopeError: "gtd: --jsonl is only valid for `gtd history judges`",
     valueHint: "",
     help: "Print one JSON line per verdict instead of the report",
-    conflicts: ["--json", "--var"],
+    conflicts: ["--json", "--var", "--threshold"],
   },
   {
     name: "--open-questions",
@@ -356,12 +382,14 @@ type Arity =
   | { readonly names: readonly [string, string] }
   // One required leading positional, then any number the command itself judges.
   | { readonly name: string; readonly variadic: string }
+  // The same, the leading one optional too.
+  | { readonly name: string; readonly variadic: string; readonly bare: true }
   // At most one trailing positional.
   | { readonly name: string; readonly optional: true }
   // Any number of positionals, none included.
   | { readonly name: string; readonly many: true }
 
-type Group = "Core loop" | "Start and stop" | "Inspect" | "Driver plumbing"
+type Group = "Core loop" | "Start and stop" | "Inspect" | "Driver plumbing" | "Older spellings"
 
 interface CommandRow {
   readonly token: string
@@ -407,15 +435,29 @@ gtd writes nothing itself. Plain output names the commit it would make; --json=s
     arity: "none",
     group: "Core loop",
     summary: "Print the script that checks the steering file",
-    details: `Print the script that formats, then validates, the current step's steering file with its mode's commands. gtd runs nothing: the script's exit code is the verdict, and on a failure it prints a ready-to-send fix prompt. Prints "nothing to validate" when the step declares no file to check.`,
+    details: `Print the script that formats, then validates, the current step's steering file with its mode's commands. gtd runs nothing: the script's exit code is the verdict, and on a failure it prints a ready-to-send fix prompt. Prints "nothing to validate" when the step declares no file to check; --json=script then prints an empty script.`,
+  },
+  {
+    token: "start",
+    kind: "startNamed",
+    arity: { name: "name", variadic: "args", bare: true },
+    group: "Start and stop",
+    summary: "Start a workflow or door; bare, list them",
+    details: `Start a new process: print the script that makes its first commit, which also commits whatever the working tree holds.
+
+<name> is a door — a named shortcut whose positional args set the workflow's settings — or else a workflow the config exports, which takes no args. A door shadows a workflow of the same name; \`gtd --workflow <name>\` still reaches the workflow. --var pins a setting either way.
+
+  s=$(gtd start <name> --json=script) && sh -c "$s"
+
+With no <name>, list every workflow and door it can start. An unknown <name>, or the wrong number of args, is a usage error (exit 2); a process already underway is a refusal (exit 1).`,
   },
   {
     token: "door",
     kind: "door",
     arity: { name: "name", variadic: "args" },
-    group: "Start and stop",
-    summary: "Start a process through a named shortcut",
-    details: `Start a process through a door: a named shortcut to a workflow that maps its positional args to the workflow's settings. It prints the same start script \`gtd --workflow\` does. Each workflow the config exports brings its own doors, plus the config's \`doors\` export.
+    group: "Older spellings",
+    summary: "Same as start <name>, for a door",
+    details: `The older spelling of \`gtd start <name>\` for a door, without --var: start a process through a door, a named shortcut to a workflow that maps its positional args to the workflow's settings. Each workflow the config exports brings its own doors, plus the config's \`doors\` export.
 
 With no <name>, an unknown one, or the wrong number of args, it lists the doors and exits 2.`,
   },
@@ -423,8 +465,8 @@ With no <name>, an unknown one, or the wrong number of args, it lists the doors 
     token: "doors",
     kind: "doors",
     arity: "none",
-    group: "Start and stop",
-    summary: "List the doors",
+    group: "Older spellings",
+    summary: "List the doors (start lists workflows too)",
     details: `List every door, sorted: one \`name [args] → workflow\` line each. --json prints a JSON array of { name, workflow, args: [{ name, optional }] }. Writes nothing.`,
   },
   {
@@ -435,7 +477,7 @@ With no <name>, an unknown one, or the wrong number of args, it lists the doors 
     summary: "Stop the process, keeping its changes",
     details: `Stop the process underway without finishing it. The printed script moves HEAD back to the commit the process started from and keeps everything it produced as uncommitted changes; \`gtd restore\` undoes it. With no process underway the script does nothing.
 
-  s=$(gtd abandon) && sh -c "$s"`,
+  s=$(gtd abandon --json=script) && sh -c "$s"`,
   },
   {
     token: "restore",
@@ -513,7 +555,7 @@ Prints a sorted JSON array ([] when clean) and a summary on stderr; --verbose ad
     summary: "Print a script that fetches finished processes",
     details: `Print a script that fetches every finished process kept on <remote> (default: origin) and reports how many arrived. gtd runs no git itself:
 
-  s=$(gtd history fetch) && sh -c "$s"`,
+  s=$(gtd history fetch --json=script) && sh -c "$s"`,
   },
   {
     token: "ui",
@@ -524,7 +566,7 @@ Prints a sorted JSON array ([] when clean) and a summary on stderr; --verbose ad
     details: `Serve gtd's web and phone client for this worktree. By default it publishes through \`tailscale serve\`, reachable from anywhere on the tailnet, on the first of ports 8443, 10000 and 443 that works; when none does it serves HTTPS locally instead of refusing.`,
   },
   {
-    token: "install",
+    token: "guide",
     kind: "install",
     arity: "none",
     group: "Driver plumbing",
@@ -581,6 +623,14 @@ The fixed answerer reads --answers and leaves out the questions it does not cove
     summary: "Start the steering-file language server",
     details: `Start the language server for .gtd/ steering files on stdio.`,
   },
+  {
+    token: "install",
+    kind: "install",
+    arity: "none",
+    group: "Older spellings",
+    summary: "Same as guide",
+    details: `The older name of \`gtd guide\`: print the briefing for writing a driver. Writes nothing.`,
+  },
 ]
 
 const commandByToken = (token: string): CommandRow | undefined =>
@@ -602,13 +652,14 @@ const synopsis = (row: CommandRow): string => {
   const { token, arity } = row
   if (arity === "none") return token
   if ("names" in arity) return `${token} <${arity.names[0]}> <${arity.names[1]}>`
+  if ("bare" in arity) return `${token} [${arity.name}] [${arity.variadic}...]`
   if ("variadic" in arity) return `${token} <${arity.name}> [${arity.variadic}...]`
   if ("optional" in arity) return `${token} [${arity.name}]`
   if ("many" in arity) return `${token} [${arity.name}...]`
   return `${token} <${arity.name}>`
 }
 
-const SPACE_FORM_FLAGS = new Set(["--workflow", "--var"])
+const SPACE_FORM_FLAGS = new Set(["--workflow", "--var", "--threshold"])
 
 const flagHeader = (row: FlagRow): string => {
   if (row.valueHint === "") return row.name
@@ -620,13 +671,14 @@ const flagHeader = (row: FlagRow): string => {
 
 const START_ROW = {
   term: "--workflow <name>",
-  summary: "Start a process on a workflow; --var <name>=<value> pins one of its settings",
+  summary: "Same as start <name>, for a workflow",
 }
 
 const GLOBAL_OPTIONS: readonly (readonly [string, string])[] = [
   ["-v, --verbose", "Narrate on stderr what gtd resolved"],
   ["-h, --help", "Print help; gtd <command> --help for one command"],
   ["-V, --version", "Print the version"],
+  ["--", "End the options: every word after it is an argument"],
 ]
 
 const EXTRA_TOPICS: readonly (readonly [string, string, string])[] = [
@@ -638,14 +690,21 @@ const EXTRA_TOPICS: readonly (readonly [string, string, string])[] = [
   ["version", "Print the version", "Print gtd's version."],
 ]
 
-const EXAMPLES = `  $ gtd --workflow <name>                       start a process
+const EXAMPLES = `  $ gtd start                                   list what can start
+  $ gtd start <name>                            start a process
   $ gtd next                                    see what happens next
   $ s=$(gtd land --json=script) && sh -c "$s"   land the turn
   $ gtd help land                               one command's details`
 
 const lines = (block: readonly string[]): string => block.map((l) => `${l}\n`).join("")
 
-const GROUPS: readonly Group[] = ["Core loop", "Start and stop", "Inspect", "Driver plumbing"]
+const GROUPS: readonly Group[] = [
+  "Core loop",
+  "Start and stop",
+  "Inspect",
+  "Driver plumbing",
+  "Older spellings",
+]
 
 export const renderHelp = (): string => {
   const groups = GROUPS.map((group) => {
@@ -653,12 +712,12 @@ export const renderHelp = (): string => {
       definition(synopsis(r), r.summary, TOP_COLUMN),
     )
     const start =
-      group === "Start and stop" ? definition(START_ROW.term, START_ROW.summary, TOP_COLUMN) : []
+      group === "Older spellings" ? definition(START_ROW.term, START_ROW.summary, TOP_COLUMN) : []
     const extra =
       group === "Driver plumbing"
         ? EXTRA_TOPICS.flatMap(([term, summary]) => definition(term, summary, TOP_COLUMN))
         : []
-    return `${group}:\n${lines([...start, ...rows, ...extra])}`
+    return `${group}:\n${lines([...rows, ...extra, ...start])}`
   })
   return (
     "Usage: gtd <command> [options]\n\n" +
@@ -674,7 +733,7 @@ export const renderHelp = (): string => {
     `\nExamples:\n${EXAMPLES}\n\n` +
     lines(
       wrap(
-        "Run `gtd help <command>` for a command's details and options, and `gtd install` to learn how to drive gtd.",
+        "Run `gtd help <command>` for a command's details and options, and `gtd guide` to learn how to drive gtd.",
       ),
     )
   )
@@ -683,7 +742,7 @@ export const renderHelp = (): string => {
 /** Shown on stderr above a bare `gtd`'s usage error — the overview stays one `gtd help` away. */
 const SHORT_USAGE = `Usage: gtd <command> [options]
 
-  gtd --workflow <name>   start a process
+  gtd start <name>        start a process
   gtd next                print what should happen next
   gtd land                record what the tree now shows
 
@@ -764,11 +823,13 @@ const tokenize = (tail: readonly string[]): TokenizeError | TokenizeOk => {
   const present = new Set<string>()
   let jsonSeen = false
   let afterBareJson: string | undefined
+  const end = tail.indexOf("--")
 
   for (let i = 0; i < tail.length; i++) {
     const original = tail[i]!
+    if (i === end) continue
     const tok = SINGLE_DASH_ALIASES.get(original) ?? original
-    if (!tok.startsWith("-") || tok === "-") {
+    if ((end !== -1 && i > end) || !tok.startsWith("-") || tok === "-") {
       if (tail[i - 1] === "--json") afterBareJson ??= original
       positionals.push(original)
       continue
@@ -894,7 +955,7 @@ const tooMany = (
 const arityError = (cmd: string, rest: readonly string[], arity: Arity): string | undefined => {
   if (arity === "none") return tooMany(cmd, rest, "none", 0)
   if ("names" in arity) return pairArityError(cmd, rest, arity.names)
-  if ("many" in arity) return undefined
+  if ("many" in arity || "bare" in arity) return undefined
   if ("optional" in arity) return tooMany(cmd, rest, `at most one ${arity.name}`, 1)
   if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
   return "variadic" in arity ? undefined : tooMany(cmd, rest, `one ${arity.name}`, 1)
@@ -931,6 +992,34 @@ const decodeFlags = (
   return Either.right(bag)
 }
 
+/** `gtd history judges`' thresholds: `--threshold`, plus the deprecated `--var` spelling of it. */
+const judgeThresholds = (
+  thresholds: Readonly<Record<string, string>>,
+  vars: Readonly<Record<string, string>>,
+): Either.Either<Readonly<Record<string, string>>, string> => {
+  const twice = Object.keys(vars).find((name) => Object.hasOwn(thresholds, name))
+  if (twice !== undefined) {
+    return Either.left(`gtd history judges: ${twice} given as both --threshold and --var`)
+  }
+  const merged = { ...thresholds, ...vars }
+  const flag = (name: string): string => (Object.hasOwn(vars, name) ? "--var" : "--threshold")
+  const unknown = Object.keys(merged).find((name) => !Object.hasOwn(THRESHOLDS, name))
+  if (unknown !== undefined) {
+    return Either.left(
+      `gtd history judges: ${flag(unknown)} ${unknown} is no judge threshold — use ${Object.keys(THRESHOLDS).join(" or ")}`,
+    )
+  }
+  const nan = Object.entries(merged).find(
+    ([, value]) => value.trim() === "" || !Number.isFinite(Number(value)),
+  )
+  if (nan !== undefined) {
+    return Either.left(
+      `gtd history judges: ${flag(nan[0])} ${nan[0]} must be a number — got "${nan[1]}"`,
+    )
+  }
+  return Either.right(merged)
+}
+
 /** Assembles a `land` `Command` from its already-scope-checked flag bag — split out of `parseArgv` so its two independent, omit-when-absent optional fields don't inflate that function's own branching. */
 const buildLandCommand = (bag: {
   readonly "--cost"?: number
@@ -943,9 +1032,19 @@ const buildLandCommand = (bag: {
 
 const HELP_FLAGS = new Set(["--help", "-h"])
 
-/** `--help`/`-h` anywhere: the named command's own help, else the overview — never a usage error, so a typo'd command still gets help. */
+/** The options part of argv: everything before a `--`, which ends the options. */
+const optionsOf = (argv: readonly string[]): readonly string[] => {
+  const end = argv.indexOf("--", 2)
+  return end === -1 ? argv : argv.slice(0, end)
+}
+
+/** `--help`/`-h` anywhere before `--`: the named command's own help, else the overview — never a usage error, so a typo'd command still gets help. */
 const helpPlan = (argv: readonly string[]): CliPlan => {
-  const tokenized = tokenize(argv.slice(2).filter((tok) => !HELP_FLAGS.has(tok)))
+  const tokenized = tokenize(
+    optionsOf(argv)
+      .slice(2)
+      .filter((tok) => !HELP_FLAGS.has(tok)),
+  )
   const topic = tokenized.kind === "ok" ? tokenized.positionals : []
   return { kind: "output", stdout: renderTopicHelp(topic) ?? renderHelp() }
 }
@@ -963,8 +1062,9 @@ const helpCommandPlan = (topic: readonly string[], json: boolean): CliPlan => {
 
 // fallow-ignore-next-line complexity
 export const parseArgv = (argv: readonly string[]): CliPlan => {
-  if (argv.some((tok) => HELP_FLAGS.has(tok))) return helpPlan(argv)
-  if (argv.includes("--version") || argv.includes("-V")) {
+  const options = optionsOf(argv)
+  if (options.some((tok) => HELP_FLAGS.has(tok))) return helpPlan(argv)
+  if (options.includes("--version") || options.includes("-V")) {
     return { kind: "output", stdout: `${GTD_VERSION}\n` }
   }
 
@@ -1036,7 +1136,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     if (violation !== undefined) return usagePlan(violation, jsonSeen)
     if (first === undefined) {
       return usagePlan(
-        "gtd: missing command — run `gtd help` for every command, or `gtd install` to learn how to drive gtd",
+        "gtd: missing command — run `gtd help` for every command, or `gtd guide` to learn how to drive gtd",
         jsonSeen,
         SHORT_USAGE,
       )
@@ -1094,6 +1194,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--cost"?: number
     readonly "--model"?: string
     readonly "--var"?: Readonly<Record<string, string>>
+    readonly "--threshold"?: Readonly<Record<string, string>>
     readonly "--open-questions"?: boolean
     readonly "--open-threads"?: boolean
     readonly "--host"?: string
@@ -1135,6 +1236,36 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
         vars: bag["--var"] ?? {},
         label,
       },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "startNamed") {
+    const [name, ...args] = restPositionals
+    if (name === undefined && bag["--var"] !== undefined) {
+      return usagePlan(
+        "gtd start: --var needs a <name> — run `gtd start` to list the workflows and doors",
+        jsonSeen,
+      )
+    }
+    return {
+      kind: "command",
+      command: {
+        kind: "startNamed",
+        ...(name !== undefined ? { name } : {}),
+        args,
+        vars: bag["--var"] ?? {},
+      },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "install") {
+    return {
+      kind: "command",
+      command: { kind: "install", name: row!.token === "guide" ? "guide" : "install" },
       json,
       verbose,
     }
@@ -1237,23 +1368,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   }
 
   if (kind === "historyJudges") {
-    const vars = bag["--var"] ?? {}
-    const unknown = Object.keys(vars).find((name) => !Object.hasOwn(THRESHOLDS, name))
-    if (unknown !== undefined) {
-      return usagePlan(
-        `gtd history judges: --var ${unknown} is no judge threshold — use ${Object.keys(THRESHOLDS).join(" or ")}`,
-        jsonSeen,
-      )
-    }
-    const nan = Object.entries(vars).find(
-      ([, value]) => value.trim() === "" || !Number.isFinite(Number(value)),
-    )
-    if (nan !== undefined) {
-      return usagePlan(
-        `gtd history judges: --var ${nan[0]} must be a number — got "${nan[1]}"`,
-        jsonSeen,
-      )
-    }
+    const thresholds = judgeThresholds(bag["--threshold"] ?? {}, bag["--var"] ?? {})
+    if (Either.isLeft(thresholds)) return usagePlan(thresholds.left, jsonSeen)
+    const vars = thresholds.right
     return {
       kind: "command",
       command: {
@@ -1315,7 +1432,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "restore"
       | "next"
       | "validate"
-      | "install"
       | "doors"
       | "base"
       | "judge"

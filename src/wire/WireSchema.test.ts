@@ -9,6 +9,8 @@ import {
   landFields,
   renderBeatJson,
   renderLandJson,
+  renderScriptJson,
+  scriptFields,
   statusOf,
   WIRE_SCHEMA,
   type BeatKind,
@@ -116,6 +118,7 @@ const documents: Readonly<Record<string, string>> = {
     }),
   ),
   "judge.json": JUDGE,
+  "script.json": renderScriptJson(scriptFields("git reset --mixed ...\n")),
 }
 
 describe(`wire schema ${WIRE_SCHEMA}`, () => {

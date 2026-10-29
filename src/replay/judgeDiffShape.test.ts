@@ -6,7 +6,7 @@ import {
   type FlowContext,
   type JudgeAnswer,
   type StepRequest,
-} from "../flows/index.js"
+} from "../flows/internal.js"
 import { toRequest } from "../judges/index.js"
 import { globMatches } from "../wire/index.js"
 

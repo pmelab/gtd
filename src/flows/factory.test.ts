@@ -86,6 +86,20 @@ describe("defineWorkflow", () => {
     })
   })
 
+  it("hands on the skills, access, steering and summary a build carries", () => {
+    const carried = {
+      flow,
+      skills: (vars: Readonly<Record<string, string>>) => ({ work: [vars.skill ?? "x"] }),
+      access: { work: { write: ["out/**"] } },
+      steering: { ".gtd/PLAN.md": "qa" },
+      summary: () => "done",
+    }
+    expect(configure(defineWorkflow(greetingSchema, () => carried))).toEqual({
+      ok: true,
+      build: carried,
+    })
+  })
+
   it("throws when a call's result is awaited as if it were a flow", async () => {
     await expect(Promise.resolve(greeter() as unknown as PromiseLike<void>)).rejects.toThrow(
       /not a flow/,

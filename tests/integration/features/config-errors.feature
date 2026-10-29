@@ -133,7 +133,7 @@ Feature: An invalid workflow config fails loudly at load time, naming where
     When I run gtd next
     Then the exit code is 1
     And stderr contains "gtd: config:"
-    And stderr contains "no workflows configured: no gtd.config.ts here or above — gtd ships no workflow; `gtd install` says where to get one"
+    And stderr contains "no workflows configured: no gtd.config.ts here or above — gtd ships no workflow; `gtd guide` says where to get one"
 
   Scenario: an engine on another flows protocol is refused, naming which side to upgrade
     Given a test project

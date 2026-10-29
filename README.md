@@ -67,7 +67,7 @@ Put a `gtd.config.ts` at your repository's root (see [Install](#install)) and
 commit it; gtd refuses to run without one. The repository need not be a
 JavaScript project: gtd resolves the config's `@pmelab/gtd/*` imports itself, so
 a Python, Rust or notes repository needs no `package.json` and no install. Then
-run `gtd install`: it writes nothing and prints a briefing (and where to get a
+run `gtd guide`: it writes nothing and prints a briefing (and where to get a
 workflow, if you have none yet). Pipe that briefing into your coding agent and
 answer its questions. It should build you a script that will autonomously run
 the process for you. Ask your agent if you have any questions.
@@ -263,7 +263,7 @@ gtd next | claude -p --dangerously-skip-permissions
 **The turn ends when `claude -p` returns** — a command the agent backgrounds
 dies unread, and the process stalls on an empty turn. Claude Code lets the agent
 background commands and caps foreground ones at 10 minutes by default, so a real
-driver exports these first (`gtd install`'s reference driver does):
+driver exports these first (`gtd guide`'s reference driver does):
 
 ```bash
 export CLAUDE_CODE_DISABLE_BACKGROUND_TASKS=1
@@ -381,7 +381,7 @@ But lets be honest, who reads documentation these days. Paste this into your
 coding agent:
 
 ```
-!gtd install
+!gtd guide
 ```
 
 It prints a self-contained briefing that teaches the agent to set the project
@@ -447,9 +447,10 @@ The workflow itself is a plain async TypeScript function, and the
 `gtd.config.ts` at the repository root names it. A workflow may be a factory —
 `feature({ testCommand: "npm run ci" })` — whose options gtd validates when it
 loads the config: a misspelled or mistyped one fails every command, naming the
-workflow, the key and what was expected. `gtd doors` lists the doors of the
-workflows your config exports, and `gtd --workflow <name>` starts any workflow
-by name. See
+workflow, the key and what was expected. `gtd start` lists the workflows your
+config exports and the doors they bring, and `gtd start <name> [args...]` starts
+one by name (`gtd door`, `gtd doors` and `gtd --workflow <name>` are the older
+spellings). See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md) —
 and remember gtd evaluates that file on every command. A shared workflow package
 bundling its own `@pmelab/gtd` is checked against the running gtd and refused,
@@ -484,14 +485,16 @@ doesn't lose it. `/gtd ship` pushes this process's own ref to origin alongside
 the branch (never the others) and writes a `Gtd-History: <ref>` trailer on the
 squashed commit. The push is forced, so it replaces origin's copy of that one
 ref. If that push fails, the ship fails and nothing is squashed. Recover the
-full trail with `gtd history fetch | sh`, then `gtd history show <ref>`.
+full trail with `s=$(gtd history fetch --json=script) && sh -c "$s"`, then
+`gtd history show <ref>`.
 
 ```sh
 gtd history list                 # one line per kept process
 gtd history show <ref>           # replay its steps, judge verdicts and approvals
 gtd history metrics [ref...]     # how the kept processes went, per process and in total
 gtd history judges [ref...]      # how often each judge's verdicts were overturned
-gtd history fetch | sh           # pull every kept ref from origin
+# pull every kept ref from origin
+s=$(gtd history fetch --json=script) && sh -c "$s"
 ```
 
 `gtd history metrics` measures gtd-workflows' `default` `feature` workflow from
@@ -537,12 +540,13 @@ contradicts it:
 
 Any other verdict has no outcome. The report counts verdicts, scored verdicts
 and overturns per judge and per `p` bucket (`0.8-0.9: 1/2` — one of two
-overturned). `--var <threshold>=<value>` re-decides every past verdict under
-another threshold and prints the decisions that would change, against the
-threshold each process recorded (a process that recorded none is left out):
+overturned). `--threshold <name>=<value>` (formerly `--var`) re-decides every
+past verdict under another threshold and prints the decisions that would change,
+against the threshold each process recorded (a process that recorded none is
+left out):
 
 ```sh
-gtd history judges --var qualityTriageMinP=0.9
+gtd history judges --threshold qualityTriageMinP=0.9
 # what-if qualityTriageMinP=0.9: 7 noise drops become notes (2 overturned)
 ```
 
@@ -600,25 +604,30 @@ approvals as `approvals` (`[]` when none), and `gtd history show` prints each as
 gtd is one package, `@pmelab/gtd`, and every entrypoint shares its version and
 [SemVer promise](https://github.com/pmelab/gtd/blob/main/COMPATIBILITY.md).
 
-| Import                        | What it is                                                                                                                                                                      |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@pmelab/gtd/flows`           | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                |
-| `@pmelab/gtd/wire`            | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                    |
-| `@pmelab/gtd/steering`        | The steering-file formats (`qa`, `review`, `findings`) and the review-note readers.                                                                                             |
-| `@pmelab/gtd/workflow-kit`    | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails.                                                           |
-| `@pmelab/gtd/testkit`         | Runs any workflow against the real engine in an in-memory repository, under any test runner. See [Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md). |
-| `@pmelab/gtd/testkit/gherkin` | The testkit as quickpickle steps for vitest. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                                      |
+| Import                        | What it is                                                                                                                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@pmelab/gtd/flows`           | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                                        |
+| `@pmelab/gtd/wire`            | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                                            |
+| `@pmelab/gtd/steering`        | The steering-file formats (`qa`, `review`, `findings`), the review-note readers, and `sections`, `threads` and `openQuestions` as plain functions.                                                      |
+| `@pmelab/gtd/workflow-kit`    | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails. See [Workflow kit](https://github.com/pmelab/gtd/blob/main/docs/workflow-kit.md). |
+| `@pmelab/gtd/testkit`         | Runs any workflow against the real engine in an in-memory repository, under any test runner. See [Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md).                         |
+| `@pmelab/gtd/testkit/gherkin` | The testkit as quickpickle steps for vitest. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                                                              |
+
+A name marked `@deprecated` as internal to gtd still works, and leaves its
+entrypoint only in a major release.
 
 Types come from the TypeScript sources the package ships. Configs never need an
 install for any of these but the testkit's: gtd resolves a `gtd.config.ts`'s
 `@pmelab/gtd/*` imports to its own copy.
 
-The `gtd` bin's commands — `next`, `land`, `abandon`, `restore`, `validate`,
-`check`, `uncheck`, `install`, `summary`, `base`, `door`, `doors`, `version`,
-`help`, `history list`, `history show`, `history metrics`, `history judges`,
-`history fetch`, `strays`, and the tools `ui`, `lsp`, `judge` (`judge answer`,
-`judge run`) — are listed in the
-[CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
+The `gtd` bin's commands — `next`, `land`, `start`, `abandon`, `restore`,
+`validate`, `check`, `uncheck`, `guide`, `summary`, `base`, `version`, `help`,
+`history list`, `history show`, `history metrics`, `history judges`,
+`history fetch`, `strays`, the tools `ui`, `lsp`, `judge` (`judge answer`,
+`judge run`), and the older spellings `door`, `doors` and `install` — are listed
+in the [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
+Every command that prints a script takes `--json=script`, and `--` ends the
+options.
 
 ## License
 

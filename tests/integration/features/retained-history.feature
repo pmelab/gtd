@@ -74,8 +74,8 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
     And the git ref "refs/worktree/gtd/history" does not exist
 
   Scenario: reports the restored state via the emitted script, in plain text
-    # No --json here (restore is plain-text only, see AGENTS.md) — the
-    # printed script's own restore printf names the state it restored to.
+    # Plain output here — the printed script's own restore printf names the
+    # state it restored to.
     Given a file "NOTE.md" with:
       """
       Build a thing.

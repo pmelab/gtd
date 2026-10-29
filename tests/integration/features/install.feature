@@ -21,6 +21,17 @@ Feature: gtd install — the driver-building briefing, and where to get a workfl
     And the git status is clean
 
   @inmem
+  Scenario: gtd guide is the same briefing, and its warning names the spelling used
+    Given a test project
+    And I record the commit count
+    When I run gtd with args "guide"
+    Then it succeeds
+    And stdout contains "gtd door"
+    And stderr contains "gtd guide: no gtd.config.ts governs here, and gtd ships no workflow"
+    And the commit count is unchanged
+    And the git status is clean
+
+  @inmem
   Scenario: a repository with its own gtd.config.ts is left untouched, without the warning
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
@@ -69,7 +80,7 @@ Feature: gtd install — the driver-building briefing, and where to get a workfl
     When I run gtd with args "install --json"
     Then it fails
     And stderr contains "only valid for `gtd next`"
-    And stderr contains "gtd install"
+    And stderr contains "gtd guide"
 
   @inmem
   Scenario: gtd install takes no arguments and no out-of-scope flags

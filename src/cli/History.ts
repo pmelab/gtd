@@ -3,7 +3,13 @@ import { historyTrail } from "../edge/index.js"
 import { combinedScript, fetchHistoryRefs } from "../emit/index.js"
 import { GitService, Narrator, PROCESS_HISTORY_PREFIX } from "../platform/index.js"
 import { parseCommitMessage } from "../replay/index.js"
-import { writeJson, type ArtifactOut, type CommandRequirements, type JsonMode } from "./Output.js"
+import {
+  writeJson,
+  writeScript,
+  type ArtifactOut,
+  type CommandRequirements,
+  type JsonMode,
+} from "./Output.js"
 
 export interface HistoryEntry {
   readonly ref: string
@@ -138,8 +144,7 @@ export const runHistoryShowCommand = (
 /** Prints the script and never runs git: gtd's promise that it only decides and prints. */
 export const runHistoryFetchCommand = (
   remote: string,
+  json: JsonMode,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
-  Effect.sync(() => {
-    out.write(`${combinedScript(fetchHistoryRefs(remote), "")}\n`)
-  })
+  writeScript(json, out, `${combinedScript(fetchHistoryRefs(remote), "")}\n`)

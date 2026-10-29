@@ -37,6 +37,7 @@ const FLAG_NAMES = [
   "--model",
   "--workflow",
   "--var",
+  "--threshold",
   "--open-questions",
   "--open-threads",
   "--verbose",
@@ -105,13 +106,21 @@ describe("parseArgv — scope", () => {
     if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd land`")
   })
 
-  it("--json is in scope for next, land, judge and judge answer — every other command usage-errors on it", () => {
+  it("--json is in scope for next, land, the judge and script commands and the listings — every other command usage-errors on it", () => {
     for (const args of [
       ["next", "--json"],
       ["land", "--json"],
       ["judge", "--json"],
       ["judge", "answer", "--json"],
       ["doors", "--json"],
+      ["validate", "--json"],
+      ["abandon", "--json"],
+      ["restore", "--json"],
+      ["start", "--json"],
+      ["start", "fix", "--json"],
+      ["door", "fix", "--json"],
+      ["--workflow", "some-state", "--json"],
+      ["history", "fetch", "--json"],
     ]) {
       const ok = parseArgv(["node", "gtd.js", ...args])
       expect(ok.kind).toBe("command")
@@ -120,18 +129,17 @@ describe("parseArgv — scope", () => {
 
     for (const args of [
       ["lsp", "--json"],
-      ["validate", "--json"],
       ["check", "qa", "TODO.md", "--json"],
       ["install", "--json"],
-      ["abandon", "--json"],
-      ["restore", "--json"],
-      ["--workflow", "some-state", "--json"],
+      ["guide", "--json"],
+      ["summary", "--json"],
+      ["base", "--json"],
     ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
       expect(plan.kind).toBe("usage")
       if (plan.kind === "usage") {
         expect(plan.message).toContain("only valid for `gtd next`/`gtd land`")
-        expect(plan.message).toContain("gtd install")
+        expect(plan.message).toContain("gtd guide")
       }
     }
   })
@@ -171,7 +179,9 @@ describe("parseArgv — scope", () => {
     const plan = parseArgv(["node", "gtd.js", "land", "--var", "a=1"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage")
-      expect(plan.message).toBe("gtd: --var requires --workflow (or `gtd history judges`)")
+      expect(plan.message).toBe(
+        "gtd: --var is only valid for `gtd start <name>` and `gtd --workflow <name>` (or, deprecated, `gtd history judges`)",
+      )
   })
 
   it("--cost with --workflow is rejected (landing and starting are different verbs)", () => {
@@ -190,13 +200,14 @@ describe("parseArgv — scope", () => {
     for (const args of [
       ["validate", "--workflow", "e"],
       ["land", "--workflow", "e"],
+      ["start", "--workflow", "e"],
     ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
       expect(plan.kind).toBe("usage")
       if (plan.kind === "usage") {
         expect(plan.message).toBe(
-          "gtd: --workflow is only valid with no other command — use the bare `gtd --workflow <name>` " +
-            "form; landing and starting are different verbs",
+          "gtd: --workflow is only valid with no other command — write `gtd start <name>`, " +
+            "or the bare `gtd --workflow <name>`; landing and starting are different verbs",
         )
       }
     }
@@ -370,13 +381,13 @@ describe("parseArgv — bare/unknown command under --json", () => {
     }
   })
 
-  it("bare gtd prints a short usage, not the overview, and points at gtd help and gtd install", () => {
+  it("bare gtd prints a short usage, not the overview, and points at gtd help and gtd guide", () => {
     const plan = parseArgv(["node", "gtd.js"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") {
       expect(plan.message).toContain("missing command")
       expect(plan.message).toContain("`gtd help`")
-      expect(plan.message).toContain("gtd install")
+      expect(plan.message).toContain("gtd guide")
       expect(plan.stdout).toMatch(/^Usage: gtd <command>/)
       expect(plan.stdout.split("\n").length).toBeLessThan(10)
     }
@@ -729,14 +740,21 @@ describe("parseArgv — --verbose / -v (the -v/-V swap)", () => {
   })
 })
 
-describe("parseArgv — gtd install", () => {
-  it("parses to an install command", () => {
-    const plan = parseArgv(["node", "gtd.js", "install"])
-    expect(plan.kind).toBe("command")
-    if (plan.kind === "command") {
-      expect(plan.command).toEqual({ kind: "install" })
-      expect(plan.json).toEqual({ kind: "off" })
+describe("parseArgv — gtd guide / gtd install", () => {
+  it("parses to an install command naming the spelling used", () => {
+    for (const name of ["guide", "install"] as const) {
+      const plan = parseArgv(["node", "gtd.js", name])
+      expect(plan.kind).toBe("command")
+      if (plan.kind === "command") {
+        expect(plan.command).toEqual({ kind: "install", name })
+        expect(plan.json).toEqual({ kind: "off" })
+      }
     }
+  })
+
+  it("help names install as the older spelling of guide", () => {
+    expect(helpFor("help", "install")).toContain("The older name of `gtd guide`")
+    expect(renderHelp()).toMatch(/^ {2}install +Same as guide$/m)
   })
 
   it("--json is out of scope for install — the briefing is plain text only", () => {
@@ -895,7 +913,7 @@ describe("parseArgv — gtd judge run", () => {
     [["judge", "run", "--answers", "a.json"], "--answers is only valid with --provider fixed"],
     [["judge", "run", "--provider", "jev", "--model", "x"], "--model"],
     [["judge", "run", "--provider", "fixed", "--model", "x"], "--model"],
-    [["next", "--model", "x"], "`gtd land` (with --cost) or `gtd judge run`"],
+    [["next", "--model", "x"], "`gtd land` (with --cost: the model to record the cost against)"],
     [["judge", "run", "--provider", "fixed", "--json"], "--json is only valid"],
     [["judge", "run", "--provider", "fixed", "--answers="], "requires a value"],
     [["judge", "--provider", "fixed"], "only valid for `gtd judge run`"],
@@ -949,8 +967,10 @@ describe("parseArgv — doors", () => {
     if (plan.kind === "usage") expect(plan.message).toContain("too many arguments")
   })
 
-  it("`gtd door` rejects --json and --var — a door's vars come from its args", () => {
-    expect(parse("door", "fix", "--json").kind).toBe("usage")
+  it("`gtd door` takes --json but rejects --var — `gtd start <door>` takes both", () => {
+    expect(parse("door", "fix", "--json=script")).toMatchObject({
+      json: { kind: "select", path: "script" },
+    })
     expect(parse("door", "fix", "--var", "a=1").kind).toBe("usage")
   })
 
@@ -1000,6 +1020,48 @@ describe("parseArgv — gtd history", () => {
     })
   })
 
+  it("judges takes --threshold, and --var as its deprecated spelling", () => {
+    expect(parse("history", "judges", "--threshold", "qualityTriageMinP=0.9")).toMatchObject({
+      command: { kind: "historyJudges", vars: { qualityTriageMinP: "0.9" } },
+    })
+    expect(
+      parse(
+        "history",
+        "judges",
+        "--threshold=qualityTriageMinP=0.9",
+        "--var",
+        "judgeIdenticalMinP=0.5",
+      ),
+    ).toMatchObject({
+      command: { vars: { qualityTriageMinP: "0.9", judgeIdenticalMinP: "0.5" } },
+    })
+    expect(
+      usage(
+        parse(
+          "history",
+          "judges",
+          "--threshold=qualityTriageMinP=0.9",
+          "--var=qualityTriageMinP=0.8",
+        ),
+      ),
+    ).toContain("given as both --threshold and --var")
+    expect(usage(parse("history", "judges", "--threshold", "reviewBase=main"))).toBe(
+      "gtd history judges: --threshold reviewBase is no judge threshold — use judgeIdenticalMinP or qualityTriageMinP",
+    )
+    expect(usage(parse("history", "judges", "--threshold", "qualityTriageMinP=x"))).toContain(
+      "--threshold qualityTriageMinP must be a number",
+    )
+    expect(
+      usage(parse("history", "judges", "--jsonl", "--threshold", "qualityTriageMinP=1")),
+    ).toContain("mutually exclusive")
+    expect(usage(parse("history", "metrics", "--threshold", "qualityTriageMinP=1"))).toContain(
+      "only valid for `gtd history judges`",
+    )
+    const help = helpFor("help", "history", "judges")
+    expect(help).toContain("--threshold <name>=<value>")
+    expect(help).toContain("Deprecated: the same as --threshold")
+  })
+
   it("judges takes only judge thresholds as --var, and --jsonl alone", () => {
     expect(usage(parse("history", "judges", "--var", "reviewBase=main"))).toContain(
       "no judge threshold",
@@ -1035,7 +1097,7 @@ describe("parseArgv — gtd history", () => {
     expect(usage(parse("history", "fetch", "a", "b"))).toContain("too many arguments")
   })
 
-  it("--json is accepted for list, show and metrics, rejected for fetch", () => {
+  it("--json is accepted for list, show, metrics and fetch", () => {
     expect(parse("history", "list", "--json")).toMatchObject({ json: { kind: "document" } })
     expect(parse("history", "show", "x", "--json=ended")).toMatchObject({
       json: { kind: "select", path: "ended" },
@@ -1043,7 +1105,9 @@ describe("parseArgv — gtd history", () => {
     expect(parse("history", "metrics", "--json=total.refactorFirstRate")).toMatchObject({
       json: { kind: "select", path: "total.refactorFirstRate" },
     })
-    expect(parse("history", "fetch", "--json").kind).toBe("usage")
+    expect(parse("history", "fetch", "--json=script")).toMatchObject({
+      json: { kind: "select", path: "script" },
+    })
   })
 
   it("help lists the four history rows", () => {
@@ -1053,6 +1117,70 @@ describe("parseArgv — gtd history", () => {
     expect(help).toContain("history fetch [remote]")
     expect(help).toContain("history metrics [ref...]")
     expect(help).toContain("history judges [ref...]")
+  })
+})
+
+describe("parseArgv — gtd start", () => {
+  const parse = (...args: string[]): CliPlan => parseArgv(["node", "gtd.js", ...args])
+
+  it("bare `gtd start` parses with no name, so the loaded config can list what starts", () => {
+    expect(parse("start")).toEqual({
+      kind: "command",
+      command: { kind: "startNamed", args: [], vars: {} },
+      json: { kind: "off" },
+      verbose: false,
+    })
+    expect(parse("start", "--json")).toMatchObject({ json: { kind: "document" } })
+  })
+
+  it("carries the name, every positional after it, and the --var pins", () => {
+    expect(parse("start", "review", "main", "--var", "a=1", "--var=b=2")).toMatchObject({
+      command: { kind: "startNamed", name: "review", args: ["main"], vars: { a: "1", b: "2" } },
+    })
+  })
+
+  it("--var with no name is a usage error", () => {
+    const plan = parse("start", "--var", "a=1")
+    expect(plan.kind === "usage" && plan.message).toContain("--var needs a <name>")
+  })
+
+  it("its help names doors, workflows, --var and the --json=script idiom", () => {
+    const help = helpFor("help", "start")
+    expect(help).toMatch(/^Usage: gtd start \[name\] \[args\.\.\.\] \[options\]\n/)
+    expect(help).toMatch(/A door\s+shadows a workflow of the same name/)
+    expect(help).toContain("--var <name>=<value>")
+    expect(help).toContain('s=$(gtd start <name> --json=script) && sh -c "$s"')
+  })
+})
+
+describe("parseArgv — -- ends the options", () => {
+  const parse = (...args: string[]): CliPlan => parseArgv(["node", "gtd.js", ...args])
+
+  it("every word after -- is a positional, even one that looks like an option", () => {
+    expect(parse("strays", "a..b", "--", "--weird", "-x")).toMatchObject({
+      command: { kind: "strays", globs: ["--weird", "-x"] },
+    })
+    expect(parse("start", "fix", "--json=script", "--", "--var")).toMatchObject({
+      command: { kind: "startNamed", name: "fix", args: ["--var"], vars: {} },
+      json: { kind: "select", path: "script" },
+    })
+  })
+
+  it("--help, -h, --version and -V after -- are arguments, not short-circuits", () => {
+    expect(parse("start", "fix", "--", "--help")).toMatchObject({
+      command: { kind: "startNamed", args: ["--help"] },
+    })
+    expect(parse("start", "fix", "--", "-V").kind).toBe("command")
+    expect(parse("next", "--", "--version")).toMatchObject({ kind: "usage" })
+  })
+
+  it("a bare -- changes nothing", () => {
+    expect(parse("next", "--")).toEqual(parse("next"))
+  })
+
+  it("an option that needs a value never takes -- as it", () => {
+    const plan = parse("start", "fix", "--var", "--", "a=1")
+    expect(plan.kind === "usage" && plan.message).toContain("--var requires a value")
   })
 })
 
@@ -1148,11 +1276,17 @@ const listedCommands = (): string[] =>
 describe("renderHelp", () => {
   it("groups the commands and mentions no removed surface", () => {
     const help = renderHelp()
-    for (const heading of ["Core loop:", "Start and stop:", "Inspect:", "Driver plumbing:"]) {
+    for (const heading of [
+      "Core loop:",
+      "Start and stop:",
+      "Inspect:",
+      "Driver plumbing:",
+      "Older spellings:",
+    ]) {
       expect(help).toContain(`\n${heading}\n`)
     }
     expect(help).toContain("--workflow <name>")
-    expect(help).toContain("--var")
+    expect(help).toContain("start [name] [args...]")
     expect(help).toContain("check <mode> <file>")
     expect(help).toContain("door <name> [args...]")
     expect(help).toContain("-V, --version")
@@ -1206,7 +1340,10 @@ describe("renderHelp", () => {
 
   it("a flag that means something else per command is described per command", () => {
     expect(helpFor("help", "land")).toContain("With --cost: the model")
+    expect(helpFor("help", "land")).toContain("nothing runs on it")
     expect(helpFor("help", "judge", "run")).toContain("The claude model")
+    expect(helpFor("help", "abandon")).toContain("Print { schema, script }")
+    expect(helpFor("help", "next")).not.toContain("Print { schema, script }")
   })
 
   it("--help after an unknown command still prints the overview", () => {

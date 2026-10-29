@@ -256,7 +256,7 @@ Feature: gtd --workflow <name> — start a brand new process on a named workflow
     When I run gtd next
     Then it fails
     And stderr contains "no default export"
-    And stderr contains "gtd install"
+    And stderr contains "gtd guide"
 
   Scenario: a helper re-exported from another module is a startable workflow
     Given a gtd config file at "helpers.ts" with:

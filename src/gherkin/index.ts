@@ -16,8 +16,8 @@ import { pathToFileURL } from "node:url"
 import {
   runsItsScript,
   testRepo,
-  type Actor,
   type CannedCommand,
+  type ScriptedActor,
   type TestRepo,
   type WorkflowModule,
 } from "../testkit/index.js"
@@ -37,10 +37,18 @@ export class TestkitWorld extends QuickPickleWorld {
   private gtdConfig: WorkflowModule | undefined = undefined
   private env: Record<string, string> = {}
   private commands: CannedCommand[] = []
-  /** Per step, what its scripted actor does, in the order the scenario declared it. */
-  actions = new Map<string, Actor[]>()
+  private modules: Record<string, Readonly<Record<string, unknown>>> = {}
+  /**
+   * Per step, what its scripted actor does, in the order the scenario declared it.
+   * @deprecated Use `act`, `rescript` and `unscript`.
+   */
+  actions = new Map<string, ScriptedActor[]>()
+  /** @deprecated Use `answer`. */
   verdicts = new Map<string, string>()
-  /** Per judge step, a verdict for each text its questions may contain; the first match answers. */
+  /**
+   * Per judge step, a verdict for each text its questions may contain; the first match answers.
+   * @deprecated Use `answerWhen`.
+   */
   conditionalVerdicts = new Map<string, [text: string, verdict: string][]>()
   private created: TestRepo | undefined = undefined
 
@@ -70,6 +78,21 @@ export class TestkitWorld extends QuickPickleWorld {
     this.env[name] = value
   }
 
+  /** Unlike `setEnv`, also once the repository exists: gtd sees it from its next call on. */
+  changeEnv(name: string, value: string): void {
+    if (this.created === undefined) this.env[name] = value
+    else this.created.setEnv(name, value)
+  }
+
+  /**
+   * Lets a config given as source import `module` as `specifier`. A support
+   * file may call it for every scenario, e.g. from a `Before` hook.
+   */
+  importable(specifier: string, module: Readonly<Record<string, unknown>>): void {
+    this.assertNotCreated(`the module ${specifier}`)
+    this.modules[specifier] = module
+  }
+
   private assertNotCreated(what: string): void {
     if (this.created !== undefined) {
       throw new Error(`${what} must be set before any step that touches the repository`)
@@ -83,15 +106,40 @@ export class TestkitWorld extends QuickPickleWorld {
       workflow: this.gtdConfig,
       env: this.env,
       commands: this.commands,
+      modules: this.modules,
     }))
   }
 
-  act(step: string, action: Actor): void {
+  /** Adds `action` to what `step`'s actor does at every visit. */
+  act(step: string, action: ScriptedActor): void {
     this.actions.set(step, [...(this.actions.get(step) ?? []), action])
   }
 
+  /** Drops every action queued for `step`, leaving `action` alone. */
+  rescript(step: string, action: ScriptedActor): void {
+    this.actions.set(step, [action])
+  }
+
+  /** Drops every action queued for `step`, so a drive rests there. */
+  unscript(step: string): void {
+    this.actions.delete(step)
+  }
+
+  /** Judge step `step` answers `verdict`, a JSON array. */
+  answer(step: string, verdict: string): void {
+    this.verdicts.set(step, verdict)
+  }
+
+  /** Judge step `step` answers `verdict` when its questions contain `text`; the first match answers. */
+  answerWhen(step: string, text: string, verdict: string): void {
+    this.conditionalVerdicts.set(step, [
+      ...(this.conditionalVerdicts.get(step) ?? []),
+      [text, verdict],
+    ])
+  }
+
   async drive(): Promise<void> {
-    const actors: Record<string, Actor> = {}
+    const actors: Record<string, ScriptedActor> = {}
     const used = usedActors.get(this) ?? new Set<string>()
     usedActors.set(this, used)
     for (const [step, actions] of this.actions) {
@@ -121,7 +169,7 @@ export class TestkitWorld extends QuickPickleWorld {
         return hit[1]
       }
     }
-    const tracked: Record<string, Actor> = {}
+    const tracked: Record<string, ScriptedActor> = {}
     for (const [step, actor] of Object.entries(actors)) {
       tracked[step] = (beat, repo) => {
         used.add(step)
@@ -136,7 +184,12 @@ setWorldConstructor(TestkitWorld)
 
 const withNewline = (content: string): string => (content.endsWith("\n") ? content : `${content}\n`)
 
-const args = (list: string): string[] => list.split(" ").filter((arg) => arg !== "")
+// Space-separated; a word that opens with a quote runs to its closing quote,
+// spaces included, so `--var 'title=a b'` is two arguments.
+const args = (list: string): string[] =>
+  [...list.matchAll(/(["'])(.*?)\1(?=\s|$)|\S+/g)].map(([word, quote, inner]) =>
+    quote === undefined ? word : inner!,
+  )
 
 const neverUsed = (world: TestkitWorld): string[] => {
   const used = usedActors.get(world) ?? new Set<string>()
@@ -183,6 +236,28 @@ Given(
   },
 )
 
+Given(
+  "the environment variable {string} is {string}",
+  (world: TestkitWorld, name: string, value: string) => {
+    world.setEnv(name, value)
+  },
+)
+
+Given(
+  "from now on the environment variable {string} is {string}",
+  (world: TestkitWorld, name: string, value: string) => {
+    world.changeEnv(name, value)
+  },
+)
+
+// Imported by the test runner, like `a gtd config from the module`.
+Given(
+  "the module {string} is importable as {string}",
+  async (world: TestkitWorld, path: string, specifier: string) => {
+    world.importable(specifier, { ...(await import(pathToFileURL(resolve(path)).href)) })
+  },
+)
+
 Given("the command {string} exits {int}", (world: TestkitWorld, run: string, exit: number) => {
   world.command({ run, exit })
 })
@@ -194,8 +269,26 @@ Given(
   },
 )
 
+Given(
+  "the command matching {string} exits {int}",
+  (world: TestkitWorld, pattern: string, exit: number) => {
+    world.command({ run: new RegExp(pattern), exit })
+  },
+)
+
+Given(
+  "the command matching {string} exits {int} with:",
+  (world: TestkitWorld, pattern: string, exit: number, output: string) => {
+    world.command({ run: new RegExp(pattern), exit, output: withNewline(output) })
+  },
+)
+
 Given("a branch {string}", (world: TestkitWorld, name: string) => {
   world.repo().branch(name)
+})
+
+Given("a branch {string} at {string}", (world: TestkitWorld, name: string, ref: string) => {
+  world.repo().branch(name, ref)
 })
 
 Given("{string} is checked out", (world: TestkitWorld, name: string) => {
@@ -227,10 +320,14 @@ Given(
   },
 )
 
-Given("{string} gets appended:", (world: TestkitWorld, path: string, text: string) => {
+const append = (world: TestkitWorld, path: string, text: string): void => {
   const content = world.repo().read(path) ?? ""
   world.repo().write(path, `${content.trimEnd()}\n\n${text}\n`)
-})
+}
+
+Given("{string} gets appended:", append)
+
+Given("text is appended to {string}:", append)
 
 Given("the working tree is committed as {string}", (world: TestkitWorld, message: string) => {
   world.repo().commit(message)
@@ -246,12 +343,12 @@ Given("step {string} changes nothing", (world: TestkitWorld, step: string) => {
 
 // Unlike `changes nothing`, this drops every action already queued for the step.
 Given("step {string} from now on changes nothing", (world: TestkitWorld, step: string) => {
-  world.actions.set(step, [() => undefined])
+  world.rescript(step, () => undefined)
 })
 
 // Lets a later visit rest at a step an earlier one had scripted.
 Given("step {string} is no longer scripted", (world: TestkitWorld, step: string) => {
-  world.actions.delete(step)
+  world.unscript(step)
 })
 
 Given(
@@ -314,30 +411,45 @@ Given(
 
 // A closing step deletes the file before its collecting turn runs, so this edit
 // leaves a closed turn changing nothing while still answering an in-gate one.
-Given(
-  "step {string} rewrites {string} with:",
-  (world: TestkitWorld, step: string, path: string, content: string) => {
-    world.act(step, (_, repo) => {
-      if (repo.read(path) !== undefined) repo.write(path, withNewline(content))
-    })
-  },
-)
+const overwrite = (world: TestkitWorld, step: string, path: string, content: string): void => {
+  world.act(step, (_, repo) => {
+    if (repo.read(path) !== undefined) repo.write(path, withNewline(content))
+  })
+}
+
+Given("step {string} rewrites {string} with:", overwrite)
+
+Given("step {string} overwrites {string}, if it exists, with:", overwrite)
 
 Given("step {string} runs its script", (world: TestkitWorld, step: string) => {
   world.act(step, runsItsScript)
 })
 
+/** A check step's script, every command it runs answering as `command` does. */
+const checkRuns = (world: TestkitWorld, step: string, command: Omit<CannedCommand, "run">) => {
+  world.act(step, (beat, repo) => {
+    if (beat.actor !== "check")
+      throw new Error(`step "${step}" is no check step; its actor is ${beat.actor}`)
+    repo.runScript(beat.content, { commands: [{ ...command, run: /[\s\S]*/ }] })
+  })
+}
+
+Given("check step {string} passes", (world: TestkitWorld, step: string) => {
+  checkRuns(world, step, {})
+})
+
+Given("check step {string} fails with:", (world: TestkitWorld, step: string, output: string) => {
+  checkRuns(world, step, { exit: 1, output: withNewline(output) })
+})
+
 Given("judge step {string} answers:", (world: TestkitWorld, step: string, verdict: string) => {
-  world.verdicts.set(step, String(verdict))
+  world.answer(step, String(verdict))
 })
 
 Given(
   "judge step {string}, when its questions contain {string}, answers:",
   (world: TestkitWorld, step: string, text: string, verdict: string) => {
-    world.conditionalVerdicts.set(step, [
-      ...(world.conditionalVerdicts.get(step) ?? []),
-      [text, String(verdict)],
-    ])
+    world.answerWhen(step, text, String(verdict))
   },
 )
 
@@ -416,6 +528,55 @@ Then(
 )
 
 Then(
+  "the process stalls at {string}",
+  outcome(async (world, step: string) => {
+    const beat = await world.repo().next()
+    if (beat.kind !== "stalled" || beat.state !== step)
+      assert.fail(
+        `expected a stall at "${step}", but the process rests at "${beat.state}" (${beat.kind})`,
+      )
+  }),
+)
+
+/** A beat field by its dotted path (`model`, `access.write`), as text: a string as is, anything else as JSON. */
+const beatField = async (world: TestkitWorld, path: string): Promise<unknown> => {
+  let value: unknown = await world.repo().next()
+  for (const key of path.split(".")) {
+    value =
+      typeof value === "object" && value !== null
+        ? (value as Record<string, unknown>)[key]
+        : undefined
+  }
+  return value
+}
+
+const asText = (value: unknown): string =>
+  typeof value === "string" ? value : (JSON.stringify(value) ?? "undefined")
+
+Then(
+  "the resting step's {word} is {string}",
+  outcome(async (world, path: string, expected: string) => {
+    const value = asText(await beatField(world, path))
+    if (value !== expected)
+      assert.fail(`the resting step's ${path} is not "${expected}"; it is:\n${value}`)
+  }),
+)
+
+Then(
+  "the resting step's {word} includes {string}",
+  outcome(async (world, path: string, expected: string) => {
+    const value = await beatField(world, path)
+    const found = Array.isArray(value)
+      ? value.some((item) => asText(item) === expected)
+      : typeof value === "string" && value.includes(expected)
+    if (!found)
+      assert.fail(
+        `the resting step's ${path} does not include "${expected}"; it is:\n${asText(value)}`,
+      )
+  }),
+)
+
+Then(
   "the resting step's content contains {string}",
   outcome(async (world, text: string) => {
     assertContains("the resting step's content", text, (await world.repo().next()).content)
@@ -451,6 +612,37 @@ Then(
   outcome((world, list: string) => {
     const expected = list.split("\n").filter((line) => line.trim() !== "")
     assert.deepStrictEqual(world.repo().subjects().slice(-expected.length), expected)
+  }),
+)
+
+Then(
+  "the last commit body contains {string}",
+  outcome((world, text: string) => {
+    assertContains("the last commit's message", text, world.repo().messages().at(-1))
+  }),
+)
+
+// Every commit with the subject, so a repeated step is not judged by its first match.
+Then(
+  "the commit {string} has a body containing {string}",
+  outcome((world, subject: string, text: string) => {
+    const matching = world
+      .repo()
+      .commits()
+      .filter((commit) => commit.subject === subject)
+    assert.ok(matching.length > 0, `no commit "${subject}"`)
+    for (const { message } of matching) assertContains(`the commit "${subject}"`, text, message)
+  }),
+)
+
+Then(
+  "no commit body contains {string}",
+  outcome((world, text: string) => {
+    const hit = world
+      .repo()
+      .messages()
+      .find((message) => message.includes(text))
+    if (hit !== undefined) assert.fail(`a commit's message contains "${text}":\n${hit}`)
   }),
 )
 
@@ -506,6 +698,13 @@ Then(
     const hash = repo.hashes()[repo.subjects().lastIndexOf(subject)]
     assert.ok(hash !== undefined, `no commit "${subject}"`)
     assertContains(`"${path}"`, hash.slice(0, 7), repo.read(path))
+  }),
+)
+
+Then(
+  "{string} as committed at {string} contains {string}",
+  outcome((world, path: string, ref: string, text: string) => {
+    assertContains(`"${path}" at ${ref}`, text, world.repo().show(ref, path))
   }),
 )
 
