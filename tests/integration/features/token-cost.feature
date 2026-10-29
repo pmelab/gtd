@@ -135,15 +135,15 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const summary = (it) => `feat: ship it\n\nTotal token cost: ${it.processCost}`
+
+      export default workflow(async () => {
         await human("idle", { message: "go" })
         await agent("building", "build it")
         await agent("finishing", "write DONE.md")
-      }
-
-      export const summary = (it) => `feat: ship it\n\nTotal token cost: ${it.processCost}`
+      }, { summary })
       """
     And a file "NOTE.md" with:
       """
@@ -288,21 +288,21 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
-        await human("idle", { message: "go" })
-        await agent("building", "build it")
-        await agent("finishing", "write DONE.md")
-      }
-
-      export const summary = (it) =>
+      const summary = (it) =>
         [
           "feat: ship it",
           "",
           `Total token cost: ${it.processCost}`,
           ...it.processCostByModel.map((m) => `- ${m.model}: ${m.cost}`),
         ].join("\n")
+
+      export default workflow(async () => {
+        await human("idle", { message: "go" })
+        await agent("building", "build it")
+        await agent("finishing", "write DONE.md")
+      }, { summary })
       """
     And a file "NOTE.md" with:
       """

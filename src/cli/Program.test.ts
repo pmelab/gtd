@@ -81,25 +81,26 @@ const seedIdle = (): InMemRepo => {
   return repo
 }
 
-describe("gtd --workflow <name> — a custom workflow's named workflow", () => {
-  const WORKFLOW = `import { agent, human } from "@pmelab/gtd/flows"
+describe("gtd start <name> — a custom workflow's named workflow", () => {
+  const WORKFLOW = `import { agent, human, workflow } from "@pmelab/gtd/flows"
 
 export default async () => {
   await human("idle", { message: "hi" })
   await agent("working", "go")
 }
 
-export const hotfix = async () => {
-  await agent("working", "go")
-}
-
-export const defaults = { greeting: "hello" }
+export const hotfix = workflow(
+  async () => {
+    await agent("working", "go")
+  },
+  { defaults: { greeting: "hello" } },
+)
 `
 
   it("the happy path emits the opening commit's script — gtd itself writes nothing", async () => {
     const repo = seed(WORKFLOW)
     const before = repo.commitHistory().length
-    const { stdout, exitCode } = await run(repo, "--workflow", "hotfix")
+    const { stdout, exitCode } = await run(repo, "start", "hotfix")
     expect(exitCode).toBe(0)
     expect(stdout).toContain(
       commitAll(
@@ -109,21 +110,20 @@ export const defaults = { greeting: "hello" }
     expect(repo.commitHistory()).toHaveLength(before)
   })
 
-  it("an unknown workflow is a usage error (exit 2) listing every startable name", async () => {
+  it("an unknown name is a usage error (exit 2) pointing at the list", async () => {
     const repo = seed(WORKFLOW)
     const before = repo.commitHistory().length
-    const { exitCode, stderr } = await run(repo, "--workflow", "bogus")
+    const { exitCode, stderr } = await run(repo, "start", "bogus")
     expect(exitCode).toBe(2)
     expect(repo.commitHistory()).toHaveLength(before)
-    expect(stderr).toContain('unknown workflow "bogus"')
-    expect(stderr).toContain("startable: hotfix")
+    expect(stderr).toContain('no workflow or door is named "bogus" — run `gtd start` to list them')
   })
 
   it("lists the paths its script commits as comments a path cannot break out of", async () => {
     const repo = seed(WORKFLOW)
     repo.writeFile("NOTE.md", "a note\n")
     repo.writeFile("evil\nrm -rf x", "")
-    const { stdout, exitCode } = await run(repo, "--workflow", "hotfix")
+    const { stdout, exitCode } = await run(repo, "start", "hotfix")
     expect(exitCode).toBe(0)
     expect(stdout).toContain("# commits every change in the working tree (git add -A):\n")
     expect(stdout).toContain("#   A NOTE.md\n")
@@ -134,9 +134,9 @@ export const defaults = { greeting: "hello" }
 
   it("`default` is not startable by name", async () => {
     const repo = seed(WORKFLOW)
-    const { exitCode, stderr } = await run(repo, "--workflow", "default")
+    const { exitCode, stderr } = await run(repo, "start", "default")
     expect(exitCode).toBe(2)
-    expect(stderr).toContain('unknown workflow "default"')
+    expect(stderr).toContain('no workflow or door is named "default"')
   })
 
   it("--entry is an ordinary unknown flag", async () => {
@@ -149,17 +149,18 @@ export const defaults = { greeting: "hello" }
     const repo = seed(WORKFLOW)
     await landTurn(repo, { ".gtd/TODO.md": "sketch\n" })
     const before = repo.commitHistory().length
-    const { exitCode, stderr } = await run(repo, "--workflow", "hotfix")
+    const { exitCode, stderr } = await run(repo, "start", "hotfix")
     expect(exitCode).toBe(1)
     expect(repo.commitHistory()).toHaveLength(before)
     expect(stderr).toContain("already underway")
   })
 
-  it("an undeclared --var name refuses, listing the declared names", async () => {
+  it("an undeclared --var name is a usage error (exit 2), listing the declared names", async () => {
     const repo = seed(WORKFLOW)
     const before = repo.commitHistory().length
-    const { exitCode, stderr } = await run(repo, "--workflow", "hotfix", "--var", "bogus=1")
-    expect(exitCode).toBe(1)
+    const { exitCode, stderr, stdout } = await run(repo, "start", "hotfix", "--var", "bogus=1")
+    expect(exitCode).toBe(2)
+    expect(stdout).toBe("")
     expect(repo.commitHistory()).toHaveLength(before)
     expect(stderr).toContain("bogus")
     expect(stderr).toContain("greeting")
@@ -168,7 +169,7 @@ export const defaults = { greeting: "hello" }
   it("a declared --var override renders as a Gtd-Var trailer in the emitted commit script", async () => {
     const repo = seed(WORKFLOW)
     const before = repo.commitHistory().length
-    const { exitCode, stdout } = await run(repo, "--workflow", "hotfix", "--var", "greeting=world")
+    const { exitCode, stdout } = await run(repo, "start", "hotfix", "--var", "greeting=world")
     expect(exitCode).toBe(0)
     expect(stdout).toContain("Gtd-Var: greeting=world")
     expect(repo.commitHistory()).toHaveLength(before)
@@ -178,7 +179,7 @@ export const defaults = { greeting: "hello" }
     const repo = seed(WORKFLOW)
     repo.writeFile("scratch.txt", "uncommitted\n")
     const before = repo.commitHistory().length
-    const { exitCode, stdout } = await run(repo, "--workflow", "hotfix")
+    const { exitCode, stdout } = await run(repo, "start", "hotfix")
     expect(exitCode).toBe(0)
     expect(stdout.length).toBeGreaterThan(0)
     expect(repo.commitHistory()).toHaveLength(before)
@@ -186,7 +187,7 @@ export const defaults = { greeting: "hello" }
 
   it("applying the start script opens the workflow's episode at its first step", async () => {
     const repo = seed(WORKFLOW)
-    const { stdout } = await run(repo, "--workflow", "hotfix")
+    const { stdout } = await run(repo, "start", "hotfix")
     expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
     expect(repo.lastCommitSubject()).toBe("gtd(human): working")
     const next = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
@@ -197,7 +198,7 @@ export const defaults = { greeting: "hello" }
 
   it("a pinned workflow the config no longer defines is refused with the abandon advice", async () => {
     const repo = seed(WORKFLOW)
-    const { stdout } = await run(repo, "--workflow", "hotfix")
+    const { stdout } = await run(repo, "start", "hotfix")
     applyEmittedScript(repo, new Map(), stdout)
     repo.writeFile("gtd.config.ts", WORKFLOW.replace("export const hotfix", "const hotfix"))
     const { exitCode, stderr } = await run(repo, "next")
@@ -207,18 +208,16 @@ export const defaults = { greeting: "hello" }
   })
 })
 
-describe("gtd install", () => {
+describe("gtd guide", () => {
   it("where no gtd.config.ts governs, prints the briefing and warns where to get a workflow — writing nothing", async () => {
     const repo = new InMemRepo()
     repo.writeFile("README.md", "# test project\n")
     repo.seedCommit("chore: init")
     const before = repo.snapshot()
-    const { stdout, stderr, exitCode } = await run(repo, "install")
+    const { stdout, stderr, exitCode } = await run(repo, "guide")
     expect(exitCode).toBe(0)
     expect(stdout).toMatch(/Make sure a .gtd\.config\.ts. governs the repository/)
-    expect(stderr).toContain(
-      "gtd install: no gtd.config.ts governs here, and gtd ships no workflow",
-    )
+    expect(stderr).toContain("gtd guide: no gtd.config.ts governs here, and gtd ships no workflow")
     expect(stderr).toContain(WORKFLOWS_REPO)
     expect(repo.hasPath("gtd.config.ts")).toBe(false)
     expect(repo.snapshot()).toBe(before)
@@ -226,42 +225,35 @@ describe("gtd install", () => {
 
   it("where a gtd.config.ts governs, prints the briefing alone", async () => {
     const repo = seedIdle()
-    const { stdout, stderr, exitCode } = await run(repo, "install")
+    const { stdout, stderr, exitCode } = await run(repo, "guide")
     expect(exitCode).toBe(0)
     expect(stdout).toMatch(/Make sure a .gtd\.config\.ts. governs the repository/)
     expect(stderr).not.toContain(WORKFLOWS_REPO)
   })
 })
 
-describe("gtd --workflow <name> — a workflow that fixes its diff base", () => {
-  const WORKFLOW = `import { human } from "@pmelab/gtd/flows"
+describe("gtd start <name> — a workflow that fixes its diff base", () => {
+  const WORKFLOW = `import { human, workflow } from "@pmelab/gtd/flows"
 
 export default async () => {
   await human("idle", { message: "hi" })
 }
 
-export const review = async () => {
-  await human("checking", { message: "check" })
-}
-
-export const defaults = { reviewBase: "" }
-
-export const base = (workflow, vars) => (workflow === "review" ? vars.reviewBase : undefined)
+export const review = workflow(
+  async () => {
+    await human("checking", { message: "check" })
+  },
+  { defaults: { reviewBase: "" }, base: (_workflow, vars) => vars.reviewBase },
+)
 `
 
-  it("--workflow review --var reviewBase=<base> emits a script anchoring the process to that base", async () => {
+  it("start review --var reviewBase=<base> emits a script anchoring the process to that base", async () => {
     const repo = seed(WORKFLOW)
     const base = repo.commitHistory().at(-1)!.hash
     repo.writeFile("scratch.txt", "more work\n")
     repo.seedCommit("chore: more work")
     const before = repo.commitHistory().length
-    const { stdout, exitCode } = await run(
-      repo,
-      "--workflow",
-      "review",
-      "--var",
-      `reviewBase=${base}`,
-    )
+    const { stdout, exitCode } = await run(repo, "start", "review", "--var", `reviewBase=${base}`)
     expect(exitCode).toBe(0)
     expect(stdout).toContain("gtd(human): checking")
     expect(stdout).toContain("Gtd-Workflow: review")
@@ -453,7 +445,7 @@ export default async () => {
 })
 
 describe("gtd next --json — stall detection (attempt commits)", () => {
-  const WORKFLOW = `import { agent, human, run } from "@pmelab/gtd/flows"
+  const WORKFLOW = `import { agent, human, run, workflow } from "@pmelab/gtd/flows"
 
 const work = async () => {
   await agent("working", "do the work described in NOTE.md")
@@ -465,7 +457,7 @@ export default async () => {
   await work()
 }
 
-export const resume = work
+export const resume = workflow(work)
 `
 
   const atWorking = async (): Promise<InMemRepo> => {
@@ -502,7 +494,7 @@ export const resume = work
 
   it("a clean-tree entry commit resting at a prompt step is NOT a stall — the actor differs (human entered, agent acts)", async () => {
     const repo = seed(WORKFLOW)
-    const { stdout: entry } = await run(repo, "--workflow", "resume")
+    const { stdout: entry } = await run(repo, "start", "resume")
     expect(applyEmittedScript(repo, new Map(), entry).ok).toBe(true)
     const { stdout, exitCode } = await run(repo, "next", "--json")
     expect(exitCode).toBe(0)
@@ -1001,18 +993,19 @@ describe("gtd check <mode> <file>", () => {
     )
   })
 
-  it("an absent file exits 0 with no output", async () => {
+  it("an absent file is a refusal (exit 1) naming it", async () => {
     const repo = bareRepo()
-    const { stdout, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md")
-    expect(exitCode).toBe(0)
+    const { stdout, stderr, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md")
+    expect(exitCode).toBe(1)
     expect(stdout).toBe("")
+    expect(stderr).toContain("gtd check: no such file: .gtd/TODO.md")
   })
 
-  it("an unknown mode is a usage-style error naming the known modes", async () => {
+  it("an unknown mode is a usage error (exit 2) naming the known modes", async () => {
     const repo = bareRepo()
     repo.writeFile("TODO.md", validQaDoc)
     const { stderr, exitCode } = await run(repo, "check", "bogus", "TODO.md")
-    expect(exitCode).toBe(1)
+    expect(exitCode).toBe(2)
     expect(stderr).toContain('unknown mode "bogus"')
     expect(stderr).toContain("qa")
     expect(stderr).toContain("review")
@@ -1244,13 +1237,6 @@ describe("gtd check <mode> <file> --open-questions", () => {
     expect(stderr).toContain(".gtd/TODO.md")
   })
 
-  it("check without the flag is unchanged: an absent file still exits 0 with no output", async () => {
-    const repo = bareRepo()
-    const { stdout, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md")
-    expect(exitCode).toBe(0)
-    expect(stdout).toBe("")
-  })
-
   it("--json is out of scope for check --open-questions too — a usage error, never a JSON envelope", async () => {
     const repo = bareRepo()
     repo.writeFile(".gtd/TODO.md", docWithUnanswered)
@@ -1277,7 +1263,7 @@ describe("gtd check <mode> <file> --open-questions", () => {
       "--open-questions",
       ".gtd/TODO.md",
     )
-    expect(exitCode).not.toBe(0)
+    expect(exitCode).toBe(2)
     expect(stderr).toContain('unknown mode "bogus"')
     expect(stderr).toContain("qa")
     expect(stderr).toContain("review")
@@ -1718,17 +1704,14 @@ describe("runCommand — refuses in a repository with no commits", () => {
     lsp: { kind: "lsp" },
     ui: { kind: "ui", selfSigned: false, dev: false },
     land: { kind: "land" },
-    start: { kind: "start", actor: "human", workflow: "feature", vars: {}, label: "" },
-    door: { kind: "door", name: "fix", args: [] },
-    startNamed: { kind: "startNamed", name: "fix", args: [], vars: {} },
-    doors: { kind: "doors" },
+    start: { kind: "start", name: "fix", args: [], vars: {} },
     abandon: { kind: "abandon" },
     restore: { kind: "restore" },
     next: { kind: "next" },
     validate: { kind: "validate" },
     check: { kind: "check", mode: "qa", file: ".gtd/TODO.md" },
     uncheck: { kind: "uncheck", file: ".gtd/REVIEW.md" },
-    install: { kind: "install", name: "guide" },
+    guide: { kind: "guide" },
     summary: { kind: "summary" },
     base: { kind: "base" },
     judge: { kind: "judge" },
@@ -1749,15 +1732,12 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
 
-  it("derives exactly the nineteen non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the sixteen non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
       [
         "abandon",
         "base",
-        "door",
-        "doors",
         "start",
-        "startNamed",
         "land",
         "next",
         "restore",
@@ -1832,16 +1812,19 @@ describe("runCommand — refuses in a repository with no commits", () => {
 })
 
 describe("gtd summary", () => {
-  const SUMMARY_WORKFLOW = `import { agent, human } from "@pmelab/gtd/flows"
+  const SUMMARY_WORKFLOW = `import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-export default async () => {
+export default workflow(
+  async () => {
     await human("idle", { message: "hi" })
     await agent("working", "go")
     await human("reviewing", { message: "check it" })
     await agent("polishing", "polish")
-  }
-
-export const summary = (c) => \`entry=\${c.entryCommit} tip=\${c.processTip} humans=\${c.humanCommits.length}\`
+  },
+  {
+    summary: (c) => \`entry=\${c.entryCommit} tip=\${c.processTip} humans=\${c.humanCommits.length}\`,
+  },
+)
 `
 
   const reviewed = async (): Promise<InMemRepo> => {
@@ -2133,14 +2116,15 @@ describe("gtd judge / gtd judge answer", () => {
   const QUESTION = `{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }`
 
   const judgeWorkflow = (evidence: string, then: string, vars = "{}"): string =>
-    `import { agent, human, judge, read } from "@pmelab/gtd/flows"
+    `import { agent, human, judge, read, workflow } from "@pmelab/gtd/flows"
 
-export default async () => {
+export default workflow(
+  async () => {
     await judge("idle", { questions: [${QUESTION}], evidence: ${evidence} })
     await ${then}
-  }
-
-export const defaults = ${vars}
+  },
+  { defaults: ${vars} },
+)
 `
 
   const seededRepo = (): InMemRepo =>

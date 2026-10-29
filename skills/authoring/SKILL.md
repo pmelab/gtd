@@ -11,26 +11,27 @@ description: >-
 # Authoring a gtd workflow
 
 A gtd workflow is **plain async TypeScript**: a `gtd.config.ts` at the
-repository root exports **workflows** — every exported async function is one,
-named by its export, awaiting **steps** built from `@pmelab/gtd/flows`; the
-`default` export is the ordinary start. Optional reserved exports (`defaults`
-process settings, `envDefaults` environment settings, `summary`, `base`,
-`steering`, `skills`, `access`, `doors`) are shared by the file's workflows; a
-`defineWorkflow` build may carry `skills`, `access`, `steering` and `summary`
-itself, the file's exports winning per entry. **Never export a helper function
-you do not want startable** — it becomes a workflow. Wrap the workflows you mean
-in `workflow(async () => …)`: once one is marked, loading warns about every
-other exported function. Every step is a commit; gtd finds where a process rests
-by **replaying** the flow over the episode's commits, so the git history IS the
-state and nothing is stored anywhere else.
+repository root exports **workflows** — each an async flow wrapped in
+`workflow(flow, options?)` (or a `defineWorkflow` factory), named by its export,
+awaiting **steps** built from `@pmelab/gtd/flows`; the `default` export is the
+ordinary start and may be a plain flow. Any other exported function is a plain
+helper. A workflow's options — `defaults` (process settings), `envDefaults`
+(environment settings), `summary`, `base`, `steering`, `skills`, `access`,
+`doors` — go in `workflow(flow, { … })` or a factory build, never in file-level
+exports: exporting one of those names fails the load. `workflow()` returns a new
+function and leaves `flow` untouched, so an already-wrapped flow (one a library
+exports) can be wrapped again: `workflow(libraryFlow, { … })` — its options
+replace the library's, nothing is merged. Every step is a commit; gtd finds
+where a process rests by **replaying** the flow over the episode's commits, so
+the git history IS the state and nothing is stored anywhere else.
 
 Your job is to produce or edit that module so it loads cleanly and does what the
 user wants. Driving a workflow once it exists is a separate concern — that is
 what a driver does.
 
 **Trust:** gtd evaluates `gtd.config.ts` on every command that resolves workflow
-state (`gtd next`, `gtd lsp`, `gtd door` and `gtd doors` included). It is code
-the user's repository runs; write it with the same care as a build script.
+state (`gtd next`, `gtd lsp` and `gtd start` included). It is code the user's
+repository runs; write it with the same care as a build script.
 
 ## Golden rule: start from an existing workflow, edit incrementally
 
@@ -41,36 +42,28 @@ pinned on the machine — `bin/gtd-wf pin` there, then `bin/gtd-wf config defaul
 prints a `gtd.config.ts` importing its bundle by absolute path. Every phase and
 single step that bundle is built from is a named export too, so a config can
 import what it keeps and write only what changes. Import phases by name; **never
-`export *` from it** — every exported function of your file would become a
-startable workflow:
+`export *` from it** — re-exported option names fail the load:
 
 ```ts
-import { start } from "@pmelab/gtd/flows"
+import { start, workflow } from "@pmelab/gtd/flows"
 import {
   afterTail,
   buildTail,
-  feature,
-} from "/home/me/.local/share/gtd/workflows/dist/default.mjs"
-
-export {
   defaults,
   envDefaults,
-  summary,
-  base,
-  steering,
+  feature,
   skills,
 } from "/home/me/.local/share/gtd/workflows/dist/default.mjs"
 
 export default feature()
 
-export async function hotfix() {
-  return afterTail(await buildTail(start(), { fixFirst: true }))
-}
-
-export const doors = { hotfix: { workflow: "hotfix" } }
+export const hotfix = workflow(
+  async () => afterTail(await buildTail(start(), { fixFirst: true })),
+  { defaults, envDefaults, skills, doors: { hotfix: {} } },
+)
 ```
 
-`gtd --workflow hotfix` (or `gtd door hotfix`) starts it. Use the checkout's
+`gtd start hotfix` starts it (the door of the same name too). Use the checkout's
 real path; `gtd-wf status` shows it.
 
 To change a phase itself, read its source in the checkout (`workflows/default/`)
@@ -122,21 +115,23 @@ workflow that fails to load breaks every gtd command in the repository.
 
 Options (all optional): `label`, `file` (a `.gtd/` path), `mode` (needs `file`;
 `qa`, `review`, `findings`, or a `config.modes` name), `message` (human/judge),
-`model`, `system` (agent), `allowEmpty` (agent), `acceptClean` (human), `base`
-(the commit the step reviews since — what `gtd base` prints).
+`model`, `system` (agent), `allowEmpty` (agent), `keep` (agent, not with
+`allowEmpty`), `acceptClean` (human), `approve` (human, not with `file`/`mode`),
+`base` (the commit the step reviews since — what `gtd base` prints). The types
+reject the combinations replay refuses.
 
 Helpers — pure reads of the commit replay stands on (the tree the last step
 left, never the live working tree): `read(path)`, `glob(pattern)`,
 `changes(glob?)` (what the last step changed: `{ path, status, before, after }`
 per path, `status` one of `"added"`/`"modified"`/`"deleted"`, plus `paths` and
 `get(path)`), `sections(text)` (`## ` headings), `openQuestions(text)` (a `qa`
-document's unanswered questions), `vars` (process settings, pinned at process
-start — safe to branch on), `env` (environment settings, read live — only for
-prompt text, step options and `run()` bodies, never a branch) — also spelled
-`settings`/`envSettings`, and `settingsOf(defaults)` types them by the declared
-names — `head()` (the commit the flow stands on) and `start()` (the process's
-diff base). State a flow needs across steps — a counter, the previous report, a
-review round's base — lives in local variables; replay rebuilds them.
+document's unanswered questions), `settings` (process settings, pinned at
+process start — safe to branch on), `envSettings` (environment settings, read
+live — only for prompt text, step options and `run()` bodies, never a branch) —
+`settingsOf(defaults)` types them by the declared names — `head()` (the commit
+the flow stands on) and `start()` (the process's diff base). State a flow needs
+across steps — a counter, the previous report, a review round's base — lives in
+local variables; replay rebuilds them.
 
 Composition: `scope(name, fn)` prefixes step names (`build.fix`) and sets their
 **memory scope** (one scope = one agent conversation = one model/system/skills —
@@ -161,14 +156,13 @@ copies under the same names.
 - An episode ends when the flow returns or calls `restart()`; the next starts at
   the flow's first step on an ordinary start — that step is where a finished
   process waits (gtd-workflows' default uses `human("idle", …)`).
-- `gtd --workflow <name>` starts a process on the exported workflow `<name>` (an
-  unknown name is a usage error); `gtd door <name> [args]` starts one through a
-  `doors` entry `{ workflow, args?, vars? }` (`gtd doors` lists them). A
-  factory's build may return `doors` without `workflow`; exporting
-  gtd-workflows' `fix`, `review`, `rollout` and `cleanup` brings `fix`,
-  `review [base]`, `rollout <flag>` and `cleanup <flag>`, and yours merge over
-  them. An `export const base = (workflow, vars) => commitish | undefined` fixes
-  a started process's diff base (blank = default-branch merge-base).
+- `gtd start <name>` starts a process on the exported workflow `<name>` (an
+  unknown name is a usage error), or through a door `<name> [args]`; bare
+  `gtd start` lists both. A workflow's `doors` option maps a door name to
+  `{ args?, vars? }`; exporting gtd-workflows' `fix`, `review`, `rollout` and
+  `cleanup` brings `fix`, `review [base]`, `rollout <flag>` and
+  `cleanup <flag>`. A `base: (workflow, vars) => commitish | undefined` option
+  fixes a started process's diff base (blank = default-branch merge-base).
   `--var <name>=<value>` only pins process settings: names the workflow's
   `defaults` declare — never an environment setting.
 
@@ -190,7 +184,7 @@ Branch on what the step left, not on who acted:
 ```ts
 await run(
   "check",
-  `${env.testCommand} > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md`,
+  `${envSettings.testCommand} > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md`,
 )
 if (read(".gtd/FEEDBACK.md") !== undefined) {
   await agent("fix", "Fix what .gtd/FEEDBACK.md reports, then delete it.", {

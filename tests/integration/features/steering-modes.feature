@@ -319,6 +319,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     And the shell command "strip-trailing-space $GTD_FILE" exits 0 with:
       """
+
       """
       # The mode declares a formatter and no validator, so gtd's open-questions
       # parser still runs — and still rejects an `### ` question heading with

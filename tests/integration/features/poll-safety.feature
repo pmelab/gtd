@@ -19,7 +19,7 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -27,9 +27,9 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
         await human("waiting", { message: "answer the open question" })
       }
 
-      export const fix = async () => {
+      export const fix = workflow(async () => {
         await agent("fixing", "Fix it.")
-      }
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -55,7 +55,7 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -63,9 +63,9 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
         await human("waiting", { message: "answer the open question" })
       }
 
-      export const fix = async () => {
+      export const fix = workflow(async () => {
         await agent("fixing", "Fix it.")
-      }
+      })
       """
     And a file "NOTE.md" with:
       """
@@ -100,7 +100,7 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
@@ -108,12 +108,12 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
         await human("waiting", { message: "answer the open question" })
       }
 
-      export const fix = async () => {
+      export const fix = workflow(async () => {
         await agent("fixing", "Fix it.")
-      }
+      })
       """
     And the git index has settled
     And I snapshot the repository
-    When I run gtd with args "--workflow fix"
+    When I run gtd with args "start fix"
     Then it succeeds
     And the repository snapshot has changed

@@ -1,9 +1,8 @@
-import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 import * as kit from "./index.js"
 
 describe("@pmelab/gtd/workflow-kit", () => {
-  it("publishes its helpers by name, routeNotes deprecated among them", () => {
+  it("publishes its helpers by name", () => {
     expect(Object.keys(kit).sort()).toEqual(
       [
         "assertionLines",
@@ -19,11 +18,8 @@ describe("@pmelab/gtd/workflow-kit", () => {
         "removedAssertions",
         "review",
         "reviewToHandOff",
-        "routeNotes",
         "untilSettled",
       ].sort(),
     )
-    const source = readFileSync(new URL("./index.ts", import.meta.url), "utf8")
-    expect(source).toMatch(/\/\*\* @deprecated [^\n]*\*\/\nexport const routeNotes =/)
   })
 })

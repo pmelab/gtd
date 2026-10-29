@@ -63,7 +63,7 @@ Feature: an inline flow end to end — qualified names, process boundaries, read
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
         let fixes = 0
-        while (!(await check("check", "npm test", { report: ".gtd/FEEDBACK.md" }))) {
+        while (!(await check("check", "npm test", ".gtd/FEEDBACK.md"))) {
           if (++fixes > 2) {
             await human("stuck", { message: "too many fixes" })
             return

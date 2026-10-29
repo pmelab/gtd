@@ -1,7 +1,7 @@
 @inmem
 Feature: "vars" and "env" — the merged setting maps every workflow sees
 
-  Pins the merged `vars` map: a workflow's own `defaults` export, overridden by
+  Pins the merged `vars` map: a workflow's own `defaults` option, overridden by
   a `GTD_<NAME>` environment variable — later wins, as of the process's start
   (it is pinned then). The `env` map layers the same way from `envDefaults`,
   but is read live on every call. Flow
@@ -12,14 +12,14 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, vars } from "@pmelab/gtd/flows"
+      import { agent, human, settings, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { reviewer: "alice" }
+
+      export default workflow(async () => {
         await human("idle", { message: "start" })
-        await agent("working", `Assigned reviewer: ${vars.reviewer}`)
-      }
-
-      export const defaults = { reviewer: "alice" }
+        await agent("working", `Assigned reviewer: ${settings.reviewer}`)
+      }, { defaults })
       """
     And a file "NOTE.md" with:
       """
@@ -34,14 +34,14 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, vars } from "@pmelab/gtd/flows"
+      import { agent, human, settings, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { reviewer: "alice" }
+
+      export default workflow(async () => {
         await human("idle", { message: "start" })
-        await agent("working", `Assigned reviewer: ${vars.reviewer}`)
-      }
-
-      export const defaults = { reviewer: "alice" }
+        await agent("working", `Assigned reviewer: ${settings.reviewer}`)
+      }, { defaults })
       """
     And a file "NOTE.md" with:
       """
@@ -58,11 +58,11 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, vars } from "@pmelab/gtd/flows"
+      import { agent, human, settings } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "start" })
-        await agent("working", `Brand new: ${vars.brandNew}`)
+        await agent("working", `Brand new: ${settings.brandNew}`)
       }
       """
     And a file "NOTE.md" with:
@@ -79,15 +79,15 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, run, vars } from "@pmelab/gtd/flows"
+      import { agent, human, run, settings, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { testCommand: "npm test" }
+
+      export default workflow(async () => {
         await human("idle", { message: "start" })
         await agent("building", "build")
-        await run("checking", `${vars.testCommand} > .gtd/.check-output 2>&1`)
-      }
-
-      export const defaults = { testCommand: "npm test" }
+        await run("checking", `${settings.testCommand} > .gtd/.check-output 2>&1`)
+      }, { defaults })
       """
     And an environment variable "GTD_TESTCOMMAND" set to "echo overridden"
     And a file "NOTE.md" with:
@@ -109,14 +109,14 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, scope, vars } from "@pmelab/gtd/flows"
+      import { agent, human, scope, settings, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { reviewModel: "opus" }
+
+      export default workflow(async () => {
         await human("idle", { message: "start" })
-        await scope({ model: vars.reviewModel }, () => agent("working", "do the work"))
-      }
-
-      export const defaults = { reviewModel: "opus" }
+        await scope({ model: settings.reviewModel }, () => agent("working", "do the work"))
+      }, { defaults })
       """
     And a file "NOTE.md" with:
       """
@@ -135,10 +135,10 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, vars } from "@pmelab/gtd/flows"
+      import { agent, settings } from "@pmelab/gtd/flows"
 
       export default async () => {
-        const nope = vars.nope as unknown as { deeper: string }
+        const nope = settings.nope as unknown as { deeper: string }
         await agent("working", "do the work", { model: nope.deeper })
       }
       """
@@ -149,14 +149,14 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, env, human } from "@pmelab/gtd/flows"
+      import { agent, envSettings, human, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const envDefaults = { runner: "alice" }
+
+      export default workflow(async () => {
         await human("idle", { message: "start" })
-        await agent("working", `Runner: ${env.runner}`)
-      }
-
-      export const envDefaults = { runner: "alice" }
+        await agent("working", `Runner: ${envSettings.runner}`)
+      }, { envDefaults })
       """
     And a file "NOTE.md" with:
       """
@@ -168,14 +168,14 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
     And stdout contains "Runner: alice"
     Given a file "gtd.config.ts" with:
       """
-      import { agent, env, human } from "@pmelab/gtd/flows"
+      import { agent, envSettings, human, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const envDefaults = { runner: "bob" }
+
+      export default workflow(async () => {
         await human("idle", { message: "start" })
-        await agent("working", `Runner: ${env.runner}`)
-      }
-
-      export const envDefaults = { runner: "bob" }
+        await agent("working", `Runner: ${envSettings.runner}`)
+      }, { envDefaults })
       """
     When I run gtd next
     Then it succeeds

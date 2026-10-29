@@ -154,20 +154,19 @@ Feature: gtd base — prints the review anchor hash, writing nothing
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { reviewBase: "" }
+      const base = (workflow, vars) => (workflow === "review" ? vars.reviewBase : undefined)
+
+      export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
-      }
+      }, { defaults, base })
 
-      export const defaults = { reviewBase: "" }
-
-      export const base = (workflow, vars) => (workflow === "review" ? vars.reviewBase : undefined)
-
-      export async function review() {
+      export const review = workflow(async function review() {
         await agent("reviewing", "review the branch into REVIEW.md")
         await human("await-review", { message: "read REVIEW.md" })
-      }
+      }, { defaults, base })
       """
     And I mark the current commit as "boundary"
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
@@ -178,7 +177,7 @@ Feature: gtd base — prints the review anchor hash, writing nothing
       """
       export const untouched = () => true
       """
-    When I run gtd with args "--workflow review --var reviewBase=boundary"
+    When I run gtd with args "start review --var reviewBase=boundary"
     Then it succeeds
     And the last commit subject is "gtd(human): reviewing"
 

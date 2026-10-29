@@ -108,8 +108,8 @@ lensOf("security=opus") // { lens: "security", model: "opus" }
 
 ### `lensScopes(scope, lenses, entry)`
 
-One `<scope>.<lens>` entry per lens — the per-lens part of a `skills` or
-`access` export.
+One `<scope>.<lens>` entry per lens — the per-lens part of a workflow's `skills`
+or `access` option.
 
 ```ts
 const skills = lensScopes("quality", ["correctness", "security"], (lens) => [
@@ -240,8 +240,6 @@ const outcome = await review(start(), policy)
 `ReviewPolicy` is one interface of many members, optional hooks (`decided`,
 `settles`, `learn`, `pending`, `refusals.dropped`) among them. It stays one
 interface: splitting it would change the type every workflow passing one names.
-`routeNotes`, which `review` routes each round's notes with, is exported but
-deprecated — it leaves the entrypoint in a later major.
 
 ### `reviewToHandOff(base, policy)`
 

@@ -57,9 +57,9 @@ driver enforces it at the OS level. See
 
 > **A repository's `gtd.config.ts` is code, and gtd runs it.** A custom workflow
 > is a TypeScript module, and every gtd command that looks at workflow state —
-> `gtd next`, `gtd lsp`, `gtd door` and `gtd doors` included, not just
-> `gtd land` — evaluates it. Treat it like a Makefile or a `package.json`
-> script: don't run gtd in a checkout you don't trust.
+> `gtd next`, `gtd lsp` and `gtd start` included, not just `gtd land` —
+> evaluates it. Treat it like a Makefile or a `package.json` script: don't run
+> gtd in a checkout you don't trust.
 
 ## Quick start
 
@@ -346,9 +346,9 @@ The requirements go to the top of `.gtd/TODO.md`, above whatever it already
 holds. A long, multi-line requirements paste still starts a process; if Claude
 Code never expanded the paste, gtd says it could not read it, and you add the
 requirements to the top of `.gtd/TODO.md` and run `/gtd`. `/gtd <door> [args]`
-takes one of the doors `gtd doors` lists (gtd-workflows' `default` brings `fix`,
-`review [base]`, and `rollout <flag>` and `cleanup <flag>` where the config
-exports them); text whose word count does not fit a door's args (bare
+takes one of the doors a bare `gtd start` lists (gtd-workflows' `default` brings
+`fix`, `review [base]`, and `rollout <flag>` and `cleanup <flag>` where the
+config exports them); text whose word count does not fit a door's args (bare
 `/gtd rollout` included) starts a process from that text as requirements. At
 every human rest Claude itself takes over: it walks you through the open
 questions one at a time, answers your own questions about the plan or the diff,
@@ -390,8 +390,8 @@ you what you want before it starts driving. You get one prompt to paste, not a
 state name to choose. The four commands: **`gtd-build`** drives beats until the
 process rests; **`gtd-edit`** opens the steering file the process is waiting on
 right now — falling back to `.gtd/TODO.md` when the resting state declares none;
-**`gtd-door <name> [args...]`** starts a process through one of the doors
-`gtd doors` lists (`gtd-door fix`, `gtd-door review [base]` with gtd-workflows'
+**`gtd-door <name> [args...]`** starts a process through one of the doors a bare
+`gtd start` lists (`gtd-door fix`, `gtd-door review [base]` with gtd-workflows'
 `default`) and drives it. The `.gtd/TODO.md` fallback is also how you begin: on
 a clean repository the edit command opens the empty `.gtd/TODO.md`, and whatever
 you write there is the first sketch the whole process gets planned from. As a
@@ -449,8 +449,7 @@ The workflow itself is a plain async TypeScript function, and the
 loads the config: a misspelled or mistyped one fails every command, naming the
 workflow, the key and what was expected. `gtd start` lists the workflows your
 config exports and the doors they bring, and `gtd start <name> [args...]` starts
-one by name (`gtd door`, `gtd doors` and `gtd --workflow <name>` are the older
-spellings). See
+one by name; a door named like a workflow wins. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md) —
 and remember gtd evaluates that file on every command. A shared workflow package
 bundling its own `@pmelab/gtd` is checked against the running gtd and refused,
@@ -604,17 +603,14 @@ approvals as `approvals` (`[]` when none), and `gtd history show` prints each as
 gtd is one package, `@pmelab/gtd`, and every entrypoint shares its version and
 [SemVer promise](https://github.com/pmelab/gtd/blob/main/COMPATIBILITY.md).
 
-| Import                        | What it is                                                                                                                                                                                              |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@pmelab/gtd/flows`           | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                                        |
-| `@pmelab/gtd/wire`            | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                                            |
-| `@pmelab/gtd/steering`        | The steering-file formats (`qa`, `review`, `findings`), the review-note readers, and `sections`, `threads` and `openQuestions` as plain functions.                                                      |
-| `@pmelab/gtd/workflow-kit`    | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails. See [Workflow kit](https://github.com/pmelab/gtd/blob/main/docs/workflow-kit.md). |
-| `@pmelab/gtd/testkit`         | Runs any workflow against the real engine in an in-memory repository, under any test runner. See [Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md).                         |
-| `@pmelab/gtd/testkit/gherkin` | The testkit as quickpickle steps for vitest. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                                                              |
-
-A name marked `@deprecated` as internal to gtd still works, and leaves its
-entrypoint only in a major release.
+| Import                        | What it is                                                                                                                                                                                                                         |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@pmelab/gtd/flows`           | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, `workflow()`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                                                     |
+| `@pmelab/gtd/wire`            | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                                                                       |
+| `@pmelab/gtd/steering`        | The steering-file formats (`qa`, `review`, `findings`), the review-note readers, and `sections`, `threads` and `openQuestions` as plain functions.                                                                                 |
+| `@pmelab/gtd/workflow-kit`    | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails. See [Workflow kit](https://github.com/pmelab/gtd/blob/main/docs/workflow-kit.md).                            |
+| `@pmelab/gtd/testkit`         | Runs any workflow against the real engine in an in-memory repository, under any test runner, plus a flow-context harness for rendering prompts. See [Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md). |
+| `@pmelab/gtd/testkit/gherkin` | The testkit as quickpickle steps for vitest. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                                                                                         |
 
 Types come from the TypeScript sources the package ships. Configs never need an
 install for any of these but the testkit's: gtd resolves a `gtd.config.ts`'s
@@ -624,10 +620,9 @@ The `gtd` bin's commands — `next`, `land`, `start`, `abandon`, `restore`,
 `validate`, `check`, `uncheck`, `guide`, `summary`, `base`, `version`, `help`,
 `history list`, `history show`, `history metrics`, `history judges`,
 `history fetch`, `strays`, the tools `ui`, `lsp`, `judge` (`judge answer`,
-`judge run`), and the older spellings `door`, `doors` and `install` — are listed
-in the [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md).
-Every command that prints a script takes `--json=script`, and `--` ends the
-options.
+`judge run`) — are listed in the
+[CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md). Every
+command that prints a script takes `--json=script`, and `--` ends the options.
 
 ## License
 

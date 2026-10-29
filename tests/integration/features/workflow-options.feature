@@ -37,7 +37,7 @@ Feature: a workflow factory validates its options when the config loads
       export const greeter = greeting({ greeting: "hey" })
       export default greeter
       """
-    When I run gtd with args "--workflow greeter"
+    When I run gtd with args "start greeter"
     Then it succeeds
     And the last commit body contains "Gtd-Var: greeting=hey"
 

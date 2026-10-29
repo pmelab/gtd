@@ -83,14 +83,14 @@ interface EpisodeLocation {
   readonly legacyOpening: boolean
   /** The commit replay starts reading from, or -1 for the empty tree before history. */
   readonly baseIndex: number
-  /** The process's first commit — a `--workflow` process's opening commit, else the one after the base. */
+  /** The process's first commit — a `gtd start` process's opening commit, else the one after the base. */
   readonly processStart: number
 }
 
 /**
  * Where the episode HEAD belongs to begins, read off subjects alone. Walking
  * back from HEAD: a bare `gtd(human): <step>` commit with no `Gtd-Step` is what
- * `gtd --workflow` writes — no landing ever produces one — and opens an
+ * `gtd start` writes — no landing ever produces one — and opens an
  * episode as its first commit (its `Gtd-Workflow` trailer names the workflow;
  * a legacy `--entry` opening has none); a commit that is not a gtd step commit, or one
  * entering the flow's first step (a finished episode), bounds the episode
@@ -1039,7 +1039,7 @@ type EndedOutcome = Extract<ReplayOutcome, { kind: "ended" }>
 type UnendedOutcome = Exclude<ReplayOutcome, { kind: "ended" }>
 
 /**
- * Whether `gtd --workflow <name>` can start a process here: the workflow must
+ * Whether `gtd start <name>` can start a process here: the workflow must
  * reach a step from the tree the opening commit would capture. That step is
  * what the opening commit's subject names.
  */

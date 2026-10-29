@@ -25,8 +25,8 @@ Feature: a leftover .gtdrc fails loudly
     Then the exit code is 1
     And stdout is empty
     And stderr contains ".gtdrc.json: no longer read — delete it"
-    And stderr contains "vars    → an option of the workflow factory in gtd.config.ts, or its `defaults` export"
-    And stderr contains "env     → an option of the workflow factory in gtd.config.ts, or its `envDefaults` export"
+    And stderr contains "vars    → an option of the workflow factory in gtd.config.ts, or `workflow(flow, { defaults })`"
+    And stderr contains "env     → an option of the workflow factory in gtd.config.ts, or `workflow(flow, { envDefaults })`"
     And stderr contains "judge   → ~/.config/gtd/judge.json, or GTD_JUDGE_PROVIDER / GTD_JUDGE_MODEL"
     And stderr contains "modes, ui, skills, access → the `config` export of gtd.config.ts (`defineConfig`)"
     And stderr contains "docs/configuration.md#migrating-from-gtdrc"

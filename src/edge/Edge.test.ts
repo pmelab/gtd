@@ -105,8 +105,8 @@ const land = async (repo: InMemRepo, files: Files = {}): Promise<string> => {
 
 const enter = async (repo: InMemRepo, workflow: string, ...vars: string[]): Promise<string> => {
   const flags = vars.flatMap((v) => ["--var", v])
-  const { stdout, stderr, exitCode } = await cli(repo, "--workflow", workflow, ...flags)
-  if (exitCode !== 0) throw new Error(`gtd --workflow exited ${exitCode}: ${stderr}`)
+  const { stdout, stderr, exitCode } = await cli(repo, "start", workflow, ...flags)
+  if (exitCode !== 0) throw new Error(`gtd start exited ${exitCode}: ${stderr}`)
   return applied(repo, stdout)
 }
 
@@ -117,26 +117,26 @@ const commit = (repo: InMemRepo, spec: CommitSpec, files: Files = {}): string =>
   return headOf(repo)
 }
 
-const LINEAR = `import { agent, human } from "@pmelab/gtd/flows"
+const LINEAR = `import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-export default async () => {
+const defaults = { base: "", reviewer: "nobody" }
+const base = (workflow, vars) => (workflow === "review" ? (vars.base ?? "") : undefined)
+
+export default workflow(async () => {
   await human("idle", { message: "idle-message" })
   await agent("building", "build-prompt")
   await agent("checking", "check-prompt")
-}
+}, { defaults, base })
 
-export const side = async () => {
+export const side = workflow(async () => {
   await agent("fixing", "fix-prompt")
   await agent("tidying", "tidy-prompt", { allowEmpty: true })
-}
+}, { defaults, base })
 
-export const review = async () => {
+export const review = workflow(async () => {
   await agent("fixing", "fix-prompt")
-}
+}, { defaults, base })
 
-export const defaults = { base: "", reviewer: "nobody" }
-
-export const base = (workflow, vars) => (workflow === "review" ? (vars.base ?? "") : undefined)
 `
 
 describe("currentRun", () => {
@@ -220,18 +220,18 @@ describe("currentRun", () => {
   })
 
   it("a workflow starting at the default's initial step still opens its own episode, not the empty tree", async () => {
-    const STARTS_AT_INITIAL = `import { agent, human } from "@pmelab/gtd/flows"
+    const STARTS_AT_INITIAL = `import { agent, human, workflow } from "@pmelab/gtd/flows"
 
 export default async () => {
   await human("idle", { message: "idle-message" })
   await agent("building", "build-prompt")
 }
 
-export const again = async () => {
+export const again = workflow(async () => {
   await human("idle", { message: "idle-message" })
   await agent("fixing", "fix-prompt")
   await agent("tidying", "tidy-prompt", { allowEmpty: true })
-}
+})
 `
     const repo = repoWith(STARTS_AT_INITIAL)
     const before = headOf(repo)
@@ -539,9 +539,10 @@ describe("summaryRun", () => {
 })
 
 describe("process marks", () => {
-  const SUMMARISED = `${LINEAR}
-export const summary = (it) => it.marks.map((m) => m.name + "=" + m.value).join("|")
-`
+  const SUMMARISED = LINEAR.replace(
+    "export default",
+    `const summary = (it) => it.marks.map((m) => m.name + "=" + m.value).join("|")\n\nexport default`,
+  ).replaceAll("{ defaults, base }", "{ defaults, base, summary }")
   const opening = (marks: readonly Mark[]): CommitSpec => ({
     actor: "human",
     from: "idle",
@@ -609,17 +610,18 @@ const withTipMessage = (repo: InMemRepo, edit: (message: string) => string): Git
 }
 
 describe("summaryFor", () => {
-  const SUMMARISED_FLOW = `import { agent, human, mark } from "@pmelab/gtd/flows"
+  const SUMMARISED_FLOW = `import { agent, human, mark, workflow } from "@pmelab/gtd/flows"
 
-export default async () => {
+const summary = (it) => JSON.stringify(it)
+
+export default workflow(async () => {
   await human("idle", { message: "idle-message" })
   mark("risk-tier", "high")
   await agent("building", "build-prompt")
   await human("gate", { message: "gate-message" })
   await agent("checking", "check-prompt")
-}
+}, { summary })
 
-export const summary = (it) => JSON.stringify(it)
 `
   const landCost = async (repo: InMemRepo, files: Files, cost: number, model: string) => {
     write(repo, files)
@@ -678,7 +680,7 @@ export const summary = (it) => JSON.stringify(it)
   it("returns no prompt, not a failure, when an edited config no longer exports a summary", async () => {
     const { repo } = await finished()
     const run = await provide(summaryRun, repo)
-    repo.writeFile("gtd.config.ts", SUMMARISED_FLOW.replace(/export const summary.*\n/, ""))
+    repo.writeFile("gtd.config.ts", SUMMARISED_FLOW.replace(", { summary })", ")"))
     expect(await provide(summaryFor(run), repo)).toEqual({ prompt: undefined })
   })
 
@@ -773,24 +775,24 @@ export default async () => {
 })
 
 describe("reviewBaseFor", () => {
-  const LOOP = `import { agent, head, human, read } from "@pmelab/gtd/flows"
+  const LOOP = `import { agent, head, human, read, workflow } from "@pmelab/gtd/flows"
 
-export default async () => {
+const defaults = { base: "" }
+const base = (workflow, vars) => (workflow === "review" ? (vars.base ?? "") : undefined)
+
+export default workflow(async () => {
   await human("idle")
   while (read("DONE") === undefined) {
     const base = head()
     await human("checkpoint", { base })
     await agent("building", "build-prompt", { base })
   }
-}
+}, { defaults, base })
 
-export const review = async () => {
+export const review = workflow(async () => {
   await agent("fixing", "fix-prompt")
-}
+}, { defaults, base })
 
-export const defaults = { base: "" }
-
-export const base = (workflow, vars) => (workflow === "review" ? (vars.base ?? "") : undefined)
 `
 
   it("is the process's diff base at a step that names no base", async () => {
@@ -906,17 +908,18 @@ export default async () => {
 })
 
 describe("vars", () => {
-  const VARS = `import { agent, human } from "@pmelab/gtd/flows"
+  const VARS = `import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-export default async () => {
+const defaults = { deployTarget: "npm test", reviewer: "nobody" }
+
+export default workflow(async () => {
   await human("idle")
-}
+}, { defaults })
 
-export const side = async () => {
+export const side = workflow(async () => {
   await agent("working", "w")
-}
+}, { defaults })
 
-export const defaults = { deployTarget: "npm test", reviewer: "nobody" }
 `
   const seeded = () => repoWith(VARS)
 
@@ -960,17 +963,18 @@ export const defaults = { deployTarget: "npm test", reviewer: "nobody" }
 })
 
 describe("StartFlags", () => {
-  const FLAGGED = `import { agent, human } from "@pmelab/gtd/flows"
+  const FLAGGED = `import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-export default async () => {
+const defaults = { flag_risk_tier: "0", other: "x" }
+
+export default workflow(async () => {
   await human("idle")
-}
+}, { defaults })
 
-export const side = async () => {
+export const side = workflow(async () => {
   await agent("working", "w")
-}
+}, { defaults })
 
-export const defaults = { flag_risk_tier: "0", other: "x" }
 `
   const withFlags = <A>(
     eff: Effect.Effect<A, Error, RestRequirements>,
@@ -1004,15 +1008,16 @@ export const defaults = { flag_risk_tier: "0", other: "x" }
 })
 
 describe("environment settings", () => {
-  const ENVV = `import { agent, human } from "@pmelab/gtd/flows"
+  const ENVV = `import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-export default async () => {
+const defaults = { floor: "0.7" }
+const envDefaults = { testCommand: "npm test" }
+
+export default workflow(async () => {
   await human("idle")
   await agent("working", "w")
-}
+}, { defaults, envDefaults })
 
-export const defaults = { floor: "0.7" }
-export const envDefaults = { testCommand: "npm test" }
 `
   const seeded = () => repoWith(ENVV)
 
@@ -1119,18 +1124,21 @@ describe("noProcessUnderway / restIsIdle", () => {
 })
 
 describe("judge rests", () => {
-  const JUDGED = (budget: string) => `import { human, judge, read } from "@pmelab/gtd/flows"
+  const JUDGED = (
+    budget: string,
+  ) => `import { human, judge, read, workflow } from "@pmelab/gtd/flows"
 
-export default async () => {
+const defaults = { judgeBudgetBytes: ${JSON.stringify(budget)} }
+
+export default workflow(async () => {
     await human("idle")
     await judge("verdict", {
       questions: [{ id: "q", primitive: "noul", instructions: "i", criteria: "c" }],
       evidence: { log: read("LOG.md") ?? "" },
       message: "judge-message",
     })
-  }
+  }, { defaults })
 
-export const defaults = { judgeBudgetBytes: ${JSON.stringify(budget)} }
 `
   const LOG = Array.from({ length: 10 }, (_, i) => `line ${i} of the log`).join("\n") + "\n"
 
@@ -1315,17 +1323,17 @@ export default async () => {
     expect(landing.spec.branch).toBeUndefined()
   })
 
-  it("a --workflow process's entry is its opening commit", async () => {
-    const repo = repoWith(`import { agent, human } from "@pmelab/gtd/flows"
+  it("a gtd start process's entry is its opening commit", async () => {
+    const repo = repoWith(`import { agent, human, workflow } from "@pmelab/gtd/flows"
 
 export default async () => {
   await human("idle")
   await agent("building", "build-prompt")
 }
 
-export const side = async () => {
+export const side = workflow(async () => {
   await agent("fixing", "fix-prompt")
-}
+})
 `)
     const opening = await enter(repo, "side")
     repo.writeFile("a.txt", "a\n")

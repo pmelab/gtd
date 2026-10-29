@@ -3,25 +3,28 @@ import { describe, expect, it } from "vitest"
 import { planStart, type StartOutcome } from "./planStart.js"
 import { InMemRepo, testLayers } from "../twins/index.js"
 import { ConfigService } from "../workflow/index.js"
+import { GtdUsageError } from "../platform/index.js"
 
-const WORKFLOW = `import { agent, human } from "@pmelab/gtd/flows"
+const WORKFLOW = `import { agent, human, workflow } from "@pmelab/gtd/flows"
 
 export default async () => {
   await human("idle", { message: "hi" })
   await agent("work", "work-prompt")
 }
 
-export const working = async () => {
-  await agent("work", "work-prompt")
-}
+export const working = workflow(
+  async () => {
+    await agent("work", "work-prompt")
+  },
+  { defaults: { base: "" } },
+)
 
-export const reviewcheck = async () => {
-  await agent("work", "work-prompt")
-}
-
-export const defaults = { base: "" }
-
-export const base = (workflow, vars) => (workflow === "reviewcheck" ? (vars.base ?? "") : undefined)
+export const reviewcheck = workflow(
+  async () => {
+    await agent("work", "work-prompt")
+  },
+  { defaults: { base: "" }, base: (_workflow, vars) => vars.base ?? "" },
+)
 `
 
 const repoAt = (): InMemRepo => {
@@ -85,15 +88,14 @@ describe("planStart", () => {
     })
   })
 
-  it("refuses an undeclared --var name", async () => {
+  it("fails an undeclared --var name as a usage error", async () => {
     const repo = repoAt()
-    const plan = await start(repo, "idle", "human", {
+    const failure = await start(repo, "idle", "human", {
       workflow: "working",
       commandLabel: "gtd test",
       vars: { nope: "x" },
-    })
-    expect(plan.kind).toBe("refusal")
-    expect(plan.kind === "refusal" && plan.message).toContain("not declared by this workflow")
+    }).catch((e: unknown) => e)
+    expect(String(failure)).toContain(`${GtdUsageError.name}: gtd test: --var name(s) not declared`)
   })
 
   describe("a workflow's diff base", () => {

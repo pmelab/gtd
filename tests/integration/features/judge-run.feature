@@ -87,6 +87,22 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     And stdout is empty
 
   @inmem
+  Scenario: a stdin that is not a judgment document exits 2, like judge answer
+    When I run gtd with args "judge run --provider fixed" and stdin:
+      """
+      not json
+      """
+    Then the exit code is 2
+    And stdout is empty
+    And stderr contains "gtd judge run: stdin is not valid JSON"
+    When I run gtd with args "judge run --provider fixed" and stdin:
+      """
+      {"state":{}}
+      """
+    Then the exit code is 2
+    And stderr contains "gtd judge run: stdin has no \"questions\" array"
+
+  @inmem
   Scenario: --json on judge run exits 2
     When I run gtd with args "judge run --provider fixed --json" and stdin:
       """

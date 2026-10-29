@@ -4,19 +4,19 @@ Feature: steps for checks, stalls, beat fields, commit bodies and the environmen
   Background:
     Given a gtd config with:
       """
-      import { agent, check, env, human, scope, vars } from "@pmelab/gtd/flows"
+      import { agent, check, envSettings, human, scope, settings, workflow } from "@pmelab/gtd/flows"
 
-      export const defaults = { title: "untitled" }
-      export const envDefaults = { greeting: "hi" }
+      const defaults = { title: "untitled" }
+      const envDefaults = { greeting: "hi" }
 
-      export const tested = async () => {
+      export const tested = workflow(async () => {
         await scope({ name: "build", skills: ["tdd", "review"] }, async () => {
           await agent("plan", "Plan.", { model: "smart" })
         })
-        const green = await check("test", "npm test", { report: ".gtd/FEEDBACK.md" })
-        await agent(green ? "ship" : "repair", `Say ${env.greeting} to ${vars.title}.`)
+        const green = await check("test", "npm test", ".gtd/FEEDBACK.md")
+        await agent(green ? "ship" : "repair", `Say ${envSettings.greeting} to ${settings.title}.`)
         await human("done")
-      }
+      }, { defaults, envDefaults })
 
       export default tested
       """
@@ -92,9 +92,11 @@ Feature: steps for checks, stalls, beat fields, commit bodies and the environmen
       """
       add two numbers
       """
+    And check step "test" passes
     When gtd starts workflow "tested"
     And the process is driven
-    Then the last commit body contains "Gtd-Step: build.plan#1"
+    Then the last commit body contains "Gtd-Step: test#1"
+    And the commit "gtd(agent): build.plan → test" has a body containing "Gtd-Step: build.plan#1"
     And the commit "chore: seed" has a body containing "Seeded by hand."
     And no commit body contains "never written"
 
@@ -125,7 +127,7 @@ Feature: steps for checks, stalls, beat fields, commit bodies and the environmen
     And "a.txt" as committed at "old" contains "one"
     And ".gtd/FEEDBACK.md" contains "red"
 
-  Scenario: aliases append to a file and overwrite one only if it exists
+  Scenario: text is appended to a file, and a step overwrites one only if it exists
     Given a file "NOTES.md" with:
       """
       first

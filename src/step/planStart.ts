@@ -40,7 +40,7 @@ const checkOverrides = (
   varOverrides: Record<string, string>,
   declaredNames: readonly string[],
   envNames: readonly string[],
-): Effect.Effect<StartOutcome | undefined, Error> =>
+): Effect.Effect<void, GtdUsageError> =>
   Effect.gen(function* () {
     const environmentOnly = Object.keys(varOverrides).filter(
       (n) => !declaredNames.includes(n) && envNames.includes(n),
@@ -56,17 +56,18 @@ const checkOverrides = (
     }
     const undeclared = Object.keys(varOverrides).filter((n) => !declaredNames.includes(n))
     if (undeclared.length > 0) {
-      return refusal(
-        `${commandLabel}: --var name(s) not declared by this workflow: ${undeclared.join(
-          ", ",
-        )} — declared: ${declaredNames.length > 0 ? declaredNames.join(", ") : "(none)"}`,
+      return yield* Effect.fail(
+        new GtdUsageError(
+          `${commandLabel}: --var name(s) not declared by this workflow: ${undeclared.join(
+            ", ",
+          )} — declared: ${declaredNames.length > 0 ? declaredNames.join(", ") : "(none)"}`,
+        ),
       )
     }
-    return undefined
   })
 
 /**
- * `gtd --workflow <name>`: start a brand NEW process on a workflow, writing an
+ * `gtd start <name>`: start a brand NEW process on a workflow, writing an
  * opening commit that names the workflow's first step and carries a
  * `Gtd-Workflow:` trailer, every process setting as a `Gtd-Var:` trailer, plus
  * a `Gtd-Review-Base:` trailer when the workflow fixes the process's diff base,
@@ -102,13 +103,12 @@ export const planStart = (
     if ("refusal" in first) return refusal(`${commandLabel}: ${first.refusal}`)
     const { firstStep } = first
 
-    const overrideRefusal = yield* checkOverrides(
+    yield* checkOverrides(
       commandLabel,
       varOverrides,
       Object.keys(workflow.vars),
       Object.keys(workflow.env),
     )
-    if (overrideRefusal !== undefined) return overrideRefusal
 
     const baseOf = workflow.def.base
     const flags = yield* StartFlags

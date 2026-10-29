@@ -136,16 +136,9 @@ const doneNoteRequest = (
 /**
  * Commands that print a `required`/`optional` script for a driver to run
  * instead of performing their git effect directly (`land`, `abandon`,
- * `restore`, bare `gtd --workflow <name>`, `gtd door <name>`). Everything else is a read command
- * with nothing to drive.
+ * `restore`, `gtd start <name>`). Everything else is a read command with nothing to drive.
  */
-const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set([
-  "land",
-  "abandon",
-  "restore",
-  "--workflow",
-  "door",
-])
+const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set(["land", "abandon", "restore"])
 
 /**
  * `--json` (bare or `--json=<path>`) prints a structured document, not the
@@ -156,11 +149,7 @@ const requestsStructuredOutput = (args: readonly string[]): boolean =>
   args.some((a) => a === "--json" || a.startsWith("--json="))
 
 const isWriteCommand = (args: readonly string[]): boolean =>
-  !requestsStructuredOutput(args) && (writesFirst(args[0] ?? "") || startsByName(args))
-
-/** `--workflow` takes both spellings, `--workflow <name>` and `--workflow=<name>`. */
-const writesFirst = (first: string): boolean =>
-  WRITE_COMMAND_TOKENS.has(first) || first.startsWith("--workflow=")
+  !requestsStructuredOutput(args) && (WRITE_COMMAND_TOKENS.has(args[0] ?? "") || startsByName(args))
 
 /** Bare `gtd start` lists what starts; only a named one prints a script. */
 const startsByName = (args: readonly string[]): boolean =>
@@ -367,7 +356,7 @@ export class GtdWorld extends QuickPickleWorld {
   savedCommitCount: number | undefined = undefined
   /** Named JSON fields captured from a prior `--json` output — lets a scenario prove two turns' values for the same field are the same or different without knowing the exact value in advance. */
   recordedJsonFields: Record<string, string | undefined> = {}
-  /** Named sets of top-level JSON keys captured from a prior `--json` stdout — for a drift guard proving a later document (e.g. `gtd install`'s briefing) still names every field a real command emits. */
+  /** Named sets of top-level JSON keys captured from a prior `--json` stdout — for a drift guard proving a later document (e.g. `gtd guide`'s briefing) still names every field a real command emits. */
   recordedJsonKeys: Record<string, readonly string[]> = {}
   /** Raw `lastResult.stdout` captured under a scenario-chosen label — for a poll-safety proof that two runs of the same read command answer byte-identically. */
   recordedStdout: Record<string, string | undefined> = {}

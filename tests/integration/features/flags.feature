@@ -5,18 +5,18 @@ Feature: GTD_FLAG_* variables belong to feature flags, not to settings
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { flag_beta: "off" }
+
+      export default workflow(async () => {
         await human("idle", { message: "start" })
         await agent("working", "do the work")
-      }
+      }, { defaults })
 
-      export const working = async () => {
+      export const working = workflow(async () => {
         await agent("working", "do the work")
-      }
-
-      export const defaults = { flag_beta: "off" }
+      }, { defaults })
       """
     And a file "NOTE.md" with:
       """

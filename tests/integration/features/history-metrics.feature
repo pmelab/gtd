@@ -134,8 +134,8 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
       export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await scope("start-gate", async () => {
-          if (await check("check", "npm test", { report })) return
-          if (await check("recheck", "npm test", { report })) mark("flaky", "start-gate.check")
+          if (await check("check", "npm test", report)) return
+          if (await check("recheck", "npm test", report)) mark("flaky", "start-gate.check")
         })
       }
       """

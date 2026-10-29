@@ -140,8 +140,10 @@ for (const makeTier of gitTiers) {
     })
 
     describe("gtd check", () => {
-      it("passes a valid file, and an absent one", () => {
-        expect(run(script(`gtd check qa '${FILE}'`)).ok).toBe(true)
+      it("refuses an absent file, and passes a valid one", () => {
+        const absent = run(script(`gtd check qa '${FILE}'`))
+        expect(absent).toMatchObject({ ok: false, status: 1 })
+        expect(absent.output).toContain(`gtd check: no such file: ${FILE}`)
         t.seed.writeFile(FILE, "## Open Questions\n")
         expect(run(script(`gtd check qa '${FILE}'`))).toEqual({ ok: true, status: 0, output: "" })
       })

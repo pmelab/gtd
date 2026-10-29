@@ -1,7 +1,7 @@
 @inmem
 Feature: gtd abandon — end the process underway without completing it
 
-  `gtd --workflow <name>` refuses while a process is underway ("finish it, or run
+  `gtd start <name>` refuses while a process is underway ("finish it, or run
   `gtd abandon`"), and a workflow only leaves a process through an ordinary
   sign-off commit entering its initial state. `gtd abandon` is the way out of
   one nobody is going to finish: it rewinds HEAD to the commit the process
@@ -16,22 +16,21 @@ Feature: gtd abandon — end the process underway without completing it
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { reviewBase: "" }
+      const base = (workflow, vars) => (workflow === "review" ? vars.reviewBase : undefined)
+
+      export default workflow(async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
         await agent("building", "build it")
         await human("checking", { message: "check it" })
-      }
+      }, { defaults, base })
 
-      export const defaults = { reviewBase: "" }
-
-      export const base = (workflow, vars) => (workflow === "review" ? vars.reviewBase : undefined)
-
-      export async function review() {
+      export const review = workflow(async function review() {
         await agent("reviewing", "review the branch into .gtd/REVIEW.md")
         await human("await-review", { message: "read .gtd/REVIEW.md" })
-      }
+      }, { defaults, base })
       """
 
   Scenario: abandons a process mid-flight — HEAD back at the process boundary, the work kept as pending changes
@@ -90,7 +89,7 @@ Feature: gtd abandon — end the process underway without completing it
       """
       export const add = (a: number, b: number) => a + b
       """
-    When I run gtd with args "--workflow review --var reviewBase=base"
+    When I run gtd with args "start review --var reviewBase=base"
     Then it succeeds
     And the last commit subject is "gtd(human): reviewing"
     Given a file ".gtd/REVIEW.md" with:

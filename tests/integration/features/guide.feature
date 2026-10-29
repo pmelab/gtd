@@ -1,6 +1,6 @@
-Feature: gtd install — the driver-building briefing, and where to get a workflow
+Feature: gtd guide — the driver-building briefing, and where to get a workflow
 
-  `gtd install` prints a complete, self-contained briefing that teaches an
+  `gtd guide` prints a complete, self-contained briefing that teaches an
   agent (or a human) to build a gtd driver in any shell or runtime. It writes
   nothing: gtd ships no workflow, so at a repository root no `gtd.config.ts`
   governs yet it warns on stderr where to get one. Its `needs: "none"` (like
@@ -11,23 +11,12 @@ Feature: gtd install — the driver-building briefing, and where to get a workfl
   Scenario: at a repository root with no gtd.config.ts, it prints the briefing and says where to get a workflow, writing nothing
     Given a test project
     And I record the commit count
-    When I run gtd with args "install"
-    Then it succeeds
-    And stdout contains "gtd door"
-    And stderr contains "gtd install: no gtd.config.ts governs here, and gtd ships no workflow — get one from https://github.com/pmelab/gtd-workflows or write your own (step 2 of the briefing above)"
-    And stderr does not contain "wrote gtd.config.ts"
-    And "gtd.config.ts" does not exist
-    And the commit count is unchanged
-    And the git status is clean
-
-  @inmem
-  Scenario: gtd guide is the same briefing, and its warning names the spelling used
-    Given a test project
-    And I record the commit count
     When I run gtd with args "guide"
     Then it succeeds
-    And stdout contains "gtd door"
-    And stderr contains "gtd guide: no gtd.config.ts governs here, and gtd ships no workflow"
+    And stdout contains "gtd start"
+    And stderr contains "gtd guide: no gtd.config.ts governs here, and gtd ships no workflow — get one from https://github.com/pmelab/gtd-workflows or write your own (step 2 of the briefing above)"
+    And stderr does not contain "wrote gtd.config.ts"
+    And "gtd.config.ts" does not exist
     And the commit count is unchanged
     And the git status is clean
 
@@ -43,9 +32,9 @@ Feature: gtd install — the driver-building briefing, and where to get a workfl
       }
       """
     And I record the commit count
-    When I run gtd with args "install"
+    When I run gtd with args "guide"
     Then it succeeds
-    And stdout contains "gtd door"
+    And stdout contains "gtd start"
     And stderr does not contain "gtd ships no workflow"
     And the commit count is unchanged
     And the git status is clean
@@ -53,7 +42,7 @@ Feature: gtd install — the driver-building briefing, and where to get a workfl
   @inmem
   Scenario: the briefing obliges a skill-restricting driver to pass each turn's skills
     Given a test project
-    When I run gtd with args "install"
+    When I run gtd with args "guide"
     Then it succeeds
     And stdout contains "11. When the chosen agent CLI can restrict which skills a turn sees"
     And stdout contains "--json=skills"
@@ -62,7 +51,7 @@ Feature: gtd install — the driver-building briefing, and where to get a workfl
   @inmem
   Scenario: the briefing obliges a sandboxing driver to map each turn's access
     Given a test project
-    When I run gtd with args "install"
+    When I run gtd with args "guide"
     Then it succeeds
     And stdout contains "12. Map each prompt turn's `--json=access.read`"
     And stdout contains "workspace-write"
@@ -71,32 +60,32 @@ Feature: gtd install — the driver-building briefing, and where to get a workfl
   @inmem
   Scenario: succeeds in a repository with no commits — there is no workflow state to resolve
     Given a git repository with no commits
-    When I run gtd with args "install"
+    When I run gtd with args "guide"
     Then it succeeds
 
   @inmem
-  Scenario: --json is not gtd install's own surface — a usage error like every other non-next command
+  Scenario: --json is not gtd guide's own surface — a usage error like every other non-next command
     Given a test project
-    When I run gtd with args "install --json"
+    When I run gtd with args "guide --json"
     Then it fails
     And stderr contains "only valid for `gtd next`"
     And stderr contains "gtd guide"
 
   @inmem
-  Scenario: gtd install takes no arguments and no out-of-scope flags
+  Scenario: gtd guide takes no arguments and no out-of-scope flags
     Given a test project
-    When I run gtd with args "install extra"
+    When I run gtd with args "guide extra"
     Then it fails
-    When I run gtd with args "install --port 3"
+    When I run gtd with args "guide --port 3"
     Then it fails
 
   @inmem
   Scenario: the briefing installs one gtd-door script beside gtd-build and gtd-edit, and supersedes gtd-fix and gtd-review
     Given a test project
-    When I run gtd with args "install"
+    When I run gtd with args "guide"
     Then it succeeds
     And stdout contains "~/.local/bin/gtd-door"
-    And stdout contains "script=\"$(gtd door \"$@\")\""
+    And stdout contains "script=\"$(gtd start \"$@\")\""
     And stdout contains "usage: gtd-door <name> [args...]"
     And stdout does not contain "~/.local/bin/gtd-review"
     And stdout does not contain "~/.local/bin/gtd-fix"
@@ -134,14 +123,14 @@ Feature: gtd install — the driver-building briefing, and where to get a workfl
     Then it succeeds
     And I record the JSON keys of stdout as "status"
 
-    When I run gtd with args "install"
+    When I run gtd with args "guide"
     Then it succeeds
     And stdout contains every JSON key recorded as "status"
 
   @live
   Scenario: from a repository subdirectory, it writes no gtd.config.ts anywhere and does not warn
     Given a subdirectory of a test project
-    When I run gtd with args "install"
+    When I run gtd with args "guide"
     Then it succeeds
     And stderr does not contain "gtd ships no workflow"
     And "gtd.config.ts" does not exist
@@ -150,7 +139,7 @@ Feature: gtd install — the driver-building briefing, and where to get a workfl
   @live
   Scenario: outside any git repository, it writes no gtd.config.ts and does not warn
     Given a plain directory that is not a git repository
-    When I run gtd with args "install"
+    When I run gtd with args "guide"
     Then it succeeds
     And stderr does not contain "gtd ships no workflow"
     And "gtd.config.ts" does not exist

@@ -5,9 +5,8 @@ module that says which steps a process goes through, with which settings, plus
 the repository settings in its [`config` export](#the-config-export) —
 steering-file modes, `gtd ui` settings, per-scope skills and access. It is
 required: without one, every command that resolves workflow state fails, saying
-to run `gtd install`, which says where to get one. gtd ships no workflow: use
-one from [gtd-workflows](https://github.com/pmelab/gtd-workflows) or write your
-own.
+to run `gtd guide`, which says where to get one. gtd ships no workflow: use one
+from [gtd-workflows](https://github.com/pmelab/gtd-workflows) or write your own.
 
 Settings that belong to a machine rather than a repository live outside it: the
 judge `gtd judge run` uses (see [Judge settings](#judge-settings)), plus
@@ -18,14 +17,14 @@ versions read are gone — a leftover one is an error (see
 > **Trust: `gtd.config.ts` is code, and gtd runs it.** Because the workflow is a
 > TypeScript module, every gtd command that resolves workflow state evaluates
 > the repository's `gtd.config.ts` — including the read-only ones: `gtd next`,
-> `gtd lsp`, `gtd validate`, `gtd judge`, `gtd door` and `gtd doors`, not only
-> `gtd land`. Nothing else is evaluated: every workflow lives in this one file
-> and what it imports. The lookup walks up from the current directory, so a
-> `gtd.config.ts` in a parent directory counts too. Treat a repository's
-> `gtd.config.ts` like any other code you run from it — a Makefile, a
-> `package.json` script: **do not run gtd in a checkout you do not trust.**
-> Settings end up on command lines too (a test command a workflow interpolates
-> into the scripts gtd emits), which is the same trust decision.
+> `gtd lsp`, `gtd validate`, `gtd judge` and `gtd start`, not only `gtd land`.
+> Nothing else is evaluated: every workflow lives in this one file and what it
+> imports. The lookup walks up from the current directory, so a `gtd.config.ts`
+> in a parent directory counts too. Treat a repository's `gtd.config.ts` like
+> any other code you run from it — a Makefile, a `package.json` script: **do not
+> run gtd in a checkout you do not trust.** Settings end up on command lines too
+> (a test command a workflow interpolates into the scripts gtd emits), which is
+> the same trust decision.
 
 ## `gtd.config.ts`
 
@@ -34,10 +33,9 @@ versions read are gone — a leftover one is an error (see
 gtd walks from the current directory **up to your home directory** (or to the
 filesystem root when the current directory is outside home) and uses the
 **innermost** `gtd.config.ts` it finds. There is no merging: one file is the
-whole workflow. A `gtd.config.ts` found nowhere is an error naming
-`gtd install`.
+whole workflow. A `gtd.config.ts` found nowhere is an error naming `gtd guide`.
 
-gtd ships no workflow and `gtd install` writes no config. Get one from
+gtd ships no workflow and `gtd guide` writes no config. Get one from
 [gtd-workflows](https://github.com/pmelab/gtd-workflows), a pinned checkout
 whose `gtd-wf config default` prints a `gtd.config.ts` importing its `default`
 workflow by absolute path (see its README), or write your own (see
@@ -51,64 +49,72 @@ names, so a process already underway keeps replaying.
 
 ### Shape
 
-**Every exported function is a workflow**, named by its export, and gtd starts
-one with `gtd --workflow <name>` (see [Workflows](#workflows)). So is every
-exported [workflow factory](#workflow-factories) and every call of one. The
-`default` export is the ordinary start — what a bare change in the tree begins —
-and is required; a default that is also a named export goes by that name. The
-names `default`, `summary`, `base`, `defaults`, `envDefaults`, `steering`,
-`skills`, `access`, `doors` and `config` are reserved: they are never workflows.
+A workflow is an export passed through **`workflow(flow, options?)`** from
+`@pmelab/gtd/flows`, an exported [workflow factory](#workflow-factories) or a
+call of one, named by its export; `gtd start <name>` starts it (see
+[Workflows](#workflows)). The `default` export is the ordinary start — what a
+bare change in the tree begins — and is required: a plain function, a
+`workflow()` call or a factory. A default that is also a named export goes by
+that name. Every other exported function is a plain helper: never startable,
+never warned about. The names `default` and `config` are reserved.
 
 ```ts
-import { agent, human, run } from "@pmelab/gtd/flows"
+import { agent, human, run, workflow } from "@pmelab/gtd/flows"
 
-export default async function feature() {
-  await human("idle", {
-    message: "Sketch the change in .gtd/TODO.md.",
-    file: ".gtd/TODO.md",
-  })
-  await agent("plan", "Read the sketch in history and write .gtd/PLAN.md.", {
-    file: ".gtd/PLAN.md",
-  })
-  await run(
-    "check",
-    "npm test > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md",
-  )
-}
-
-export const envDefaults = { testCommand: "npm test" }
+export default workflow(
+  async function feature() {
+    await human("idle", "Sketch the change in .gtd/TODO.md.", {
+      file: ".gtd/TODO.md",
+    })
+    await agent("plan", "Read the sketch in history and write .gtd/PLAN.md.", {
+      file: ".gtd/PLAN.md",
+    })
+    await run(
+      "check",
+      "npm test > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md",
+    )
+  },
+  { envDefaults: { testCommand: "npm test" } },
+)
 ```
 
 A **flow** is an `async` function that awaits steps. Its first step on an
 ordinary start is where a finished process waits (`idle` in the example above).
-A flow takes no arguments; which workflow runs is decided by name. The reserved
-exports are optional and per **file**, shared by every workflow the file
-exports: `defaults` and `envDefaults` (the file's process and environment
-settings, see [Settings](#settings)), `summary` (the prompt `gtd summary`
-prints, see [Summary](#summary)), `base` (see [Workflows](#workflows)),
-`steering` — steering file paths with their mode, e.g.
-`{ ".gtd/docs/adr.md": "adr" }` — `skills`, `doors` (see [Doors](#doors)) and
-`config` (see [The `config` export](#the-config-export)). gtd ignores every
-other non-function export. **A helper you export is a workflow too**, startable
-by name — keep helpers un-exported, or export them from another module you
-import.
+A flow takes no arguments; which workflow runs is decided by name.
 
-To say which exports are meant, wrap them in `workflow()` from
-`@pmelab/gtd/flows`: `export const hotfix = workflow(async () => { … })`. It
-returns the function unchanged. It is opt-in: once a config marks one export,
-loading it warns about every other exported function left unmarked — on every
-command that loads the config, never failing it:
+`workflow()` returns a new function that runs `flow`, leaving `flow` untouched,
+so one flow can back several workflows — `flow` may itself be a `workflow()`
+call, e.g. one a library exports, re-wrapped with your own options:
+`workflow(libraryFlow, options)`. The options given **replace** the wrapped
+flow's, as a factory build returns its whole set: nothing is inherited or
+merged. Its options are the keys a [factory build](#workflow-factories) returns
+besides `flow`, checked the same way when the config loads — an unknown key
+fails the load:
+
+- `defaults` and `envDefaults` — the workflow's process and environment settings
+  (see [Settings](#settings))
+- `summary` — the prompt `gtd summary` prints (see [Summary](#summary))
+- `base` — the diff base of a process `gtd start` starts (see
+  [Workflows](#workflows))
+- `steering` — steering file paths with their mode, e.g.
+  `{ ".gtd/docs/adr.md": "adr" }`
+- `skills` and `access` — per-scope skill lists and file access (see
+  [Skills](#skills) and [File access](#file-access))
+- `doors` — named shortcuts onto the workflow (see [Doors](#doors))
+
+A plain default export takes none of them: wrap it in `workflow(flow, options)`
+to give it any. Earlier versions read these as file-level exports
+(`export const defaults = …`) shared by every workflow in the file; such an
+export now fails the load, naming its replacement:
 
 ```text
-gtd: warning: /repo/gtd.config.ts: helper: is a startable workflow not marked with workflow() — mark it, or stop exporting it if it is a helper
+gtd: config:
+  - /repo/gtd.config.ts: defaults: the "defaults" export is no longer read — pass it to the workflow it configures: `workflow(flow, { defaults })`, or the build a workflow factory returns
 ```
 
-A config that marks nothing never warns, and neither does a workflow factory or
-the `default` export.
-
-`@pmelab/gtd/flows` types the reserved exports: `Steering` for `steering`,
-`SkillsExport` for `skills`, `AccessExport` for `access`, `Summary`, `Doors` and
-`WorkflowBase` for `base`.
+`@pmelab/gtd/flows` types the options: `WorkflowOptions` as a whole, and
+`Steering`, `SkillsExport`, `AccessExport`, `Summary`, `WorkflowDoors` and
+`WorkflowBase` one by one.
 
 gtd resolves every `@pmelab/gtd/*` subpath but the testkit's (see
 [Entrypoints](https://github.com/pmelab/gtd/blob/main/README.md#entrypoints)),
@@ -169,7 +175,7 @@ Every step takes an options object; all keys are optional.
 | ------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `label`       | all                  | Display name shown by `gtd next` and viewers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `file`        | all                  | The step's steering file, a repository path under `.gtd/`.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `mode`        | all, requires `file` | The steering file's mode: `qa`, `review`, `findings`, or a name declared in `config.modes`. An unknown name fails the process once it rests at the step.                                                                                                                                                                                                                                                                                                                                                      |
+| `mode`        | all, requires `file` | The steering file's mode: `qa`, `review`, `findings`, or a name declared in `config.modes`. An unknown name fails the process once it rests at the step; a `mode` without a `file` fails it when replay reaches the step.                                                                                                                                                                                                                                                                                     |
 | `message`     | `human`, `judge`     | The text shown to the person at this rest.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -266,9 +272,9 @@ landed step left — never the live working tree:
   `H:` entry's text, `faults` its syntax faults). Reads committed trees
 - `openQuestions(text)` — the unanswered questions of a `qa` document, each
   `{ question, line }`
-- `settings` (also `vars`) — the process settings, pinned at process start (see
+- `settings` — the process settings, pinned at process start (see
   [Settings](#settings))
-- `envSettings` (also `env`) — the environment settings, read live (see
+- `envSettings` — the environment settings, read live (see
   [Settings](#settings))
 - `head()` — the commit the process stands on at this point of the flow;
   `start()` — the process's diff base. Name them in a prompt for an agent to
@@ -288,7 +294,7 @@ await agent("build", "Implement .gtd/PLAN.md.")
 while (true) {
   await run(
     "check",
-    `${env.testCommand} > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md`,
+    `${envSettings.testCommand} > .gtd/FEEDBACK.md 2>&1 && rm -f .gtd/FEEDBACK.md`,
   )
   if (read(".gtd/FEEDBACK.md") === undefined) break
   await agent("fix", "Fix what .gtd/FEEDBACK.md reports, then delete it.", {
@@ -333,12 +339,12 @@ is how a larger workflow is written.
 `@pmelab/gtd/flows` also exports a few helpers:
 
 - `check(name, command, report, { label?, sweep?, sweepOnGreen?, preamble? }?)`
-  — also `check(name, command, { report, … })` — a `run` step gtd renders for
-  the driver: it removes `sweep`, runs `command` in a subshell and, on failure,
-  writes its output (stamped with the commit) to `report`; on success it removes
-  `report` and `sweepOnGreen`. `preamble` is shell lines run first, outside the
-  output capture; an `exit 0` in them skips the command and leaves `report`
-  untouched. Resolves `true` unless the run wrote `report`
+  — a `run` step gtd renders for the driver: it removes `sweep`, runs `command`
+  in a subshell and, on failure, writes its output (stamped with the commit) to
+  `report`; on success it removes `report` and `sweepOnGreen`. `preamble` is
+  shell lines run first, outside the output capture; an `exit 0` in them skips
+  the command and leaves `report` untouched. Resolves `true` unless the run
+  wrote `report`
 - `answered(answer, expected, minP)` — whether a judge answer is `expected` at a
   probability of at least `minP`
 - `numeric(value, fallback)` — a numeric var, or `fallback` when it is blank or
@@ -420,24 +426,18 @@ export const greeter = defineWorkflow(
 )
 ```
 
-The build may also return `doors`, keyed by door name, each a door without its
-`workflow` (see [Doors](#doors)), and `base(workflow, vars)`, the workflow's
-diff base. The config's own `base` export wins when it returns a value; on
-`undefined` this one applies.
+The build may also return the keys `workflow(flow, options)` takes (see
+[Shape](#shape)): `doors`, keyed by door name, each a door without its
+`workflow` (see [Doors](#doors)); `base(workflow, vars)`, the workflow's diff
+base; and `skills`, `access`, `steering` and `summary`, so
+`export default feature()` alone is a whole config. A key it does not know fails
+the load.
 
-It may return `skills`, `access`, `steering` and `summary` too, shaped and
-checked like the file exports of the same names, so `export default feature()`
-alone is a whole config. The file's exports win: an entry of the file's `skills`
-or `access` export replaces the build's for that scope, a `steering` entry the
-build's for that path, and a `summary` export the build's whole. (`defaults` and
-`envDefaults` go the other way: the build's lie over the file's.)
-
-Read a setting through `settings`/`envSettings` (or `vars`/`env`) in flow code
-when `--var` or `GTD_<NAME>` should reach it; an option read straight from
-`options` is fixed by the config. `settingsOf(defaults)` and
-`envSettingsOf(envDefaults)` return the same settings typed by the names you
-pass in, so a declared name reads as a `string` and a misspelled one is a type
-error:
+Read a setting through `settings`/`envSettings` in flow code when `--var` or
+`GTD_<NAME>` should reach it; an option read straight from `options` is fixed by
+the config. `settingsOf(defaults)` and `envSettingsOf(envDefaults)` return the
+same settings typed by the names you pass in, so a declared name reads as a
+`string` and a misspelled one is a type error:
 
 ```ts
 const defaults = { greeting: "hello" }
@@ -455,6 +455,9 @@ export const greeter = defineWorkflow(schema, () => ({
 `--var`, `GTD_<NAME>` and the pinned value never pass through the schema, so a
 schema that transforms (trims, lowercases) or constrains a setting does not bind
 them. Keep the schema a plain check.
+
+`workflow()` and a factory build take the same options and are checked alike, so
+a plain flow needs no factory to declare settings, doors or a base.
 
 Awaiting a factory's call inside a composed flow throws — compose the plain
 flows it is built from instead.
@@ -478,8 +481,10 @@ over its share keeps its end, cut on a line boundary.
 
 `answers` holds one `{ answer, p }` per question id, or `undefined` for a
 question the verdict left out; with the questions written inline, its type names
-their ids. `truncated` lists the evidence keys the budget cut. The flow decides
-what an answer means with plain comparisons:
+their ids, and reading any other literal id is a type error (a computed id, such
+as `` `standard-${i}` ``, reads as any string). `truncated` lists the evidence
+keys the budget cut. The flow decides what an answer means with plain
+comparisons:
 
 ```ts
 const { answers, truncated } = await judge("same", {
@@ -561,78 +566,81 @@ What a `gtd land` does depends on the step and on whether the tree changed:
 
 ### Workflows
 
-`gtd --workflow <name>` starts a process on the named workflow: a function the
-config file exports. An unknown name is a usage error (exit 2) listing the
+`gtd start <name>` starts a process on the named workflow (bare `gtd start`
+lists what it can start). An unknown name is a usage error (exit 2) listing the
 startable names. The name is recorded on the process's opening commit
 (`Gtd-Workflow:`), so every later command replays that workflow, and a process
 stays on it even if the config's `default` changes.
 
-A `base(workflow, vars)` export may return a commitish that fixes the new
-process's diff base (`start()`), or `undefined` for none. It runs when the
+A workflow's `base(workflow, vars)` option may return a commitish that fixes the
+new process's diff base (`start()`), or `undefined` for none. It runs when the
 process is started, with the workflow's name and the `--var` values:
 
 ```ts
-export async function reviewOnly() {
-  /* … */
-}
-
-export const base = (workflow, vars) =>
-  workflow === "reviewOnly" ? (vars.reviewBase ?? "") : undefined
+export const reviewOnly = workflow(
+  async () => {
+    /* … */
+  },
+  {
+    defaults: { reviewBase: "" },
+    base: (_workflow, vars) => vars.reviewBase ?? "",
+  },
+)
 ```
 
 ```bash
-gtd --workflow reviewOnly --var reviewBase=main
+gtd start reviewOnly --var reviewBase=main
 ```
-
-A `base` export that answers wins over a workflow factory's own base (see
-[Workflow factories](#workflow-factories)); `undefined` falls through to it.
 
 A blank `base` result means the repository's default branch. Any base is pinned
 as its merge-base with `HEAD`, not as the named tip. It is refused when the
 commitish does not resolve, shares no common ancestor with `HEAD`, or its
 merge-base is `HEAD` itself (nothing to review). `--var <name>=<value>` is
-repeatable and only valid with `--workflow`; the name must already be declared
-by the workflow's `defaults` (or its factory's build) — `--var` pins process
-settings only, and naming an environment setting is a usage error (exit 2).
-Every process setting is recorded as a `Gtd-Var:` trailer on the process's first
-commit and stays in force for the whole process (see [Settings](#settings)).
+repeatable; the name must already be declared by the workflow's `defaults` —
+`--var` pins process settings only, and naming an environment setting is a usage
+error (exit 2). Every process setting is recorded as a `Gtd-Var:` trailer on the
+process's first commit and stays in force for the whole process (see
+[Settings](#settings)).
 
 ### Doors
 
 A door is a named shortcut for starting a workflow, so a person (or a driver)
-types `gtd door review main` instead of
-`gtd --workflow review --var reviewBase=…`. A file's `doors` export maps each
+types `gtd start audit main` instead of
+`gtd start review --var reviewBase=main`. A workflow declares its doors in its
+`doors` option — `workflow(flow, { doors })` or a factory build — mapping each
 door name (`[a-z][a-z0-9-]*`) to:
 
 ```ts
-export const doors = {
-  hotfix: { workflow: "hotfix" },
-  audit: {
-    workflow: "review",
-    args: [{ name: "since", optional: true }],
-    vars: ({ since }) => (since === undefined ? {} : { reviewBase: since }),
+export const review = workflow(reviewFlow, {
+  defaults: { reviewBase: "" },
+  doors: {
+    audit: {
+      args: [{ name: "since", optional: true }],
+      vars: ({ since }) => (since === undefined ? {} : { reviewBase: since }),
+    },
   },
-}
+})
 ```
 
-`workflow` must be startable. `args` is a static list of positional arguments
-(required ones first); `vars` is a pure function of the args returning a record
-of process settings — no git runs while it is evaluated.
+A door starts whatever name the config exports its workflow under. `args` is a
+static list of positional arguments (required ones first); `vars` is a pure
+function of the args returning a record of process settings — no git runs while
+it is evaluated. gtd-workflows' `fix` builds `fix`, its `review` builds
+`review [base]`, so a config exporting only `fix` offers only the `fix` door.
 
-A [workflow factory](#workflow-factories) may build doors of its own, without a
-`workflow` (it is whatever name the config exports it under) — gtd-workflows'
-`fix` builds `fix`, its `review` builds `review [base]`. A config's doors are
-those of every workflow it exports, plus its `doors` export, which wins a name
-clash — a door several exported workflows build belongs to the one exported
-under the door's own name (the others build none, whatever the order); when none
-is, no workflow builds that door and loading warns (`gtd: warning: …` on every
-command that loads the config) until the `doors` export declares it; a declared
-door replaces the derived one whole, so it restates `args` and `vars` itself. A
-config exporting only `fix` offers only the `fix` door.
-`gtd door <name> [args...]` starts the process (printing the same script
-`gtd --workflow` does); an unknown door or the wrong number of args is a usage
-error (exit 2). `gtd doors` lists every door, one `name [args] → workflow` line
-each; `gtd doors --json` prints them as data for a driver to offer.
+A config's doors are those of every workflow it exports. A door several exported
+workflows build belongs to the one exported under the door's own name (the
+others build none, whatever the order); when none is, no workflow builds that
+door and loading warns (`gtd: warning: …` on every command that loads the
+config) until one of them is exported under that name. A door named like a
+workflow it does not start takes `gtd start <name>` from that workflow, and
+loading warns about it.
+
+`gtd start <door> [args...]` starts the process (printing the same script
+`gtd start <workflow>` does); the wrong number of args is a usage error (exit
+2). Bare `gtd start` lists every workflow and door — a workflow a door shadows
+only as that door, since its name opens the door; `gtd start --json` prints them
+as data for a driver to offer.
 
 ### Episodes, replay and divergence
 
@@ -642,7 +650,7 @@ since the episode began, each answering the step it names, until a step has no
 commit left — that step is the rest. Replaying the same history always reaches
 the same rest, which is why flow code has to be pure (below).
 
-A `--workflow` episode begins with an opening commit whose `Gtd-Workflow:`
+A `gtd start` episode begins with an opening commit whose `Gtd-Workflow:`
 trailer names the workflow it replays. A default episode, started from `idle`,
 has no opening commit and no `Gtd-Workflow:` trailer — its first commit is the
 first step's own. An episode ends when its flow returns or calls `restart()`.
@@ -694,7 +702,7 @@ differently on two machines, or on the same machine an hour later. So the whole
 config — its top level, its imports, and the flows it exports — is pure:
 
 - **No environment reads**: no `process.env`. A value that differs per machine
-  is a setting: declare it in `envDefaults` and read it as `env`, which
+  is a setting: declare it in `envDefaults` and read it as `envSettings`, which
   `GTD_<NAME>` overrides.
 - **No clock**: no `Date.now()`, `new Date()`, timers or randomness.
 - **No network**: no `fetch`, sockets or child processes.
@@ -750,18 +758,20 @@ exempt — it may do anything. Everything else follows
   ordinary start — that step is where a finished process waits. A flow that
   reaches none fails the load, and so does one whose first step changes with the
   repository's files, and so does one whose first step reads a setting — any
-  `vars` or `env` access before it rests, `GTD_<NAME>` overrides included, an
-  enumeration too, and a setting named only in its message, label or model. The
-  step may read files for its content.
-- **Environment settings stay out of branches**: `env` is read live on every
-  call, so branching on it can send a running process to a different step than
-  its history recorded — a divergence. Read `env` only where it cannot change
-  the next step: step options such as `model`, prompt text, and `run()` bodies.
-  gtd enforces this for the first step only; branch on `vars` elsewhere.
+  `settings` or `envSettings` access before it rests, `GTD_<NAME>` overrides
+  included, an enumeration too, and a setting named only in its message, label
+  or model. The step may read files for its content.
+- **Environment settings stay out of branches**: `envSettings` is read live on
+  every call, so branching on it can send a running process to a different step
+  than its history recorded — a divergence. Read `envSettings` only where it
+  cannot change the next step: step options such as `model`, prompt text, and
+  `run()` bodies. gtd enforces this for the first step only; branch on
+  `settings` elsewhere.
 
 ### Summary
 
-A `summary` export sets the prompt `gtd summary` prints: a function receiving
+A workflow's `summary` option sets the prompt `gtd summary` prints: a function
+receiving
 `{ entryCommit, processBase, processTip, humanCommits, processCost, processCostByModel, marks, vars, env }`
 and returning a string. `humanCommits` lists every human-authored commit of the
 process as `{ hash, state }`; `marks` lists every `Gtd-Mark` of the process as
@@ -778,7 +788,7 @@ reserved `config` export. Build it with `defineConfig` from `@pmelab/gtd/flows`:
 ```ts
 import { defineConfig } from "@pmelab/gtd/flows"
 
-export { default, summary, steering, skills } from "./workflow.ts"
+export { default } from "./workflow.ts"
 
 export const config = defineConfig({
   modes: {
@@ -812,8 +822,8 @@ gtd: config:
 ```
 
 Process and environment settings are not here: they are the workflow's, set as
-[factory options](#workflow-factories) or a plain flow's
-`defaults`/`envDefaults` (see [Settings](#settings)).
+[factory options](#workflow-factories) or the `defaults`/`envDefaults` options
+of `workflow()` (see [Settings](#settings)).
 
 ### Modes
 
@@ -1030,11 +1040,11 @@ Which scope names exist is the workflow's: gtd-workflows' `default` lists its
 own in its reference. A nested scope with no entry of its own inherits its
 parent's list, so a key on a parent reaches every scope beneath it that sets
 none. A scope that only groups others runs no turn and carries no key. A
-workflow's scopes are addressable through its `skills` export (a config
-re-exporting a workflow re-exports it too); the export may be a function of the
-resolved vars, and must list every scope holding an agent step. The type can
-check an entry's VALUE (an array of strings) but never its KEY, since scope
-names come from the workflow actually in play — there is no editor
+workflow's scopes are addressable through its `skills` option (a factory build
+carries it, so a config exporting the workflow gets it too); the option may be a
+function of the resolved vars, and must list every scope holding an agent step.
+The type can check an entry's VALUE (an array of strings) but never its KEY,
+since scope names come from the workflow actually in play — there is no editor
 autocompletion of scope names here.
 
 A key that is not a scope running a turn is a load error, exit 1 — a group
@@ -1091,13 +1101,13 @@ export const config = defineConfig({
 
 An entry key other than `read`/`write`, or a scope name that is not a scope
 running a turn, is a load error, exit 1; the message lists the known scopes. A
-custom workflow's own scopes are addressable through its `access` export (a
+custom workflow's own scopes are addressable through its `access` option (a
 record, or a function of the resolved vars, of scope -> `{ read?, write? }`). A
 record is checked when the config loads: an entry that is not
 `{ read?, write? }` glob arrays fails every command, naming the scope. A
 function's result is checked once the process's settings are known. Precedence:
 `config.access` entry, then a `scope()` option, then the workflow's `access`
-export.
+option.
 
 ### Validation and errors
 
@@ -1132,10 +1142,10 @@ A workflow declaring one name in both `defaults` and `envDefaults` fails to
 load. All load failures exit **1** and write to **stderr**, never stdout.
 
 gtd requires a repository with **at least one commit** before any state command
-(`land`, `--workflow`, `door`, `doors`, `next`, `abandon`, `restore`,
-`validate`, `summary`) will run — there is no workflow state to derive from an
-empty history. `gtd install`, `gtd lsp`, and `gtd check` are unaffected, since
-none of them needs a process history (`gtd lsp` then serves `REVIEW.md` alone).
+(`land`, `start`, `next`, `abandon`, `restore`, `validate`, `summary`) will run
+— there is no workflow state to derive from an empty history. `gtd guide`,
+`gtd lsp`, and `gtd check` are unaffected, since none of them needs a process
+history (`gtd lsp` then serves `REVIEW.md` alone).
 
 ## Judge settings
 
@@ -1163,27 +1173,26 @@ provider outside the three fails `gtd judge run`:
 A workflow's settings come in two kinds, told apart by what they may change.
 
 - A **process setting** changes which step comes next — flow code branches on
-  it, so every replay must see the same value. Flow code reads `settings` (or
-  `vars`, the same object).
+  it, so every replay must see the same value. Flow code reads `settings`.
 - An **environment setting** only changes how a step runs on this machine — the
   test command, a model hint — so it follows the machine, even mid-process. Flow
-  code reads `envSettings` (or `env`).
+  code reads `envSettings`.
 
 A workflow declares process settings in `defaults` and environment settings in
-`envDefaults` — a file's exports, or a [factory](#workflow-factories)'s build,
-which may take each setting as an option; a name in both is a load error.
+`envDefaults` — options of `workflow()`, or a [factory](#workflow-factories)'s
+build, which may take each setting as an option; a name in both is a load error.
 
 A setting name is a letter or `_`, then letters, digits or `_`
 (`[A-Za-z_][A-Za-z0-9_]*`), in `defaults`, `envDefaults` and `--var`: any other
 name fails the load, or is refused as a usage error for `--var`. The flow's
 first step — where a finished process waits — may not read a setting at all,
-process or environment (any `vars`/`env` access, enumeration included); such a
-workflow fails the load, naming the setting.
+process or environment (any `settings`/`envSettings` access, enumeration
+included); such a workflow fails the load, naming the setting.
 
 **A process setting's value is committed to Git history in its `Gtd-Var:`
 trailer and stays there. A secret belongs in an environment setting
-(`envDefaults`, or `GTD_<NAME>` for an `env` name), which is never recorded.** A
-`GTD_<NAME>` export of a process setting is recorded too.
+(`envDefaults`, or `GTD_<NAME>` for an environment setting's name), which is
+never recorded.** A `GTD_<NAME>` export of a process setting is recorded too.
 
 **Process settings** are resolved once, at process start, from three layers,
 **later wins**, and recorded as sorted `Gtd-Var:` trailers on the process's
@@ -1193,8 +1202,8 @@ first commit:
    factory, an option). A `flag_<name>` setting it declares is a release flag of
    its own: `GTD_FLAG_<NAME>` pins it here (see
    [Feature flags](#feature-flags)).
-2. **`--var <name>=<value>`** on `gtd --workflow <name>`. Each name must already
-   be declared by layer 1; an undeclared name is refused (exit 1), and naming an
+2. **`--var <name>=<value>`** on `gtd start <name>`. Each name must already be
+   declared by layer 1; an undeclared name is refused (exit 1), and naming an
    environment setting is a usage error (exit 2). A `flag_*` value must be `1`,
    `0`, `true` or `false`, and is recorded as `1` or `0`.
 3. **`GTD_<UPPERCASE-name>` environment variables** — matched case-insensitively
@@ -1245,7 +1254,7 @@ starts: `GTD_FLAG_<NAME>` set to `1`/`true` records `1`, `0`/`false` records
 start, naming the variable. `--var flag_<name>=…` overrides it and takes the
 same four values; `GTD_<NAME>` never does. The value is recorded like any
 process setting, so flipping the variable mid-process never moves a running
-process — branch on `vars.flag_<name>`, never on the live environment.
+process — branch on `settings.flag_<name>`, never on the live environment.
 
 ## Migrating from `.gtdrc`
 
@@ -1258,7 +1267,7 @@ file and exits **1**. Move each key, then delete the file:
 
 | `.gtdrc` key | Where it goes now                                                                                                                                   |
 | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `vars`       | A [factory option](#workflow-factories) in `gtd.config.ts` (`feature({ qualityReviews: "correctness" })`), or a plain flow's `defaults` export      |
+| `vars`       | A [factory option](#workflow-factories) in `gtd.config.ts` (`feature({ qualityReviews: "correctness" })`), or `workflow(flow, { defaults })`        |
 | `env`        | A factory option in `gtd.config.ts` (`feature({ testCommand: "npm run ci" })`), or `envDefaults`; per machine, `GTD_<NAME>`                         |
 | `judge`      | `~/.config/gtd/judge.json` (`$XDG_CONFIG_HOME/gtd/judge.json`), or `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` — see [Judge settings](#judge-settings) |
 | `modes`      | `config.modes` — see [Modes](#modes)                                                                                                                |

@@ -112,27 +112,27 @@ Feature: CLI help and messages — point at the fix, not just the failure
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "go" })
       }
 
-      export const hotfix = async () => {
+      export const hotfix = workflow(async () => {
         await agent("patch", "Patch it.")
-      }
+      })
       """
     And the working tree is committed
     And a file "NOTE.md" with:
       """
       a note
       """
-    When I run gtd with args "--workflow hotfix"
+    When I run gtd with args "start hotfix"
     Then it succeeds
     And stdout contains "# commits every change in the working tree (git add -A):"
     And stdout contains "#   A NOTE.md"
 
-  Scenario: an unknown workflow with nothing startable says so instead of an empty list
+  Scenario: an unknown name with nothing startable points at the list
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -143,7 +143,6 @@ Feature: CLI help and messages — point at the fix, not just the failure
       }
       """
     And the working tree is committed
-    When I run gtd with args "--workflow nope"
+    When I run gtd with args "start nope"
     Then the exit code is 2
-    And stderr contains "this config exports no workflow besides its default"
-    And stderr does not contain "startable: \n"
+    And stderr contains "no workflow or door is named \"nope\" — run `gtd start` to list them"

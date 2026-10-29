@@ -164,8 +164,8 @@ describe("renderBriefing", () => {
 
   it("contains the door invocation, exec'ing the loop", () => {
     const briefing = renderBriefing()
-    expect(briefing).toContain('gtd door "$@"')
-    expect(briefing).toContain("gtd doors")
+    expect(briefing).toContain('gtd start "$@"')
+    expect(briefing).toMatch(/bare `gtd start` lists/i)
     expect(briefing).toMatch(/exec.{0,20}GTD_BUILD/s)
   })
 
@@ -418,19 +418,19 @@ describe("DOOR_COMMAND", () => {
 
   it("cds to the repository root before any gtd call", () => {
     const cdIndex = DOOR_COMMAND.indexOf('cd "$(git rev-parse --show-toplevel)"')
-    const gtdIndex = DOOR_COMMAND.indexOf("gtd door")
+    const gtdIndex = DOOR_COMMAND.indexOf("gtd start")
     expect(cdIndex).toBeGreaterThan(-1)
     expect(gtdIndex).toBeGreaterThan(cdIndex)
   })
 
-  it("hands every argument to gtd door", () => {
-    expect(DOOR_COMMAND).toContain('gtd door "$@"')
+  it("hands every argument to gtd start", () => {
+    expect(DOOR_COMMAND).toContain('gtd start "$@"')
   })
 
   it("captures the emitted script via command substitution, never a pipe into sh", () => {
-    expect(DOOR_COMMAND).toContain('script="$(gtd door "$@")"')
+    expect(DOOR_COMMAND).toContain('script="$(gtd start "$@")"')
     expect(DOOR_COMMAND).toContain('sh -c "$script"')
-    expect(DOOR_COMMAND).not.toMatch(/gtd door[^\n]*\|\s*sh/)
+    expect(DOOR_COMMAND).not.toMatch(/gtd start[^\n]*\|\s*sh/)
   })
 
   it("prints usage to stderr and exits 2 when no name is given", () => {

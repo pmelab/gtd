@@ -3,57 +3,53 @@ Feature: gtd start — start a workflow or a door by name
 
   `gtd start <name> [args…] [--var k=v]` starts a new process: through a door
   when `<name>` is one, else on the workflow of that name. Bare `gtd start`
-  lists what it can start. `gtd --workflow`, `gtd door` and `gtd doors` keep
-  working as the older spellings.
+  lists what it can start. A door named like a workflow wins.
 
   Background:
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "go" })
         await agent("building", "Build it.")
       }
 
-      export const hotfix = async () => {
-        await agent("patch", "Patch it.")
-      }
-
-      export const audit = async () => {
-        await agent("auditing", "Audit it.")
-      }
-
-      export const defaults = { ticket: "", depth: "shallow" }
-
-      export const doors = {
-        patch: {
-          workflow: "hotfix",
-          args: [{ name: "ticket" }],
-          vars: ({ ticket }) => ({ ticket }),
+      export const hotfix = workflow(
+        async () => {
+          await agent("patch", "Patch it.")
         },
-        audit: { workflow: "hotfix" },
-      }
+        {
+          defaults: { ticket: "", depth: "shallow" },
+          doors: {
+            patch: { args: [{ name: "ticket" }], vars: ({ ticket }) => ({ ticket }) },
+            audit: {},
+          },
+        },
+      )
+
+      export const audit = workflow(async () => {
+        await agent("auditing", "Audit it.")
+      })
       """
 
-  Scenario: bare gtd start lists every workflow and door, writing nothing
+  Scenario: bare gtd start lists every workflow and door, writing nothing — a workflow a door shadows only as the door
     Given I record the commit count
     When I run gtd with args "start"
     Then it succeeds
     And stdout is:
       """
-      workflow audit
       workflow hotfix
       door audit → hotfix
       door patch <ticket> → hotfix
       """
     And the commit count is unchanged
 
-  Scenario: bare gtd start --json prints the list as one array
+  Scenario: bare gtd start --json prints the list as one array, a shadowed workflow only as its door
     When I run gtd with args "start --json"
     Then it succeeds
-    And stdout contains "[{\"kind\":\"workflow\",\"name\":\"audit\"},{\"kind\":\"workflow\",\"name\":\"hotfix\"},{\"kind\":\"door\",\"name\":\"audit\",\"workflow\":\"hotfix\",\"args\":[]},{\"kind\":\"door\",\"name\":\"patch\",\"workflow\":\"hotfix\",\"args\":[{\"name\":\"ticket\",\"optional\":false}]}]"
+    And stdout contains "[{\"kind\":\"workflow\",\"name\":\"hotfix\"},{\"kind\":\"door\",\"name\":\"audit\",\"workflow\":\"hotfix\",\"args\":[]},{\"kind\":\"door\",\"name\":\"patch\",\"workflow\":\"hotfix\",\"args\":[{\"name\":\"ticket\",\"optional\":false}]}]"
 
   Scenario: gtd start <workflow> starts it, pinning --var settings
     When I run gtd with args "start hotfix --var ticket=T-1"
@@ -69,15 +65,31 @@ Feature: gtd start — start a workflow or a door by name
     And the last commit body contains "Gtd-Var: ticket=T-42"
     And the last commit body contains "Gtd-Var: depth=deep"
 
-  Scenario: a door shadows the workflow of the same name, which --workflow still reaches
+  Scenario: a door shadows the workflow of the same name, with a warning
     When I run gtd with args "start audit"
     Then it succeeds
+    And stderr contains "door \"audit\" starts workflow \"hotfix\" and hides the workflow of the same name"
     And the last commit body contains "Gtd-Workflow: hotfix"
-    When I run gtd with args "abandon"
-    Then it succeeds
-    When I run gtd with args "--workflow audit"
-    Then it succeeds
-    And the last commit body contains "Gtd-Workflow: audit"
+
+  Scenario: a --var the workflow does not declare is a usage error
+    Given I record the commit count
+    When I run gtd with args "start hotfix --var nope=1"
+    Then the exit code is 2
+    And stdout is empty
+    And stderr contains "gtd start hotfix: --var name(s) not declared by this workflow: nope"
+    And the commit count is unchanged
+
+  Scenario Outline: the removed spellings are usage errors
+    When I run gtd with args "<args>"
+    Then the exit code is 2
+    And stderr contains "<message>"
+
+    Examples:
+      | args               | message                      |
+      | --workflow hotfix  | unknown option '--workflow'  |
+      | door patch T-1     | unknown command 'door'       |
+      | doors              | unknown command 'doors'      |
+      | install            | unknown command 'install'    |
 
   Scenario: -- ends the options, so a door arg may start with a dash
     When I run gtd with args "start patch -- --T-7"

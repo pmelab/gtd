@@ -22,15 +22,15 @@ interface Tier {
 
 const config = (imports: string): string =>
   [
-    'import { agent, human } from "@pmelab/gtd/flows"',
+    'import { agent, human, workflow } from "@pmelab/gtd/flows"',
     imports,
     "export default async () => {",
     '  await human("idle", { message: "go" })',
     '  await agent("working", brief)',
     "}",
-    "export const named = async () => {",
+    "export const named = workflow(async () => {",
     '  await agent("working", brief)',
-    "}",
+    "})",
     "",
   ].join("\n")
 

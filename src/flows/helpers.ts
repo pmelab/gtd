@@ -9,8 +9,8 @@ import {
   read,
   refuse,
   run,
+  settings,
   threads,
-  vars,
   type Change,
   type JudgeAnswer,
   type Judgment,
@@ -33,9 +33,8 @@ export const numeric = (value: string | undefined, fallback: number): number => 
 /** Whether the last step added or rewrote `path`. */
 export const wrote = (path: string): boolean => changes(path).some((c) => c.status !== "deleted")
 
+/** `check()`'s options beside its report path. */
 export interface CheckOptions {
-  /** Where a failing run leaves its output. */
-  readonly report: string
   readonly label?: string | undefined
   /** Paths removed before the command runs. */
   readonly sweep?: readonly string[] | undefined
@@ -45,30 +44,27 @@ export interface CheckOptions {
   readonly preamble?: readonly string[] | undefined
 }
 
-export interface Check {
-  (
-    name: string,
-    command: string,
-    report: string,
-    options?: Omit<CheckOptions, "report">,
-  ): Promise<boolean>
-  (name: string, command: string, options: CheckOptions): Promise<boolean>
-}
+export type Check = (
+  name: string,
+  command: string,
+  /** Where a failing run leaves its output. */
+  report: string,
+  options?: CheckOptions,
+) => Promise<boolean>
 
 /**
  * A step that runs `command` through the driver and keeps its outcome in the
  * tree: a failure writes `report`, a pass removes it. Resolves `true` when the
  * command passed.
  */
-export const check: Check = async (
-  name: string,
-  command: string,
-  reportOrOptions: string | CheckOptions,
-  rest?: Omit<CheckOptions, "report">,
-): Promise<boolean> => {
-  const options: CheckOptions =
-    typeof reportOrOptions === "string" ? { ...rest, report: reportOrOptions } : reportOrOptions
-  const { report, label, sweep, sweepOnGreen, preamble } = options
+export const check: Check = async (name, command, report, options = {}) => {
+  // A config is evaluated without a type check, so the removed form must fail loudly.
+  if (typeof report !== "string") {
+    throw new Error(
+      `gtd: check("${name}"): the report path is the third argument — check(name, command, report, options?)`,
+    )
+  }
+  const { label, sweep, sweepOnGreen, preamble } = options
   await run(
     name,
     checkScript(command, { report, stamp: head().slice(0, 7), sweep, sweepOnGreen, preamble }),
@@ -233,7 +229,7 @@ export const judgeDiffShape = async (
 
   const minP =
     options.minP ??
-    (vars.judgeShapeMinP === undefined ? 0.7 : numeric(vars.judgeShapeMinP, Infinity))
+    (settings.judgeShapeMinP === undefined ? 0.7 : numeric(settings.judgeShapeMinP, Infinity))
   const judgment = await judge(name, {
     questions: [
       {

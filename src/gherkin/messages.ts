@@ -1,5 +1,5 @@
 import assert from "node:assert"
-import type { TestRepo } from "../testkit/index.js"
+import type { BeatDocument, TestRepo } from "../testkit/index.js"
 
 const CONTENT_LINES = 5
 const SUBJECTS = 5
@@ -22,10 +22,19 @@ const beatLines = async (repo: TestRepo): Promise<string[]> => {
   }
 }
 
+/** A scripted step no drive reached, and whether a Background or the scenario scripted it. */
+export interface Unreached {
+  readonly step: string
+  readonly origin: "Background" | "scenario"
+}
+
+export const unreachedList = (steps: readonly Unreached[]): string =>
+  steps.map(({ step, origin }) => `"${step}" (${origin})`).join(", ")
+
 /** Where the process rests, for a failed outcome to end with. Never throws: it describes a failure. */
 export const restDescription = async (
   repo: () => TestRepo,
-  neverUsed: readonly string[],
+  neverUsed: readonly Unreached[],
 ): Promise<string> => {
   let lines: string[]
   try {
@@ -41,8 +50,7 @@ export const restDescription = async (
   } catch (error) {
     lines = [`unknown — ${reason(error)}`]
   }
-  if (neverUsed.length > 0)
-    lines.push(`actors never used: ${neverUsed.map((step) => `"${step}"`).join(", ")}`)
+  if (neverUsed.length > 0) lines.push(`actors never used: ${unreachedList(neverUsed)}`)
   return ["where the process rests:", ...lines.map((line) => `  ${line}`)].join("\n")
 }
 
@@ -81,4 +89,13 @@ export const assertContains = (where: string, text: string, content: string | un
 export const assertLacks = (where: string, text: string, content: string | undefined): void => {
   if (content === undefined || content.includes(text))
     assert.fail(containsFailure(where, text, content, false))
+}
+
+/** A rest at `step`; a stall there is no rest, so it points to the step that asserts one. */
+export const assertRestsAt = (beat: BeatDocument, step: string): void => {
+  if (beat.kind === "stalled")
+    assert.fail(
+      `expected a rest at "${step}", but the process stalls at "${beat.state}" — assert a stall with: the process stalls at "${beat.state}"`,
+    )
+  assert.strictEqual(beat.state, step)
 }

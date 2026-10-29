@@ -72,16 +72,11 @@ let projectDir: string
 
 // A config whose default workflow rests at `idle`, declaring a process
 // setting, an environment setting and the scopes its turns run under.
-const BASE_CONFIG = `import { human } from "@pmelab/gtd/flows"
+const BASE_CONFIG = `import { human, workflow } from "@pmelab/gtd/flows"
 
-export default async () => {
-  await human("idle", { message: "hi" })
-}
-
-export const defaults = { qualityReviews: "" }
-export const envDefaults = { testCommand: "npm test" }
-
-export const skills = (vars) => ({
+const defaults = { qualityReviews: "" }
+const envDefaults = { testCommand: "npm test" }
+const skills = (vars) => ({
   build: [],
   "build.fix.quality": [],
   "build.review": [],
@@ -93,6 +88,11 @@ export const skills = (vars) => ({
       .map((lens) => [\`build.quality.\${lens}\`, []]),
   ),
 })
+
+export default workflow(async () => {
+  await human("idle", { message: "hi" })
+}, { defaults, envDefaults, skills })
+
 `
 
 // Workflow factories a config imports from a sibling module: string options
@@ -187,6 +187,17 @@ const minimalWorkflow = (first: string) =>
     `export default async () => {`,
     `  await human("${first}")`,
     `}`,
+    ``,
+  ].join("\n")
+
+// The same one-step workflow, carrying `options` (source text) as its build options.
+const optionedWorkflow = (first: string, options: string) =>
+  [
+    `import { human, workflow } from "@pmelab/gtd/flows"`,
+    ``,
+    `export default workflow(async () => {`,
+    `  await human("${first}")`,
+    `}, ${options})`,
     ``,
   ].join("\n")
 
@@ -307,7 +318,7 @@ describe("ConfigService", () => {
   it("a workflow declaring a name in both defaults and envDefaults fails to load", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
-      `${minimalWorkflow("first")}export const defaults = { x: "1" }\nexport const envDefaults = { x: "2" }\n`,
+      optionedWorkflow("first", `{ defaults: { x: "1" }, envDefaults: { x: "2" } }`),
     )
 
     await expect(getConfig()).rejects.toThrow(`"x" declared in both "defaults" and "envDefaults"`)
@@ -375,16 +386,16 @@ describe("ConfigService", () => {
     expect(cfg.workflow.initial).toBe("custom-idle")
   })
 
-  it("reads `defaults`, `summary`, `base` and `steering` off the module and ignores its other exports", async () => {
+  it("reads `defaults`, `summary`, `base` and `steering` off workflow()'s options and ignores other exports", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
       [
-        minimalWorkflow("first"),
-        `export const defaults = { greeting: "hi" }`,
-        `export const summary = () => "sum"`,
-        `export const base = () => undefined`,
-        `export const steering = { ".gtd/PLAN.md": "qa" }`,
+        optionedWorkflow(
+          "first",
+          `{ defaults: { greeting: "hi" }, summary: () => "sum", base: () => undefined, steering: { ".gtd/PLAN.md": "qa" } }`,
+        ),
         `export const helper = 42`,
+        `export const plain = async () => {}`,
         ``,
       ].join("\n"),
     )
@@ -396,7 +407,22 @@ describe("ConfigService", () => {
     expect(typeof cfg.workflow.summary).toBe("function")
     expect(typeof cfg.workflow.base).toBe("function")
     expect(cfg.workflow.steering).toEqual({ ".gtd/PLAN.md": "qa" })
+    expect(cfg.workflowNames).toEqual([])
   })
+
+  it.each(["defaults", "envDefaults", "steering", "skills", "access", "doors", "summary", "base"])(
+    "refuses a file-level %s export, naming its replacement",
+    async (name) => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        `${minimalWorkflow("first")}export const ${name} = {}\n`,
+      )
+
+      await expect(getConfig()).rejects.toThrow(
+        `gtd.config.ts: ${name}: the "${name}" export is no longer read — pass it to the workflow it configures: \`workflow(flow, { ${name} })\`, or the build a workflow factory returns`,
+      )
+    },
+  )
 
   it("the fingerprint covers gtd.config.ts AND a sibling module it imports from", async () => {
     writeFileSync(
@@ -405,7 +431,9 @@ describe("ConfigService", () => {
     )
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
-      [minimalWorkflow("first"), `export { steering } from "./steps.js"`, ``].join("\n"),
+      [`import { steering } from "./steps.js"`, optionedWorkflow("first", "{ steering }")].join(
+        "\n",
+      ),
     )
 
     const cfg = await getConfig()
@@ -421,21 +449,24 @@ describe("ConfigService", () => {
   })
 
   it.each([
-    [`export const defaults = { n: 1 }`, /"defaults" export is not a record of strings/],
-    [`export const summary = "text"`, /"summary" export is not a function/],
+    [`{ defaults: { n: 1 } }`, `workflow "default"'s "defaults" is not a record of strings`],
+    [`{ summary: "text" }`, `workflow "default"'s "summary" is not a function`],
+    [`{ base: "main" }`, `workflow "default"'s "base" is not a function`],
     [
-      `export const steering = { ".gtd/PLAN.md": 1 }`,
-      /"steering" export is not a record of strings/,
+      `{ steering: { ".gtd/PLAN.md": 1 } }`,
+      `workflow "default"'s "steering" is not a record of strings`,
     ],
-  ])("rejects a malformed named export: %s", async (line, message) => {
-    writeFileSync(join(projectDir, "gtd.config.ts"), `${minimalWorkflow("first")}${line}\n`)
+    [`{ doors: [] }`, `workflow "default"'s "doors" is not a record of doors`],
+    [`{ defualts: {} }`, `workflow "default" has unknown option(s) "defualts" — known: defaults,`],
+  ])("rejects malformed workflow() options: %s", async (options, message) => {
+    writeFileSync(join(projectDir, "gtd.config.ts"), optionedWorkflow("first", options))
 
     await expect(getConfig()).rejects.toThrow(message)
   })
 
   const firstStepWorkflow = (body: string) =>
     [
-      `import { human, vars, env } from "@pmelab/gtd/flows"`,
+      `import { human, settings as vars, envSettings as env } from "@pmelab/gtd/flows"`,
       `export default async () => {`,
       `  ${body}`,
       `}`,
@@ -479,23 +510,19 @@ describe("ConfigService", () => {
   it("refuses a workflow default whose name is not a valid setting name", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
-      [
-        minimalWorkflow("first"),
-        `export const defaults = { "a=b": "1" }`,
-        `export const envDefaults = { "c d": "1" }`,
-      ].join("\n"),
+      optionedWorkflow("first", `{ defaults: { "a=b": "1" }, envDefaults: { "c d": "1" } }`),
     )
     await expect(getConfig()).rejects.toThrow(
-      'the "defaults" export declares "a=b", not a valid setting name — a setting name is a letter or "_", then letters, digits or "_"',
+      'workflow "default" declares defaults "a=b", not a valid setting name — a setting name is a letter or "_", then letters, digits or "_"',
     )
   })
 
   it("refuses an envDefaults name that is not a valid setting name", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
-      [minimalWorkflow("first"), `export const envDefaults = { "c d": "1" }`].join("\n"),
+      optionedWorkflow("first", `{ envDefaults: { "c d": "1" } }`),
     )
-    await expect(getConfig()).rejects.toThrow('the "envDefaults" export declares "c d"')
+    await expect(getConfig()).rejects.toThrow('workflow "default" declares envDefaults "c d"')
   })
 
   it("refuses a flow whose first step depends on the repository's files", async () => {
@@ -559,7 +586,7 @@ describe("ConfigService", () => {
 
   describe("named workflows", () => {
     const flow = (first: string) => `async () => {\n  await human("${first}")\n}`
-    const header = `import { human } from "@pmelab/gtd/flows"\n`
+    const header = `import { human, workflow } from "@pmelab/gtd/flows"\n`
 
     it("re-exported factories are startable under their names, default is not", async () => {
       withFactories(`export { feature as default, feature, review, fix } from "./workflows"\n`)
@@ -570,27 +597,54 @@ describe("ConfigService", () => {
       expect(cfg.workflowNamed("fix")?.def.initial).toBe("idle")
     })
 
-    it("every exported function but the reserved names is a workflow, named by its export", async () => {
+    it("only workflow() exports and factories are workflows, named by their export; other functions are helpers", async () => {
       writeFileSync(
         join(projectDir, "gtd.config.ts"),
         [
           header,
           `export default ${flow("main")}`,
-          `export const hotfix = ${flow("hot")}`,
-          `export const defaults = { greeting: "hi" }`,
-          `export const summary = () => "sum"`,
-          `export const base = () => undefined`,
-          `export const steering = {}`,
-          `export const skills = {}`,
+          `export const hotfix = workflow(${flow("hot")}, { defaults: { greeting: "hi" } })`,
+          `export const helper = ${flow("help")}`,
           `export const notAFlow = 42`,
           ``,
         ].join("\n"),
       )
       const cfg = await getConfig()
       expect(cfg.workflowNames).toEqual(["hotfix"])
+      expect(cfg.warnings).toEqual([])
       expect(cfg.defaultWorkflow.name).toBe("default")
+      expect(cfg.defaultWorkflow.vars).toEqual({})
       expect(cfg.workflow.initial).toBe("main")
       expect(cfg.workflowNamed("hotfix")?.vars).toEqual({ greeting: "hi" })
+    })
+
+    it("an exported workflow re-wrapped with options of its own is a second workflow with only those", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [
+          header,
+          `export const library = workflow(${flow("main")}, { defaults: { greeting: "hi" } })`,
+          `export const mine = workflow(library, { defaults: { tone: "dry" } })`,
+          `export default mine`,
+          ``,
+        ].join("\n"),
+      )
+      const cfg = await getConfig()
+      expect(cfg.workflowNames).toEqual(["library", "mine"])
+      expect(cfg.workflowNamed("library")?.vars).toEqual({ greeting: "hi" })
+      expect(cfg.workflowNamed("mine")?.vars).toEqual({ tone: "dry" })
+      expect(cfg.workflowNamed("mine")?.def.initial).toBe("main")
+    })
+
+    it("a plain default export is a workflow without options", async () => {
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [header, `export default ${flow("main")}`, ``].join("\n"),
+      )
+      const cfg = await getConfig()
+      expect(cfg.workflow.initial).toBe("main")
+      expect(cfg.defaultWorkflow.vars).toEqual({})
+      expect(cfg.workflow.summary).toBeUndefined()
     })
 
     it("a config with no default export fails, saying what to export", async () => {
@@ -598,20 +652,38 @@ describe("ConfigService", () => {
         join(projectDir, "gtd.config.ts"),
         [header, `export const hotfix = ${flow("hot")}`, ``].join("\n"),
       )
-      await expect(getConfig()).rejects.toThrow(/no default export.*`gtd guide`/)
+      await expect(getConfig()).rejects.toThrow(
+        /no default export — export the workflow an ordinary start runs; `gtd guide` says where to get one, or write your own/,
+      )
     })
 
     it("a default that is also a named export goes by that name", async () => {
       writeFileSync(
         join(projectDir, "gtd.config.ts"),
-        [header, `export const hotfix = ${flow("hot")}`, `export default hotfix`, ``].join("\n"),
+        [
+          header,
+          `export const hotfix = workflow(${flow("hot")})`,
+          `export default hotfix`,
+          ``,
+        ].join("\n"),
       )
       expect((await getConfig()).defaultWorkflow.name).toBe("hotfix")
     })
 
-    it("a helper re-exported from a workflow module becomes a startable workflow", async () => {
+    it("a helper re-exported from a workflow module stays a helper; a marked one is a workflow", async () => {
       withFactories(`export { feature as default, unwind } from "./workflows"\n`)
-      expect((await getConfig()).workflowNames).toContain("unwind")
+      expect((await getConfig()).workflowNames).not.toContain("unwind")
+      writeFileSync(
+        join(projectDir, "gtd.config.ts"),
+        [
+          `import { workflow } from "@pmelab/gtd/flows"`,
+          `import { unwind } from "./workflows"`,
+          `export { feature as default } from "./workflows"`,
+          `export const unwinding = workflow(unwind)`,
+          ``,
+        ].join("\n"),
+      )
+      expect((await getConfig()).workflowNames).toContain("unwinding")
     })
 
     it("a gtd subpath only a helper file imports resolves", async () => {
@@ -628,21 +700,19 @@ describe("ConfigService", () => {
         [
           header,
           `import { kit } from "./kit"`,
-          `export default ${flow("main")}`,
-          'export const steering = { [`.gtd/${kit}.md`]: "qa" }',
+          `export default workflow(${flow("main")}, { steering: { [\`.gtd/\${kit}.md\`]: "qa" } })`,
           ``,
         ].join("\n"),
       )
       expect((await getConfig()).workflow.steering[".gtd/function.md"]).toBe("qa")
     })
 
-    it("steering is the config's own export", async () => {
+    it("steering is the workflow's own option", async () => {
       writeFileSync(
         join(projectDir, "gtd.config.ts"),
         [
           header,
-          `export default ${flow("main")}`,
-          `export const steering = { ".gtd/REVIEW.md": "qa", ".gtd/X.md": "qa" }`,
+          `export default workflow(${flow("main")}, { steering: { ".gtd/REVIEW.md": "qa", ".gtd/X.md": "qa" } })`,
           ``,
         ].join("\n"),
       )
@@ -655,16 +725,16 @@ describe("ConfigService", () => {
 
   describe("doors", () => {
     const flow = (first: string) => `async () => {\n  await human("${first}")\n}`
-    const header = `import { human } from "@pmelab/gtd/flows"\n`
+    const header = `import { human, workflow } from "@pmelab/gtd/flows"\n`
+    /** `hotfix` builds `doors`, a record of doors without their `workflow`. */
     const withDoors = (doors: string, extra = ""): void =>
       writeFileSync(
         join(projectDir, "gtd.config.ts"),
         [
           header,
           `export default ${flow("main")}`,
-          `export const hotfix = ${flow("hot")}`,
+          `export const hotfix = workflow(${flow("hot")}, { doors: ${doors} })`,
           extra,
-          `export const doors = ${doors}`,
           ``,
         ].join("\n"),
       )
@@ -701,26 +771,9 @@ describe("ConfigService", () => {
       expect(audit?.def.base?.("audit", { reviewBase: "v1" })).toBe("v1")
     })
 
-    it("a config's own base export wins over the review factory's", async () => {
-      withFactories(
-        [
-          `export { feature as default, review } from "./workflows"`,
-          `export const base = (w: string) => (w === "review" ? "develop" : undefined)`,
-          ``,
-        ].join("\n"),
-      )
-      expect((await getConfig()).workflowNamed("review")?.def.base?.("review", {})).toBe("develop")
-    })
-
-    it("a door several workflows build gets no door when none is exported under its name, until the doors export declares it", async () => {
-      const both = `export { feature as default, fix as fix2, fix as fix3 } from "./workflows"`
-      withFactories(`${both}\n`)
+    it("a door several workflows build gets no door when none is exported under its name", async () => {
+      withFactories(`export { feature as default, fix as fix2, fix as fix3 } from "./workflows"\n`)
       expect((await getConfig()).doors.get("fix")).toBeUndefined()
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        `${both}\nexport const doors = { fix: { workflow: "fix3" } }\n`,
-      )
-      expect((await getConfig()).doors.get("fix")?.workflow).toBe("fix3")
     })
 
     it("a door clash warns once at doors.<name>, builders sorted", async () => {
@@ -734,17 +787,15 @@ describe("ConfigService", () => {
           severity: "warning",
           path: ["doors", "fix"],
           origin: join(projectDir, "gtd.config.ts"),
-          message: `door "fix" is built by workflows "fix2", "fix3" and "fix4" and none is exported under that name — declare it in the "doors" export`,
+          message: `door "fix" is built by workflows "fix2", "fix3" and "fix4" and none is exported under that name — rename the export that should own it to "fix"`,
         },
       ])
     })
 
-    it("no clash warning when an export is named after the door, one workflow builds it, or doors declares it", async () => {
-      const both = `export { feature as default, fix as fix2, fix as fix3 } from "./workflows"`
+    it("no clash warning when an export is named after the door, or one workflow builds it", async () => {
       for (const body of [
         `export { feature as default, fix as fix2, fix } from "./workflows"\n`,
         `export { feature as default, fix } from "./workflows"\n`,
-        `${both}\nexport const doors = { fix: { workflow: "fix3" } }\n`,
       ]) {
         withFactories(body)
         expect((await getConfig()).warnings.filter((w) => w.path[0] === "doors")).toEqual([])
@@ -766,11 +817,8 @@ describe("ConfigService", () => {
       }
     })
 
-    it("a config's doors merge derived doors (exported workflows) with declared doors (doors export)", async () => {
-      withDoors(
-        `{ hot: { workflow: "hotfix", args: [{ name: "ticket" }] } }`,
-        'export { fix } from "./workflows"',
-      )
+    it("a config's doors are those of every workflow it exports, factory or workflow()", async () => {
+      withDoors(`{ hot: { args: [{ name: "ticket" }] } }`, 'export { fix } from "./workflows"')
       writeFileSync(join(projectDir, "workflows.ts"), FACTORIES)
       const { doors } = await getConfig()
       expect([...doors.keys()].sort()).toEqual(["fix", "hot"])
@@ -779,39 +827,54 @@ describe("ConfigService", () => {
       expect(doors.get("hot")?.args).toEqual([{ name: "ticket" }])
     })
 
-    it("the reserved `doors` export is never a workflow", async () => {
-      withDoors(`{}`)
-      expect((await getConfig()).workflowNames).toEqual(["hotfix"])
+    it("a door named like a workflow it does not start warns that it hides that workflow", async () => {
+      const config = (fixDoors: string): void =>
+        writeFileSync(
+          join(projectDir, "gtd.config.ts"),
+          [
+            `import { human, workflow } from "@pmelab/gtd/flows"`,
+            `export default workflow(${flow("main")})`,
+            `export const fix = workflow(${flow("fix")}${fixDoors})`,
+            `export const hotfix = workflow(${flow("hot")}, { doors: { fix: {} } })`,
+            ``,
+          ].join("\n"),
+        )
+      config("")
+      const cfg = await getConfig()
+      expect(cfg.doors.get("fix")?.workflow).toBe("hotfix")
+      expect(cfg.warnings.filter((w) => w.path[0] === "doors")).toEqual([
+        {
+          severity: "warning",
+          path: ["doors", "fix"],
+          origin: join(projectDir, "gtd.config.ts"),
+          message:
+            'door "fix" starts workflow "hotfix" and hides the workflow of the same name from `gtd start fix` — rename one of them',
+        },
+      ])
+      config(", { doors: { fix: {} } }")
+      expect((await getConfig()).warnings.filter((w) => w.path[0] === "doors")).toEqual([])
     })
 
     it("rejects a door name that is not lowercase-kebab", async () => {
-      withDoors(`{ Bad_Name: { workflow: "fix" } }`)
+      withDoors(`{ Bad_Name: {} }`)
       await expect(getConfig()).rejects.toThrow(/door "Bad_Name".*\^\[a-z\]\[a-z0-9-\]\*\$/)
     })
 
-    it("rejects a door whose workflow is not startable", async () => {
-      withDoors(`{ go: { workflow: "nope" } }`)
-      await expect(getConfig()).rejects.toThrow(/door "go".*workflow "nope"/)
-    })
-
     it("rejects a required arg after an optional one", async () => {
-      withDoors(`{ go: { workflow: "fix", args: [{ name: "a", optional: true }, { name: "b" }] } }`)
+      withDoors(`{ go: { args: [{ name: "a", optional: true }, { name: "b" }] } }`)
       await expect(getConfig()).rejects.toThrow(/door "go".*"b".*after an optional/)
     })
 
     it("rejects duplicate arg names", async () => {
-      withDoors(`{ go: { workflow: "fix", args: [{ name: "a" }, { name: "a" }] } }`)
+      withDoors(`{ go: { args: [{ name: "a" }, { name: "a" }] } }`)
       await expect(getConfig()).rejects.toThrow(/door "go".*duplicate arg "a"/)
     })
 
-    it("rejects a `doors` export that is not a record", async () => {
+    it("rejects doors that are not a record", async () => {
       withDoors(`[1]`)
-      await expect(getConfig()).rejects.toThrow(/the "doors" export is not a record/)
-    })
-
-    it("rejects a door that is not an object with a workflow name", async () => {
-      withDoors(`{ go: 3 }`)
-      await expect(getConfig()).rejects.toThrow(/door "go".*workflow/)
+      await expect(getConfig()).rejects.toThrow(
+        `workflow "hotfix"'s "doors" is not a record of doors`,
+      )
     })
   })
 
@@ -907,16 +970,15 @@ describe("ConfigService", () => {
       )
     })
 
-    it("loads a skills export given as a record or as a function of the vars", async () => {
-      const flow = minimalWorkflow("first")
+    it("loads a skills option given as a record or as a function of the vars", async () => {
       writeFileSync(
         join(projectDir, "gtd.config.ts"),
-        `${flow}export const skills = { a: ["x"] }\n`,
+        optionedWorkflow("first", `{ skills: { a: ["x"] } }`),
       )
       expect(Object.keys((await getConfig()).workflow.skills({}))).toEqual(["a"])
       writeFileSync(
         join(projectDir, "gtd.config.ts"),
-        `${flow}export const skills = (vars) => ({ [vars.k ?? "none"]: ["x"] })\n`,
+        optionedWorkflow("first", `{ skills: (vars) => ({ [vars.k ?? "none"]: ["x"] }) }`),
       )
       expect(Object.keys((await getConfig()).workflow.skills({ k: "b" }))).toEqual(["b"])
     })
@@ -945,10 +1007,10 @@ describe("ConfigService", () => {
     expect(cfg.ui).toEqual({ format: "oxfmt --write $GTD_FILE" })
   })
 
-  it("never interpolates the workflow's own `defaults` export", async () => {
+  it("never interpolates the workflow's own `defaults`", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
-      [minimalWorkflow("first"), `export const defaults = { greeting: "$LITERAL" }`, ``].join("\n"),
+      optionedWorkflow("first", `{ defaults: { greeting: "$LITERAL" } }`),
     )
 
     const cfg = await getConfig(undefined, { LITERAL: "should-never-appear" })
@@ -1015,13 +1077,8 @@ describe("ConfigService — workflow factory options", () => {
     expect(error).toMatch(/gtd\.config\.ts: testComand: workflow "default" option "testComand"/)
   })
 
-  it("a door naming a rejected factory reports the option error alone", async () => {
-    configWith(
-      [
-        `export default feature({ testComand: "x" } as never)`,
-        `export const doors = { go: { workflow: "default" } }`,
-      ].join("\n"),
-    )
+  it("a rejected factory reports the option error, not the doors it would build", async () => {
+    configWith(`export default feature({ testComand: "x" } as never)`)
 
     const error = await getConfig().catch((e: Error) => e.message)
 
@@ -1049,7 +1106,7 @@ describe("ConfigService — a factory's built settings", () => {
     await expect(getConfig()).rejects.toThrow(/workflow "audit" builds door "Bad_Name", which/)
   })
 
-  it("are held to the setting-name rule, like a file's defaults", async () => {
+  it("are held to the setting-name rule, like workflow()'s", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
       [
@@ -1064,7 +1121,7 @@ describe("ConfigService — a factory's built settings", () => {
     )
 
     await expect(getConfig()).rejects.toThrow(
-      /workflow "default" builds defaults "x=y", not a valid setting name/,
+      /workflow "default" declares defaults "x=y", not a valid setting name/,
     )
   })
 
@@ -1100,12 +1157,14 @@ describe("ConfigService — a factory's built settings", () => {
       ].join("\n"),
     )
 
-    await expect(getConfig()).rejects.toThrow(/builds defaults "x", whose value is not a string/)
+    await expect(getConfig()).rejects.toThrow(
+      `workflow "default"'s "defaults" is not a record of strings`,
+    )
   })
 })
 
 describe("ConfigService — what a factory's build carries", () => {
-  const factoryConfig = (build: string, file = ""): void =>
+  const factoryConfig = (build: string): void =>
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
       [
@@ -1115,7 +1174,6 @@ describe("ConfigService — what a factory's build carries", () => {
         `  flow: async () => { await human("idle") },`,
         build,
         `}))`,
-        file,
         ``,
       ].join("\n"),
     )
@@ -1136,29 +1194,7 @@ describe("ConfigService — what a factory's build carries", () => {
     expect(workflow.summary?.({} as never)).toBe("built")
   })
 
-  it("the file's exports win: per scope, per path, and whole for summary", async () => {
-    factoryConfig(
-      [
-        `  skills: { work: ["build"], other: ["build"] },`,
-        `  access: () => ({ work: { write: ["build/**"] }, other: {} }),`,
-        `  steering: { ".gtd/PLAN.md": "qa", ".gtd/B.md": "review" },`,
-        `  summary: () => "built",`,
-      ].join("\n"),
-      [
-        `export const skills = { work: ["file"] }`,
-        `export const access = { work: { write: ["file/**"] } }`,
-        `export const steering = { ".gtd/PLAN.md": "findings" }`,
-        `export const summary = () => "file"`,
-      ].join("\n"),
-    )
-    const { workflow } = await getConfig()
-    expect(workflow.skills({})).toEqual({ work: ["file"], other: ["build"] })
-    expect(workflow.access({})).toEqual({ work: { write: ["file/**"] }, other: {} })
-    expect(workflow.steering).toEqual({ ".gtd/PLAN.md": "findings", ".gtd/B.md": "review" })
-    expect(workflow.summary?.({} as never)).toBe("file")
-  })
-
-  it("checks them as it checks the file's own exports", async () => {
+  it("checks them as it checks workflow()'s options", async () => {
     factoryConfig(`  skills: { work: "one" },`)
     await expect(getConfig()).rejects.toThrow(
       `workflow "default"'s "skills" is not a record of skill-name arrays`,
@@ -1172,11 +1208,11 @@ describe("ConfigService — what a factory's build carries", () => {
   })
 })
 
-describe("ConfigService — the access export", () => {
+describe("ConfigService — workflow()'s access option", () => {
   const withAccess = (access: string): void =>
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
-      `${minimalWorkflow("first")}export const access = ${access}\n`,
+      optionedWorkflow("first", `{ access: ${access} }`),
     )
 
   it("accepts a record of { read?, write? } glob arrays, and a function", async () => {
@@ -1191,51 +1227,19 @@ describe("ConfigService — the access export", () => {
   })
 
   it.each([
-    [`{ a: { wirte: [] } }`, `the "access" export: scope "a": unknown access key "wirte"`],
-    [`{ a: { read: [1] } }`, `the "access" export: scope "a": access.read must be an array`],
-    [`{ a: ["x/**"] }`, `the "access" export: scope "a": access must be an object`],
-    [`["x/**"]`, `the "access" export is not a record of scope access`],
-    [`"x/**"`, `the "access" export is not a record of scope access`],
+    [
+      `{ a: { wirte: [] } }`,
+      `workflow "default"'s "access": scope "a": unknown access key "wirte"`,
+    ],
+    [
+      `{ a: { read: [1] } }`,
+      `workflow "default"'s "access": scope "a": access.read must be an array`,
+    ],
+    [`{ a: ["x/**"] }`, `workflow "default"'s "access": scope "a": access must be an object`],
+    [`["x/**"]`, `workflow "default"'s "access" is not a record of scope access`],
+    [`"x/**"`, `workflow "default"'s "access" is not a record of scope access`],
   ])("refuses %s at load", async (access, message) => {
     withAccess(access)
     await expect(getConfig()).rejects.toThrow(message)
-  })
-})
-
-describe("ConfigService — workflow() marks", () => {
-  const origin = () => join(projectDir, "gtd.config.ts")
-  const unmarked = async (): Promise<readonly string[]> =>
-    (await getConfig()).warnings
-      .filter((w) => w.message.includes("not marked with workflow()"))
-      .map((w) => `${w.origin === origin() ? "" : "elsewhere:"}${w.path.join(".")}`)
-
-  it("warns about each unmarked exported function once one is marked", async () => {
-    writeFileSync(
-      origin(),
-      [
-        `import { human, workflow } from "@pmelab/gtd/flows"`,
-        `export const helper = async () => { await human("h") }`,
-        `export const other = async () => { await human("o") }`,
-        `export const hotfix = workflow(async () => { await human("f") })`,
-        `export default async () => { await human("idle") }`,
-        ``,
-      ].join("\n"),
-    )
-    expect(await unmarked()).toEqual(["helper", "other"])
-  })
-
-  it("warns about nothing when nothing is marked, nor about factories or the default", async () => {
-    writeFileSync(origin(), `${minimalWorkflow("first")}export const helper = async () => {}\n`)
-    expect(await unmarked()).toEqual([])
-    withFactories(
-      [
-        `import { workflow } from "@pmelab/gtd/flows"`,
-        `export { feature, fix } from "./workflows"`,
-        `export { unwind as default } from "./workflows"`,
-        `export const marked = workflow(async () => {})`,
-        ``,
-      ].join("\n"),
-    )
-    expect(await unmarked()).toEqual([])
   })
 })

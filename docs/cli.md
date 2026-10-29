@@ -40,12 +40,6 @@ Driver plumbing:
   help [command]            Print help for gtd or one command
   version                   Print the version
 
-Older spellings:
-  door <name> [args...]     Same as start <name>, for a door
-  doors                     List the doors (start lists workflows too)
-  install                   Same as guide
-  --workflow <name>         Same as start <name>, for a workflow
-
 Options:
   -v, --verbose             Narrate on stderr what gtd resolved
   -h, --help                Print help; gtd <command> --help for one command
@@ -106,8 +100,10 @@ stderr, since stdout is exactly the agent's input.
 
 Every usage mistake — an unknown option or command, missing/extra arguments, a
 scope violation (e.g. `--cost` on a command other than `gtd land`), a bad flag
-value — is a USAGE error (`2`), never a runtime error (`1`): nothing was even
-attempted. `--help`/`--version` still exit `0`.
+value, an unknown `gtd check` mode, a `--var` the workflow does not declare, a
+stdin that `gtd judge run` or `gtd judge answer` cannot read — is a USAGE error
+(`2`), never a runtime error (`1`): nothing was even attempted.
+`--help`/`--version` still exit `0`.
 
 `--version` (`-V`) / `gtd version` and `--help` (`-h`) / `gtd help`
 short-circuit before any git or repository-state work — they run outside a repo
@@ -121,35 +117,31 @@ driving a loop is a driver's job, not a bundled command (see
 included (see [Error envelope](#error-envelope) below). Any other, truly unknown
 subcommand is likewise a usage error exiting 2 without touching the repository;
 its message names the nearest command when it looks like a typo of one. The
-state commands (`land`, `start`, `--workflow`, `door`, `doors`, `abandon`,
-`restore`, `next`, `validate`, `summary`, `ui`, `judge`, `judge answer`,
-`history list`, `history show`, `history fetch`) must run from the **repository
-root** — gtd derives the workflow, pending changes, and process history relative
-to cwd, so they refuse with a clear error from a subdirectory; `lsp`, `check`,
-`uncheck` and `strays` are standalone and run from anywhere (see each command's
-own help entry).
+state commands (`land`, `start`, `abandon`, `restore`, `next`, `validate`,
+`summary`, `ui`, `judge`, `judge answer`, `history list`, `history show`,
+`history fetch`) must run from the **repository root** — gtd derives the
+workflow, pending changes, and process history relative to cwd, so they refuse
+with a clear error from a subdirectory; `lsp`, `check`, `uncheck` and `strays`
+are standalone and run from anywhere (see each command's own help entry).
 
-`guide` (formerly `install`) is described on its own above: it installs
-knowledge into the calling agent's context — including where to get a workflow,
-since gtd ships none — and writes nothing.
+`guide` is described on its own above: it installs knowledge into the calling
+agent's context — including where to get a workflow, since gtd ships none — and
+writes nothing.
 
 Each long option is valid only on the commands whose help lists it; any other
 `--` option (including a typo like `--jsn`) is rejected with a usage error
 rather than silently ignored, so a mistyped flag can never degrade a JSON caller
-to plain-text mode. A value takes the `--flag=value` form; `--workflow`, `--var`
-and `--threshold` also take the space-separated `--flag value` form, and
-`--json` takes only `--json=<path>`. `--` ends the options: every word after it
-is an argument, even one starting with `-`, and `--help`/`--version` after it
-are no short-circuit.
+to plain-text mode. A value takes the `--flag=value` form; `--var` and
+`--threshold` also take the space-separated `--flag value` form, and `--json`
+takes only `--json=<path>`. `--` ends the options: every word after it is an
+argument, even one starting with `-`, and `--help`/`--version` after it are no
+short-circuit.
 
 `--model` means two things: on `gtd land` (with `--cost`) the model to record
 that cost against, on `gtd judge run` the model that answers. `--var` pins a
-process setting on `gtd start <name>` and `gtd --workflow <name>`; on
-`gtd history judges` it is the deprecated spelling of `--threshold`. A duplicate
-`--var` name, `--var` on bare `gtd start`, or `--cost`/`--model`/`--workflow` on
-a command they are not valid for are usage errors too — landing and starting are
-different verbs, so `gtd land --workflow <name>` is a usage error, not a
-synonym, and so is `gtd start --workflow <name>`.
+process setting on `gtd start <name>` only. A duplicate `--var` name, `--var` on
+bare `gtd start`, or `--cost`/`--model` on a command they are not valid for are
+usage errors too — landing and starting are different verbs.
 
 ### `gtd next`'s `Next:`/`next`
 
@@ -183,11 +175,11 @@ always adds `--json` still gets a parseable envelope on every failure, not only
 ```
 
 This covers every failure mode, not just a command's own refusal (exit 1): a
-**usage error** (an unknown flag, a missing argument, `gtd --workflow nope`'s
-"unknown workflow" — exit 2) and a **defect** (a layer throwing outside the
-ordinary error channel — exit 1) both get the same envelope shape — there is no
-failure path that reaches `--json` without one — but a usage error's exit code
-is 2, never 1, so a driver can tell "you invoked gtd wrong" apart from "gtd
+**usage error** (an unknown flag, a missing argument, `gtd start nope`'s "no
+workflow or door is named" — exit 2) and a **defect** (a layer throwing outside
+the ordinary error channel — exit 1) both get the same envelope shape — there is
+no failure path that reaches `--json` without one — but a usage error's exit
+code is 2, never 1, so a driver can tell "you invoked gtd wrong" apart from "gtd
 refused/broke" (see [Exit codes](#exit-codes)).
 
 A human-readable `gtd: <message>` line is also always written to **stderr**,
@@ -201,12 +193,12 @@ exactly one `gtd: ` prefix: a message already authored with its own
 Every JSON document a driver reads carries a top-level integer `schema`,
 currently `1`: `gtd next --json` (every beat kind), `gtd land --json`,
 `gtd judge answer --json`, `gtd judge --json` (also the string a beat carries in
-`judge`), and the script document. `gtd doors --json` and bare
-`gtd start --json` are bare arrays and carry none.
+`judge`), and the script document. Bare `gtd start --json` is a bare array and
+carries none.
 
 The script document is what every other command that prints a script prints
-under `--json` — `gtd start <name>`, `gtd --workflow <name>`, `gtd door`,
-`gtd abandon`, `gtd restore`, `gtd validate` and `gtd history fetch`:
+under `--json` — `gtd start <name>`, `gtd abandon`, `gtd restore`,
+`gtd validate` and `gtd history fetch`:
 
 ```json
 { "schema": 1, "script": "<the script, ending in one newline>" }
@@ -342,14 +334,13 @@ commits whatever the working tree holds.
 
 <name> is a door — a named shortcut whose positional args set the workflow's
 settings — or else a workflow the config exports, which takes no args. A door
-shadows a workflow of the same name; `gtd --workflow <name>` still reaches the
-workflow. --var pins a setting either way.
+shadows a workflow of the same name. --var pins a setting either way.
 
   s=$(gtd start <name> --json=script) && sh -c "$s"
 
-With no <name>, list every workflow and door it can start. An unknown <name>, or
-the wrong number of args, is a usage error (exit 2); a process already underway
-is a refusal (exit 1).
+With no <name>, list every workflow and door it can start. An unknown <name>,
+the wrong number of args, or a --var the workflow does not declare is a usage
+error (exit 2); a process already underway is a refusal (exit 1).
 
 Options:
   --json[=<path>]     Print { schema, script }, or with --json=script the script
@@ -514,8 +505,6 @@ Options:
   --threshold <name>=<value>
                       Re-decide every past verdict under this threshold:
                       judgeIdenticalMinP or qualityTriageMinP (repeatable)
-  --var <name>=<value>
-                      Deprecated: the same as --threshold
   --jsonl             Print one JSON line per verdict instead of the report
   -v, --verbose       Narrate on stderr what gtd resolved
 ```
@@ -616,7 +605,8 @@ verdict [{ id, answer, p }] `gtd judge answer` reads. Needs no repository.
 
 The fixed answerer reads --answers and leaves out the questions it does not
 cover; jev asks TypeSafe ($TYPESAFE_API_KEY); llm asks the `claude` CLI on PATH.
-jev and llm exit 1, printing nothing, when they cannot answer every question.
+jev and llm exit 1, printing nothing, when they cannot answer every question. A
+stdin that is not a judgment document is a usage error (exit 2).
 
 Options:
   --provider=<name>   The answerer: fixed, jev or llm (default:
@@ -635,7 +625,8 @@ Options:
 Usage: gtd check <mode> <file> [options]
 
 Run the steering format <mode> (qa, review or findings) over <file> and print
-each finding on a line of its own; exits 1 when there are any. Reads no workflow
+each finding on a line of its own; exits 1 when there are any, or when <file>
+does not exist. An unknown <mode> is a usage error (exit 2). Reads no workflow
 and runs from any directory — emitted validation scripts call it.
 
 Options:
@@ -687,50 +678,4 @@ Print gtd's overview, or with <command> that command's own help.
 Usage: gtd version
 
 Print gtd's version.
-```
-
-### `gtd door`
-
-```
-Usage: gtd door <name> [args...] [options]
-
-The older spelling of `gtd start <name>` for a door, without --var: start a
-process through a door, a named shortcut to a workflow that maps its positional
-args to the workflow's settings. Each workflow the config exports brings its own
-doors, plus the config's `doors` export.
-
-With no <name>, an unknown one, or the wrong number of args, it lists the doors
-and exits 2.
-
-Options:
-  --json[=<path>]     Print { schema, script }, or with --json=script the script
-                      alone
-  -v, --verbose       Narrate on stderr what gtd resolved
-```
-
-### `gtd doors`
-
-```
-Usage: gtd doors [options]
-
-List every door, sorted: one `name [args] → workflow` line each. --json prints a
-JSON array of { name, workflow, args: [{ name, optional }] }. Writes nothing.
-
-Options:
-  --json[=<path>]     Print the JSON document, or with --json=<path> one field
-                      of it (e.g. --json=kind): a scalar bare, a list one entry
-                      per line, nothing for an absent field
-  -v, --verbose       Narrate on stderr what gtd resolved
-```
-
-### `gtd install`
-
-```
-Usage: gtd install
-
-The older name of `gtd guide`: print the briefing for writing a driver. Writes
-nothing.
-
-Options:
-  -v, --verbose       Narrate on stderr what gtd resolved
 ```

@@ -15,7 +15,7 @@ import {
 import {
   agent,
   check,
-  env,
+  envSettings as env,
   human,
   judge,
   moveScript,
@@ -23,7 +23,8 @@ import {
   removeScript,
   run,
   showScript,
-  vars,
+  settings as vars,
+  workflow,
 } from "../flows/index.js"
 import {
   inTurn,
@@ -32,7 +33,6 @@ import {
   verdict,
   verdictWhen,
   whenPrompted,
-  type Actor,
   type ScriptedActor,
   type TestRepo,
 } from "./TestRepo.js"
@@ -70,8 +70,8 @@ describe("testRepo", () => {
   it("runs a workflow given as gtd.config.ts source", async () => {
     const repo = testRepo({
       workflow: [
-        `import { agent, human } from "@pmelab/gtd/flows"`,
-        `export const chores = async () => { await agent("sweep", "Sweep."); await human("done") }`,
+        `import { agent, human, workflow } from "@pmelab/gtd/flows"`,
+        `export const chores = workflow(async () => { await agent("sweep", "Sweep."); await human("done") })`,
         `export default chores`,
       ].join("\n"),
     })
@@ -88,7 +88,7 @@ describe("testRepo", () => {
       await human("done")
     }
     const repo = testRepo({
-      workflow: { default: tidy, tidy },
+      workflow: { default: tidy, tidy: workflow(tidy) },
       files: { "NOTES.md": "notes\n", "scratch.txt": "x\n" },
     })
     await repo.start("tidy")
@@ -228,7 +228,7 @@ describe("testRepo", () => {
       })
       await human(answers.ready?.answer === "yes" ? "ship" : "rework")
     }
-    const plan: Actor = (_, r) => r.write("PLAN.md", "p\n")
+    const plan: ScriptedActor = (_, r) => r.write("PLAN.md", "p\n")
     const template =
       'expected a JSON array, one entry per question — answer a boolean for a noul, a string for a choice, a number for a score; p between 0 and 1:\n[{ "id": "ready", "answer": true, "p": 0.9 }]'
 
@@ -246,7 +246,7 @@ describe("testRepo", () => {
     it("says an actor returned an object rather than no verdict", async () => {
       const repo = testRepo({ workflow: { default: judged } })
       repo.write("go", "\n")
-      const actor = (() => [{ id: "ready", answer: true, p: 0.9 }]) as unknown as Actor
+      const actor = (() => [{ id: "ready", answer: true, p: 0.9 }]) as unknown as ScriptedActor
       await expect(repo.drive({ plan, ready: actor })).rejects.toThrow(
         `the actor for judge step "ready" returned an array, not a JSON string — JSON.stringify it\n${template}`,
       )
@@ -263,7 +263,7 @@ describe("testRepo", () => {
 
   describe("canned commands", () => {
     const checked = async (): Promise<void> => {
-      const green = await check("test", "npm test", { report: ".gtd/FEEDBACK.md" })
+      const green = await check("test", "npm test", ".gtd/FEEDBACK.md")
       await human(green ? "sign-off" : "red")
     }
 
@@ -373,9 +373,10 @@ describe("testRepo", () => {
       const shipped = { tiny, chores: tiny }
       const repo = testRepo({
         workflow: [
+          `import { workflow } from "@pmelab/gtd/flows"`,
           `import tidy, * as all from "#workflow"`,
           `export { chores } from "#workflow"`,
-          `export const both = all.tiny === tidy ? tidy : undefined`,
+          `export const both = all.tiny === tidy ? workflow(() => tidy()) : undefined`,
           `export default tidy`,
         ].join("\n"),
         modules: { "#workflow": { ...shipped, default: tiny } },
@@ -397,23 +398,46 @@ describe("testRepo", () => {
     it("fails on an actor whose step the drive never reached", async () => {
       const repo = testRepo({ workflow: { default: signOff } })
       repo.write("go", "\n")
-      await expect(repo.drive({ plan, ship: () => undefined }, { strict: true })).rejects.toThrow(
+      await expect(repo.drive({ plan, ship: () => undefined })).rejects.toThrow(
         'strict drive: the process rests at "sign-off", and never reached the actors for "ship"',
       )
+    })
+
+    it("leaves only the unreached-actor check out with unreachedActors: pass", async () => {
+      const repo = testRepo({ workflow: { default: signOff } })
+      repo.write("go", "\n")
+      expect(
+        (await repo.drive({ plan, ship: () => undefined }, { unreachedActors: "pass" })).state,
+      ).toBe("sign-off")
     })
 
     it("lets the same drive rest when it is not strict", async () => {
       const repo = testRepo({ workflow: { default: signOff } })
       repo.write("go", "\n")
-      expect((await repo.drive({ plan, ship: () => undefined })).state).toBe("sign-off")
+      expect((await repo.drive({ plan, ship: () => undefined }, { strict: false })).state).toBe(
+        "sign-off",
+      )
+    })
+
+    it("counts a step an earlier drive reached as reached", async () => {
+      const twice = async (): Promise<void> => {
+        await signOff()
+        await human("done")
+      }
+      const repo = testRepo({ workflow: { default: twice } })
+      repo.write("go", "\n")
+      const actors: Record<string, ScriptedActor> = { plan }
+      expect((await repo.drive(actors)).state).toBe("sign-off")
+      repo.write("signed", "\n")
+      await repo.land()
+      actors["ship"] = (_, r) => r.write("shipped", "\n")
+      expect((await repo.drive(actors)).state).toBe("done")
     })
 
     it("fails on a human step whose actor changes nothing, instead of repeating it", async () => {
       const repo = testRepo({ workflow: { default: signOff } })
       repo.write("go", "\n")
-      await expect(
-        repo.drive({ plan, "sign-off": () => undefined }, { strict: true }),
-      ).rejects.toThrow(
+      await expect(repo.drive({ plan, "sign-off": () => undefined })).rejects.toThrow(
         'strict drive: the actor for human step "sign-off" changed nothing, so nothing landed',
       )
     })
@@ -421,19 +445,19 @@ describe("testRepo", () => {
     it("fails on a verdict returned at a step that is no judge", async () => {
       const repo = testRepo({ workflow: { default: signOff } })
       repo.write("go", "\n")
-      await expect(
-        repo.drive({ plan: (beat, r) => (plan(beat, r), "[]") }, { strict: true }),
-      ).rejects.toThrow('the actor for agent step "plan" returned a verdict')
+      await expect(repo.drive({ plan: (beat, r) => (plan(beat, r), "[]") })).rejects.toThrow(
+        'the actor for agent step "plan" returned a verdict',
+      )
     })
 
     it("fails on a check step without an actor, unless checks run themselves", async () => {
       const checked = async (): Promise<void> => {
-        const green = await check("test", "npm test", { report: ".gtd/FEEDBACK.md" })
+        const green = await check("test", "npm test", ".gtd/FEEDBACK.md")
         await human(green ? "sign-off" : "red")
       }
       const strictRepo = testRepo({ workflow: { default: checked } })
       strictRepo.write("go", "\n")
-      await expect(strictRepo.drive({}, { strict: true })).rejects.toThrow(
+      await expect(strictRepo.drive({})).rejects.toThrow(
         'strict drive: check step "test" has no actor',
       )
       const repo = testRepo({
@@ -441,7 +465,7 @@ describe("testRepo", () => {
         commands: [{ run: "npm test", exit: 1, output: "1 failing" }],
       })
       repo.write("go", "\n")
-      expect((await repo.drive({}, { strict: true, checks: "run" })).state).toBe("red")
+      expect((await repo.drive({}, { checks: "run" })).state).toBe("red")
       expect(repo.read(".gtd/FEEDBACK.md")).toContain("1 failing")
     })
   })
@@ -530,12 +554,13 @@ describe("testRepo", () => {
     })
 
     const greeter = {
-      envDefaults: { greeting: "hi" },
-      defaults: { flag_probe: "0" },
-      default: async (): Promise<void> => {
-        await agent("wake", "Wake up.")
-        await agent("greet", `Say ${env["greeting"]}, flag ${vars["flag_probe"]}.`)
-      },
+      default: workflow(
+        async (): Promise<void> => {
+          await agent("wake", "Wake up.")
+          await agent("greet", `Say ${env["greeting"]}, flag ${vars["flag_probe"]}.`)
+        },
+        { envDefaults: { greeting: "hi" }, defaults: { flag_probe: "0" } },
+      ),
     }
     const greet = async (repo: TestRepo): Promise<string> => {
       const rest = await repo.drive({ wake: (_, r) => r.write("awake", "\n") })

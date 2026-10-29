@@ -2,25 +2,25 @@ import { afterEach, describe, expect, expectTypeOf, it } from "vitest"
 import {
   FLOWS_PROTOCOL,
   FlowsProtocolError,
-  env,
   envSettings,
   envSettingsOf,
   head,
   human,
   installContext,
-  isMarkedWorkflow,
+  markedOptions,
   judge,
   kept,
   mark,
   protocolMismatch,
   settings,
   settingsOf,
-  vars,
   workflow,
   type FlowContext,
+  type AgentOptions,
   type HumanOptions,
   type Judgment,
   type ModeName,
+  type RunOptions,
   type Settings,
   type SteeringOptions,
   type StepRequest,
@@ -203,7 +203,7 @@ describe("judge()", () => {
     ])
   })
 
-  it("keys the answers by the question ids, a computed id still readable", () => {
+  it("keys the answers by the question ids: a literal id allows only itself, a computed one any key", () => {
     const judged = () =>
       judge("j", {
         questions: [
@@ -214,19 +214,24 @@ describe("judge()", () => {
       })
     expectTypeOf(judged).returns.resolves.toEqualTypeOf<Judgment<"ok" | "shape">>()
     expectTypeOf<Judgment<"ok">["answers"]>().toHaveProperty("ok")
-    const computed = (j: Judgment<"ok">, id: string) => j.answers[id]
+    // @ts-expect-error -- "nope" is no question's id
+    void ((j: Judgment<"ok">) => j.answers.nope)
+    const computed = (j: Judgment, id: string) => j.answers[id]
     expectTypeOf(computed).returns.toEqualTypeOf<
       { readonly answer: string; readonly p: number } | undefined
     >()
+    const ids = ["a", "b"].map(
+      (i) => ({ ...question, id: `standard-${i}`, primitive: "noul" }) as const,
+    )
+    const judgedComputed = () => judge("k", { questions: ids, evidence: {} })
+    expectTypeOf(judgedComputed).returns.resolves.toEqualTypeOf<Judgment<`standard-${string}`>>()
     expectTypeOf<Judgment<"ok">>().toMatchTypeOf<Judgment>()
   })
 })
 
 describe("settings", () => {
-  it("are vars and env under the glossary's names", () => {
+  it("read the replay's process and environment settings", () => {
     recording()
-    expect(settings).toBe(vars)
-    expect(envSettings).toBe(env)
     expect(settings.greeting).toBe("hi")
     expect(envSettings.testCommand).toBe("npm test")
   })
@@ -251,13 +256,57 @@ describe("settings", () => {
 })
 
 describe("workflow()", () => {
-  it("marks the very function it is given", () => {
-    const flow = async (): Promise<void> => {}
-    expect(isMarkedWorkflow(flow)).toBe(false)
-    expect(workflow(flow)).toBe(flow)
-    expect(isMarkedWorkflow(flow)).toBe(true)
-    expect(isMarkedWorkflow(async () => {})).toBe(false)
-    expect(isMarkedWorkflow({})).toBe(false)
+  it("returns a new marked flow that runs the one it is given, which stays unmarked", async () => {
+    let ran = 0
+    const flow = async function feature(): Promise<void> {
+      ran++
+    }
+    const marked = workflow(flow, { defaults: { a: "1" } })
+    expect(marked).not.toBe(flow)
+    expect(marked.name).toBe("feature")
+    expect(markedOptions(flow)).toBeUndefined()
+    expect(markedOptions(marked)).toEqual({ defaults: { a: "1" } })
+    await marked()
+    expect(ran).toBe(1)
+    expect(markedOptions(workflow(async () => {}))).toEqual({})
+    expect(markedOptions({})).toBeUndefined()
+  })
+
+  it("re-wraps a marked flow with the options it is given, the old ones not inherited", () => {
+    const library = workflow(async () => {}, { defaults: { a: "1" }, summary: () => "s" })
+    const mine = workflow(library, { envDefaults: { b: "2" } })
+    expect(markedOptions(mine)).toEqual({ envDefaults: { b: "2" } })
+    expect(markedOptions(library)).toEqual({ defaults: { a: "1" }, summary: expect.any(Function) })
+  })
+
+  it("takes a factory build's options, its flow aside", () => {
+    expectTypeOf(workflow).toBeCallableWith(async () => {}, {
+      defaults: { a: "1" },
+      envDefaults: { b: "2" },
+      steering: { ".gtd/A.md": "qa" },
+      skills: { build: ["x"] },
+      access: () => ({ build: { write: [] } }),
+      doors: { hot: { args: [{ name: "x" }] } },
+      base: () => undefined,
+      summary: () => "s",
+    })
+    // @ts-expect-error -- the flow is the first argument
+    void (() => workflow(async () => {}, { flow: async () => {} }))
+  })
+})
+
+describe("step options", () => {
+  it("reject the combinations replay refuses", () => {
+    expectTypeOf<{ file: ".gtd/A.md"; mode: "qa" }>().toMatchTypeOf<RunOptions>()
+    expectTypeOf<{ file: string | undefined }>().toMatchTypeOf<RunOptions>()
+    // @ts-expect-error -- mode requires file
+    expectTypeOf<{ mode: "qa" }>().toMatchTypeOf<RunOptions>()
+    expectTypeOf<{ approve: true; message: "m" }>().toMatchTypeOf<HumanOptions>()
+    // @ts-expect-error -- approve excludes file
+    expectTypeOf<{ approve: true; file: ".gtd/A.md" }>().toMatchTypeOf<HumanOptions>()
+    expectTypeOf<{ keep: true; allowEmpty: false }>().toMatchTypeOf<AgentOptions>()
+    // @ts-expect-error -- keep excludes allowEmpty
+    expectTypeOf<{ keep: true; allowEmpty: true }>().toMatchTypeOf<AgentOptions>()
   })
 })
 

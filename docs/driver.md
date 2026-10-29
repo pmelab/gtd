@@ -262,13 +262,13 @@ falls back to the `gtd` on your `PATH`.
   the middle of a script stops the loop, since the script may have partly run;
   check the tree, then **Continue** runs it again. A reload at a gate leaves it
   as it was.
-- `/gtd <door> [args]` starts a process through one of the doors `gtd doors`
-  lists, runs the script `gtd door` prints, then drives like `/gtd`. Which doors
-  exist is the config's: gtd-workflows' `default` brings `fix`, `review [base]`,
-  and, where the config exports them, `rollout <flag>` and `cleanup <flag>`.
-  `/gtd <verb> …` enters a door only when one by that name exists and the word
-  count fits its args; otherwise the text, bare `/gtd rollout` included, starts
-  a process as requirements.
+- `/gtd <door> [args]` starts a process through one of the doors a bare
+  `gtd start` lists, runs the script `gtd start <door>` prints, then drives like
+  `/gtd`. Which doors exist is the config's: gtd-workflows' `default` brings
+  `fix`, `review [base]`, and, where the config exports them, `rollout <flag>`
+  and `cleanup <flag>`. `/gtd <verb> …` enters a door only when one by that name
+  exists and the word count fits its args; otherwise the text, bare
+  `/gtd rollout` included, starts a process as requirements.
 - `/gtd pr` reads the unresolved review threads of the branch's pull request
   (`gh api`, the first 100 threads with up to 50 comments each) and adds each to
   `.gtd/REVIEW.md` as a note headed `<path>:<line> (thread <id>)`, the comments
@@ -382,17 +382,16 @@ to build a driver without leaving your terminal. The briefing ends by directing
 the agent to INTERVIEW you first — which agent CLI runs the turns, under what
 permission model, how you want to invoke the loop, what should happen at a human
 gate — and to build the driver your answers describe rather than copying the
-reference sh. It writes nothing — `gtd install`, its older name, meant
-installing knowledge into the calling agent's context — and the briefing it
-prints is always exactly as current as the `gtd` that printed it.
+reference sh. It writes nothing — it installs knowledge into the calling agent's
+context — and the briefing it prints is always exactly as current as the `gtd`
+that printed it.
 
 The minimal driver below is gtd's own reference driver, not a privileged one —
 the engine itself is a supported public surface, and anything below holds for
 any driver you write against it. gtd decides and prints; it never commits, never
 moves HEAD or a ref, and never writes the git index — every git write is in a
 script the driver runs. The commands that change anything — `gtd land`,
-`gtd start <name>` (and its older spellings `gtd --workflow <name>` and
-`gtd door`), `gtd abandon`, `gtd restore`, `gtd judge answer` and
+`gtd start <name>`, `gtd abandon`, `gtd restore`, `gtd judge answer` and
 `gtd history fetch` — perform no git write when run: each one's `--json=script`
 form carries ONE POSIX sh script for YOU to execute — a leading comment ("gtd
 emitted this and did NOT run it — run it with `sh` to apply it"), then the
@@ -409,13 +408,13 @@ capture-then-pipe form the reference driver below uses, via
 `gtd land --json=script`.
 
 Every script gtd emits — `gtd land --json=script`, `gtd start <name>`,
-`gtd --workflow <name>`, `gtd door <name>`, `gtd abandon`, `gtd restore`,
-`gtd judge answer --json=script`, and the format/validate script `gtd validate`
-prints — is POSIX `sh`, portable to `dash`: a driver may run any of them with
-any POSIX-compliant shell, not specifically bash. The same convention extends to
-a workflow's test command (gtd-workflows' `testCommand`, run through `sh -c`):
-it is expected to be POSIX sh-compatible too, but this is a DOCUMENTED
-CONVENTION only — gtd never inspects or validates its shell dialect.
+`gtd abandon`, `gtd restore`, `gtd judge answer --json=script`, and the
+format/validate script `gtd validate` prints — is POSIX `sh`, portable to
+`dash`: a driver may run any of them with any POSIX-compliant shell, not
+specifically bash. The same convention extends to a workflow's test command
+(gtd-workflows' `testCommand`, run through `sh -c`): it is expected to be POSIX
+sh-compatible too, but this is a DOCUMENTED CONVENTION only — gtd never inspects
+or validates its shell dialect.
 
 A `script` beat's content is the whole script, rendered from values the flow
 already decided — checks that run a test command, scripts that reverse-apply
@@ -425,17 +424,17 @@ a script leaves is landed like any other check turn, by `gtd land`'s script,
 whatever its exit code.
 
 - **The required half** is everything that decides what lands in git — the
-  commit itself (`gtd land`, `gtd start <name>`, `gtd door`, and
-  `gtd judge answer`, the last carrying one `Gtd-Judge:` trailer per answered
-  question alongside its ordinary commit), or the ref update and reset that undo
-  a process (`gtd abandon`, `gtd restore`) — and, last, a printed line naming
-  what just landed: a transition or capture's changed-file rows, or the
-  abandon/restore prose, resolved from the repository AFTER the write above it.
-  Its own exit code IS the printed script's exit code — skipping it means the
-  turn never lands, and you never see what it did. A resting step's own
-  steering-mode `format:`/`validate:` commands are NOT part of this script —
-  they're a separate driver contract via `gtd next --json`'s own `validate`
-  field (see `gtd guide`'s obligation 6).
+  commit itself (`gtd land`, `gtd start <name>`, and `gtd judge answer`, the
+  last carrying one `Gtd-Judge:` trailer per answered question alongside its
+  ordinary commit), or the ref update and reset that undo a process
+  (`gtd abandon`, `gtd restore`) — and, last, a printed line naming what just
+  landed: a transition or capture's changed-file rows, or the abandon/restore
+  prose, resolved from the repository AFTER the write above it. Its own exit
+  code IS the printed script's exit code — skipping it means the turn never
+  lands, and you never see what it did. A resting step's own steering-mode
+  `format:`/`validate:` commands are NOT part of this script — they're a
+  separate driver contract via `gtd next --json`'s own `validate` field (see
+  `gtd guide`'s obligation 6).
 - **The optional half** is presentation only, wrapped in a subshell whose own
   failure is swallowed (a warning on stderr, nothing more) — skip it (or let it
   fail) and the workflow is still driven correctly either way. No command

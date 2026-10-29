@@ -12,20 +12,20 @@ Feature: process settings are pinned at process start, environment settings are 
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, env, human, vars } from "@pmelab/gtd/flows"
+      import { agent, envSettings, human, settings, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { route: "fast" }
+      const envDefaults = { checker: "make check" }
+
+      export default workflow(async () => {
         await human("idle", { message: "start" })
         await agent("working", "do the work")
-        if (vars.route === "fast") {
-          await agent("fast", `fast lane, check with ${env.checker}`)
+        if (settings.route === "fast") {
+          await agent("fast", `fast lane, check with ${envSettings.checker}`)
         } else {
-          await agent("slow", `slow lane, check with ${env.checker}`)
+          await agent("slow", `slow lane, check with ${envSettings.checker}`)
         }
-      }
-
-      export const defaults = { route: "fast" }
-      export const envDefaults = { checker: "make check" }
+      }, { defaults, envDefaults })
       """
     And a file "NOTE.md" with:
       """
@@ -43,20 +43,20 @@ Feature: process settings are pinned at process start, environment settings are 
     Given gtd lands "gtd(human): idle → working"
     And a file "gtd.config.ts" with:
       """
-      import { agent, env, human, vars } from "@pmelab/gtd/flows"
+      import { agent, envSettings, human, settings, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { route: "slow" }
+      const envDefaults = { checker: "make check" }
+
+      export default workflow(async () => {
         await human("idle", { message: "start" })
         await agent("working", "do the work")
-        if (vars.route === "fast") {
-          await agent("fast", `fast lane, check with ${env.checker}`)
+        if (settings.route === "fast") {
+          await agent("fast", `fast lane, check with ${envSettings.checker}`)
         } else {
-          await agent("slow", `slow lane, check with ${env.checker}`)
+          await agent("slow", `slow lane, check with ${envSettings.checker}`)
         }
-      }
-
-      export const defaults = { route: "slow" }
-      export const envDefaults = { checker: "make check" }
+      }, { defaults, envDefaults })
       """
     And a file "work.txt" with:
       """
@@ -98,20 +98,20 @@ Feature: process settings are pinned at process start, environment settings are 
     And stdout contains "check with make check"
     Given a file "gtd.config.ts" with:
       """
-      import { agent, env, human, vars } from "@pmelab/gtd/flows"
+      import { agent, envSettings, human, settings, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { route: "fast" }
+      const envDefaults = { checker: "just check" }
+
+      export default workflow(async () => {
         await human("idle", { message: "start" })
         await agent("working", "do the work")
-        if (vars.route === "fast") {
-          await agent("fast", `fast lane, check with ${env.checker}`)
+        if (settings.route === "fast") {
+          await agent("fast", `fast lane, check with ${envSettings.checker}`)
         } else {
-          await agent("slow", `slow lane, check with ${env.checker}`)
+          await agent("slow", `slow lane, check with ${envSettings.checker}`)
         }
-      }
-
-      export const defaults = { route: "fast" }
-      export const envDefaults = { checker: "just check" }
+      }, { defaults, envDefaults })
       """
     When I run gtd next
     Then it succeeds
@@ -132,20 +132,20 @@ Feature: process settings are pinned at process start, environment settings are 
   Scenario: a multi-line process setting refuses the first landing, naming the setting
     Given a file "gtd.config.ts" with:
       """
-      import { agent, env, human, vars } from "@pmelab/gtd/flows"
+      import { agent, envSettings, human, settings, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { route: "fast\nslow" }
+      const envDefaults = { checker: "make check" }
+
+      export default workflow(async () => {
         await human("idle", { message: "start" })
         await agent("working", "do the work")
-        if (vars.route === "fast") {
-          await agent("fast", `fast lane, check with ${env.checker}`)
+        if (settings.route === "fast") {
+          await agent("fast", `fast lane, check with ${envSettings.checker}`)
         } else {
-          await agent("slow", `slow lane, check with ${env.checker}`)
+          await agent("slow", `slow lane, check with ${envSettings.checker}`)
         }
-      }
-
-      export const defaults = { route: "fast\nslow" }
-      export const envDefaults = { checker: "make check" }
+      }, { defaults, envDefaults })
       """
     When I run gtd land
     Then it fails
@@ -154,13 +154,13 @@ Feature: process settings are pinned at process start, environment settings are 
   Scenario: a first step that branches on a process setting fails to load, naming it
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { human, vars } from "@pmelab/gtd/flows"
+      import { human, settings, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
-        await human(vars.route === "fast" ? "fast-idle" : "slow-idle")
-      }
+      const defaults = { route: "fast" }
 
-      export const defaults = { route: "fast" }
+      export default workflow(async () => {
+        await human(settings.route === "fast" ? "fast-idle" : "slow-idle")
+      }, { defaults })
       """
     When I run gtd land
     Then it fails
@@ -170,13 +170,13 @@ Feature: process settings are pinned at process start, environment settings are 
   Scenario: a first step that reads an environment setting fails to load, naming it
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { human, env } from "@pmelab/gtd/flows"
+      import { envSettings, human, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
-        await human("idle", { message: `check with ${env.checker}` })
-      }
+      const envDefaults = { checker: "make check" }
 
-      export const envDefaults = { checker: "make check" }
+      export default workflow(async () => {
+        await human("idle", { message: `check with ${envSettings.checker}` })
+      }, { envDefaults })
       """
     When I run gtd land
     Then it fails
@@ -186,21 +186,21 @@ Feature: process settings are pinned at process start, environment settings are 
   Scenario: a workflow defaults key outside the setting-name rule is refused
     Given a gtd config file at "gtd.config.ts" with:
       """
-      import { human } from "@pmelab/gtd/flows"
+      import { human, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { "a=b": "1" }
+
+      export default workflow(async () => {
         await human("idle")
-      }
-
-      export const defaults = { "a=b": "1" }
+      }, { defaults })
       """
     When I run gtd land
     Then it fails
-    And stderr contains "the \"defaults\" export declares \"a=b\", not a valid setting name"
+    And stderr contains "workflow \"default\" declares defaults \"a=b\", not a valid setting name"
     And the last commit subject is "chore: add gtd.config.ts"
 
   Scenario: a --var name outside the setting-name rule is a usage error
-    When I run gtd with "--workflow" and "working" and "--var" and "a b=1"
+    When I run gtd with "start" and "working" and "--var" and "a b=1"
     Then it fails
     And stderr contains "--var \"a b\" is not a valid setting name"
     And the last commit subject is "chore: add gtd.config.ts"

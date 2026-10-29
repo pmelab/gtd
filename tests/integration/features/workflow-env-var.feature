@@ -5,32 +5,32 @@ Feature: "--var" pins process settings only
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-      export default async () => {
+      const defaults = { route: "fast" }
+      const envDefaults = { checker: "make check" }
+
+      export default workflow(async () => {
         await human("idle", { message: "start" })
-      }
+      }, { defaults, envDefaults })
 
-      export const working = async () => {
+      export const working = workflow(async () => {
         await agent("working", "do the work")
-      }
-
-      export const defaults = { route: "fast" }
-      export const envDefaults = { checker: "make check" }
+      }, { defaults, envDefaults })
       """
 
   Scenario: "--var" naming an environment setting is a usage error
-    When I run gtd with args "--workflow working --var checker=true"
+    When I run gtd with args "start working --var checker=true"
     Then the exit code is 2
     And stderr contains "pins process settings only"
     And stderr contains "set it as a workflow option in gtd.config.ts"
 
-  Scenario: "--var" naming an undeclared setting still refuses with exit 1
-    When I run gtd with args "--workflow working --var nonsense=true"
-    Then the exit code is 1
+  Scenario: "--var" naming an undeclared setting is a usage error too
+    When I run gtd with args "start working --var nonsense=true"
+    Then the exit code is 2
     And stderr contains "not declared by this workflow"
 
   Scenario: "--var" naming a process setting is pinned
-    When I run gtd with args "--workflow working --var route=slow"
+    When I run gtd with args "start working --var route=slow"
     Then it succeeds
     And the last commit body contains "Gtd-Var: route=slow"

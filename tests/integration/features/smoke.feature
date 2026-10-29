@@ -18,7 +18,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
 
       export default async () => {
         await human("idle", { message: "No active gtd process." })
-        await check("checking", "true", { report: ".gtd/FEEDBACK.md" })
+        await check("checking", "true", ".gtd/FEEDBACK.md")
         await agent("designing", "Write .gtd/REQUIREMENTS.md.")
         await human("approving", {
           message: "Read .gtd/REQUIREMENTS.md, then land.",

@@ -7,7 +7,6 @@ Feature: gtd land — the one landing verb, actorless
   `stalled` included — 1 for a refusal, 2 for a usage error (nothing emitted
   either way). Whose turn is next lives entirely in the FOLLOWING
   `gtd next --json`'s own `kind` field, never in `gtd land`'s exit code.
-  `--workflow` is only the bare `gtd --workflow <name>` form.
 
   @inmem
   Scenario: a capture landing into a prompt state succeeds and lands
@@ -185,22 +184,22 @@ Feature: gtd land — the one landing verb, actorless
     And stdout does not contain "git commit"
 
   @inmem
-  Scenario: gtd land --json reports settled:false, idle:true for the green --workflow fix probe, without landing it
+  Scenario: gtd land --json reports settled:false, idle:true for the green gtd start fix probe, without landing it
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, check, human } from "@pmelab/gtd/flows"
+      import { agent, check, human, workflow } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
       }
 
-      export const fix = async () => {
-        if (await check("fix-precheck", "true", { report: ".gtd/FEEDBACK.md" })) return
+      export const fix = workflow(async () => {
+        if (await check("fix-precheck", "true", ".gtd/FEEDBACK.md")) return
         await agent("fixing", "fix .gtd/FEEDBACK.md")
-      }
+      })
       """
-    When I run gtd with args "--workflow fix"
+    When I run gtd with args "start fix"
     Then it succeeds
     And I record the commit count
     When I run gtd land with "--json"

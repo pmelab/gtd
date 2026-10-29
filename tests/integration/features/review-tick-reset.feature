@@ -11,7 +11,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, removeScript, run } from "@pmelab/gtd/flows"
+      import { agent, human, removeScript, run, workflow } from "@pmelab/gtd/flows"
 
       const REVIEW = ".gtd/REVIEW.md"
 
@@ -26,7 +26,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
         await run("closing", removeScript([REVIEW]), { label: "Closing the review" })
       }
 
-      export const answer = async () => {
+      export const answer = workflow(async () => {
         await agent("drafting", "Draft the plan.", { file: ".gtd/PLAN.md", mode: "qa" })
         await human("answering", {
           message: "Answer the open questions.",
@@ -34,7 +34,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
           mode: "qa",
         })
         await agent("revising", "Revise the plan.", { file: ".gtd/PLAN.md", mode: "qa" })
-      }
+      })
       """
     And a commit "feat: add calculator" that adds "src/calc.ts" with:
       """
@@ -176,7 +176,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
     And ".gtd/REVIEW.md" contains "- [x] ./src/legacy.ts#1"
 
   Scenario: a ticked answer at a qa-mode gate survives the land — gtd uncheck never runs there
-    When I run gtd with args "--workflow answer"
+    When I run gtd with args "start answer"
     Then it succeeds
     Given a file ".gtd/PLAN.md" with:
       """
