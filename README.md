@@ -692,14 +692,15 @@ build, one quality lap, one review — however many criteria it has. Sizing the
 work is yours: split a change too big for one process into several before the
 sketch.
 
-**Flag mode (`flagMode`, on by default).** On, the naive pass's judge runs as
-above and a rebuilt implementation is asked for a new release flag (none at a
-`low` risk tier); a pass the judge lets land is not asked for one. A project
-that is not publicly released turns it off explicitly —
-`feature({ flagMode: false })` in `gtd.config.ts`, it is never detected: then no
-flag is asked for, no seam judge or refactor runs, and the naive pass lands as
-the implementation, straight through the health loop and the quality lap. See
-[`flagMode`](docs/configuration.md#the-bundled-workflows-settings).
+**Release flags (only when asked for).** A change ships unflagged unless its
+requirements ask for a flag: a `## Release Flag` section in
+`.gtd/REQUIREMENTS.md` reading `new` (a new release flag) or `existing: <NAME>`
+(behind a flag that already exists). Triage writes it only when the sketch asks
+for a flag; you can add, change or delete it at the design gate. With it, the
+naive pass's judge runs as above and the build adds the new flag, or uses the
+named one; without it, no seam judge or refactor runs and the naive pass lands
+as the implementation, straight through the health loop and the quality lap. See
+[Release flags](docs/configuration.md#release-flags).
 
 **Risk tier (flag `GTD_FLAG_RISK_TIER=1`, off by default).** Triage proposes a
 risk tier, `low` or `high`, and the production signals to watch after merge.

@@ -31,6 +31,10 @@ Feature: a naive pass ends only when its tests reach no file it added and the su
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: `subtract(5, 3)` returns 2.

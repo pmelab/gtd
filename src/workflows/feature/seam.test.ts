@@ -234,18 +234,24 @@ interface Seamed {
   readonly outcome: SeamOutcome | Error
 }
 
+const FLAGGED = "# Requirements\n\n## Release Flag\n\nnew\n"
+
 /** Runs `seamBuild` against a scripted context: the judge answers `answer`, every review signs off. */
 const driveSeam = async (
   answer: string,
   stray: Change = change("src/a.ts", "modified"),
   vars: Record<string, string> = {},
   reds = 0,
+  requirements = FLAGGED,
 ): Promise<Seamed> => {
   let red = false
   let redsLeft = reds
   const names: string[] = []
   const stack: string[] = []
-  const files = new Map<string, string>([["src/a.ts", "a"]])
+  const files = new Map<string, string>([
+    ["src/a.ts", "a"],
+    [".gtd/REQUIREMENTS.md", requirements],
+  ])
   let current = "c0"
   const effects: Record<string, () => void> = {
     note: () => void files.set(NOTE, "Seam: a shared op"),
@@ -302,8 +308,8 @@ describe("seamBuild", () => {
     expect(h.names).toEqual(["seam.naive", "seam.check", "seam.judge"])
   })
 
-  it("with flagMode off resolves a vetted pass to land with no judge", async () => {
-    const h = await driveSeam("reject", undefined, { flagMode: "false" })
+  it("with no release flag asked for resolves a vetted pass to land with no judge", async () => {
+    const h = await driveSeam("reject", undefined, {}, 0, "# Requirements\n")
     expect(h.outcome).toEqual({ reference: "abc", base: "c-base", land: true })
     expect(h.names).toEqual(["seam.naive", "seam.check"])
   })
@@ -393,6 +399,7 @@ describe("seamBuild", () => {
 
 describe("implement", () => {
   let lastOptions: Extract<StepRequest, { kind: "agent" }>["options"] | undefined
+  let requirements = FLAGGED
   const building = async (
     reference: string | undefined,
     tier?: "low" | "high",
@@ -414,6 +421,7 @@ describe("implement", () => {
           pushScope: () => undefined,
           popScope: () => undefined,
           changesSince: () => [],
+          read: (path: string) => (path === ".gtd/REQUIREMENTS.md" ? requirements : undefined),
         },
       ),
     )
@@ -506,9 +514,14 @@ describe("implement", () => {
     expect(prompt).toContain("otherwise put")
   })
 
-  it("amend on tier low says to add no release flag", async () => {
-    const prompt = await building(undefined, "low", true)
-    expect(prompt).toContain("Add no release flag")
-    expect(prompt).toContain("amend")
+  it("asks for no release flag when the requirements ask for none, whatever the tier", async () => {
+    requirements = "# Requirements\n"
+    try {
+      const prompt = await building(undefined, "high", true)
+      expect(prompt).toContain("Add no release flag")
+      expect(prompt).toContain("amend")
+    } finally {
+      requirements = FLAGGED
+    }
   })
 })

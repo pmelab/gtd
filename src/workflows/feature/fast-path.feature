@@ -41,6 +41,10 @@ Feature: a trivial change takes the same few beats at either risk tier
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.

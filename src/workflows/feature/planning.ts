@@ -9,6 +9,7 @@ import {
 } from "../../flows/index.js"
 import { REQUIREMENTS } from "../shared/steps.js"
 import { requireCriteria, requireImpact } from "./criteria.js"
+import { requireReleaseFlag } from "./release-flag.js"
 import { answerProductQuestions, triage } from "./steps.js"
 
 /**
@@ -34,6 +35,7 @@ export const design = (base: string, guard?: () => void): Promise<void> =>
       requireReplies(REQUIREMENTS)
       requireCriteria(REQUIREMENTS)
       requireImpact(REQUIREMENTS)
+      requireReleaseFlag(REQUIREMENTS)
       guard?.()
     } while (await noteGate(REQUIREMENTS, answerProductQuestions))
   })

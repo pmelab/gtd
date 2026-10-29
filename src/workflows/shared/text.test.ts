@@ -912,45 +912,53 @@ describe("the seam phase's texts", () => {
     expect(prompt).not.toContain("rejected")
   })
 
-  it("cites the reference as reading material only and asks for a new release flag", () => {
+  it("cites the reference as reading material only", () => {
     const prompt = renderText(() => implementBuildingPrompt("abc123"))
     expect(prompt).toContain("git show abc123")
     expect(prompt).toContain("never apply")
-    expect(prompt).toContain("release flag")
-  })
-
-  it("high and undefined tiers carry the flag bullet; low says to add none", () => {
-    const base = renderText(() => implementBuildingPrompt("abc123"))
-    expect(renderText(() => implementBuildingPrompt("abc123", "high"))).toBe(base)
-    expect(base).toContain("new release flag")
-    const low = renderText(() => implementBuildingPrompt("abc123", "low"))
-    expect(low).toContain("Add no release flag — this change is low risk tier")
-    expect(low).not.toContain("new release flag")
-    expect(low).toContain("git show abc123")
   })
 
   it("drops the git show line when there is no reference", () => {
-    const prompt = renderText(() => implementBuildingPrompt(undefined, "low"))
+    const prompt = renderText(() => implementBuildingPrompt(undefined))
     expect(prompt).not.toContain("git show")
     expect(prompt).not.toContain("Reference only")
-    expect(prompt).toContain("Add no release flag")
+  })
+
+  it("asks for no flag and the naive version when the requirements ask for none, on any lap", () => {
+    for (const amend of [false, true]) {
+      const prompt = renderText(() => implementBuildingPrompt(undefined, amend))
+      expect(prompt).toContain("Add no release flag — the requirements ask for none")
+      expect(prompt).not.toContain("new release flag")
+    }
+    expect(renderText(() => implementBuildingPrompt(undefined))).toContain(
+      "the quickest way that works",
+    )
+  })
+
+  it("asks for a new flag, kept on a later lap, when the requirements ask for one", () => {
+    const first = renderText(() => implementBuildingPrompt("abc123", false, false, { kind: "new" }))
+    expect(first).toContain("behind a new release flag, as the requirements ask")
+    expect(first).toContain("Implement them properly")
+    const amend = renderText(() => implementBuildingPrompt(undefined, true, false, { kind: "new" }))
+    expect(amend).toContain("Keep the release flag the earlier lap added")
+  })
+
+  it("names the existing flag the requirements ask for, and asks for no new one", () => {
+    const prompt = renderText(() =>
+      implementBuildingPrompt(undefined, false, false, { kind: "existing", name: "GTD_FLAG_BETA" }),
+    )
+    expect(prompt).toContain("behind the existing flag `GTD_FLAG_BETA`")
+    expect(prompt).toContain("add no new flag")
     expect(prompt).toContain("Implement them properly")
   })
 
-  it("flag mode off asks for the naive version and no release flag, whatever the tier or lap", () => {
-    for (const [tier, amend] of [
-      ["high", false],
-      ["low", false],
-      ["high", true],
-    ] as const) {
-      const prompt = renderText(() => implementBuildingPrompt(undefined, tier, amend, false, false))
-      expect(prompt).toContain("Add no release flag — this project ships without release flags")
-      expect(prompt).not.toContain("new release flag")
-      expect(prompt).not.toContain("low risk tier")
+  it("explains the Release Flag section at triage, at the impact turn and at the design gate", () => {
+    for (const prompt of [() => designTriagePrompt("base"), () => designImpactPrompt()]) {
+      const text = renderText(prompt)
+      expect(text).toContain("`## Release Flag`")
+      expect(text).toContain("Never add one on your own judgement")
     }
-    expect(
-      renderText(() => implementBuildingPrompt(undefined, "high", false, false, false)),
-    ).toContain("the quickest way that works")
+    expect(renderText(() => designGateAnswerMessage())).toContain("**Ask for a release flag**")
   })
 
   it("keeps a fix turn to the feedback file's rules", () => {
@@ -992,7 +1000,7 @@ describe("the seam phase's texts", () => {
     expect(message).not.toContain("outside the expected set")
   })
 
-  it("promises no judge on an overrule with flagMode off", () => {
+  it("promises no judge on an overrule when no release flag is asked for", () => {
     for (const retry of [{ red: "abc123" }, { fault: "acceptance-internals: x", hash: "abc123" }]) {
       const message = renderText(() => seamSteerMessage(retry, false))
       expect(message).not.toContain("seam judge")

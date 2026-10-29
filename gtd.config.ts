@@ -12,8 +12,7 @@ import {
 // The default lenses minus owasp-security.
 const qualityReviews = "correctness, ponytail-review, test-audit, conventions, spec-challenge"
 
-// No release flags for now: no seam judge, no refactor path.
-export const feature = shippedFeature({ flagMode: false, qualityReviews })
+export const feature = shippedFeature({ qualityReviews })
 export const review = shippedReview({ qualityReviews })
 export const fix = shippedFix({ qualityReviews })
 export const rollout = shippedRollout()

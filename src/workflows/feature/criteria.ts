@@ -13,6 +13,7 @@ import {
 import { HEADING, ITEM, markFenced } from "../shared/fences.js"
 import { planner, REQUIREMENTS } from "../shared/steps.js"
 import * as t from "../shared/text.js"
+import { requireReleaseFlag } from "./release-flag.js"
 
 export interface Criterion {
   readonly id: string
@@ -137,16 +138,20 @@ export const requireCriteria = (file: string): void => {
 const isImpactHeading = (h: RegExpExecArray | null): boolean =>
   h !== null && h[1]!.length === 2 && /^impact$/i.test(h[2]!.trim())
 
+// The skip path's impact turn may write both: a sketch can ask for a flag.
+const isImpactTurnHeading = (h: RegExpExecArray | null): boolean =>
+  h !== null && h[1]!.length === 2 && /^(impact|release flag)$/i.test(h[2]!.trim())
+
 /** Whether `text` has an unfenced, level-2 `## Impact` heading. */
 export const hasImpact = (text: string): boolean =>
   markFenced(text).some((l) => !l.fenced && isImpactHeading(HEADING.exec(l.line)))
 
-/** `text` without its `## Impact` section, whitespace collapsed. */
+/** `text` without its `## Impact` and `## Release Flag` sections, whitespace collapsed. */
 const withoutImpact = (text: string): string => {
   let inImpact = false
   const kept = markFenced(text).filter((l) => {
     const h = l.fenced ? null : HEADING.exec(l.line)
-    if (h !== null && h[1]!.length <= 2) inImpact = isImpactHeading(h)
+    if (h !== null && h[1]!.length <= 2) inImpact = isImpactTurnHeading(h)
     return !inImpact
   })
   return kept
@@ -172,13 +177,13 @@ export const requireImpact = (file: string): void => {
   )
 }
 
-/** Refuse a turn that changed `file` beyond its `## Impact` section. */
+/** Refuse a turn that changed `file` beyond its `## Impact` and `## Release Flag` sections. */
 export const requireImpactOnly = (file: string): void => {
   const change = changes().get(file)
   if (change === undefined) return
   if (withoutImpact(change.before ?? "") === withoutImpact(change.after ?? "")) return
   refuse(
-    `gtd land: impact-only: this turn may only add "## Impact" to ${file} — restore everything else`,
+    `gtd land: impact-only: this turn may only add "## Impact" (and "## Release Flag") to ${file} — restore everything else`,
   )
 }
 
@@ -240,6 +245,7 @@ const impact = async (): Promise<void> => {
   requireCriteriaFrozen(REQUIREMENTS)
   requireImpact(REQUIREMENTS)
   requireImpactOnly(REQUIREMENTS)
+  requireReleaseFlag(REQUIREMENTS)
 }
 
 /**

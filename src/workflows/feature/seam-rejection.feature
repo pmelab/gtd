@@ -38,6 +38,10 @@ Feature: rejected naive passes walk one fixed path through the steer gate to the
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
@@ -82,6 +86,10 @@ Feature: rejected naive passes walk one fixed path through the steer gate to the
       ## Impact
 
       - the greeting module
+
+      ## Release Flag
+
+      new
 
       ## Acceptance Criteria
 

@@ -9,7 +9,7 @@ import {
   start,
 } from "../../flows/index.js"
 import { gate } from "../shared/health.js"
-import { flagModeOn, naiveTestOn, shipped } from "../shared/options.js"
+import { naiveTestOn, shipped } from "../shared/options.js"
 import { FEEDBACK, REQUIREMENTS } from "../shared/steps.js"
 import { refusePendingHandOff } from "../shared/tail.js"
 import * as t from "../shared/text.js"
@@ -29,7 +29,7 @@ import { recordRisk, riskTierOn } from "./tier.js"
 // The ordinary start. Any change to the tree starts a process: `idle` →
 // `unwind` reverts the sketch (its intent survives in history) → a
 // green-baseline gate → design → a naive pass, tried by a person with
-// `naiveTest` on and judged with `flagMode` on: it
+// `naiveTest` on and judged when the requirements ask for a release flag: it
 // lands as the implementation, or (refactoring first when the judge asks) is
 // built fresh from → the health loop → the triaged quality lap and its finding gate → a
 // reviewer's walkthrough of the whole change for the human, which signs off
@@ -46,7 +46,7 @@ export const unwind = (): Promise<void> => {
 export { reUnwind }
 
 /**
- * A naive pass (judged only with `flagMode` on), then implement and the
+ * A naive pass (judged only when a release flag is asked for), then implement and the
  * quality lap, then the review; design must have run since `firstBase`.
  */
 export const buildFeature = async (firstBase: string): Promise<void> => {
@@ -139,7 +139,6 @@ export const ordinaryStart = async (): Promise<void> => {
   await human("idle", { message: t.idleMessage(), label: "Idle", file: ".gtd/TODO.md" })
   refusePendingHandOff()
   // Read right after idle, so a bad value refuses the landing that would pin it.
-  flagModeOn()
   naiveTestOn()
   const stated = statedCriteria(changes(), head())
   await unwind()

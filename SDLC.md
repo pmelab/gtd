@@ -28,8 +28,9 @@ After design the agent implements first, breadth-first, testing the behaviour
 the criteria describe (one test per behaviour, no criterion ID in a test name,
 no test required); `seam.check` runs the suite on the pass, and a seam judge
 rules `land`/`refactor-first`/`reject`. On `land` the pass itself is the
-implementation (`implement.applying`), with no rebuild and no release flag; with
-`flagMode` off no judge runs and every vetted pass lands so.
+implementation (`implement.applying`), with no rebuild and no release flag;
+without a `## Release Flag` section in the requirements (the sketch asks for
+`new` or `existing: <NAME>`) no judge runs and every vetted pass lands so.
 `GTD_FLAG_RISK_TIER` (off by default) adds a proposed risk tier at the design
 gate.
 
@@ -149,8 +150,9 @@ Each path has a `.feature` file:
 
 - [`src/workflows/feature/one-step-land.feature`](src/workflows/feature/one-step-land.feature):
   naive pass, judge `land`, the pass applied as the implementation
-- [`src/workflows/feature/flag-mode.feature`](src/workflows/feature/flag-mode.feature):
-  `flagMode` off, the naive pass applied with no judge
+- [`src/workflows/feature/release-flag.feature`](src/workflows/feature/release-flag.feature):
+  no flag asked for, the naive pass applied with no judge; a flag asked for,
+  judged
 - [`src/workflows/feature/refactor-first.feature`](src/workflows/feature/refactor-first.feature):
   judge `refactor-first`, then the refactor review, then the implementation
 - [`src/workflows/feature/refactor-rebuild.feature`](src/workflows/feature/refactor-rebuild.feature):

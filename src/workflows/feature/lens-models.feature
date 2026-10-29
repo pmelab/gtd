@@ -11,7 +11,6 @@ Feature: each quality lens runs on its own model hint
       import { feature } from "@pmelab/gtd/workflows/feature"
       export { summary, steering, skills, access } from "@pmelab/gtd/workflows/feature"
       export default feature({
-        flagMode: false,
         qualityReviews: "correctness, conventions, test-audit=opus",
       })
       """

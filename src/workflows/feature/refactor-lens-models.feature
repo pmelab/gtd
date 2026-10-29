@@ -33,6 +33,10 @@ Feature: the refactor review's lenses take their model hints from refactorQualit
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.

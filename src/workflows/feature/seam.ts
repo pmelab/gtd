@@ -37,7 +37,8 @@ import {
   reviewedRefactor,
 } from "./refactor.js"
 import { isCode } from "../shared/review.js"
-import { flagModeOn, naiveTestOn } from "../shared/options.js"
+import { naiveTestOn } from "../shared/options.js"
+import { flagged, requestedFlag } from "./release-flag.js"
 import type { RiskTier } from "./tier.js"
 
 /** Naive-pass retries after a `reject` or a red suite; the next one rests at `seam.steer`. */
@@ -187,10 +188,9 @@ const build = async (options: ImplementOptions): Promise<void> => {
     "building",
     t.implementBuildingPrompt(
       options.reference,
-      options.tier,
       options.amend,
       options.afterRefactor,
-      flagModeOn(),
+      requestedFlag(),
       options.rebuild,
     ),
     {
@@ -237,14 +237,14 @@ export const implementing = (options: ImplementOptions): Promise<readonly string
 interface Decision {
   readonly reference: string
   readonly tip: KeptTip
-  /** Absent on `land` (or with `flagMode` off, unjudged): the pass itself is the implementation. */
+  /** Absent on `land` (or unjudged, with no release flag asked for): the pass itself is the implementation. */
   readonly shape?: DiffShapeResult
 }
 
 /** Resolves `true` when the human steered (edited), `false` on a clean overrule. */
 const steer = async (retry: t.NaiveRetry): Promise<boolean> => {
   await human("steer", {
-    message: t.seamSteerMessage(retry, flagModeOn()),
+    message: t.seamSteerMessage(retry, flagged()),
     label: "Steer or overrule the naive pass",
     file: REQUIREMENTS,
     acceptClean: true,
@@ -328,7 +328,7 @@ const tried = async (tip: KeptTip): Promise<t.NaiveTested | undefined> => {
     label: "Applying the naive pass to try it",
   })
   await human("try", {
-    message: t.naiveTryMessage(flagModeOn()),
+    message: t.naiveTryMessage(flagged()),
     label: "Try the naive pass",
     file: NAIVE_TEST,
     acceptClean: true,
@@ -359,7 +359,7 @@ const decide = (): Promise<Decision> =>
         }
       }
       const outcome =
-        verdict ?? (flagModeOn() ? await ruled(tip, vetting.again) : { reference: tip.hash, tip })
+        verdict ?? (flagged() ? await ruled(tip, vetting.again) : { reference: tip.hash, tip })
       if (!("kind" in outcome)) return outcome
       retry = outcome.kind === "retry" ? outcome.retry : undefined
     }

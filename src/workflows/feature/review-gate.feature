@@ -11,7 +11,6 @@ Feature: a feature process ends at the human review
   Background:
     Given the shipped workflows, as gtd install scaffolds them
     And an environment variable "GTD_QUALITYREVIEWS" set to ""
-    And an environment variable "GTD_FLAGMODE" set to "false"
     And a file "src/calc.ts" with:
       """
       export const add = (a: number, b: number) => a + b

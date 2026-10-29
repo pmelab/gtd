@@ -253,9 +253,10 @@ deleted by a landing. _Avoid_: beat tip, discarded tip.
 
 **Naive pass**: The `seam.naive` turn: the requirements implemented directly,
 kept as a [kept tip](#kept-tip). Applied as the implementation when the
-[seam judge](#seam-judge) rules `land`, a human overrules its `reject`, or
-[flag mode](#flag-mode) is off; otherwise only reading material for a rebuild.
-Done only when the suite is green with it applied; it need write no test.
+[seam judge](#seam-judge) rules `land`, a human overrules its `reject`, or no
+[release flag is requested](#requested-flag); otherwise only reading material
+for a rebuild. Done only when the suite is green with it applied; it need write
+no test.
 
 **Naive test**: A person trying a green [naive pass](#naive-pass) by hand at
 `seam.try`, with `naiveTest` on: applied to the working tree, then signed off by
@@ -300,10 +301,10 @@ re-implemented on the refactored base, behind a release flag, with the naive
 pass as reference, asked to carry over every one of the naive pass's
 [acceptance tests](#acceptance-test). _Avoid_: re-implementation, second pass
 
-**Flag mode**: The shipped workflows' `flagMode` process setting: whether a
-project ships changes behind release flags. On by default; off, there is no seam
-judge or refactor, and the naive pass lands as it is. Set explicitly, never
-detected. Not a [feature flag](#feature-flag).
+**Requested flag**: What `.gtd/REQUIREMENTS.md`'s `## Release Flag` section asks
+for — `new` or `existing: <NAME>` — written only when the sketch asks for a
+flag. Without one the change ships unflagged, with no seam judge or refactor.
+_Avoid_: flag mode (removed).
 
 **Process setting**: A flat string value flow code reads as `vars` and may
 branch on — the workflow's `defaults` (a factory option, for the shipped

@@ -348,6 +348,19 @@ none is declared, fall back to directories and packages. Landing is
 refused while the section is missing.
 `
 
+const releaseFlagBlock = `
+## Release flag
+
+Only when the sketch asks outright for the change to ship behind a
+feature or release flag, \`.gtd/REQUIREMENTS.md\` carries a
+\`## Release Flag\` section whose first line is \`new\` (a new
+flag) or \`existing: <NAME>\` (behind a flag that already exists,
+named as the sketch names it). Never add one on your own judgement:
+without the section the change ships unflagged. A later lap keeps the
+section exactly as the last settled file had it, unless the human
+changed it. Landing is refused while its first line is anything else.
+`
+
 const riskTierBlock = `
 ## Risk tier and production signals
 
@@ -389,7 +402,7 @@ ${footnoteFoldIn}${codeThreadReplies()}
   or both
 - Whichever lap this is, leave \`.gtd/REQUIREMENTS.md\`
   uncommitted and finish once it reflects this lap's own work
-${acceptanceCriteriaBlock}${impactBlock}
+${acceptanceCriteriaBlock}${impactBlock}${releaseFlagBlock}
 Every lap re-explores and leaves \`## Impact\` present. On a return
 lap or review loop-back the human may have edited \`## Impact\` (or
 footnoted it): read that edit from history (\`git log -1 -p --
@@ -461,11 +474,12 @@ ${stateFileRules}
 - The only state file this turn touches is \`.gtd/REQUIREMENTS.md\`
   — no other files for notes or output
 - \`.gtd/REQUIREMENTS.md\` already holds the settled acceptance
-  criteria. Add a \`## Impact\` section and change nothing else — a
-  turn that touches anything outside it is refused
+  criteria. Add a \`## Impact\` section — and a \`## Release Flag\`
+  section when the sketch asks for one — and change nothing else: a
+  turn that touches anything outside them is refused
 - No human reviews this before the build: put any surprise in the
   Impact prose, never as a question
-${impactBlock}
+${impactBlock}${releaseFlagBlock}
 - Leave \`.gtd/REQUIREMENTS.md\` uncommitted and finish once it holds \`## Impact\`
 `
 
@@ -543,6 +557,7 @@ What each change does next (then run \`gtd land\`):
 - **Accept as-is** — change nothing and re-run; the plan stands as written. Refused while a thread is open.
 - **Revise answers** — tick exactly one option per open question (replace \`_your answer_\` for your own) to send it back for the agent to fold your answers in, or delete a question to skip it.
 - **Discuss** — start or continue a thread (\`- H:\`); the agent replies and this gate stops again.
+- **Ask for a release flag** — add \`## Release Flag\` with \`new\` or \`existing: <NAME>\` as its first line, or delete the section to ship unflagged.
 ${riskTier ? RISK_TIER_GATE_LINE : ""}`
 
 export const builderSystem = (): string =>
@@ -1532,26 +1547,28 @@ const afterRefactorLine = (rebuild: Rebuild): string =>
   rule below; if nothing is, ${carries(rebuild) ? "carry over the acceptance tests below and change nothing else" : "change nothing and finish your turn"}
 `
 
-const flagLine = (
-  flagMode: boolean,
-  tier: "low" | "high" | undefined,
-  amend: boolean | undefined,
-): string =>
-  !flagMode
-    ? "- Add no release flag — this project ships without release flags"
-    : tier === "low"
-      ? "- Add no release flag — this change is low risk tier"
+/** What \`## Release Flag\` in \`.gtd/REQUIREMENTS.md\` asks for; no section is \`none\`. */
+export type ReleaseFlag =
+  | { readonly kind: "none" }
+  | { readonly kind: "new" }
+  | { readonly kind: "existing"; readonly name: string }
+
+const flagLine = (flag: ReleaseFlag, amend: boolean | undefined): string =>
+  flag.kind === "none"
+    ? "- Add no release flag — the requirements ask for none"
+    : flag.kind === "existing"
+      ? `- Put the new behaviour behind the existing flag \`${flag.name}\`, as the
+  requirements ask — add no new flag`
       : amend === true
         ? "- Keep the release flag the earlier lap added, if it added one; otherwise put\n  the behaviour behind a new release flag"
-        : `- Put the new behaviour behind a new release flag, following the
-  repository's flag conventions`
+        : `- Put the new behaviour behind a new release flag, as the requirements ask,
+  following the repository's flag conventions`
 
 export const implementBuildingPrompt = (
   reference: string | undefined,
-  tier?: "low" | "high",
   amend?: boolean,
   afterRefactor?: boolean,
-  flagMode = true,
+  flag: ReleaseFlag = { kind: "none" },
   rebuild: Rebuild = {},
 ): string =>
   `${stateFileRules}
@@ -1563,7 +1580,7 @@ ${afterRefactor === true ? afterRefactorLine(rebuild) : ""}${
       ? `- The change already exists in the tree from an earlier lap; amend it to meet
   the re-derived requirements instead of rewriting it
 `
-      : flagMode
+      : flag.kind !== "none"
         ? `- Implement them properly, fitting the codebase's seams and conventions
 `
         : `- Implement them the quickest way that works — the naive version. Do not
@@ -1576,7 +1593,7 @@ ${afterRefactor === true ? afterRefactorLine(rebuild) : ""}${
   Read it for ideas; never apply, cherry-pick or check it out — write
   the change fresh${carries(rebuild) ? ", its acceptance tests excepted (below)" : ""}
 `
-  }${rebuildLines(rebuild)}${flagLine(flagMode, tier, amend)}
+  }${rebuildLines(rebuild)}${flagLine(flag, amend)}
 - Write the tests first, then the code that makes them pass
 ${behaviourTests}
 - Leave \`.gtd/REQUIREMENTS.md\` in place and everything uncommitted, then
@@ -1599,7 +1616,7 @@ An edit together with an approval counts as steer. Only
 branch unjudged.
 `
 
-/** `judged`: whether an overruled pass still meets the seam judge (`flagMode` on). */
+/** `judged`: whether an overruled pass still meets the seam judge (a release flag asked for). */
 export const seamSteerMessage = (retry: NaiveRetry, judged = true): string =>
   isFault(retry)
     ? `The naive pass failed three times and the retries are spent. The last

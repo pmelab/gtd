@@ -30,16 +30,9 @@ describe("the shipped workflow factories", () => {
     })
   })
 
-  it("default flagMode on and lay a boolean factory option over it as a string", () => {
-    expect(defaults.flagMode).toBe("true")
-    expect(configure(feature({ flagMode: false }))).toMatchObject({
-      ok: true,
-      build: { defaults: { flagMode: "false" } },
-    })
-    expect(configure(review({ flagMode: true }))).toMatchObject({
-      ok: true,
-      build: { defaults: { flagMode: "true" } },
-    })
+  it("refuse the removed flagMode option", () => {
+    expect(defaults.flagMode).toBeUndefined()
+    expect(configure(feature({ flagMode: false } as never))).toMatchObject({ ok: false })
   })
 
   it("declare flag_risk_tier off by default; it is no factory option", () => {

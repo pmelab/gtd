@@ -458,7 +458,7 @@ A config's doors are those its workflows bring plus its `doors` export: export
 `feature`, `review` and `fix` are factories: calling one with options returns
 that workflow configured. Their options are the
 [bundled workflow's settings](#the-bundled-workflows-settings), each a string
-(`flagMode` a boolean, stored as `true`/`false`), and each becomes that
+(`naiveTest` a boolean, stored as `true`/`false`), and each becomes that
 workflow's own default of its kind — beneath `--var` and `GTD_<NAME>`, which
 still layer on top:
 
@@ -703,13 +703,14 @@ check already enforces it. Every later step re-reads them from the file.
   no evidence truncated, runs `design.normalise`: a script writes the list to
   `.gtd/REQUIREMENTS.md` as `AC-1`, `AC-2`, … (or keeps the sketch's own
   `AC-<n>` IDs when every item has a distinct one), with a `git show` pointer to
-  the sketch, then a `design.impact` agent turn adds a `## Impact` section —
-  refused when it adds none (`impact`) or changes anything else (`impact-only`)
-  — and the process goes to `seam.naive`: no triage, no design gate, no human
-  rest, and nobody reviews that Impact before the build. Anything else,
-  including one vague criterion, falls back to `design.triage`. A sketch with no
-  such list skips the judge. With `GTD_FLAG_RISK_TIER` on there is no skip path:
-  the tier is proposed at triage and set at the design gate.
+  the sketch, then a `design.impact` agent turn adds a `## Impact` section, and
+  a [`## Release Flag`](#release-flags) section when the sketch asks for a flag
+  — refused when it adds no Impact (`impact`) or changes anything else
+  (`impact-only`) — and the process goes to `seam.naive`: no triage, no design
+  gate, no human rest, and nobody reviews that Impact before the build. Anything
+  else, including one vague criterion, falls back to `design.triage`. A sketch
+  with no such list skips the judge. With `GTD_FLAG_RISK_TIER` on there is no
+  skip path: the tier is proposed at triage and set at the design gate.
 - **Frozen.** After design only another design lap (review feedback) changes
   them: `gtd land` refuses an `implement.building` or
   `implement.fix.suite.fixing` turn that edits them (`criteria-frozen`).
@@ -730,6 +731,40 @@ process past `start-gate.check` whose sketch held an `Acceptance criteria` list
 in a `TODO.md`. A process resting at `design.triage` keeps replaying; its next
 turn needs ID'd criteria.
 
+### Release flags
+
+A change ships behind a release flag only when its requirements ask for one.
+`.gtd/REQUIREMENTS.md` then carries a `## Release Flag` section whose first line
+is:
+
+- `new` — the change goes behind a new release flag, following the repository's
+  flag conventions
+- `existing: <NAME>` — the change goes behind a flag that already exists, named
+  as the project names it (`existing: GTD_FLAG_BETA`); no new flag is added
+
+`design.triage` writes the section only when the sketch asks outright for a
+flag, and keeps it on every later lap; on the skip path `design.impact` writes
+it. Add, change or delete it at the design gate yourself. No section (or `none`)
+ships the change unflagged. A first line that is none of these refuses the
+landing (`release-flag`), at design and wherever the flow reads it later.
+
+With a flag asked for, the naive pass goes to the seam judge (`seam.judge`) and
+may be refactored first (see [the naive-pass path](#the-naive-pass-path)); a
+build turn is told to add the new flag, or to use the named one. Without one, no
+seam judge or refactor runs: after `seam.naive` and `seam.check` the vetted pass
+lands as the implementation (`implement.applying`, no build turn, no flag), then
+the health loop, `implement.closing` and the quality lap. The section is read
+when the step runs, so an edit at `seam.steer` or `seam.try` takes effect on the
+next pass. `GTD_FLAG_RISK_TIER`'s tier no longer decides a flag.
+
+**Upgrading:** `flagMode` is gone. A `feature({ flagMode })` option is refused
+as unknown — drop it; `--var flagMode` and `GTD_FLAGMODE` are ignored. A project
+that relied on the old default (flags on) now ships unflagged unless a sketch
+asks: add `## Release Flag` to its requirements, or ask in the sketch. Finish or
+`gtd abandon` any `feature` process past `design.gate.answer` (or past
+`design.impact` on the skip path) before upgrading: its replay now decides the
+seam judge from `.gtd/REQUIREMENTS.md`, not `flagMode`.
+
 ### The naive test
 
 With [`naiveTest`](#the-bundled-workflows-settings) on (off by default), a
@@ -739,9 +774,8 @@ puts the kept pass, outside `.gtd/`, in the working tree as a commit, and the
 process rests at `seam.try`. Run it, click through it, use it.
 
 - **Sign off** — land a clean tree. `seam.restoring` takes the pass out again
-  and the process goes on: to `seam.judge` with
-  [`flagMode`](#the-bundled-workflows-settings) on, else straight to
-  `implement.applying`.
+  and the process goes on: to `seam.judge` when a [release flag](#release-flags)
+  is asked for, else straight to `implement.applying`.
 - **Send it back** — write notes in `.gtd/NAIVE-TEST.md`, edit the code to show
   what you mean, or edit `.gtd/REQUIREMENTS.md` (its criteria must stay ID'd),
   then `gtd land`. `seam.restoring` takes the pass, your code edits and the
@@ -765,12 +799,11 @@ fixtures driving `feature` land `implement.health.check → implement.closing`.
 
 ### The naive-pass path
 
-The `feature` workflow's path while
-[`flagMode`](#the-bundled-workflows-settings) is on (the default); off, steps 1
-and 2 run, no judge, and the pass lands as on `land`. With
-[`naiveTest`](#the-naive-test) on, a person tries every green pass between steps
-2 and 3 (`seam.applying`, `seam.try`, `seam.restoring`). After design it runs,
-in order:
+The `feature` workflow's path when the requirements ask for a
+[release flag](#release-flags); without one, steps 1 and 2 run, no judge, and
+the pass lands as on `land`. With [`naiveTest`](#the-naive-test) on, a person
+tries every green pass between steps 2 and 3 (`seam.applying`, `seam.try`,
+`seam.restoring`). After design it runs, in order:
 
 1. `seam.naive` — an agent implements `.gtd/REQUIREMENTS.md` directly,
    breadth-first; the turn is a [kept tip](#kept-tips), not landed on the branch
@@ -1064,10 +1097,10 @@ driver or fixture expecting `feature` to land in `idle` after the quality lap
 must sign the review off.
 
 **Upgrading:** finish or `gtd abandon` before upgrading any process whose seam
-judge ruled `land`, that overruled a reject at `seam.steer`, or — with
-`flagMode` off — that has passed `design.gate.answer`: their history names
-`implement.building` where the flow now reaches `seam.naive` or
-`implement.applying`, and replay refuses it as divergence.
+judge ruled `land`, that overruled a reject at `seam.steer`, or — with no judge
+— that has passed `design.gate.answer`: their history names `implement.building`
+where the flow now reaches `seam.naive` or `implement.applying`, and replay
+refuses it as divergence.
 
 **Upgrading:** finish or `gtd abandon` any process whose seam judge ruled
 `refactor-first`: replay now expects `seam.note` after the verdict where its
@@ -1133,9 +1166,10 @@ folds into `.gtd/REFACTOR.md` only when it asks for a change.
 - `seamBuild(tier)` became `seamBuild(base)` and resolves `{ reference, base }`.
   It no longer runs `implement`; a custom workflow calls `implement` itself.
 - `seamBuild(base)` resolves `land: true` when the pass is the implementation
-  (`land`, an overruled `reject`, or `flagMode` off, where it runs no judge);
-  pass its `reference` on as `implement({ naive: reference })` to apply it at
-  `implement.applying`. Without `naive`, `implement` builds fresh as before.
+  (`land`, an overruled `reject`, or no release flag asked for, where it runs no
+  judge); pass its `reference` on as `implement({ naive: reference })` to apply
+  it at `implement.applying`. Without `naive`, `implement` builds fresh as
+  before.
 - On `refactor-first`, `seamBuild(base)` also resolves `rebuild` (the refactor
   note and the naive pass's acceptance tests); pass it on as
   `implement({ rebuild })` to quote the note and name the tests to carry over.
@@ -2049,19 +2083,6 @@ Overridable as [factory options](#workflow-factories) or through `GTD_<NAME>`.
   no brace alternation (`{a,b}` splits at the comma). A file the pass newly adds
   is allowed by its exact path, never as a glob: a new `src/a*.ts` does not
   cover a modified `src/a.ts`.
-- **`flagMode`** (`true`) — whether the project ships changes behind release
-  flags. Set it explicitly, as the factory option `feature({ flagMode: false })`
-  (or `--var flagMode=false`, `GTD_FLAGMODE=false`); gtd never detects it. Any
-  value but `true` or `false` refuses the landing that would start the process.
-  Off, for a project that is not publicly released: no `seam.judge` or
-  `refactor.*` step runs; after design `seam.naive` and `seam.check` run as on,
-  and the vetted pass lands as the implementation (`implement.applying`, no
-  build turn, no release flag), then the health loop, `implement.closing` and
-  the quality lap, as on. A feedback lap asks for no flag either. With
-  `GTD_FLAG_RISK_TIER` on, the tier is still asked for and recorded, but no
-  longer decides the flag. Pinned at process start; a process started before gtd
-  knew `flagMode` reads it live, so leave it on until such a process is
-  finished.
 - **`naiveTest`** (`false`) — whether a person tries every green naive pass by
   hand at `seam.try`, before the seam judge, any refactor, the implementation or
   the quality lap; notes or edits there send it back to `seam.naive`. See

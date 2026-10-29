@@ -54,6 +54,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
 
         - the greeting module
 
+        ## Release Flag
+
+        new
+
         ## Acceptance Criteria
 
         - AC-1: the change behaves as described.
@@ -76,6 +80,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Impact
 
         - the greeting module
+
+        ## Release Flag
+
+        new
 
         ## Acceptance Criteria
 
@@ -100,6 +108,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Impact
 
         - the greeting module
+
+        ## Release Flag
+
+        new
 
         ## Acceptance Criteria
 
@@ -134,6 +146,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
 
         - the greeting module
 
+        ## Release Flag
+
+        new
+
         ## Acceptance Criteria
 
         - AC-1: the change behaves as described.
@@ -161,6 +177,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Impact
 
         - the greeting module
+
+        ## Release Flag
+
+        new
 
         ## Acceptance Criteria
 
@@ -210,6 +230,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Impact
 
         - the greeting module
+
+        ## Release Flag
+
+        new
 
         ## Acceptance Criteria
 
@@ -261,6 +285,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
 
         - the greeting module
 
+        ## Release Flag
+
+        new
+
         ## Acceptance Criteria
 
         - AC-1: the change behaves as described.
@@ -289,6 +317,10 @@ Feature: the risk tier is proposed at triage and recorded behind GTD_FLAG_RISK_T
         ## Impact
 
         - the greeting module
+
+        ## Release Flag
+
+        new
 
         ## Acceptance Criteria
 

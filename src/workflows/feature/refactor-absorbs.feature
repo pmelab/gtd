@@ -40,6 +40,10 @@ Feature: a refactor that carried the whole feature still gets a quality lap over
 
       - the greeting module
 
+      ## Release Flag
+
+      new
+
       ## Acceptance Criteria
 
       - AC-1: the change behaves as described.
