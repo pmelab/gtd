@@ -62,7 +62,7 @@ export const probeTailscaleStatus = (): Effect.Effect<
     const runner = yield* UiShell
     const outcome = yield* runner
       .bash("tailscale status --json")
-      .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+      .pipe(Effect.catch(() => Effect.succeed(undefined)))
     if (outcome === undefined || outcome.status !== 0) return undefined
     // stdout only: a CLI/daemon version skew prints a warning on stderr that would break the JSON.
     return parseTailscaleStatus(outcome.stdout ?? outcome.output)

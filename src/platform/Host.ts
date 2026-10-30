@@ -36,7 +36,7 @@ const makeHostOps = (opts: HostOpsInput): HostOps => ({
     ((path: string) => Effect.try({ try: () => realpathSync(path), catch: toError })),
 })
 
-export class Host extends Context.Tag("Host")<Host, HostOps>() {
+export class Host extends Context.Service<Host, HostOps>()("Host") {
   static layer = (opts: HostOpsInput): Layer.Layer<Host> => Layer.succeed(Host, makeHostOps(opts))
   static Live = Host.layer({ root: process.cwd(), home: homedir(), env: process.env })
 }

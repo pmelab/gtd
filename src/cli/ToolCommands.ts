@@ -29,7 +29,7 @@ interface JudgeRequest {
  * The subcommands backed by a driver or tool. Core may not import those
  * units, so the composition root provides them here.
  */
-export class ToolCommands extends Context.Tag("ToolCommands")<
+export class ToolCommands extends Context.Service<
   ToolCommands,
   {
     readonly ui: (
@@ -39,4 +39,4 @@ export class ToolCommands extends Context.Tag("ToolCommands")<
     readonly lsp: (gtd: SelfGtd) => Effect.Effect<void, Error>
     readonly judge: (request: JudgeRequest) => Promise<string>
   }
->() {}
+>()("ToolCommands") {}

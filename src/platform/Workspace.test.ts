@@ -13,8 +13,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Effect, Layer } from "effect"
-import { NodeContext } from "@effect/platform-node"
-import { GitService, Host, Workspace, type WorkspaceOps } from "./index.js"
+import { GitService, Host, Workspace, type WorkspaceOps, NodeServices } from "./index.js"
 import { InMemRepo, makeInMemoryWorkspaceOps } from "../twins/index.js"
 
 // `execFileSync` is a named export of the built-in `node:child_process` ESM
@@ -54,7 +53,7 @@ const makeLiveTier = (): WorkspaceTier => {
   gitExecIn(root, "config", "commit.gpgsign", "false")
 
   const hostLayer = Host.layer({ root, home: root, env: {} })
-  const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeContext.layer)))
+  const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeServices.layer)))
   const workspaceLayer = Workspace.Live.pipe(Layer.provide(Layer.merge(hostLayer, gitLayer)))
 
   return {
@@ -275,7 +274,7 @@ describe("Workspace [Live] worktreeSync", () => {
                 Host.layer({ root, home: root, env: {} }),
                 GitService.Live.pipe(
                   Layer.provide(
-                    Layer.merge(Host.layer({ root, home: root, env: {} }), NodeContext.layer),
+                    Layer.merge(Host.layer({ root, home: root, env: {} }), NodeServices.layer),
                   ),
                 ),
               ),
@@ -361,7 +360,7 @@ const makeLiveEpisodeTier = () => {
   git("config", "commit.gpgsign", "false")
 
   const hostLayer = Host.layer({ root, home: root, env: {} })
-  const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeContext.layer)))
+  const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeServices.layer)))
   const workspaceLayer = Workspace.Live.pipe(Layer.provide(Layer.merge(hostLayer, gitLayer)))
   const ops = (): Promise<WorkspaceOps> =>
     Effect.runPromise(

@@ -1,5 +1,5 @@
-import { Command, CommandExecutor } from "@effect/platform"
 import { Context, Effect, Layer, Stream } from "effect"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { Host } from "./Host.js"
 
 /** One command run's outcome: its exit status (a signal death reported as `null`, matching `spawnSync`) and its combined output (stdout then stderr). */
@@ -23,13 +23,13 @@ interface CommandOutcome {
  * stdout/stderr, none of which this port's single-shot "run to completion"
  * shape supports.
  */
-export class CommandRunner extends Context.Tag("CommandRunner")<
+export class CommandRunner extends Context.Service<
   CommandRunner,
   {
     /** A SPAWN failure (no `bash`, unreadable cwd) fails the Effect; a non-zero EXIT is a value — how a mode command reports "invalid"/"broken" for the caller to interpret. */
     readonly bash: (command: string) => Effect.Effect<CommandOutcome, Error>
   }
->() {
+>()("CommandRunner") {
   /** A test layer over a canned `bash` implementation — no subprocess. */
   static readonly layer = (
     bash: (command: string) => Effect.Effect<CommandOutcome, Error>,
@@ -39,17 +39,19 @@ export class CommandRunner extends Context.Tag("CommandRunner")<
     CommandRunner,
     Effect.gen(function* () {
       const { root } = yield* Host
-      const executor = yield* CommandExecutor.CommandExecutor
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
       return {
         bash: (command: string) =>
           Effect.scoped(
             Effect.gen(function* () {
-              const process = yield* executor.start(
-                Command.make("bash", "-c", command).pipe(
-                  Command.workingDirectory(root),
-                  Command.stdout("pipe"),
-                  Command.stderr("pipe"),
-                ),
+              const process = yield* spawner.spawn(
+                ChildProcess.make("bash", ["-c", command], {
+                  cwd: root,
+                  stdout: "pipe",
+                  stderr: "pipe",
+                  // Not detached, like `Git.ts`'s `run`: a background job the command starts survives it.
+                  detached: false,
+                }),
               )
               const collect = (stream: typeof process.stdout) =>
                 stream.pipe(Stream.decodeText(), Stream.mkString)
@@ -60,7 +62,7 @@ export class CommandRunner extends Context.Tag("CommandRunner")<
                   // A signal death fails process.exitCode; map to null to match spawnSync's contract.
                   process.exitCode.pipe(
                     Effect.map((code): number | null => code),
-                    Effect.catchAll(() => Effect.succeed(null)),
+                    Effect.catch(() => Effect.succeed(null)),
                   ),
                 ],
                 { concurrency: "unbounded" },

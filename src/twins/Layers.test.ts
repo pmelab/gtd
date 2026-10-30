@@ -23,7 +23,7 @@ const seed = (repo: InMemRepo, dir: string, name: string, content: string): void
 
 const runDiscovery = <A>(
   repo: InMemRepo,
-  f: (d: ConfigDiscovery["Type"]) => Effect.Effect<A, Error>,
+  f: (d: ConfigDiscovery["Service"]) => Effect.Effect<A, Error>,
 ) =>
   Effect.runPromise(
     Effect.gen(function* () {

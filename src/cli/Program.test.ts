@@ -2090,7 +2090,7 @@ describe("gtd next/land --json=<path> — the select branch", () => {
     )
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
-      const failure = Cause.failureOption(exit.cause)
+      const failure = Cause.findErrorOption(exit.cause)
       expect(failure._tag).toBe("Some")
       if (failure._tag === "Some") {
         expect(failure.value).toBeInstanceOf(SelectorUsageError)
@@ -2297,8 +2297,8 @@ export default workflow(
 describe("runCommand — the repository-root guard's messages", () => {
   const guarded = async (
     override: (
-      git: Context.Tag.Service<GitService>,
-      host: Context.Tag.Service<Host>,
+      git: Context.Service.Shape<typeof GitService>,
+      host: Context.Service.Shape<typeof Host>,
     ) => Effect.Effect<unknown, Error, CommandRequirements>,
   ): Promise<string> => {
     const exit = await Effect.runPromiseExit(

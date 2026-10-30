@@ -928,7 +928,7 @@ const firstStep = (
     const empty = watchedEmptyTree()
     const vars = watchedEmptySettings()
     const env = watchedEmptySettings()
-    const outcome = yield* Effect.either(
+    const outcome = yield* Effect.result(
       replayToFirstStep(loaded, vars.settings, env.settings, empty.tree),
     )
     const reads = [...settingReads("process", vars), ...settingReads("environment", env)]
@@ -939,8 +939,8 @@ const firstStep = (
         ),
       )
     }
-    if (outcome._tag === "Left") return yield* Effect.fail(outcome.left)
-    const name = outcome.right
+    if (outcome._tag === "Failure") return yield* Effect.fail(outcome.failure)
+    const name = outcome.success
     if (!empty.read()) return name
     const atHead = yield* replayToFirstStep(loaded, vars.settings, env.settings, head)
     if (atHead === name) return name
@@ -959,9 +959,8 @@ interface ConfigServiceOperations {
   >
 }
 
-export class ConfigService extends Context.Tag("ConfigService")<
-  ConfigService,
-  ConfigServiceOperations
->() {
+export class ConfigService extends Context.Service<ConfigService, ConfigServiceOperations>()(
+  "ConfigService",
+) {
   static Live = Layer.succeed(ConfigService, { load })
 }

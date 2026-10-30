@@ -3,10 +3,9 @@ import * as fs from "node:fs"
 import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
-import { NodeContext } from "@effect/platform-node"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { Effect, Exit } from "effect"
-import { Host } from "../platform/index.js"
+import { Host, NodeServices } from "../platform/index.js"
 import { liveUiHost, UiError, UiHost, UiShell } from "./index.js"
 import { liveUiShell } from "./Ports.fixture.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert } from "./Tls.js"
@@ -55,7 +54,7 @@ const runWithLiveOpenssl = <A>(eff: Effect.Effect<A, UiError, UiShell | UiHost>)
       Effect.provide(liveUiShell),
       Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
       Effect.provide(liveUiHost),
-      Effect.provide(NodeContext.layer),
+      Effect.provide(NodeServices.layer),
     ),
   )
 
@@ -125,7 +124,7 @@ describe("generateSelfSignedCert", () => {
         Effect.provide(liveUiShell),
         Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
     // The would-be side effect of shell-executing the substitution never
@@ -147,7 +146,7 @@ describe("generateSelfSignedCert", () => {
         Effect.provide(liveUiShell),
         Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
         Effect.flip,
       ),
     )
@@ -305,7 +304,7 @@ describe("loadCertPair", () => {
     // No UiShell is provided at all — loadCertPair's own type never
     // requires it, so it structurally cannot shell out to openssl.
     const pair = await Effect.runPromise(
-      loadCertPair(certPath, keyPath).pipe(Effect.provide(NodeContext.layer)),
+      loadCertPair(certPath, keyPath).pipe(Effect.provide(NodeServices.layer)),
     )
     expect(pair.cert).toContain("BEGIN CERTIFICATE")
     expect(pair.key).toContain("BEGIN PRIVATE KEY")
@@ -317,11 +316,11 @@ describe("loadCertPair", () => {
     writeFileSync(keyPath, "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----\n")
 
     const exit = await Effect.runPromiseExit(
-      loadCertPair(certPath, keyPath).pipe(Effect.provide(NodeContext.layer)),
+      loadCertPair(certPath, keyPath).pipe(Effect.provide(NodeServices.layer)),
     )
     expect(Exit.isFailure(exit)).toBe(true)
     const thrown = await Effect.runPromise(
-      loadCertPair(certPath, keyPath).pipe(Effect.provide(NodeContext.layer), Effect.flip),
+      loadCertPair(certPath, keyPath).pipe(Effect.provide(NodeServices.layer), Effect.flip),
     )
     expect(thrown).toBeInstanceOf(UiError)
     expect(thrown.message).toContain(certPath)
@@ -333,7 +332,7 @@ describe("loadCertPair", () => {
     writeFileSync(certPath, "-----BEGIN CERTIFICATE-----\nfake\n-----END CERTIFICATE-----\n")
 
     const thrown = await Effect.runPromise(
-      loadCertPair(certPath, keyPath).pipe(Effect.provide(NodeContext.layer), Effect.flip),
+      loadCertPair(certPath, keyPath).pipe(Effect.provide(NodeServices.layer), Effect.flip),
     )
     expect(thrown).toBeInstanceOf(UiError)
     expect(thrown.message).toContain(keyPath)

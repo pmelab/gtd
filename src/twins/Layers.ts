@@ -30,7 +30,7 @@ import { fakeGitOperations } from "./FakeGitOperations.js"
 import { InMemRepo } from "./InMemRepo.js"
 
 // Read off the CLI's own port rather than imported from the composition root.
-type CommandRequirements = Layer.Layer.Success<ReturnType<CliIo["layers"]>>
+type CommandRequirements = Layer.Success<ReturnType<CliIo["layers"]>>
 import { ToolCommands, type CliIo } from "../cli/index.js"
 
 const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
@@ -207,13 +207,13 @@ export interface TestWorldOptions {
   /** Gates `narrate` above — defaults to `true` (fires whenever a sink is given) since these tests aren't exercising `Cli.ts`'s own `--verbose` gate. `src/twins/cliIo.ts` overrides this with the real decoded flag. */
   readonly verbose?: boolean
   /** Real or fake driver and tool commands — each one left out fails when called. */
-  readonly tools?: Partial<ToolCommands["Type"]>
+  readonly tools?: Partial<ToolCommands["Service"]>
 }
 
 const missingTool = (name: string) => () =>
   Effect.fail(new Error(`gtd ${name}: ToolCommands has no test double wired into testLayers()`))
 
-const missingToolCommands: ToolCommands["Type"] = {
+const missingToolCommands: ToolCommands["Service"] = {
   ui: missingTool("ui"),
   lsp: missingTool("lsp"),
   judge: () =>

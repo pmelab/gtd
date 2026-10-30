@@ -119,7 +119,7 @@ import { runHistoryMetricsCommand } from "./Metrics.js"
  * SAME type structurally off `currentRest`'s own success type rather than
  * importing the name.
  */
-type Rest = Effect.Effect.Success<typeof currentRest>
+type Rest = Effect.Success<typeof currentRest>
 
 export type Command =
   | { readonly kind: "lsp" }
@@ -219,9 +219,9 @@ const runGuideCommand = (
     const briefing = renderBriefing()
     out.write(briefing.endsWith("\n") ? briefing : briefing + "\n")
     const host = yield* Host
-    const topLevel = yield* Effect.either((yield* GitService).topLevel())
-    if (topLevel._tag === "Left") return
-    if ((yield* host.realPath(topLevel.right)) !== (yield* host.realPath(host.root))) return
+    const topLevel = yield* Effect.result((yield* GitService).topLevel())
+    if (topLevel._tag === "Failure") return
+    if ((yield* host.realPath(topLevel.success)) !== (yield* host.realPath(host.root))) return
     if ((yield* (yield* ConfigDiscovery).workflowModule(host.root, host.home)) !== undefined) return
     yield* (yield* Narrator).warn(
       `gtd guide: no ${WORKFLOW_MODULE} governs here, and gtd ships no workflow — get one from ${WORKFLOWS_REPO} or write your own (step 2 of the briefing above)`,
@@ -457,7 +457,7 @@ const runJudgeRunCommand = (
   })
 
 /** A verdict's own `answer` shape covers every `judge:` primitive (`noul` → boolean, `choice` → string, `score` → number) without gtd itself interpreting which one applies — that's a driver/judge-model concern, not this decode's. */
-const VerdictAnswer = Schema.Union(Schema.String, Schema.Number, Schema.Boolean)
+const VerdictAnswer = Schema.Union([Schema.String, Schema.Number, Schema.Boolean])
 
 /**
  * One `gtd judge answer` verdict entry per pending question, `{ id, answer,
@@ -470,14 +470,14 @@ const VerdictAnswer = Schema.Union(Schema.String, Schema.Number, Schema.Boolean)
 const verdictSchemaFor = (ids: readonly string[]) =>
   Schema.Array(
     Schema.Struct({
-      id: ids.length > 0 ? Schema.Literal(...(ids as [string, ...string[]])) : Schema.Never,
+      id: ids.length > 0 ? Schema.Literals(ids) : Schema.Never,
       answer: VerdictAnswer,
       // Bounded [0, 1] — every OTHER bound in the routes: matching path fails
       // CLOSED (a non-finite rendered minP/maxP never matches); an
       // unvalidated p wouldn't: a driver bug or a miscalibrated model
       // sending p > 1 would clear every minP a workflow declares,
       // unconditionally forcing the judged route on a live gate.
-      p: Schema.Number.pipe(Schema.between(0, 1)),
+      p: Schema.Number.check(Schema.isBetween({ minimum: 0, maximum: 1 })),
     }),
   )
 
@@ -509,7 +509,7 @@ const runJudgeAnswerCommand = (
       try: () => JSON.parse(raw) as unknown,
       catch: () => new SelectorUsageError("gtd judge answer: stdin is not valid JSON"),
     })
-    const verdict = yield* Schema.decodeUnknown(verdictSchemaFor(ids))(parsed).pipe(
+    const verdict = yield* Schema.decodeUnknownEffect(verdictSchemaFor(ids))(parsed).pipe(
       Effect.mapError(
         (e) =>
           new SelectorUsageError(
@@ -1137,7 +1137,7 @@ const gatherBeatDocument = (
       kind === "prompt" ? resolveSession(rendered.memory, rendered.memoryResumed) : undefined
     const resolvedValidate =
       kind === "prompt"
-        ? yield* resolveValidateScript(rest).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+        ? yield* resolveValidateScript(rest).pipe(Effect.catch(() => Effect.succeed(undefined)))
         : undefined
     const validate =
       resolvedValidate !== undefined && resolvedValidate.script.length > 0

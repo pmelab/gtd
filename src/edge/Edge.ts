@@ -1319,7 +1319,7 @@ const decideLanding = (
 export const previewLanding = (rest: Rest): Effect.Effect<StateName | undefined> =>
   decideLanding(rest, undefined, Option.none(), Option.none()).pipe(
     Effect.map((landing) => (landing.kind === "commit" ? landing.to : undefined)),
-    Effect.catchAll(() => Effect.succeed(undefined)),
+    Effect.catch(() => Effect.succeed(undefined)),
   )
 
 /** Every fact the pure landing planner needs, read once: the rest, its steering file, and the landing decision. */
@@ -1432,8 +1432,8 @@ const configRefusal = (
   )
 
 const differingConfigPaths = (
-  git: GitService["Type"],
-  workspace: Workspace["Type"],
+  git: GitService["Service"],
+  workspace: Workspace["Service"],
   root: string,
   config: { readonly fingerprint: ConfigFingerprint },
   run: ProcessRun,

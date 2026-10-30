@@ -5,13 +5,13 @@ import { Context, Effect, Layer } from "effect"
  * layer was built, never by the call site; `warn` is its ungated
  * counterpart, always written regardless of verbosity.
  */
-export class Narrator extends Context.Tag("Narrator")<
+export class Narrator extends Context.Service<
   Narrator,
   {
     readonly narrate: (line: string) => Effect.Effect<void>
     readonly warn: (line: string) => Effect.Effect<void>
   }
->() {
+>()("Narrator") {
   /**
    * `write` is the raw stderr sink (`CliIo.stderr` in production, so the
    * in-memory `CliIo` used by `@inmem` e2e scenarios captures narration into

@@ -1,5 +1,4 @@
-import { NodeContext } from "@effect/platform-node"
-import { Cause, Effect, Either, Layer } from "effect"
+import { Cause, Effect, Layer, Result } from "effect"
 import {
   GtdError,
   GtdUsageError,
@@ -9,6 +8,7 @@ import {
   Host,
   Workspace,
   CommandRunner,
+  NodeServices,
 } from "../platform/index.js"
 import {
   flagSettings,
@@ -75,7 +75,7 @@ interface FlagRow {
   readonly repeatable: boolean
   readonly scope: FlagScope
   /** All raw occurrences (already de-`=`-ed) → the decoded value, or an error message. */
-  readonly decode: (raws: readonly string[]) => Either.Either<unknown, string>
+  readonly decode: (raws: readonly string[]) => Result.Result<unknown, string>
   readonly scopeError: string
   readonly valueHint: string
   /** One sentence for a command's help, wrapped when rendered; `helpFor` overrides it for a command the flag means something else on. */
@@ -89,40 +89,40 @@ interface FlagRow {
 const decodeAssignments = (
   flag: string,
   raws: readonly string[],
-): Either.Either<Readonly<Record<string, string>>, string> => {
+): Result.Result<Readonly<Record<string, string>>, string> => {
   const vars: Record<string, string> = {}
   for (const raw of raws) {
     const eq = raw.indexOf("=")
     if (eq <= 0) {
-      return Either.left(`gtd: ${flag} must be <name>=<value> with a non-empty name — got "${raw}"`)
+      return Result.fail(`gtd: ${flag} must be <name>=<value> with a non-empty name — got "${raw}"`)
     }
     const name = raw.slice(0, eq)
     const value = raw.slice(eq + 1)
     if (!isSettingName(name)) {
-      return Either.left(
+      return Result.fail(
         `gtd: ${flag} ${JSON.stringify(name)} is not a valid setting name — ${SETTING_NAME_RULE}`,
       )
     }
-    if (/[\r\n]/.test(value)) return Either.left(`gtd: ${flag} ${name} must be a single-line value`)
+    if (/[\r\n]/.test(value)) return Result.fail(`gtd: ${flag} ${name} must be a single-line value`)
     if (Object.hasOwn(vars, name))
-      return Either.left(`gtd: ${flag} ${name} specified more than once`)
+      return Result.fail(`gtd: ${flag} ${name} specified more than once`)
     if (!name.startsWith("flag_")) {
       vars[name] = value
       continue
     }
     const pinned = flagSettingValue(value)
-    if (pinned === undefined) return Either.left(`gtd: ${flag} ${name} must be 1, 0, true or false`)
+    if (pinned === undefined) return Result.fail(`gtd: ${flag} ${name} must be 1, 0, true or false`)
     vars[name] = pinned
   }
-  return Either.right(vars)
+  return Result.succeed(vars)
 }
 
-const nonNegativeNumber = (raw: string, flag: string): Either.Either<number, string> => {
+const nonNegativeNumber = (raw: string, flag: string): Result.Result<number, string> => {
   const n = Number(raw)
   if (raw.trim() === "" || !Number.isFinite(n) || n < 0) {
-    return Either.left(`gtd: ${flag} must be a non-negative number — got "${raw}"`)
+    return Result.fail(`gtd: ${flag} must be a non-negative number — got "${raw}"`)
   }
-  return Either.right(n)
+  return Result.succeed(n)
 }
 
 /** The commands whose only output is a script: `--json` prints `{ schema, script }`. */
@@ -155,7 +155,7 @@ const FLAGS: readonly FlagRow[] = [
     arity: "optional",
     repeatable: false,
     scope: (kind) => JSON_KINDS.has(kind),
-    decode: ([raw]) => Either.right(raw ?? ""),
+    decode: ([raw]) => Result.succeed(raw ?? ""),
     scopeError:
       "gtd: --json is only valid for `gtd next`/`gtd land`, the commands that print a script, and the listings whose help names it (e.g. `gtd strays`) — " +
       "every other command prints plain text; see `gtd guide` for the driver protocol briefing",
@@ -175,8 +175,8 @@ const FLAGS: readonly FlagRow[] = [
     decode: ([raw]) => {
       const n = Number(raw)
       return raw !== undefined && Number.isInteger(n) && n >= 0 && n <= 65535
-        ? Either.right(n)
-        : Either.left(`gtd: --port must be an integer 0–65535 (got '${raw ?? ""}')`)
+        ? Result.succeed(n)
+        : Result.fail(`gtd: --port must be an integer 0–65535 (got '${raw ?? ""}')`)
     },
     scopeError: "gtd: --port is only valid for `gtd ui`",
     valueHint: "<n>",
@@ -189,8 +189,8 @@ const FLAGS: readonly FlagRow[] = [
     scope: (kind) => kind === "ui",
     decode: ([raw]) =>
       raw === undefined || raw.trim() === "" || /[\r\n]/.test(raw)
-        ? Either.left("gtd: --host must be a non-empty, single-line value")
-        : Either.right(raw),
+        ? Result.fail("gtd: --host must be a non-empty, single-line value")
+        : Result.succeed(raw),
     scopeError: "gtd: --host is only valid for `gtd ui`",
     valueHint: "<addr>",
     help: "Bind this address directly instead of publishing through tailscale serve",
@@ -200,7 +200,7 @@ const FLAGS: readonly FlagRow[] = [
     arity: 0,
     repeatable: false,
     scope: (kind) => kind === "ui",
-    decode: () => Either.right(true),
+    decode: () => Result.succeed(true),
     scopeError: "gtd: --self-signed is only valid for `gtd ui`",
     valueHint: "",
     help: "Bind directly with a throwaway self-signed certificate instead of the configured ui.cert/ui.key",
@@ -210,7 +210,7 @@ const FLAGS: readonly FlagRow[] = [
     arity: 0,
     repeatable: false,
     scope: (kind) => kind === "ui",
-    decode: () => Either.right(true),
+    decode: () => Result.succeed(true),
     scopeError: "gtd: --dev is only valid for `gtd ui`",
     valueHint: "",
     help: "Serve local development sources instead of the packaged build",
@@ -222,8 +222,8 @@ const FLAGS: readonly FlagRow[] = [
     scope: (kind) => kind === "judgeRun",
     decode: ([raw]) =>
       raw === "fixed" || raw === "jev" || raw === "llm"
-        ? Either.right(raw)
-        : Either.left(`gtd: --provider must be one of fixed, jev, llm — got "${raw ?? ""}"`),
+        ? Result.succeed(raw)
+        : Result.fail(`gtd: --provider must be one of fixed, jev, llm — got "${raw ?? ""}"`),
     scopeError: "gtd: --provider is only valid for `gtd judge run`",
     valueHint: "<name>",
     help: "The answerer: fixed, jev or llm (default: $GTD_JUDGE_PROVIDER, then ~/.config/gtd/judge.json, then jev when $TYPESAFE_API_KEY is set, else llm)",
@@ -235,8 +235,8 @@ const FLAGS: readonly FlagRow[] = [
     scope: (kind) => kind === "judgeRun",
     decode: ([raw]) =>
       raw === undefined || raw === ""
-        ? Either.left("gtd: --answers must be a non-empty path")
-        : Either.right(raw),
+        ? Result.fail("gtd: --answers must be a non-empty path")
+        : Result.succeed(raw),
     scopeError: "gtd: --answers is only valid for `gtd judge run`",
     valueHint: "<path>",
     help: "With --provider fixed: a JSON verdict file [{ id, answer, p }] (default: $GTD_JUDGE_ANSWERS, inline JSON)",
@@ -258,8 +258,8 @@ const FLAGS: readonly FlagRow[] = [
     scope: (kind) => kind === "land" || kind === "judgeRun",
     decode: ([raw]) =>
       raw === undefined || raw.trim() === "" || /[\r\n]/.test(raw)
-        ? Either.left("gtd: --model must be a non-empty, single-line value")
-        : Either.right(raw),
+        ? Result.fail("gtd: --model must be a non-empty, single-line value")
+        : Result.succeed(raw),
     scopeError:
       "gtd: --model is only valid for `gtd land` (with --cost: the model to record the cost against) or `gtd judge run` (the model that answers)",
     valueHint: "<name>",
@@ -295,7 +295,7 @@ const FLAGS: readonly FlagRow[] = [
     arity: 0,
     repeatable: false,
     scope: (kind) => kind === "historyJudges",
-    decode: () => Either.right(true),
+    decode: () => Result.succeed(true),
     scopeError: "gtd: --jsonl is only valid for `gtd history judges`",
     valueHint: "",
     help: "Print one JSON line per verdict instead of the report",
@@ -306,7 +306,7 @@ const FLAGS: readonly FlagRow[] = [
     arity: 0,
     repeatable: false,
     scope: (kind) => kind === "check",
-    decode: () => Either.right(true),
+    decode: () => Result.succeed(true),
     scopeError: "gtd: --open-questions is only valid for `gtd check`",
     valueHint: "",
     help: "Instead of <mode>'s findings, list the unanswered questions in <file>; exits 1 when any remain",
@@ -316,7 +316,7 @@ const FLAGS: readonly FlagRow[] = [
     arity: 0,
     repeatable: false,
     scope: (kind) => kind === "check",
-    decode: () => Either.right(true),
+    decode: () => Result.succeed(true),
     scopeError: "gtd: --open-threads is only valid for `gtd check`",
     valueHint: "",
     help: "Instead of <mode>'s findings, list the open threads in <file>; exits 1 when any are open. Alone, lists the open code-comment threads in the files the current process changed",
@@ -326,7 +326,7 @@ const FLAGS: readonly FlagRow[] = [
     arity: 0,
     repeatable: false,
     scope: () => true,
-    decode: () => Either.right(true),
+    decode: () => Result.succeed(true),
     scopeError: "gtd: --verbose is valid for every command — this error is unreachable",
     valueHint: "",
     help: "Narrate on stderr what gtd resolved and where its config came from",
@@ -916,7 +916,7 @@ const pairArityError = (
 /** Decode every present flag into a bag of values, or the first decode error encountered. */
 const decodeFlags = (
   byFlag: ReadonlyMap<string, readonly string[]>,
-): Either.Either<Readonly<Record<string, unknown>>, string> => {
+): Result.Result<Readonly<Record<string, unknown>>, string> => {
   const bag: Record<string, unknown> = {}
   for (const row of FLAGS) {
     const raws = byFlag.get(row.name)
@@ -925,19 +925,19 @@ const decodeFlags = (
     // to decode — presence alone is tracked via `present`, not the bag.
     if (row.arity === "optional" && raws.length === 0) continue
     const decoded = row.decode(raws)
-    if (Either.isLeft(decoded)) return Either.left(decoded.left)
-    bag[row.name] = decoded.right
+    if (Result.isFailure(decoded)) return Result.fail(decoded.failure)
+    bag[row.name] = decoded.success
   }
-  return Either.right(bag)
+  return Result.succeed(bag)
 }
 
 /** `gtd history judges`' thresholds: each a known judge threshold with a numeric value. */
 const judgeThresholds = (
   thresholds: Readonly<Record<string, string>>,
-): Either.Either<Readonly<Record<string, string>>, string> => {
+): Result.Result<Readonly<Record<string, string>>, string> => {
   const unknown = Object.keys(thresholds).find((name) => !Object.hasOwn(THRESHOLDS, name))
   if (unknown !== undefined) {
-    return Either.left(
+    return Result.fail(
       `gtd history judges: --threshold ${unknown} is no judge threshold — use ${Object.keys(THRESHOLDS).join(" or ")}`,
     )
   }
@@ -945,11 +945,11 @@ const judgeThresholds = (
     ([, value]) => value.trim() === "" || !Number.isFinite(Number(value)),
   )
   if (nan !== undefined) {
-    return Either.left(
+    return Result.fail(
       `gtd history judges: --threshold ${nan[0]} must be a number — got "${nan[1]}"`,
     )
   }
-  return Either.right(thresholds)
+  return Result.succeed(thresholds)
 }
 
 /** Assembles a `land` `Command` from its already-scope-checked flag bag — split out of `parseArgv` so its two independent, omit-when-absent optional fields don't inflate that function's own branching. */
@@ -1087,8 +1087,8 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   if (conflict !== undefined) return usagePlan(conflict, jsonSeen)
 
   const decoded = decodeFlags(byFlag)
-  if (Either.isLeft(decoded)) return usagePlan(decoded.left, jsonSeen)
-  const bag = decoded.right as {
+  if (Result.isFailure(decoded)) return usagePlan(decoded.failure, jsonSeen)
+  const bag = decoded.success as {
     readonly "--json"?: string
     readonly "--port"?: number
     readonly "--cost"?: number
@@ -1231,8 +1231,8 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
 
   if (kind === "historyJudges") {
     const thresholds = judgeThresholds(bag["--threshold"] ?? {})
-    if (Either.isLeft(thresholds)) return usagePlan(thresholds.left, jsonSeen)
-    const vars = thresholds.right
+    if (Result.isFailure(thresholds)) return usagePlan(thresholds.failure, jsonSeen)
+    const vars = thresholds.success
     return {
       kind: "command",
       command: {
@@ -1333,7 +1333,7 @@ const writeStderr = (chunk: string): void => {
 export type LiveToolCommands = Layer.Layer<
   ToolCommands,
   never,
-  Exclude<CommandRequirements, ToolCommands> | NodeContext.NodeContext
+  Exclude<CommandRequirements, ToolCommands> | NodeServices.NodeServices
 >
 
 export const nodeCliIo = (tools: LiveToolCommands): CliIo => ({
@@ -1358,7 +1358,7 @@ export const nodeCliIo = (tools: LiveToolCommands): CliIo => ({
   // "command"`, so --version/--help/a usage error never provoke it.
   layers: (verbose) =>
     // Dependency order matters: Workspace.Live needs GitService, both need
-    // Host, and GitService needs NodeContext's CommandExecutor. Each
+    // Host, and GitService needs NodeServices' ChildProcessSpawner. Each
     // `provideMerge` satisfies the layers above it AND stays in the output.
     tools.pipe(
       Layer.provideMerge(
@@ -1371,7 +1371,7 @@ export const nodeCliIo = (tools: LiveToolCommands): CliIo => ({
         ).pipe(
           Layer.provideMerge(GitService.Live),
           Layer.provideMerge(Host.Live),
-          Layer.provideMerge(NodeContext.layer),
+          Layer.provideMerge(NodeServices.layer),
         ),
       ),
     ),
@@ -1479,8 +1479,8 @@ export const runCli = (argv: readonly string[], io: CliIo): Effect.Effect<void, 
     // (Ctrl-C on `ui`/`lsp`'s blocking `Effect.never`) is passed
     // through untouched via `failCause` so `NodeRuntime.runMain` still sees a
     // real interruption; everything else gets the envelope.
-    Effect.catchAll((cause) =>
-      Cause.isInterruptedOnly(cause)
+    Effect.catch((cause) =>
+      Cause.hasInterruptsOnly(cause)
         ? Effect.failCause(cause)
         : report(io, plan.json.kind !== "off")(cause),
     ),

@@ -18,8 +18,7 @@ import { execFileSync, execSync, spawnSync } from "node:child_process"
 // `TEST_DOUBLE_SENTINEL` check.
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Exit, Option } from "effect"
-import { NodeContext } from "@effect/platform-node"
-import { Narrator, GitService, Host, type GitOperations } from "../platform/index.js"
+import { Narrator, GitService, Host, type GitOperations, NodeServices } from "../platform/index.js"
 import {
   commitAll,
   commitAsIs,
@@ -165,7 +164,7 @@ const makeLiveTier = (initialCommit = true): GitTier => {
       eff.pipe(
         Effect.provide(GitService.Live),
         Effect.provide(Host.layer({ root, home: root, env: {} })),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
         Effect.provide(noopNarratorLayer),
       ),
     )
@@ -177,7 +176,7 @@ const makeLiveTier = (initialCommit = true): GitTier => {
       eff.pipe(
         Effect.provide(GitService.Live),
         Effect.provide(Host.layer({ root, home: root, env: {} })),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
         Effect.provide(noopNarratorLayer),
       ),
     )
@@ -1266,7 +1265,7 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
             Effect.flatMap(GitService, (g) => g.gitDir()).pipe(
               Effect.provide(GitService.Live),
               Effect.provide(Host.layer({ root: siblingDir, home: siblingDir, env: {} })),
-              Effect.provide(NodeContext.layer),
+              Effect.provide(NodeServices.layer),
             ),
           )
           expect(siblingGitDir).not.toBe(mainGitDir)
@@ -1297,14 +1296,14 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
             Effect.flatMap(GitService, (g) => g.gitCommonDir()).pipe(
               Effect.provide(GitService.Live),
               Effect.provide(Host.layer({ root: siblingDir, home: siblingDir, env: {} })),
-              Effect.provide(NodeContext.layer),
+              Effect.provide(NodeServices.layer),
             ),
           )
           const siblingGitDir = await Effect.runPromise(
             Effect.flatMap(GitService, (g) => g.gitDir()).pipe(
               Effect.provide(GitService.Live),
               Effect.provide(Host.layer({ root: siblingDir, home: siblingDir, env: {} })),
-              Effect.provide(NodeContext.layer),
+              Effect.provide(NodeServices.layer),
             ),
           )
           expect(siblingCommonDir).toBe(mainCommonDir)

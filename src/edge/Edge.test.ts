@@ -469,12 +469,14 @@ describe("history reads stay bounded by the episode, not the repository", () => 
     const raceyGit: GitOperations = {
       ...base,
       subjectHistory: (pageSize, skip, head) =>
-        Effect.tap(base.subjectHistory(pageSize, skip, head), () => {
-          if (!moved) {
-            moved = true
-            repo.hardResetTo(boundary)
-          }
-        }),
+        Effect.tap(base.subjectHistory(pageSize, skip, head), () =>
+          Effect.sync(() => {
+            if (!moved) {
+              moved = true
+              repo.hardResetTo(boundary)
+            }
+          }),
+        ),
     }
 
     const run = await provideWithGit(currentRun, raceyGit, repo)

@@ -32,10 +32,10 @@ interface ShellOutcome {
 }
 
 /** One `bash -c` run in the served worktree. A spawn failure fails the Effect; a non-zero exit is a value. */
-export class UiShell extends Context.Tag("UiShell")<
+export class UiShell extends Context.Service<
   UiShell,
   { readonly bash: (command: string) => Effect.Effect<ShellOutcome, Error> }
->() {
+>()("UiShell") {
   static readonly layer = (
     bash: (command: string) => Effect.Effect<ShellOutcome, Error>,
   ): Layer.Layer<UiShell> => Layer.succeed(UiShell, { bash })
@@ -107,4 +107,4 @@ export interface UiHostOps {
   ) => Effect.Effect<A, E, R>
 }
 
-export class UiHost extends Context.Tag("UiHost")<UiHost, UiHostOps>() {}
+export class UiHost extends Context.Service<UiHost, UiHostOps>()("UiHost") {}
