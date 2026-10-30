@@ -31,6 +31,7 @@ Inspect:
 
 Driver plumbing:
   guide                     Print a briefing for writing a driver
+  bundle                    Print the pin of the current workflow
   judge                     Print the pending judgment
   judge answer              Land a verdict read from stdin
   judge run                 Answer a judgment with a model
@@ -556,6 +557,21 @@ Usage: gtd guide
 Print a self-contained briefing that teaches an agent or a person to build a gtd
 driver in any shell or runtime, and where to get a workflow — gtd ships none.
 Writes nothing.
+
+Options:
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd bundle`
+
+```
+Usage: gtd bundle
+
+Print a pin to stdout: gtd's engine and the current workflow — gtd.config.ts,
+every module it imports and every npm package they use — as one gzipped ES
+module, after a plain-text header line `gtdpin <format> gtd <version>`. Git
+diffs it as binary. Refuses a workflow gtd would refuse, and a package that
+loads a native addon (.node), naming it. Writes nothing.
 
 Options:
   -v, --verbose       Narrate on stderr what gtd resolved

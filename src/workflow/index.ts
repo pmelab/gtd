@@ -34,3 +34,4 @@ export {
   type StateName,
 } from "./Workflow.js"
 export { changedConfigFiles, contentHash, type ConfigFingerprint } from "./fingerprint.js"
+export { EngineCore, pin, readPin } from "./pin.js"

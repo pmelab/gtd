@@ -4,6 +4,8 @@ import { testLayers } from "./Layers.js"
 
 export interface CapturedCliResult {
   readonly stdout: string
+  /** stdout as written, for a binary artifact `stdout` would decode. */
+  readonly stdoutBytes: Uint8Array
   readonly stderr: string
   readonly exitCode: number
 }
@@ -13,12 +15,12 @@ export const makeCapturingCliIo = (
   env: Readonly<Record<string, string | undefined>> = {},
   tools: Partial<ToolCommands["Service"]> = {},
 ): { readonly io: CliIo; readonly result: () => CapturedCliResult } => {
-  let stdout = ""
+  let stdout: Buffer = Buffer.alloc(0)
   let stderr = ""
   let exitCode = 0
   const io: CliIo = {
     stdout: (chunk) => {
-      stdout += chunk
+      stdout = Buffer.concat([stdout, Buffer.from(chunk)])
     },
     stderr: (chunk) => {
       stderr += chunk
@@ -32,5 +34,8 @@ export const makeCapturingCliIo = (
     layers: (verbose) =>
       testLayers(repo, { env, narrate: (line) => (stderr += line), verbose, tools }),
   }
-  return { io, result: () => ({ stdout, stderr, exitCode }) }
+  return {
+    io,
+    result: () => ({ stdout: stdout.toString("utf8"), stdoutBytes: stdout, stderr, exitCode }),
+  }
 }

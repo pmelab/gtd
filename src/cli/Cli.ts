@@ -20,6 +20,7 @@ import { GTD_VERSION } from "../install/index.js"
 import {
   ConfigDiscovery,
   ConfigService,
+  EngineCore,
   isSettingName,
   SETTING_NAME_RULE,
   StartFlags,
@@ -532,6 +533,14 @@ Prints a sorted JSON array ([] when clean) and a summary on stderr; --verbose ad
     group: "Driver plumbing",
     summary: "Print a briefing for writing a driver",
     details: `Print a self-contained briefing that teaches an agent or a person to build a gtd driver in any shell or runtime, and where to get a workflow — gtd ships none. Writes nothing.`,
+  },
+  {
+    token: "bundle",
+    kind: "bundle",
+    arity: "none",
+    group: "Driver plumbing",
+    summary: "Print the pin of the current workflow",
+    details: `Print a pin to stdout: gtd's engine and the current workflow — gtd.config.ts, every module it imports and every npm package they use — as one gzipped ES module, after a plain-text header line \`gtdpin <format> gtd <version>\`. Git diffs it as binary. Refuses a workflow gtd would refuse, and a package that loads a native addon (.node), naming it. Writes nothing.`,
   },
   {
     token: "judge",
@@ -1295,6 +1304,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "next"
       | "validate"
       | "guide"
+      | "bundle"
       | "base"
       | "judge"
       | "judgeAnswer"
@@ -1308,7 +1318,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
 // ---------------------------------------------------------------------------
 
 export interface CliIo {
-  readonly stdout: (chunk: string) => void
+  readonly stdout: (chunk: string | Uint8Array) => void
   readonly stderr: (chunk: string) => void
   readonly exit: (code: number) => void
   /**
@@ -1365,6 +1375,7 @@ export const nodeCliIo = (tools: LiveToolCommands): CliIo => ({
         Layer.mergeAll(
           ConfigService.Live,
           ConfigDiscovery.Live,
+          EngineCore.Live,
           Workspace.Live,
           Narrator.layer(writeStderr, verbose),
           CommandRunner.Live,
@@ -1386,14 +1397,20 @@ export const nodeCliIo = (tools: LiveToolCommands): CliIo => ({
 export const normalizeTrailingNewline = (artifact: string): string =>
   artifact.length === 0 ? artifact : `${artifact.replace(/\n+$/, "")}\n`
 
+// Bytes are a binary artifact, written as they are.
 const bufferedArtifactOut = (io: CliIo): ArtifactOut => {
-  let buffer = ""
+  let buffer: string | Uint8Array = ""
   return {
     write: (chunk) => {
-      buffer += chunk
+      buffer =
+        typeof buffer === "string" && typeof chunk === "string"
+          ? buffer + chunk
+          : Buffer.concat([Buffer.from(buffer), Buffer.from(chunk)])
     },
     flush: () => {
-      if (buffer.length > 0) io.stdout(normalizeTrailingNewline(buffer))
+      if (buffer.length > 0) {
+        io.stdout(typeof buffer === "string" ? normalizeTrailingNewline(buffer) : buffer)
+      }
       buffer = ""
     },
   }

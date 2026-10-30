@@ -26,6 +26,11 @@ command that resolves workflow state, so it carries the same trust as any other
 script in the repository. The only repository config. _Avoid_: workflow file,
 workflow config, rc file
 
+**Pin**: gtd's engine and one workflow — its config, every module it imports and
+every npm package they use — as one gzipped ES module, after a plain-text header
+line naming the pin format and the gtd version. `gtd bundle` prints it; gtd
+never writes it. _Avoid_: snapshot, lockfile, bundle (for the file)
+
 **Config export**: `gtd.config.ts`'s reserved `config` export, built with
 `defineConfig` — the repository settings a workflow does not own: modes, `ui`,
 per-scope skills and access. _Avoid_: `.gtdrc` (removed), rc config

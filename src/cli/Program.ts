@@ -1,5 +1,6 @@
 import { Effect, Option, Schema } from "effect"
 import {
+  GtdError,
   GtdUsageError,
   Narrator,
   GitService,
@@ -15,6 +16,8 @@ import {
 import {
   WORKFLOW_MODULE,
   ConfigDiscovery,
+  EngineCore,
+  pin,
   refuseLegacyRc,
   ConfigService,
   formatDiagnostic,
@@ -88,7 +91,7 @@ import {
   abandonNoopOutcome,
   restoredOutcome,
 } from "../emit/index.js"
-import { renderBriefing, WORKFLOWS_REPO } from "../install/index.js"
+import { GTD_VERSION, renderBriefing, WORKFLOWS_REPO } from "../install/index.js"
 import { ToolCommands, type SelfGtd } from "./ToolCommands.js"
 import {
   normalizeScriptNewline,
@@ -161,6 +164,7 @@ export type Command =
     }
   | { readonly kind: "uncheck"; readonly file: string }
   | { readonly kind: "guide" }
+  | { readonly kind: "bundle" }
   | { readonly kind: "summary" }
   | { readonly kind: "base" }
   | { readonly kind: "judge" }
@@ -226,6 +230,25 @@ const runGuideCommand = (
     yield* (yield* Narrator).warn(
       `gtd guide: no ${WORKFLOW_MODULE} governs here, and gtd ships no workflow — get one from ${WORKFLOWS_REPO} or write your own (step 2 of the briefing above)`,
     )
+  })
+
+/** Loads the workflow first, so a pin is never made of one gtd would refuse. */
+const runBundleCommand = (
+  out: ArtifactOut,
+): Effect.Effect<
+  void,
+  Error,
+  ConfigService | ConfigDiscovery | EngineCore | Host | Narrator | Workspace
+> =>
+  Effect.gen(function* () {
+    yield* (yield* ConfigService).load
+    const host = yield* Host
+    const module = yield* (yield* ConfigDiscovery).workflowModule(host.root, host.home)
+    // Inside a pin, load read the pinned workflow, not a config on disk.
+    if (module === undefined) {
+      return yield* Effect.fail(new GtdError(`gtd bundle: no ${WORKFLOW_MODULE} here or above`))
+    }
+    out.write(yield* pin(module, host.root, GTD_VERSION))
   })
 
 /**
@@ -1332,6 +1355,8 @@ const dispatchVoidCommand = (
       return runUncheckCommand(command.file)
     case "guide":
       return runGuideCommand(out)
+    case "bundle":
+      return runBundleCommand(out)
     case "summary":
       return runSummaryCommand(out)
     case "base":

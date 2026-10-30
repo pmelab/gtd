@@ -7,7 +7,7 @@ import {
   type EXIT_OK,
   type EXIT_STRAYS_FOUND,
 } from "../wire/index.js"
-import { ConfigDiscovery, ConfigService } from "../workflow/index.js"
+import { ConfigDiscovery, ConfigService, EngineCore } from "../workflow/index.js"
 import type { ToolCommands } from "./ToolCommands.js"
 
 /**
@@ -59,7 +59,7 @@ export type JsonMode =
  * reach stdout.
  */
 export interface ArtifactOut {
-  readonly write: (chunk: string) => void
+  readonly write: (chunk: string | Uint8Array) => void
   readonly flush: () => void
 }
 
@@ -67,6 +67,7 @@ export type CommandRequirements =
   | GitService
   | ConfigService
   | ConfigDiscovery
+  | EngineCore
   | Workspace
   | Host
   | Narrator

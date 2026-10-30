@@ -5,7 +5,7 @@ import { writeScript, type JsonMode } from "./Output.js"
 
 const run = (json: JsonMode, script: string, plain?: string) => {
   let written = ""
-  const out = { write: (chunk: string) => (written += chunk), flush: () => {} }
+  const out = { write: (chunk: string | Uint8Array) => (written += String(chunk)), flush: () => {} }
   const exit = Effect.runSyncExit(writeScript(json, out, script, plain))
   return { exit, written }
 }
