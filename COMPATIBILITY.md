@@ -40,8 +40,10 @@ histories written by an older or newer gtd.
   `refs/gtd/kept/<entry>/<step>/<hash>` in the clone that landed it: a kept ref
   is local and its object is part of what replay needs there. `Gtd-Pin:` is not
   additive: replay steps over the pin and unpin commits it marks, which an older
-  gtd would replay as turns, so it moved `Gtd-Format` to 2. gtd no longer writes
-  `Gtd-Config:` and ignores it on older commits.
+  gtd would replay as turns, so it moved `Gtd-Format` to 2. `Gtd-Anchor:` is not
+  additive either: replay sets aside the commits before a repin that carries it,
+  which an older gtd would replay, so it moved `Gtd-Format` to 3. gtd no longer
+  writes `Gtd-Config:` and ignores it on older commits.
 - **Pin format** — what the `gtd` on `PATH` reads to hand a pinned process over:
   the `gtdpin <format> gtd <version>` header line of `.gtd/process.gtdpin`, then
   one gzipped ES module, in [Pinned processes](docs/cli.md#pinned-processes).

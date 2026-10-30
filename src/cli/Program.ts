@@ -51,6 +51,7 @@ import {
 } from "../wire/index.js"
 import {
   currentRest,
+  repinAnchor,
   startRefusal,
   currentRun,
   renderRest,
@@ -867,36 +868,45 @@ const runRestoreCommand = (
     yield* writeScript(json, out, combinedScript(required, ""))
   })
 
+/** The step an ordinary repin rests at — the one the process rests at now. */
+const repinTarget = Effect.gen(function* () {
+  const rest = yield* currentRest
+  const refusal =
+    rest.pin === "add"
+      ? "the next beat pins the process already — run it (`gtd next --json=content`), then land"
+      : rest.pin === "remove"
+        ? "the flow has ended — its unpin beat is next, so there is nothing to repin"
+        : noProcessUnderway(rest)
+          ? "no gtd process is underway — nothing to repin"
+          : undefined
+  if (refusal !== undefined) return yield* Effect.fail(new Error(`gtd repin: ${refusal}`))
+  return rest.step.name
+})
+
 /**
- * `gtd repin`: the pin beat's script and landing, on demand. It runs live,
- * so reading the rest first refuses a live workflow that cannot replay the
- * process before any pin is written.
+ * `gtd repin`: the pin beat's script and landing, on demand. It runs live: a
+ * pinned process the live workflow no longer replays is anchored where it
+ * diverged, and any other failure to read the rest refuses before any pin is
+ * written.
  */
 const runRepinCommand = (
   json: JsonMode,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
-    const rest = yield* currentRest
-    const refusal =
-      rest.pin === "add"
-        ? "the next beat pins the process already — run it (`gtd next --json=content`), then land"
-        : rest.pin === "remove"
-          ? "the flow has ended — its unpin beat is next, so there is nothing to repin"
-          : noProcessUnderway(rest)
-            ? "no gtd process is underway — nothing to repin"
-            : undefined
-    if (refusal !== undefined) return yield* Effect.fail(new Error(`gtd repin: ${refusal}`))
+    const anchor = yield* repinAnchor
+    const to = anchor?.to ?? (yield* repinTarget)
     const message = formatCommitMessage({
       actor: "check",
       from: PIN_STATES.add,
-      to: rest.step.name,
+      to,
       pin: "add",
+      ...(anchor !== undefined ? { anchor: anchor.at } : {}),
     })
     const steps: EmitStep[] = [
       { kind: "gitWrite", command: repinScript(PIN_PATH) },
       { kind: "gitWrite", command: commitPath(PIN_PATH, message) },
-      { kind: "outcome", command: transitionOutcome(PIN_STATES.add, rest.step.name) },
+      { kind: "outcome", command: transitionOutcome(PIN_STATES.add, to) },
     ]
     yield* writeScript(json, out, combinedScript(emitScripts(steps).required, ""))
   })

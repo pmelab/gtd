@@ -455,7 +455,7 @@ With no <name>, list every workflow and door it can start. An unknown <name>, th
     arity: "none",
     group: "Start and stop",
     summary: "Pin the process to the live gtd and workflow",
-    details: `Switch the process underway to the live engine and workflow, the way out when the workflow needs a fix mid-process: the printed script runs the pin beat again, writing \`gtd bundle\`'s output to .gtd/process.gtdpin and committing that file alone. Always runs on the gtd on PATH, never on the pin. Refuses when no process is underway, when the next beat is a pin or unpin beat already, or when the live workflow does not replay the process.
+    details: `Switch the process underway to the live engine and workflow, the way out when the workflow needs a fix mid-process: the printed script runs the pin beat again, writing \`gtd bundle\`'s output to .gtd/process.gtdpin and committing that file alone. Always runs on the gtd on PATH, never on the pin. When the live workflow no longer replays the process, the commit continues from the divergence: a Gtd-Anchor trailer names the last commit it replays, the later commits stay as files only, and the process rests at the step the live workflow reached there. Refuses when no process is underway, when the next beat is a pin or unpin beat already, when an unpinned process diverges, or when the live workflow would continue at the default workflow's first step.
 
   s=$(gtd repin --json=script) && sh -c "$s"`,
   },

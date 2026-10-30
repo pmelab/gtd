@@ -94,6 +94,8 @@ export interface CommitMessage {
   readonly approved: Approval | undefined
   /** `Gtd-Pin`: a commit that adds or removes the pin — never a turn. */
   readonly pin: PinChange | undefined
+  /** `Gtd-Anchor`, on a repin's commit: replay sets aside every commit after this one; a non-hash value is skipped. */
+  readonly anchor: string | undefined
   readonly format: number
 }
 
@@ -153,6 +155,7 @@ interface Trailers {
   kept: string | undefined
   approved: Approval | undefined
   pin: PinChange | undefined
+  anchor: string | undefined
   readonly judge: JudgeVerdict[]
   readonly marks: Mark[]
   readonly vars: Record<string, string>
@@ -200,6 +203,9 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
   "Gtd-Pin": (value, into) => {
     if (value === "add" || value === "remove") into.pin ??= value
   },
+  "Gtd-Anchor": (value, into) => {
+    if (HASH_RE.test(value)) into.anchor ??= value
+  },
   "Gtd-Format": (value, into) => {
     if (FORMAT_RE.test(value)) into.format ??= Number(value)
   },
@@ -221,6 +227,7 @@ export const parseCommitMessage = (message: string): CommitMessage => {
     kept: undefined,
     approved: undefined,
     pin: undefined,
+    anchor: undefined,
     judge: [],
     marks: [],
     vars: {},
@@ -250,6 +257,7 @@ export interface CommitSpec {
   /** Written after `Gtd-Mark`, before `Gtd-Branch`. */
   readonly approved?: Approval
   readonly pin?: PinChange
+  readonly anchor?: string
   readonly branch?: string
   readonly version?: string
 }
@@ -275,6 +283,7 @@ export const formatCommitMessage = (spec: CommitSpec): string => {
     ...(spec.marks ?? []).map((m) => `Gtd-Mark: ${m.name}=${m.value}`),
     ...trailer("Approved", spec.approved && encodeApproval(spec.approved)),
     ...trailer("Pin", spec.pin),
+    ...trailer("Anchor", spec.anchor),
     ...trailer("Branch", spec.branch),
     ...trailer("Version", spec.version),
     `Gtd-Format: ${HISTORY_FORMAT}`,

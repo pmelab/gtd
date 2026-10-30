@@ -153,8 +153,8 @@ Feature: the packed package — gtd installed from its own tarball
       gtd(agent): elsewhere → review
 
       Gtd-Step: elsewhere#1
-      Gtd-Format: 3
+      Gtd-Format: 4
       """
     When I run gtd next
     Then the exit code is 1
-    And stderr contains "is written in history format 3, but this gtd reads formats 1 to 2"
+    And stderr contains "is written in history format 4, but this gtd reads formats 1 to 3"

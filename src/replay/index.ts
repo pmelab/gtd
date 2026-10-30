@@ -1,6 +1,7 @@
 export {
   replay,
   scopeRunStart,
+  setAsideBy,
   type EpisodeCommit,
   type ReachedStep,
   type ReplayOutcome,
