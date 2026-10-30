@@ -3,7 +3,7 @@
 ```bash
 npm install
 npm run dev          # run from source, no build (node dev/run.mjs)
-npm run build        # tsdown → dist/gtd.bundle.mjs
+npm run build        # tsdown → dist/gtd.bundle.mjs, dist/gtd.core.mjs (minified, no ui or lsp) and the subpath entries
 npm test             # the whole gate, via turbo — cached and parallel
 npm test -- --force  # bypass turbo's cache; turbo options after -- reach every turbo run
 npx turbo run test:unit         # one task, cached (add --force to bypass)
