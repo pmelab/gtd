@@ -173,11 +173,11 @@
     }
   },
   "dependencies": {
-    "@effect/platform": "^0.94.2",
-    "@effect/platform-node": "^0.104.1",
+    "@effect/platform": "^0.97.3",
+    "@effect/platform-node": "^0.108.4",
     "@standard-schema/spec": "^1.1.0",
     "@trpc/server": "^11.18.0",
-    "effect": "^3.19.15",
+    "effect": "^3.22.4",
     "jiti": "^2.7.0",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-gfm-autolink-literal": "^2.0.1",
