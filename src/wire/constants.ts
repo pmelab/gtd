@@ -20,3 +20,6 @@ export const renderFormat = (fmt: string, ...args: readonly string[]): string =>
 /** The first line of the landing refusal for a turn that wrote outside its `write` access — a stable marker drivers and tests grep for. */
 export const ACCESS_REFUSAL =
   "gtd land: this turn wrote outside its write access — revert these paths, then run `gtd land` again:"
+
+/** Where a process keeps its pin: the engine and workflow it runs on, as `gtd bundle` prints them. */
+export const PIN_PATH = ".gtd/process.gtdpin"

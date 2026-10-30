@@ -42,6 +42,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
   Scenario: judge | judge run | judge answer round-trips and lands the Gtd-Judge: trailer
     When I run gtd land
     Then it succeeds
+    When I run the pin beat
     When I run in the shell:
       """
       gtd judge --json | gtd judge run --provider fixed --answers answers.json | gtd judge answer --json=script | sh
@@ -58,6 +59,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
       """
     When I run gtd land
     Then it succeeds
+    When I run the pin beat
     When I run in the shell:
       """
       gtd judge --json | gtd judge run --provider fixed --answers answers.json | gtd judge answer --json=script | sh
@@ -70,6 +72,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     Given an environment variable "GTD_JUDGE_ANSWERS" set to "[{\"id\":\"q1\",\"answer\":true,\"p\":0.9},{\"id\":\"q2\",\"answer\":true,\"p\":0.8}]"
     When I run gtd land
     Then it succeeds
+    When I run the pin beat
     When I run in the shell:
       """
       gtd judge --json | gtd judge run --provider fixed | gtd judge answer --json=script | sh
@@ -131,6 +134,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
       """
     When I run gtd land
     Then it succeeds
+    When I run the pin beat
     When I run in the shell:
       """
       gtd judge --json | gtd judge run --provider jev | gtd judge answer --json=script | sh
@@ -147,6 +151,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
       """
     When I run gtd land
     Then it succeeds
+    When I run the pin beat
     When I run in the shell:
       """
       gtd judge --json | gtd judge run --provider jev | gtd judge answer --json=script | sh
@@ -239,6 +244,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
       """
     When I run gtd land
     Then it succeeds
+    When I run the pin beat
     When I run in the shell:
       """
       gtd judge --json | gtd judge run --provider jev | gtd judge answer --json=script | sh
@@ -255,6 +261,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
       """
     When I run gtd land
     Then it succeeds
+    When I run the pin beat
     When I run in the shell:
       """
       gtd judge --json | gtd judge run --provider llm | gtd judge answer --json=script | sh
@@ -271,6 +278,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
       """
     When I run gtd land
     Then it succeeds
+    When I run the pin beat
     When I run in the shell:
       """
       gtd judge --json | gtd judge run | gtd judge answer --json=script | sh
@@ -291,6 +299,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
       """
     When I run gtd land
     Then it succeeds
+    When I run the pin beat
     When I run in the shell:
       """
       gtd judge --json | gtd judge run | gtd judge answer --json=script | sh
@@ -307,6 +316,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
       """
     When I run gtd land
     Then it succeeds
+    When I run the pin beat
     When I run in the shell:
       """
       gtd judge --json | gtd judge run --model opus | gtd judge answer --json=script | sh
@@ -324,6 +334,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
       """
     When I run gtd land
     Then it succeeds
+    When I run the pin beat
     When I run in the shell:
       """
       gtd judge --json | gtd judge run --provider llm | gtd judge answer --json=script | sh
@@ -337,6 +348,7 @@ Feature: gtd judge run — an answerer a driver chooses to pipe through
     Given claude fails with exit 1 and stderr "no login"
     When I run gtd land
     Then it succeeds
+    When I run the pin beat
     When I run in the shell:
       """
       gtd judge --json | gtd judge run --provider llm

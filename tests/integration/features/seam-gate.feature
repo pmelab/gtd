@@ -38,6 +38,7 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
   @inmem
   Scenario Outline: a <answer> judgment skips the gate
     Given gtd lands "gtd(human): idle → shape"
+    And I run the pin beat
     And gtd lands "gtd(judge): shape → again" judging:
       """
       [{"id":"shape","answer":"<answer>","p":0.9}]
@@ -53,6 +54,7 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
   @inmem
   Scenario: a refactor-first judgment rests at the gate with the seam report
     Given gtd lands "gtd(human): idle → shape"
+    And I run the pin beat
     And gtd lands "gtd(judge): shape → gate" judging:
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
@@ -85,12 +87,14 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
       }
       """
     And gtd lands "gtd(human): idle → gate"
+    And I run the pin beat
     When I run gtd next with "--json=content"
     Then stdout contains "vendor/big.bin (unreadable — not judged)"
 
   @inmem
   Scenario: a clean land approves the gate and records who approved it
     Given gtd lands "gtd(human): idle → shape"
+    And I run the pin beat
     And gtd lands "gtd(judge): shape → gate" judging:
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
@@ -100,11 +104,12 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
     And the last commit subject is "gtd(human): gate → again"
     And the last commit body contains 'Gtd-Approved: {"step":"gate#1","name":"Test","email":"test@test.com"}'
     And the last commit body does not contain "Signed-off-by:"
-    And the last commit body contains "Gtd-Format: 1"
+    And the last commit body contains "Gtd-Format: 2"
 
   @inmem
   Scenario: a staging hook does not reach the approval
     Given gtd lands "gtd(human): idle → shape"
+    And I run the pin beat
     And gtd lands "gtd(judge): shape → gate" judging:
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
@@ -120,6 +125,7 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
   @inmem
   Scenario: a rejecting hook does not stop the approval
     Given gtd lands "gtd(human): idle → shape"
+    And I run the pin beat
     And gtd lands "gtd(judge): shape → gate" judging:
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
@@ -132,6 +138,7 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
   @inmem
   Scenario: a tree edited between gtd land and its script fails the script and the gate stays
     Given gtd lands "gtd(human): idle → shape"
+    And I run the pin beat
     And gtd lands "gtd(judge): shape → gate" judging:
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
@@ -155,6 +162,7 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
   @inmem
   Scenario: a dirty land is refused and the gate stays
     Given gtd lands "gtd(human): idle → shape"
+    And I run the pin beat
     And gtd lands "gtd(judge): shape → gate" judging:
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
@@ -182,6 +190,7 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
       export const edit = 1
       """
     And gtd lands "gtd(human): idle → shape"
+    And I run the pin beat
     And gtd lands "gtd(judge): shape → gate" judging:
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
@@ -204,6 +213,7 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
   @inmem
   Scenario: after approval the process rests past the gate and a second refactor-first rests as #2
     Given gtd lands "gtd(human): idle → shape"
+    And I run the pin beat
     And gtd lands "gtd(judge): shape → gate" judging:
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
@@ -240,6 +250,7 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
       Build another thing.
       """
     And gtd lands "gtd(human): idle → phase#1 review"
+    And I run the pin beat
     When I run gtd land
     Then it succeeds
     And the last commit body contains '"step":"phase#1 review#1"'
@@ -253,6 +264,7 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
   @inmem
   Scenario: gtd next lists the approval only after the gate is approved
     Given gtd lands "gtd(human): idle → shape"
+    And I run the pin beat
     And gtd lands "gtd(judge): shape → gate" judging:
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
@@ -282,6 +294,7 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
   @inmem
   Scenario: a finished process shows who approved the gate in gtd history show
     Given gtd lands "gtd(human): idle → shape"
+    And I run the pin beat
     And gtd lands "gtd(judge): shape → gate" judging:
       """
       [{"id":"shape","answer":"refactor-first","p":0.9}]
@@ -297,7 +310,8 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
       """
     When I run gtd land
     Then it succeeds
-    When I run gtd with args "history show main"
+    When I run the unpin beat
+    And I run gtd with args "history show main"
     Then it succeeds
     And stdout contains "  approved gate#1 by Test <test@test.com>"
     When I run gtd with args "history show main --json=steps.2.approval.step"

@@ -438,6 +438,23 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /**
+   * Takes a pin or unpin beat the way a driver that ignores the mark does:
+   * runs the beat's script, then lands. Throws when the beat is anything else.
+   */
+  async runPinBeat(mark: "add" | "remove"): Promise<void> {
+    await this.invokeGtd("next", "--json")
+    const beat = firstJsonObject(this.lastResult.stdout)
+    if (beat?.["pin"] !== mark) {
+      throw new Error(
+        `expected a pin beat marked "${mark}", got: ${this.lastResult.stdout}${this.lastResult.stderr}`,
+      )
+    }
+    const run = await this.runEmittedScript(stringField(beat, "content"))
+    if (run.exitCode !== 0) throw new Error(`the ${mark} beat's script failed: ${run.output}`)
+    await this.runGtd("land")
+  }
+
+  /**
    * Plain `gtd land`'s own preview, undriven — package 02's prose sentence
    * carries no script to run, so this is a read: `gtd land`'s own git-write
    * effect is exercised by `driveLandWrite`/`runGtd`, never by this one.

@@ -353,13 +353,15 @@ const expectedVerdict = (doc: BeatDocument): string => {
 
 const quoted = (names: readonly string[]): string => names.map((name) => `"${name}"`).join(", ")
 
-/** Who acts at `doc`: its scripted actor, or a check's own script under `checks: "run"`. A stall has none. */
+/** Who acts at `doc`: its scripted actor, or its own script at a pin beat or a check under `checks: "run"`. A stall has none. */
 const actorAt = (
   doc: BeatDocument,
   actors: Actors,
   checks: DriveOptions["checks"],
 ): { readonly scripted: boolean; readonly actor: ScriptedActor | undefined } => {
   if (doc.kind === "stalled") return { scripted: false, actor: undefined }
+  // A drive is a driver: pinning is its own business, not a step to script.
+  if (doc.pin !== undefined) return { scripted: false, actor: runsItsScript }
   if (Object.hasOwn(actors, doc.state)) return { scripted: true, actor: actors[doc.state] }
   const runs = checks === "run" && doc.actor === "check"
   return { scripted: false, actor: runs ? runsItsScript : undefined }

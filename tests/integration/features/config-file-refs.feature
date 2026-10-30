@@ -33,6 +33,7 @@ Feature: gtd.config.ts reads a sibling prompt file at load time
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout contains "Build the thing described in NOTE.md."

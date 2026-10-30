@@ -27,11 +27,12 @@ Feature: requireProgress — deleting the feedback file without addressing it is
       Rename the `add` export to `sum`.
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     And the file ".gtd/FEEDBACK.md" is deleted
     When I run gtd land
     Then it fails
     And stderr contains "without addressing its instructions"
-    And the last commit subject is "gtd(human): idle → drafting"
+    And the last commit subject is "gtd(check): pin → drafting"
 
   Scenario: a NOTHING ACTIONABLE sentinel is the one exemption
     Given a file ".gtd/FEEDBACK.md" with:
@@ -39,6 +40,7 @@ Feature: requireProgress — deleting the feedback file without addressing it is
       NOTHING ACTIONABLE — the human left only an approving remark.
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     # The only pending change deletes .gtd/FEEDBACK.md, but its deleted
     # content IS the sentinel.
     And the file ".gtd/FEEDBACK.md" is deleted

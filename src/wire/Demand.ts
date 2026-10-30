@@ -1,4 +1,11 @@
-import type { Actor, ContentKind, RenderedDemandSource, StateName, StepAccess } from "./types.js"
+import type {
+  Actor,
+  ContentKind,
+  PinMark,
+  RenderedDemandSource,
+  StateName,
+  StepAccess,
+} from "./types.js"
 
 /** The whole beat vocabulary a driver acts on — what to DO with a rest, not merely whether dispatching it is safe. */
 export type BeatKind = "capture" | "message" | "script" | "prompt" | "stalled"
@@ -72,7 +79,7 @@ export interface DemandSession {
 export type Demand =
   | { readonly kind: "capture"; readonly content: string }
   | { readonly kind: "message"; readonly content: string }
-  | { readonly kind: "script"; readonly content: string }
+  | { readonly kind: "script"; readonly content: string; readonly pin?: PinMark }
   | { readonly kind: "stalled"; readonly content: string }
   | {
       readonly kind: "prompt"
@@ -91,7 +98,10 @@ export type Demand =
  * any other kind.
  */
 export const demandOf = (input: {
-  readonly rendered: Pick<RenderedDemandSource, "actor" | "content" | "state" | "skills" | "access">
+  readonly rendered: Pick<
+    RenderedDemandSource,
+    "actor" | "content" | "state" | "skills" | "access" | "pin"
+  >
   readonly kind: BeatKind
   readonly session?: DemandSession
   readonly validate?: string
@@ -102,7 +112,7 @@ export const demandOf = (input: {
   const skills =
     rendered.skills !== undefined && rendered.skills.length > 0 ? rendered.skills : undefined
   const access = rendered.access ?? { read: null, write: null }
-  return kind === "prompt"
-    ? { kind, content, session, validate, skills, access }
-    : { kind, content }
+  if (kind === "prompt") return { kind, content, session, validate, skills, access }
+  if (kind === "script" && rendered.pin !== undefined) return { kind, content, pin: rendered.pin }
+  return { kind, content }
 }

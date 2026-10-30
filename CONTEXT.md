@@ -29,7 +29,18 @@ workflow config, rc file
 **Pin**: gtd's engine and one workflow — its config, every module it imports and
 every npm package they use — as one gzipped ES module, after a plain-text header
 line naming the pin format and the gtd version. `gtd bundle` prints it; gtd
-never writes it. _Avoid_: snapshot, lockfile, bundle (for the file)
+never writes it. A process's pin is the one committed at `.gtd/process.gtdpin`,
+by its [pin beat](#pin-beat). _Avoid_: snapshot, freeze, frozen engine,
+lockfile, bundle (for the file)
+
+**Pin beat**: A process's first beat after it starts — a `script` beat at actor
+`check`, marked `pin: "add"`, whose script writes `gtd bundle`'s output to
+`.gtd/process.gtdpin`; its landing commits that file alone, with a `Gtd-Pin`
+trailer. Never a turn. _Avoid_: snapshot, freeze, frozen engine
+
+**Unpin beat**: A process's last beat, once its flow has ended — a `script` beat
+marked `pin: "remove"` that deletes `.gtd/process.gtdpin`; its landing is the
+commit that closes the process. Never a turn. _Avoid_: thaw, unfreeze
 
 **Config export**: `gtd.config.ts`'s reserved `config` export, built with
 `defineConfig` — the repository settings a workflow does not own: modes, `ui`,

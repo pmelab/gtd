@@ -53,6 +53,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       a sketch
       """
     And gtd lands "gtd(human): idle → triage"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/REQUIREMENTS.md: valid"
@@ -92,6 +93,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       a sketch
       """
     And gtd lands "gtd(human): idle → triage"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it fails
     And stderr contains ".gtd/REQUIREMENTS.md is not valid"
@@ -114,6 +116,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       a sketch
       """
     And gtd lands "gtd(human): idle → reviewing"
+    And I run the pin beat
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -144,6 +147,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       a sketch
       """
     And gtd lands "gtd(human): idle → reviewing"
+    And I run the pin beat
     And a file ".gtd/REVIEW.md" with:
       """
       <!-- base: abc1234def5678901234567890123456789abcd -->
@@ -242,6 +246,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       a sketch
       """
     And gtd lands "gtd(human): idle → triage"
+    And I run the pin beat
     When I run gtd next with "--json=validate"
     Then it succeeds
     And stdout contains "gtd check qa"
@@ -275,6 +280,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       a sketch
       """
     And gtd lands "gtd(human): idle → triage"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     # The instruction names the MODE's own resolved validation command — for a
@@ -312,6 +318,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       a sketch
       """
     And gtd lands "gtd(human): idle → triage"
+    And I run the pin beat
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"triage\""
@@ -351,6 +358,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       a sketch
       """
     And gtd lands "gtd(human): idle → triage"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it succeeds
     And the git status is clean
@@ -380,6 +388,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       a sketch
       """
     And gtd lands "gtd(human): idle → triage"
+    And I run the pin beat
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing. Plan: do it.
@@ -449,6 +458,7 @@ Feature: gtd validate — self-validating the resolved rest's steering file
       a sketch
       """
     And gtd lands "gtd(human): idle → triage"
+    And I run the pin beat
     And a file ".gtd/REQUIREMENTS.md" with:
       """
       Build a thing.

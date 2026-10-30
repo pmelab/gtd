@@ -246,6 +246,11 @@ mkdir -p .gtd
 echo "Add hello.sh that prints hello." >.gtd/TODO.md
 land
 
+# The pin beat: commits the engine and workflow the process runs on.
+test "$(gtd next --json=pin)" = add
+sh -c "$(gtd next --json=content)"
+land
+
 test "$(gtd next --json=state)" = design.triage
 
 # Stand in for the triage agent: one open product question.

@@ -36,6 +36,7 @@ Feature: styled prose in a steering file passes the built-in parsers
       a sketch
       """
     And gtd lands "gtd(human): idle → triage"
+    And I run the pin beat
 
   Scenario: a styled REQUIREMENTS.md passes gtd check qa and triage advances
     # The styled file itself — bold claim up front, flat imperative sentences,

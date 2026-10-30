@@ -30,6 +30,7 @@ Feature: flow branches read their paths from "vars"
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "OUT.md" with:
       """
       written at the stale default path
@@ -60,6 +61,7 @@ Feature: flow branches read their paths from "vars"
       """
     And an environment variable "GTD_OUTFILE" set to "ENV_OUT.md"
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "ENV_OUT.md" with:
       """
       the env-repointed output
@@ -90,6 +92,7 @@ Feature: flow branches read their paths from "vars"
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "RENAMED.md" with:
       """
       the renamed output

@@ -21,6 +21,8 @@ import { Effect, Exit, Option } from "effect"
 import { Narrator, GitService, Host, type GitOperations, NodeServices } from "../platform/index.js"
 import {
   commitAll,
+  commitPath,
+  unpinScript,
   commitAsIs,
   commitClean,
   softResetTo,
@@ -1353,6 +1355,27 @@ export const runGitScriptContract = (makeTier: () => GitTier): void => {
       run(t, commitAll("gtd: grilled"))
       expect(t.observe.resolveRef("HEAD")).not.toBe(headBefore)
       expect(t.observe.headSubject()).toBe("gtd: grilled")
+    })
+  })
+
+  describe("commitPath", () => {
+    it("commits the one path; every other pending change stays pending", () => {
+      t.seed.writeFile(".gtd/process.gtdpin", "pin")
+      t.seed.writeFile("other.ts", "export const y = 1")
+      run(t, commitPath(".gtd/process.gtdpin", "gtd(check): pin → building"))
+      expect(t.observe.headSubject()).toBe("gtd(check): pin → building")
+      expect(t.observe.headTouchedPaths()).toEqual([".gtd/process.gtdpin"])
+      expect(t.observe.statusPorcelain()).toContain("other.ts")
+      expect(t.observe.statusPorcelain()).not.toContain("process.gtdpin")
+    })
+
+    it("commits the path's deletion", () => {
+      t.seed.commit("feat: pinned", { ".gtd/process.gtdpin": "pin" })
+      run(t, unpinScript(".gtd/process.gtdpin"))
+      run(t, commitPath(".gtd/process.gtdpin", "gtd(check): unpin → idle"))
+      expect(t.observe.headTouchedPaths()).toEqual([".gtd/process.gtdpin"])
+      expect(t.observe.existsPath(".gtd/process.gtdpin")).toBe(false)
+      expect(t.observe.statusPorcelain().trim()).toBe("")
     })
   })
 

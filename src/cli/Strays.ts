@@ -1,7 +1,7 @@
 import { Effect } from "effect"
 import { GitService, GtdError, Narrator, type GitOperations } from "../platform/index.js"
 import { strayPaths } from "../step/index.js"
-import { EXIT_OK, EXIT_STRAYS_FOUND } from "../wire/index.js"
+import { EXIT_OK, EXIT_STRAYS_FOUND, PIN_PATH } from "../wire/index.js"
 import {
   SelectorUsageError,
   writeSelection,
@@ -31,7 +31,8 @@ export const runStraysCommand = (
     const narrator = yield* Narrator
     const base = yield* resolveSide(git, command.base)
     const tip = yield* resolveSide(git, command.tip)
-    const touched = yield* git.diffPaths(base, tip)
+    // The pin is the engine's, never a turn's, so it is never a stray either.
+    const touched = (yield* git.diffPaths(base, tip)).filter((path) => path !== PIN_PATH)
     const strays = strayPaths(touched, command.globs)
     const total = touched.length
 

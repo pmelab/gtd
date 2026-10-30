@@ -31,6 +31,7 @@ Feature: kept tips — a keep step's turn is set aside off the branch
       """
     And gtd lands "gtd(human): idle → naive"
     And I mark the current commit as "entry"
+    And I run the pin beat
 
   @inmem
   Scenario: landing a keep step leaves a marker on the branch and the turn under the kept ref
@@ -43,7 +44,7 @@ Feature: kept tips — a keep step's turn is set aside off the branch
     Then it succeeds
     And the last commit subject is "gtd(agent): naive → checking"
     And the last commit body contains "Gtd-Step: naive#1"
-    And the last commit body contains "Gtd-Format: 1"
+    And the last commit body contains "Gtd-Format: 2"
     And "src/naive.ts" is not in the tree of "HEAD"
     And "src/naive.ts" does not exist
     And the git status is clean
@@ -85,7 +86,8 @@ Feature: kept tips — a keep step's turn is set aside off the branch
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): none → idle"
+    And the last commit subject is "gtd(agent): none → unpin"
+    When I run the unpin beat
     When I run gtd with args "history list --json"
     Then it succeeds
     And stdout contains the hash of "entry"

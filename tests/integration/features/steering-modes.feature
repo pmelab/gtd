@@ -49,6 +49,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       # ADR 1: use gtd
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it fails
     And stderr contains ".gtd/docs/adr.md is not valid"
@@ -88,6 +89,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       Adopt it.
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/docs/adr.md: valid"
@@ -130,6 +132,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       status: draft
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/docs/adr.md: valid"
@@ -165,6 +168,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       # ADR 1: use gtd
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
@@ -180,7 +184,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # own `validate` field, run ahead of `gtd land`), not a gtd guarantee.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): drafting → idle"
+    And the last commit subject is "gtd(agent): drafting → unpin"
 
   @inmem
   Scenario: a valid custom-mode steering file passes the gate and the turn is captured
@@ -207,6 +211,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       # ADR 1: use gtd
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd
@@ -217,7 +222,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): drafting → idle"
+    And the last commit subject is "gtd(agent): drafting → unpin"
 
   @inmem
   Scenario: gtd land no longer runs the mode's format command at all — a broken formatter can't block the commit any more
@@ -249,6 +254,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       # ADR 1: use gtd
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     And a file ".gtd/docs/adr.md" with:
       """
       # ADR 1: use gtd (edited)
@@ -258,7 +264,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # ahead of the commit — the step lands.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): drafting → idle"
+    And the last commit subject is "gtd(agent): drafting → unpin"
 
   @inmem
   Scenario: a modes: entry named after a built-in overrides only the half it declares
@@ -293,6 +299,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       Build a thing. Plan: add src/thing.ts.
       """
     And gtd lands "gtd(human): idle → grilling"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "my house rule"
@@ -335,6 +342,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       No question text on the heading.
       """
     And gtd lands "gtd(human): idle → grilling"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "has no question text"
@@ -372,6 +380,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       Build a thing.    Plan: add src/thing.ts.
       """
     And gtd lands "gtd(human): idle → grilling"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/TODO.md: valid"
@@ -406,6 +415,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       status: draft
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/docs/adr.md: valid"
@@ -441,6 +451,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       start
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     When I run gtd next with "--json=validate"
     Then it succeeds
     And stdout contains "-f "
@@ -498,6 +509,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       - [ ] GraphQL
       """
     And gtd lands "gtd(agent): drafting → answering"
+    And I run the pin beat
     And a file ".gtd/TODO.md" with:
       """
       Build a thing. (still deciding)
@@ -513,7 +525,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it fails
     And stderr contains "1 open question(s)"
     And stderr contains "not answered"
-    And the last commit subject is "gtd(agent): drafting → answering"
+    And the last commit subject is "gtd(check): pin → answering"
 
   @inmem
   Scenario: a validate: that shells out to `gtd check qa` returns each finding as an opaque message with the column riding inside the text, not a structured position
@@ -555,6 +567,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       some notes.
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it fails
     And stderr contains ".gtd/docs/PLAN.md:9:1: A '##' section appears after '## Answered Questions', which must come last"
@@ -602,6 +615,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       start
       """
     And gtd lands "gtd(human): idle → reviewing"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "mode \"review\""
@@ -630,6 +644,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       start
       """
     And gtd lands "gtd(human): idle → reviewing"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it succeeds
 
@@ -668,6 +683,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       start
       """
     And gtd lands "gtd(human): idle → reviewing"
+    And I run the pin beat
     When I run gtd next with "--json=validate"
     Then it succeeds
     And stdout contains "mode \"review\" has an external validate: command"

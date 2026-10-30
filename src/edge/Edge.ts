@@ -37,18 +37,23 @@ import {
   isRecordableApproval,
   parseCommitMessage,
   replay,
+  type CommitMessage,
   scopeRunStart,
   treeFromRecord,
   type EpisodeCommit,
   type JudgeVerdict,
+  type PinChange,
+  PIN_STATES,
   type ReachedStep,
   type ReplayOutcome,
   type TreeView,
 } from "../replay/index.js"
 import type { Mark, ScopeAccess, SummaryContext } from "../flows/index.js"
 import { steeringFormatFor } from "../steering/index.js"
+import { pinScript, unpinScript } from "../emit/index.js"
 import {
   judgeJson,
+  PIN_PATH,
   UNATTRIBUTED_MODEL,
   type ApprovalEntry,
   type ModelCost,
@@ -87,6 +92,16 @@ interface EpisodeLocation {
   readonly processStart: number
 }
 
+const isOpening = ({ parsed, step }: CommitMessage): boolean =>
+  parsed !== undefined &&
+  step === undefined &&
+  parsed.from === undefined &&
+  parsed.actor === "human"
+
+// A pin commit's subject may name the first step; it bounds nothing.
+const boundsEpisode = (def: WorkflowDefinition, { parsed, pin }: CommitMessage): boolean =>
+  pin !== "add" && (parsed === undefined || !ACTORS.has(parsed.actor) || parsed.to === def.initial)
+
 /**
  * Where the episode HEAD belongs to begins, read off subjects alone. Walking
  * back from HEAD: a bare `gtd(human): <step>` commit with no `Gtd-Step` is what
@@ -99,13 +114,7 @@ interface EpisodeLocation {
 const locateEpisode = (def: WorkflowDefinition, history: History): EpisodeLocation => {
   for (let i = history.length - 1; i >= 0; i--) {
     const message = parseCommitMessage(history[i]!.message)
-    const subject = message.parsed
-    const opening =
-      subject !== undefined &&
-      message.step === undefined &&
-      subject.from === undefined &&
-      subject.actor === "human"
-    if (opening) {
+    if (isOpening(message)) {
       return {
         workflow: message.workflow,
         legacyOpening: message.workflow === undefined,
@@ -113,7 +122,7 @@ const locateEpisode = (def: WorkflowDefinition, history: History): EpisodeLocati
         processStart: i,
       }
     }
-    if (subject === undefined || !ACTORS.has(subject.actor) || subject.to === def.initial) {
+    if (boundsEpisode(def, message)) {
       return { workflow: undefined, legacyOpening: false, baseIndex: i, processStart: i + 1 }
     }
   }
@@ -156,6 +165,8 @@ export interface ProcessRun {
   readonly trace: readonly TraceEntry[]
   readonly costEntries: readonly CostEntry[]
   readonly judgeVerdicts: readonly JudgeVerdictEntry[]
+  /** Whether a pin commit has landed in this process. */
+  readonly pinCommitted: boolean
   /** Every process commit's `Gtd-Mark`s, oldest first. */
   readonly marks: readonly Mark[]
   /** Oldest first. */
@@ -186,7 +197,8 @@ const headTurnOf = (head: History[number] | undefined): ProcessRun["headTurn"] =
   if (head === undefined) return undefined
   const message = parseCommitMessage(head.message)
   const subject = message.parsed
-  if (subject === undefined || !ACTORS.has(subject.actor)) return undefined
+  if (subject === undefined || !ACTORS.has(subject.actor) || message.pin !== undefined)
+    return undefined
   return {
     state: subject.to,
     actor: subject.actor,
@@ -267,8 +279,11 @@ const buildRun = (
   location: EpisodeLocation,
   closingHash: string | undefined,
 ): ProcessRun => {
-  const processCommits = history.slice(location.processStart)
-  const parsed = processCommits.map((c) => parseCommitMessage(c.message))
+  const allProcessCommits = history.slice(location.processStart)
+  const allParsed = allProcessCommits.map((c) => parseCommitMessage(c.message))
+  // A pin commit is no turn; the unpin commit stays, as the one that closes the process.
+  const processCommits = allProcessCommits.filter((_, i) => allParsed[i]!.pin !== "add")
+  const parsed = allParsed.filter((m) => m.pin !== "add")
   const first = parsed[0]
   const startParentHash = hashAt(history, location.processStart - 1) ?? EMPTY_TREE
   const head = history[history.length - 1]
@@ -281,6 +296,7 @@ const buildRun = (
     trace: processCommits.map((c, i) => traceEntryOf(c.hash, parsed[i]!)),
     costEntries: parsed.flatMap((m, i) => costEntriesOf(processCommits[i]!.hash, m)),
     judgeVerdicts: parsed.flatMap((m) => m.judge),
+    pinCommitted: allParsed.some((m) => m.pin === "add"),
     marks: parsed.flatMap((m) => m.marks),
     approvals: processCommits.flatMap((c, i) => approvalEntryOf(c.hash, parsed[i]!)),
     pinnedVars: { ...first?.vars },
@@ -320,6 +336,8 @@ const subjectIsBoundary = (def: WorkflowDefinition, subject: string): boolean =>
   const parsed = parseCommitMessage(subject).parsed
   if (parsed === undefined || !ACTORS.has(parsed.actor)) return true
   if (parsed.actor === "human" && parsed.from === undefined) return false
+  // A pin commit's subject can name the first step; it bounds nothing.
+  if (parsed.actor === "check" && parsed.from === PIN_STATES.add) return false
   return parsed.to === def.initial
 }
 
@@ -849,6 +867,10 @@ interface ResolvedRest {
  * before any mutation.
  */
 interface Rest extends ResolvedRest {
+  /** Set at a pin or unpin beat; `step` is then the step the flow reached around it. */
+  readonly pin: PinChange | undefined
+  /** Whether HEAD's tree carries the pin. */
+  readonly pinned: boolean
   readonly step: ReachedStep
   readonly trace: readonly ReachedStep[]
   readonly run: ProcessRun
@@ -985,13 +1007,15 @@ export const restAt = (
     // staying true; passing a pending tree here would make it serve a stale
     // steering file on every cache hit.
     const outcome = yield* Effect.promise(() => replayFor(setup))
-    const error = replayError(outcome)
-    if (error !== undefined || outcome.kind !== "rest") {
-      return yield* Effect.fail(error ?? new Error("gtd: replay found no rest"))
+    const pinned = headHasPin(workspace, run)
+    const pin = pinBeatAt(outcome, run, def, pinned)
+    const resting = restingOn(outcome, pin)
+    if (resting === undefined) {
+      return yield* Effect.fail(replayError(outcome) ?? new Error("gtd: replay found no rest"))
     }
-    const step = outcome.rest
-    yield* (yield* Narrator).narrate(`rest resolved: ${step.name} (awaits ${step.actor})`)
-    const stepDef = stepDefOf(step)
+    const { reached, step } = resting
+    const { stepDef, state, memory } = restFacts(pin, step, reached.trace, run)
+    yield* (yield* Narrator).narrate(`rest resolved: ${state} (awaits ${stepDef.actor})`)
     if (stepDef.mode !== undefined && def.modes[stepDef.mode] === undefined) {
       return yield* Effect.fail(
         new Error(
@@ -1006,7 +1030,6 @@ export const restAt = (
             path: e.path,
           }))
         : []
-    const memory = memoryOf(outcome.trace, run)
     const configNow = config.fingerprint
     // Only the current rest warns, so a command must read it once — a second
     // read warns twice. An earlier ref (restore's tip) would warn about a
@@ -1015,11 +1038,13 @@ export const restAt = (
     return {
       def,
       workflowName: resolved.name,
-      state: step.name,
+      state,
       stepDef,
-      actor: step.actor,
+      actor: stepDef.actor,
+      pin,
+      pinned,
       step,
-      trace: outcome.trace,
+      trace: reached.trace,
       run,
       vars,
       env,
@@ -1034,6 +1059,66 @@ export const restAt = (
   })
 
 export const currentRest: Effect.Effect<Rest, Error, RestRequirements> = restAt(undefined)
+
+/** The step the process rests at and the trace that reached it — at an unpin, the flow's last step. */
+const restingOn = (outcome: ReplayOutcome, pin: PinChange | undefined) => {
+  if (outcome.kind === "rest") return { reached: outcome, step: outcome.rest }
+  if (outcome.kind !== "ended" || pin !== "remove") return undefined
+  const step = outcome.trace.at(-1)
+  return step === undefined ? undefined : { reached: outcome, step }
+}
+
+/** A pin or unpin beat has its own script, no step's, and no agent memory. */
+const restFacts = (
+  pin: PinChange | undefined,
+  step: ReachedStep,
+  trace: readonly ReachedStep[],
+  run: ProcessRun,
+) =>
+  pin === undefined
+    ? { stepDef: stepDefOf(step), state: step.name, memory: memoryOf(trace, run) }
+    : {
+        stepDef: pinStepDef(pin),
+        state: PIN_STATES[pin],
+        memory: { key: undefined, resumed: false },
+      }
+
+const headHasPin = (workspace: WorkspaceOps, run: ProcessRun): boolean => {
+  const head = run.episode.commits.at(-1)?.hash ?? run.episode.base
+  return head !== undefined && workspace.treeSync(head).has(PIN_PATH)
+}
+
+const underwayAt = (run: ProcessRun, step: ReachedStep, def: WorkflowDefinition): boolean =>
+  run.workflow !== undefined || step.name !== def.initial || step.id.occurrence !== 1
+
+/**
+ * A started process pins first — again, should a turn have deleted the pin;
+ * a pinned flow that ended unpins before the closing commit.
+ */
+const pinBeatAt = (
+  outcome: ReplayOutcome,
+  run: ProcessRun,
+  def: WorkflowDefinition,
+  pinned: boolean,
+): PinChange | undefined => {
+  if (flowEnded(outcome, run, def)) return pinned || run.pinCommitted ? "remove" : undefined
+  if (outcome.kind !== "rest" || pinned) return undefined
+  return underwayAt(run, outcome.rest, def) ? "add" : undefined
+}
+
+// A default-workflow process back at the first step has ended, as a returned flow has.
+const flowEnded = (outcome: ReplayOutcome, run: ProcessRun, def: WorkflowDefinition): boolean =>
+  outcome.kind === "ended" ||
+  (outcome.kind === "rest" &&
+    run.workflow === undefined &&
+    outcome.rest.name === def.initial &&
+    underwayAt(run, outcome.rest, def))
+
+const pinStepDef = (pin: PinChange): StepDef => ({
+  actor: "check",
+  kind: "script",
+  content: pin === "add" ? pinScript(PIN_PATH) : unpinScript(PIN_PATH),
+})
 
 type EndedOutcome = Extract<ReplayOutcome, { kind: "ended" }>
 type UnendedOutcome = Exclude<ReplayOutcome, { kind: "ended" }>
@@ -1094,6 +1179,7 @@ export interface RenderedRest extends RestHints {
   readonly content: string
   readonly memory?: string
   readonly memoryResumed: boolean
+  readonly pin?: PinChange
 }
 
 export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
@@ -1105,6 +1191,7 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
     ...rest.hints,
     ...(rest.memory !== undefined ? { memory: rest.memory } : {}),
     memoryResumed: rest.memoryResumed,
+    ...(rest.pin !== undefined ? { pin: rest.pin } : {}),
   })
 
 /**
@@ -1122,9 +1209,7 @@ export const stalledAt = (rest: Rest): boolean =>
 
 /** No process is underway: the default workflow's first step, first visit — a dirty tree there is a turn not yet landed, not a process. */
 export const noProcessUnderway = (rest: Rest): boolean =>
-  rest.run.workflow === undefined &&
-  rest.state === rest.def.initial &&
-  rest.step.id.occurrence === 1
+  rest.pin === undefined && !underwayAt(rest.run, rest.step, rest.def)
 
 /** `idle` means exactly one thing: no process underway, clean tree. */
 export const restIsIdle = (rest: Rest): boolean =>
@@ -1254,15 +1339,15 @@ const landingTo = (
   if (refused !== undefined) return refused
   // Landing on the first step while a process is underway ends it (flow
   // return and `restart()` alike); the script then points the history ref at
-  // that very commit.
-  const finishes = underway && to === rest.def.initial
+  // that very commit. A pinned process ends one beat later, at the unpin.
+  const { finishes, landsAt } = endingOf(rest, to, underway)
   return {
     kind: "commit",
-    to,
+    to: landsAt,
     spec: {
       actor: rest.actor,
       from: rest.state,
-      to,
+      to: landsAt,
       step: rest.step.id,
       ...(marks.length > 0 && { marks }),
       ...approvedTrailer(rest, approver),
@@ -1273,6 +1358,53 @@ const landingTo = (
     ...keptTurn(rest),
   }
 }
+
+const endingOf = (rest: Rest, to: StateName, underway: boolean) => {
+  const ends = underway && to === rest.def.initial
+  return { finishes: ends && !rest.pinned, landsAt: ends && rest.pinned ? PIN_STATES.remove : to }
+}
+
+/** A pin or unpin commit carries the pin alone; the unpin commit closes the process. */
+const pinLanding = (rest: Rest, pin: PinChange, branch: Option.Option<string>): Landing => {
+  const change = rest.changes.find((c) => c.path === PIN_PATH)?.status
+  return pin === "add" ? pinCommit(rest, change) : unpinCommit(rest, change, branch)
+}
+
+const pinCommit = (rest: Rest, change: string | undefined): Landing => {
+  if (change === undefined || change === "D") return pinRefusal("add")
+  const to = rest.step.name
+  return {
+    kind: "commit",
+    to,
+    spec: { actor: rest.actor, from: rest.state, to, pin: "add" },
+    only: PIN_PATH,
+  }
+}
+
+const unpinCommit = (
+  rest: Rest,
+  change: string | undefined,
+  branch: Option.Option<string>,
+): Landing => {
+  if (change !== "D" && rest.pinned) return pinRefusal("remove")
+  const to = rest.def.initial
+  return {
+    kind: "commit",
+    to,
+    spec: { actor: rest.actor, from: rest.state, to, pin: "remove", ...closingTrailers(branch) },
+    keepHistory: processHistoryRef(rest.run.startHash),
+    // A turn already deleted the pin: the closing commit has no path of its own.
+    ...(rest.pinned ? { only: PIN_PATH } : {}),
+  }
+}
+
+const pinRefusal = (pin: PinChange): Landing => ({
+  kind: "refusal",
+  message:
+    pin === "add"
+      ? `gtd land: ${PIN_PATH} is missing — run the pin beat's script (\`gtd next --json=content\`); if its \`gtd bundle\` fails, fix what it reports, or run \`gtd abandon\``
+      : `gtd land: ${PIN_PATH} is still there — run the unpin beat's script (\`gtd next --json=content\`), then land`,
+})
 
 const startTrailers = (rest: Rest, starts: boolean) =>
   starts ? { vars: rest.vars, config: rest.config } : {}
@@ -1292,6 +1424,7 @@ const decideLanding = (
   approver: Option.Option<AuthorIdent>,
 ): Effect.Effect<Landing, Error> =>
   Effect.gen(function* () {
+    if (rest.pin !== undefined) return pinLanding(rest, rest.pin, branch)
     const unapproved = approvalRefusal(rest, approver)
     if (unapproved !== undefined) return unapproved
     const early = cleanLanding(rest)

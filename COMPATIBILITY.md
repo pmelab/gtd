@@ -39,7 +39,9 @@ histories written by an older or newer gtd.
   only by a workflow that calls `mark()`, and replay never reads it. Replay
   reads the kept object it names to answer `kept()`, which lives under
   `refs/gtd/kept/<entry>/<step>/<hash>` in the clone that landed it: a kept ref
-  is local and its object is part of what replay needs there.
+  is local and its object is part of what replay needs there. `Gtd-Pin:` is not
+  additive: replay steps over the pin and unpin commits it marks, which an older
+  gtd would replay as turns, so it moved `Gtd-Format` to 2.
 
 ## Follows package SemVer
 

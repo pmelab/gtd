@@ -64,6 +64,7 @@ Feature: gtd land — the one landing verb, actorless
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "DONE.md" with:
       """
       done
@@ -91,6 +92,7 @@ Feature: gtd land — the one landing verb, actorless
       a note
       """
     And gtd lands "gtd(human): idle → checking"
+    And I run the pin beat
     When I run gtd land
     Then the exit code is 0
     And stdout contains "nothing to do at \"checking\""
@@ -184,7 +186,7 @@ Feature: gtd land — the one landing verb, actorless
     And stdout does not contain "git commit"
 
   @inmem
-  Scenario: gtd land --json reports settled:false, idle:true for the green gtd start fix probe, without landing it
+  Scenario: gtd land --json reports settled:false, state:unpin for the green gtd start fix probe, without landing it; idle:true follows the unpin beat
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -201,13 +203,20 @@ Feature: gtd land — the one landing verb, actorless
       """
     When I run gtd with args "start fix"
     Then it succeeds
+    And I run the pin beat
     And I record the commit count
     When I run gtd land with "--json"
     Then the exit code is 0
     And stdout contains "\"settled\":false"
+    And stdout contains "\"idle\":false"
+    And stdout contains "\"state\":\"unpin\""
+    And the commit count is unchanged
+    When I run gtd land
+    And I run the unpin beat
+    And I run gtd land with "--json"
+    Then the exit code is 0
     And stdout contains "\"idle\":true"
     And stdout contains "\"state\":\"idle\""
-    And the commit count is unchanged
 
   @live
   Scenario: gtd land --json=script piped straight into sh lands the turn

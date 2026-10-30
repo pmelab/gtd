@@ -21,16 +21,20 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
     And gtd lands "gtd(human): idle → building"
     And I mark the current commit as "entry"
+    And I run the pin beat
     And a file "src/a.ts" with:
       """
       export const a = 1
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → idle"
+    And the last commit subject is "gtd(agent): building → unpin"
+    And the last commit body does not contain "Gtd-Branch"
+    When I run the unpin beat
+    Then the last commit subject is "gtd(check): unpin → idle"
     And the last commit body contains "Gtd-Branch: main"
     And the last commit body contains "Gtd-Version: "
-    And the last commit body contains "Gtd-Format: 1"
+    And the last commit body contains "Gtd-Format: 2"
     Given I mark the current commit as "tip"
     Then the history ref of "entry" points at "tip"
 
@@ -54,11 +58,13 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
     And gtd lands "gtd(human): idle → building"
     And I mark the current commit as "first"
+    And I run the pin beat
     And a file "src/a.ts" with:
       """
       export const a = 1
       """
-    And gtd lands "gtd(agent): building → idle"
+    And gtd lands "gtd(agent): building → unpin"
+    And I run the unpin beat
     And I mark the current commit as "first-tip"
     And a file "NOTE.md" with:
       """
@@ -66,11 +72,13 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
     And gtd lands "gtd(human): idle → building"
     And I mark the current commit as "second"
+    And I run the pin beat
     And a file "src/b.ts" with:
       """
       export const b = 2
       """
-    And gtd lands "gtd(agent): building → idle"
+    And gtd lands "gtd(agent): building → unpin"
+    And I run the unpin beat
     And I mark the current commit as "second-tip"
     Then the history ref of "first" points at "first-tip"
     And the history ref of "second" points at "second-tip"
@@ -105,11 +113,13 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
     And gtd lands "gtd(human): idle → building"
     And I mark the current commit as "entry"
+    And I run the pin beat
     And a file "src/a.ts" with:
       """
       export const a = 1
       """
-    And gtd lands "gtd(agent): building → idle"
+    And gtd lands "gtd(agent): building → unpin"
+    And I run the unpin beat
     When I run in the shell:
       """
       git checkout -q main
@@ -118,11 +128,11 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
     And I run gtd with args "history show feat/thing"
     Then it succeeds
     And stdout contains "gtd(human): idle → building"
-    And stdout contains "gtd(agent): building → idle"
+    And stdout contains "gtd(agent): building → unpin"
     And stdout contains "ended (return)"
     When I run gtd with args "history show" followed by the first 7 characters of the hash of "entry"
     Then it succeeds
-    And stdout contains "gtd(agent): building → idle"
+    And stdout contains "gtd(agent): building → unpin"
 
   @inmem
   Scenario: a config file edited since the ref's tip refuses the replay
@@ -131,11 +141,13 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       Build a thing.
       """
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     And a file "src/a.ts" with:
       """
       export const a = 1
       """
-    And gtd lands "gtd(agent): building → idle"
+    And gtd lands "gtd(agent): building → unpin"
+    And I run the unpin beat
     And the file "gtd.config.ts" ends with:
       """
       // edited after the process finished
@@ -153,11 +165,13 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
     And gtd lands "gtd(human): idle → building"
     And I mark the current commit as "entry"
+    And I run the pin beat
     And a file "src/a.ts" with:
       """
       export const a = 1
       """
-    And gtd lands "gtd(agent): building → idle"
+    And gtd lands "gtd(agent): building → unpin"
+    And I run the unpin beat
     When I run in the shell:
       """
       git log -1 --format=%B | sed 's/^Gtd-Version: .*/Gtd-Version: 0.0.1 (dev)/' > "$(git rev-parse --git-dir)/gtd-msg"
@@ -166,7 +180,7 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
     And I run gtd with args "history show main"
     Then it succeeds
-    And stdout contains "gtd(agent): building → idle"
+    And stdout contains "gtd(agent): building → unpin"
     And stderr contains "0.0.1"
     And stderr contains the gtd version under test
     When I run gtd with args "history show main --json"
@@ -188,11 +202,13 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       Build a thing.
       """
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     And a file "src/a.ts" with:
       """
       export const a = 1
       """
-    And gtd lands "gtd(agent): building → idle"
+    And gtd lands "gtd(agent): building → unpin"
+    And I run the unpin beat
     When I run in the shell:
       """
       git push -q origin 'refs/gtd/history/*'
@@ -212,5 +228,5 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
     When I run gtd with args "history show feat/thing"
     Then it succeeds
     And stdout contains "gtd(human): idle → building"
-    And stdout contains "gtd(agent): building → idle"
+    And stdout contains "gtd(agent): building → unpin"
     And stdout contains "ended (return)"

@@ -54,6 +54,7 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
 
     # The process's net diff is empty once NOTE.md is gone again.
     Given the file "NOTE.md" is deleted
@@ -82,6 +83,7 @@ Feature: gtd restore — undo an abandon by hard-resetting to the retained tip
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
 
     # The process's net diff is empty once NOTE.md is gone again.
     Given the file "NOTE.md" is deleted

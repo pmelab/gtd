@@ -51,6 +51,7 @@ Feature: marks — a flow records facts on the landing that leaves a rest
       Build a thing.
       """
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     And a file "src/built.ts" with:
       """
       export const built = 1

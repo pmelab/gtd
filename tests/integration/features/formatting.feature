@@ -53,6 +53,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       This is a very long line that exceeds eighty characters and should be wrapped by the formatter when gtd validates it.
       """
     And gtd lands "gtd(human): idle → grilling"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it succeeds
     And stdout contains ".gtd/TODO.md: valid"
@@ -95,6 +96,7 @@ Feature: Markdown formatting is the project's own tool, plugged into a steering-
       start
       """
     And gtd lands "gtd(human): idle → grilling"
+    And I run the pin beat
     And a file ".gtd/TODO.md" with:
       """
       A plan.

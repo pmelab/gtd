@@ -57,6 +57,7 @@ Feature: Conversation threads at a gate — threads get replies, open threads bl
       Add a `greet()` export.
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
 
   Scenario: a clean re-run at the gate accepts the plan
     Given ".gtd/PLAN.md" is modified to:

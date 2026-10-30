@@ -25,6 +25,23 @@ Feature: gtd strays — files a range touched outside an allowlist
     And stderr contains "gtd strays: no strays — 1 touched files, all inside the allowlist"
 
   @inmem
+  Scenario: a process's pin is never a stray
+    Given a commit "add source" that adds "src/a.ts" with:
+      """
+      export const a = 1
+      """
+    And a commit "pin" that adds ".gtd/process.gtdpin" with:
+      """
+      gtdpin 1 gtd in-memory
+      """
+    When I run gtd with args "strays boundary..HEAD src/**"
+    Then the exit code is 0
+    And stdout is:
+      """
+      []
+      """
+
+  @inmem
   Scenario: committed files outside the globs are the sorted strays, exit 10
     Given a commit "add source" that adds "src/a.ts" with:
       """

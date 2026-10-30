@@ -30,6 +30,7 @@ Feature: revert scripts undo a commit in the working tree, never the index
       sketch: add a greeting
       """
     And gtd lands "gtd(human): idle → unwind"
+    And I run the pin beat
     When I run gtd next with "--json"
     And I execute the printed check script
     Then ".gtd/TODO.md" does not exist
@@ -69,6 +70,7 @@ Feature: revert scripts undo a commit in the working tree, never the index
       - keep this line
       """
     And gtd lands "gtd(human): idle → unwind"
+    And I run the pin beat
     When I run gtd next with "--json"
     And I execute the printed check script
     Then ".gtd/TODO.md" contains "## Later"
@@ -104,6 +106,7 @@ Feature: revert scripts undo a commit in the working tree, never the index
       a sketch
       """
     And gtd lands "gtd(human): idle → build"
+    And I run the pin beat
     And a file "src/thing.ts" with:
       """
       export const thing = 1
@@ -166,6 +169,7 @@ Feature: revert scripts undo a commit in the working tree, never the index
       a sketch
       """
     And gtd lands "gtd(human): idle → build"
+    And I run the pin beat
     And a file "src/thing.ts" with:
       """
       export const thing = 1
@@ -217,6 +221,7 @@ Feature: revert scripts undo a commit in the working tree, never the index
       a sketch
       """
     And gtd lands "gtd(human): idle → build"
+    And I run the pin beat
     And a file "src/thing.ts" with:
       """
       export const thing = 1
@@ -275,6 +280,7 @@ Feature: revert scripts undo a commit in the working tree, never the index
       a sketch
       """
     And gtd lands "gtd(human): idle → build"
+    And I run the pin beat
     And a file "src/thing.ts" with:
       """
       export const thing = 1

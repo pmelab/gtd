@@ -257,6 +257,7 @@ Feature: skills are declared per scope
     When I run gtd with args "start review"
     Then it succeeds
     And the last commit subject is "gtd(human): work.my-lens.reviewing"
+    And I run the pin beat
     Given the environment variable "GTD_LENSES" is unset
     When I run gtd next with "--json=skills"
     Then it succeeds
@@ -299,6 +300,7 @@ Feature: skills are declared per scope
     When I run gtd with args "start review --var lenses=my-lens"
     Then it succeeds
     And the last commit subject is "gtd(human): work.my-lens.reviewing"
+    And I run the pin beat
     When I run gtd next with "--json=skills"
     Then it succeeds
     And stdout contains "\"my-org-checklist\""

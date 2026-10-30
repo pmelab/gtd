@@ -43,6 +43,7 @@ Feature: testkit drives any workflow against the real engine
     And the commit subjects end with:
       """
       gtd(human): plan
+      gtd(check): pin → plan
       gtd(agent): plan → check
       gtd(check): check → ready
       gtd(judge): ready → ship
@@ -106,7 +107,7 @@ Feature: testkit drives any workflow against the real engine
     When gtd starts workflow "tiny"
     And the process is driven
     Then the process rests at "plan"
-    And the last commit subject is "gtd(human): plan"
+    And the last commit subject is "gtd(check): pin → plan"
 
   Scenario: a prompt asserted beside a script is checked at every visit, before the step acts
     Given step "check" is prompted with "npm test"

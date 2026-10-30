@@ -61,10 +61,12 @@ describe("testRepo", () => {
     expect(repo.subjects()).toEqual([
       "chore: initial commit",
       "gtd(agent): plan → build",
+      "gtd(check): pin → build",
       "gtd(agent): build → check",
       "gtd(check): check → sign-off",
     ])
     expect(repo.read("src/add.ts")).toContain("a + b")
+    expect(repo.read(".gtd/process.gtdpin")).toBeDefined()
   })
 
   it("runs a workflow given as gtd.config.ts source", async () => {
@@ -550,7 +552,8 @@ describe("testRepo", () => {
         trailers: { Refs: ["#1", "#2"] },
       })
       await repo.drive({ plan: (_, r) => r.write("PLAN.md", "p\n") })
-      expect(repo.commits().at(-1)!.trailers["Gtd-Step"]).toEqual(["plan#1"])
+      expect(repo.commits().at(-2)!.trailers["Gtd-Step"]).toEqual(["plan#1"])
+      expect(repo.commits().at(-1)!.trailers["Gtd-Pin"]).toEqual(["add"])
     })
 
     const greeter = {

@@ -41,6 +41,7 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd with args "next"
     Then it succeeds
     And stdout contains no ANSI escape sequence
@@ -62,10 +63,10 @@ Feature: gtd's own stdout never carries a real ANSI escape byte
     Then it succeeds
     And stdout contains no ANSI escape sequence
 
-    # Landing the clean checking rest ends the flow and commits back to
-    # idle. Plain `gtd land`'s own stdout is one prose sentence now, with no
-    # script and no ANSI source text at all — this leg proves the prose
-    # itself stays escape-free.
+    # Landing the clean checking rest ends the flow (its unpin beat then
+    # commits back to idle). Plain `gtd land`'s own stdout is one prose
+    # sentence now, with no script and no ANSI source text at all — this leg
+    # proves the prose itself stays escape-free.
     When I run gtd land
     Then it succeeds
     And stdout contains no ANSI escape sequence

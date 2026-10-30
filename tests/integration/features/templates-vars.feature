@@ -26,6 +26,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout contains "Assigned reviewer: alice"
@@ -49,6 +50,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
       """
     And an environment variable "GTD_REVIEWER" set to "carol"
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout contains "Assigned reviewer: carol"
@@ -70,6 +72,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And an environment variable "GTD_BRANDNEW" set to "hello"
     When I run gtd next
     Then it succeeds
@@ -95,6 +98,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
       a note
       """
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     And a file "src/thing.ts" with:
       """
       export const thing = 1
@@ -123,6 +127,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
@@ -163,6 +168,7 @@ Feature: "vars" and "env" — the merged setting maps every workflow sees
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout contains "Runner: alice"

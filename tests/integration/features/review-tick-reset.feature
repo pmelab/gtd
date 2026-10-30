@@ -53,6 +53,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       new add function
       """
     And gtd lands "gtd(agent): reviewing → await-review"
+    And I run the pin beat
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -87,6 +88,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       new add function
       """
     And gtd lands "gtd(agent): reviewing → await-review"
+    And I run the pin beat
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -117,6 +119,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
         - [ ] ./src/calc.ts#2
       """
     And gtd lands "gtd(agent): reviewing → await-review"
+    And I run the pin beat
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -152,6 +155,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
       new add function
       """
     And gtd lands "gtd(agent): reviewing → await-review"
+    And I run the pin beat
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234
@@ -178,6 +182,7 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
   Scenario: a ticked answer at a qa-mode gate survives the land — gtd uncheck never runs there
     When I run gtd with args "start answer"
     Then it succeeds
+    And I run the pin beat
     Given a file ".gtd/PLAN.md" with:
       """
       Build a widget.

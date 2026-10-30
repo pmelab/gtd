@@ -32,6 +32,7 @@ Feature: judgeDiffShape — a naive pass's strays judged as land, refactor-first
       Build a thing.
       """
     And gtd lands "gtd(human): idle → naive"
+    And I run the pin beat
     And a file "src/naive.ts" with:
       """
       export const naive = 1
@@ -68,6 +69,7 @@ Feature: judgeDiffShape — a naive pass's strays judged as land, refactor-first
       Build a thing.
       """
     And gtd lands "gtd(human): idle → naive"
+    And I run the pin beat
     And a file "src/naive.ts" with:
       """
       export const naive = fixture
@@ -126,6 +128,7 @@ Feature: judgeDiffShape — a naive pass's strays judged as land, refactor-first
       Build a thing.
       """
     And gtd lands "gtd(human): idle → naive"
+    And I run the pin beat
     And a file "src/naive.ts" with:
       """
       export const naive = fixture
@@ -170,6 +173,7 @@ Feature: judgeDiffShape — a naive pass's strays judged as land, refactor-first
       Build a thing.
       """
     And gtd lands "gtd(human): idle → naive"
+    And I run the pin beat
     And a file "src/naive.ts" with:
       """
       export const naive = fixture
@@ -219,6 +223,7 @@ Feature: judgeDiffShape — a naive pass's strays judged as land, refactor-first
       """
     And gtd lands "gtd(human): idle → naive"
     And I mark the current commit as "entry"
+    And I run the pin beat
     And I mark the current commit as "before"
     And a file "src/naive.ts" with:
       """
@@ -283,6 +288,7 @@ Feature: judgeDiffShape — a naive pass's strays judged as land, refactor-first
       Build a thing.
       """
     And gtd lands "gtd(human): idle → naive"
+    And I run the pin beat
     And a file "src/naive.ts" with:
       """
       export const naive = fixture
@@ -331,6 +337,7 @@ Feature: judgeDiffShape — a naive pass's strays judged as land, refactor-first
       Build a thing.
       """
     And gtd lands "gtd(human): idle → naive"
+    And I run the pin beat
     And a file "src/naive.ts" with:
       """
       export const naive = 1

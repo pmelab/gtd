@@ -28,6 +28,7 @@ Feature: A large prompt survives its exit through a pipe
       """
     And a file ".gtd/NEXT.md" padded to at least 200000 bytes with a repeating line
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     When I run gtd next redirected to a file and through a slow pipe
     Then it succeeds
     And the direct byte count exceeds 65536 bytes

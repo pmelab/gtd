@@ -58,6 +58,7 @@ Feature: gtd next/land --json=<selector> — the dotted-path reduction of the sa
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next with "--json=session.id"
     Then it succeeds
     And stdout matches "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\n$"
@@ -73,6 +74,7 @@ Feature: gtd next/land --json=<selector> — the dotted-path reduction of the sa
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "DONE.md" with:
       """
       done!
@@ -149,6 +151,7 @@ Feature: gtd next/land --json=<selector> — the dotted-path reduction of the sa
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "DONE.md" with:
       """
       done!
@@ -164,6 +167,7 @@ Feature: gtd next/land --json=<selector> — the dotted-path reduction of the sa
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "DONE.md" with:
       """
       done!

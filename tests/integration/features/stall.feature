@@ -36,6 +36,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       Build a calculator.
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
@@ -50,6 +51,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       Build a calculator.
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
@@ -78,6 +80,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       Build a calculator.
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
@@ -96,6 +99,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       Build a calculator.
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next with "--json"
     Then it succeeds
     And stdout does not contain "stalled"
@@ -120,6 +124,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       Build a calculator.
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working → checking"
@@ -156,6 +161,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       Build a calculator.
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
@@ -173,6 +179,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       Build a calculator.
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(agent): working"
@@ -207,6 +214,7 @@ Feature: gtd next --json — attempt commits and the derived stall
       Build a calculator.
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "src/calc.ts" with:
       """
       export const add = (a, b) => a + b

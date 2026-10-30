@@ -3,10 +3,10 @@ Feature: an inline flow end to end — qualified names, process boundaries, read
 
   A scope nested inside a scope qualifies its steps with both prefixes, and a
   flow fragment's "where to go when done" is just the code after it. A flow
-  that runs to its end lands back at its first step, and that landing is a
-  process boundary: the next process replays from there, so nothing a flow
-  counts carries over from the previous process. Reading a rest never writes
-  git.
+  that runs to its end lands at its unpin beat, whose landing goes back to its
+  first step and is a process boundary: the next process replays from there,
+  so nothing a flow counts carries over from the previous process. Reading a
+  rest never writes git.
 
   Scenario: a two-level nested scope qualifies its steps across both levels
     Given a test project
@@ -34,6 +34,7 @@ Feature: an inline flow end to end — qualified names, process boundaries, read
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → nested.gate"
+    When I run the pin beat
     Given a file "NOTE.md" with:
       """
       approved
@@ -78,6 +79,7 @@ Feature: an inline flow end to end — qualified names, process boundaries, read
       process 1
       """
     And gtd lands "gtd(human): idle → check"
+    And I run the pin beat
     And a file ".gtd/FEEDBACK.md" with:
       """
       process 1 attempt 1 failed
@@ -100,7 +102,8 @@ Feature: an inline flow end to end — qualified names, process boundaries, read
       export const fix = 2
       """
     And gtd lands "gtd(agent): fix → check"
-    And gtd lands "gtd(check): check → idle"
+    And gtd lands "gtd(check): check → unpin"
+    And I run the unpin beat
     # Process 2: had the count pooled across the boundary, its first red run
     # would already be over the cap.
     And a file "NOTE.md" with:
@@ -108,6 +111,7 @@ Feature: an inline flow end to end — qualified names, process boundaries, read
       process 2
       """
     And gtd lands "gtd(human): idle → check"
+    And I run the pin beat
     Given a file ".gtd/FEEDBACK.md" with:
       """
       process 2 attempt 1 failed
@@ -133,6 +137,7 @@ Feature: an inline flow end to end — qualified names, process boundaries, read
       a sketch
       """
     And gtd lands "gtd(human): idle → reviewing"
+    And I run the pin beat
     And a file ".gtd/REVIEW.md" with:
       """
       the review

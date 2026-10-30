@@ -262,6 +262,14 @@ When("I run gtd land", async (world: GtdWorld) => {
   await world.runGtd("land")
 })
 
+When("I run the pin beat", async (world: GtdWorld) => {
+  await world.runPinBeat("add")
+})
+
+When("I run the unpin beat", async (world: GtdWorld) => {
+  await world.runPinBeat("remove")
+})
+
 /** Undriven — plain `gtd land`'s own prose carries no script to run (package 02, Requirement B); see `runGtdLandPlain`'s own doc comment. */
 When("I run plain gtd land", async (world: GtdWorld) => {
   await world.runGtdLandPlain()

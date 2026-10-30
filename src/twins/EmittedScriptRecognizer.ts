@@ -7,6 +7,7 @@ import {
   commitAll,
   commitAsIs,
   commitClean,
+  commitPath,
   deleteRef,
   discardPending,
   hardResetTo,
@@ -24,6 +25,8 @@ import {
   contradictionMessage,
   modeContradictionSkipNotice,
   OUTCOME_MARKER,
+  pinScript,
+  unpinScript,
 } from "../emit/index.js"
 import {
   BUILT_IN_MODE_NAMES,
@@ -32,7 +35,7 @@ import {
   type SteeringFormat,
 } from "../steering/internal.js"
 import { refNameFault } from "../replay/index.js"
-import { renderFormat } from "../wire/index.js"
+import { PIN_PATH, renderFormat } from "../wire/index.js"
 import { applyFlowScript, rewritten } from "./FlowScripts.js"
 import type { InMemRepo } from "./InMemRepo.js"
 import type { CommandTable } from "./Layers.js"
@@ -174,6 +177,17 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
 
   if (block.startsWith("git add -A || exit 1\ngtd_sign_cfg=")) return recognizeKeepTurn(repo, block)
 
+  if (block.startsWith("git add -A -- ")) {
+    const [path, message] = extractQuotedTokens(block)
+    if (path === undefined || message === undefined || commitPath(path, message) !== block) {
+      return undefined
+    }
+    const failure = repo.commitPath(path, message)
+    return failure === undefined
+      ? { kind: "applied" }
+      : { kind: "failed", error: failure, status: 1 }
+  }
+
   if (block.startsWith("git add -A || exit 1\n")) {
     const [message] = extractQuotedTokens(conditionLine)
     if (message !== undefined && commitAll(message) === block) {
@@ -252,6 +266,22 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
     return undefined
   }
 
+  return undefined
+}
+
+/** What the in-memory `gtd bundle` prints: a pin header, and no engine behind it. */
+const IN_MEMORY_PIN = "gtdpin 1 gtd in-memory\n"
+
+/** A pin or unpin beat's script. */
+const recognizePinScripts = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
+  if (block === pinScript(PIN_PATH)) {
+    repo.writeFile(PIN_PATH, IN_MEMORY_PIN)
+    return { kind: "applied" }
+  }
+  if (block === unpinScript(PIN_PATH)) {
+    if (repo.readFile(PIN_PATH) !== undefined) repo.deleteFile(PIN_PATH)
+    return { kind: "applied" }
+  }
   return undefined
 }
 
@@ -694,6 +724,7 @@ const recognizersFor = (
   (block) => recognizeBinaryGuard(commands, block),
   (block) => (git ? recognizeGitBuilders(repo, block) : undefined),
   (block) => recognizeWriteLines(repo, block),
+  (block) => recognizePinScripts(repo, block),
   (block) => recognizeFailurePromptWrapper(repo, commands, block),
   (block) => recognizePresentationSubshell(repo, commands, block, git),
   (block) => recognizeModeContradictionSkipNotice(block),

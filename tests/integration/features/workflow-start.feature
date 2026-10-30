@@ -55,7 +55,8 @@ Feature: gtd start <name> — start a brand new process on a named workflow
     When I run gtd with args "start review --var reviewBase=base"
     Then it succeeds
     And the last commit subject is "gtd(human): review-gate.check"
-    When I run gtd land
+    When I run the pin beat
+    And I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(check): review-gate.check → build.health.check"
     When I run gtd land
@@ -199,7 +200,8 @@ Feature: gtd start <name> — start a brand new process on a named workflow
     Then it succeeds
     And the last commit subject is "gtd(human): patch"
     And the last commit body contains "Gtd-Workflow: hotfix"
-    When I run gtd next
+    When I run the pin beat
+    And I run gtd next
     Then it succeeds
     And stdout contains "Patch the login."
     When I run gtd next with "--json=workflow"
@@ -283,6 +285,7 @@ Feature: gtd start <name> — start a brand new process on a named workflow
       })
       """
     And I run gtd with args "start hotfix"
+    And I run the pin beat
     And "gtd.config.ts" is modified to:
       """
       import { human } from "@pmelab/gtd/flows"
@@ -310,6 +313,7 @@ Feature: gtd start <name> — start a brand new process on a named workflow
       })
       """
     And I run gtd with args "start hotfix"
+    And I run the pin beat
     And "gtd.config.ts" is modified to:
       """
       import { agent, human, workflow } from "@pmelab/gtd/flows"
@@ -382,6 +386,7 @@ Feature: gtd start <name> — start a brand new process on a named workflow
       })
       """
     And I run gtd with args "start hotfix"
+    And I run the pin beat
     And a file "fix.txt" with:
       """
       fixed

@@ -8,7 +8,8 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
   scenarios extract the fenced block VERBATIM (see
   `tests/integration/helpers/driver-doc.ts`) and run it as the driver
   under test. Only the wiring is smoke-tested here — chained turns, the
-  capture beat, the self-validation gate and cost recording; the
+  capture beat, the pin and unpin beats (plain script beats), the
+  self-validation gate and cost recording; the
   protocol's branches are covered in-memory. A real `claude` CLI is never invoked: a
   `claude` shim on $PATH translates the paste's own argv (-p, --session-id,
   --resume, --model, --dangerously-skip-permissions) and the prompt piped to
@@ -66,7 +67,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     When I run the pasted script
     Then it succeeds
     And stdout contains "write NOTE.md to start a process"
-    And the last commit subject is "gtd(check): checking → idle"
+    And the last commit subject is "gtd(check): unpin → idle"
     And "src/calc.ts" exists
 
   Scenario: Captures the human's pending edit at the opening gate, so the human only runs the driver
@@ -120,7 +121,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     When I run the pasted script
     Then it succeeds
     And "src/calc.ts" exists
-    And the last commit subject is "gtd(check): checking → idle"
+    And the last commit subject is "gtd(check): unpin → idle"
 
   Scenario: Runs the self-validation gate after a producing agent turn and re-prompts until the steering file is well-formed
     # `planning` declares file:/mode: (.gtd/PLAN.md as `qa`), so its output has
@@ -187,7 +188,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Then it succeeds
     And the log file contains "AGENT: first draft"
     And the log file contains "AGENT: fixing the plan"
-    And the last commit subject is "gtd(agent): planning → idle"
+    And the last commit subject is "gtd(check): unpin → idle"
     # The fix re-prompt is the validate script's own output verbatim — not the
     # state's own prompt text prefixed onto it.
     And the log file does not contain "Write .gtd/PLAN.md with the plan."
@@ -218,8 +219,21 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the driver pasted from docs/driver.md
     When I run the pasted script
     Then it succeeds
-    And the last commit subject is "gtd(agent): working → idle"
-    And the last commit body contains "Gtd-Cost: 0.25 opus"
+    And the last commit subject is "gtd(check): unpin → idle"
+    And the commit subjects from oldest to newest are:
+      """
+      chore: initial commit
+      chore: add gtd.config.ts
+      gtd(human): idle → working
+      gtd(check): pin → working
+      gtd(agent): working → unpin
+      gtd(check): unpin → idle
+      """
+    When I run in the shell:
+      """
+      git log -1 --format=%B HEAD~1
+      """
+    Then stdout contains "Gtd-Cost: 0.25 opus"
 
   Scenario: Lands nothing, and retries nothing, when the agent's envelope reports an error at exit 0
     # A second call would succeed: the paste must not make one, since the
@@ -253,7 +267,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the driver pasted from docs/driver.md
     When I run the pasted script
     Then it fails
-    And the last commit subject is "gtd(human): idle → working"
+    And the last commit subject is "gtd(check): pin → working"
 
   Scenario: Hands an opening judge gate to the human, landing nothing, when the judge fails
     # No provider is configured, so `gtd judge run` asks `claude`, and the
@@ -288,4 +302,4 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     When I run the pasted script
     Then it succeeds
     And stdout contains "judge me"
-    And the last commit subject is "gtd(human): idle → gate"
+    And the last commit subject is "gtd(check): pin → gate"

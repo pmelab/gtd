@@ -45,6 +45,7 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
     Then it succeeds
     And the last commit subject is "gtd(human): idle → building"
     And I mark the current commit as "entry"
+    And I run the pin beat
 
     Given a file "src/a.ts" with:
       """
@@ -69,7 +70,8 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): finishing → idle"
+    And the last commit subject is "gtd(agent): finishing → unpin"
+    And I run the unpin beat
 
     When I run gtd next with "--json"
     Then it succeeds
@@ -106,6 +108,7 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → building"
+    And I run the pin beat
 
     Given a file "src/a.ts" with:
       """
@@ -113,7 +116,8 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → idle"
+    And the last commit subject is "gtd(agent): building → unpin"
+    And I run the unpin beat
 
     Given the git index has settled
     And I snapshot the repository
@@ -159,13 +163,15 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     Given a file "src/a.ts" with:
       """
       export const a = 1
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → idle"
+    And the last commit subject is "gtd(agent): building → unpin"
+    And I run the unpin beat
 
     When I run gtd with args "summary"
     Then it fails
@@ -198,6 +204,7 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → building"
+    And I run the pin beat
 
     Given a file "src/a.ts" with:
       """

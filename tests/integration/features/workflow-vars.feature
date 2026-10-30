@@ -38,6 +38,7 @@ Feature: "--var" persistence across a whole process, pinned against the environm
     When I run gtd with args "start working --var greeting=hello"
     Then it succeeds
     And the last commit subject is "gtd(human): working"
+    And I run the pin beat
     Given a file "work-output.txt" with:
       """
       the agent's work
@@ -53,6 +54,7 @@ Feature: "--var" persistence across a whole process, pinned against the environm
     When I run gtd with args "start announcing --var greeting=hello"
     Then it succeeds
     And the last commit subject is "gtd(human): announcing"
+    And I run the pin beat
     Given an environment variable "GTD_GREETING" set to "fromenv"
     When I run gtd next
     Then it succeeds
@@ -64,6 +66,7 @@ Feature: "--var" persistence across a whole process, pinned against the environm
     When I run gtd with args "start announcing --var greeting=hello"
     Then it succeeds
     And the last commit body contains "Gtd-Var: greeting=fromenv"
+    And I run the pin beat
     Given an environment variable "GTD_GREETING" set to "later"
     When I run gtd next
     Then it succeeds

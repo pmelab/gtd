@@ -54,6 +54,7 @@ Feature: A step that deletes its review file lands even when its mode declares a
       new add function
       """
     And gtd lands "gtd(agent): reviewing → await-review"
+    And I run the pin beat
     And ".gtd/REVIEW.md" is modified to:
       """
       # Review: abc1234

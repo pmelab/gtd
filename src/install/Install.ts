@@ -240,7 +240,13 @@ The \`kind\` field (\`--json=kind\`) selects what to do:
   Land it immediately, no display needed.
 - \`script\` — run \`--json=content\` with \`sh -c\`, appending its output to
   \`--json=log\`, and ignore its exit code — the outcome lives in the tree,
-  not in the exit code.
+  not in the exit code. Two script beats carry a \`pin\` mark: the **pin
+  beat** right after a process starts (\`pin: "add"\`, its script writes
+  \`gtd bundle\`'s output to \`.gtd/process.gtdpin\`) and the **unpin beat**
+  once the flow has ended (\`pin: "remove"\`, its script deletes that file).
+  Both run unattended, like any script beat. A driver may write or delete the
+  file its own way instead of running the script; either way it then lands,
+  and the unpin's landing is the commit that closes the process.
 - \`prompt\` — send plain \`gtd next\`'s own output to your agent CLI over
   stdin (it's the bare content at this kind, so no separate \`--json=content\`
   read is needed), using the accompanying \`session.id\`/\`session.resume\`/
@@ -284,7 +290,8 @@ skills, \`skills\` (an array of the skill names, already trimmed and split —
 \`label\`, \`file\`, \`mode\`, \`edges\`, \`judge\` (the pending judgment's rendered
 document). When a cost has been recorded (a prior \`gtd land --cost=<n>\`):
 \`cost\`, \`costByModel\`. Always \`approvals\` (an array of
-\`{step, name, email, commit}\`, \`[]\` when none).
+\`{step, name, email, commit}\`, \`[]\` when none). Only at a pin or unpin
+beat: \`pin\` (\`"add"\` or \`"remove"\`).
 
 \`gtd land\` fields, in fixed order: \`schema\`, \`script\` (the POSIX sh to run), \`settled\`
 (true for a no-op at a \`script\` rest — stop immediately, nothing more to

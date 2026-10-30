@@ -35,6 +35,7 @@ Feature: Retry redirection — a state's entry cap redirects at write time
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start → checking"
+    And I run the pin beat
     Given a file "FEEDBACK.md" with:
       """
       test failed (attempt 1)
@@ -83,6 +84,7 @@ Feature: Retry redirection — a state's entry cap redirects at write time
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start → checking"
+    And I run the pin beat
     Given a file "FEEDBACK.md" with:
       """
       test failed

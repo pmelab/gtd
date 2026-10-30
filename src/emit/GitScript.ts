@@ -12,12 +12,13 @@ export const pathspec = (paths: ReadonlyArray<string>): string => paths.map(shel
  * output rather than the exit code, so a genuinely rejected commit (a lint
  * error, a commit-msg hook) still fails.
  */
-const commitAllowEmpty = (message: string): string => {
+const commitAllowEmpty = (message: string, only?: string): string => {
   const m = shellQuote(message)
+  const paths = only === undefined ? "" : ` -- ${shellQuote(only)}`
   return [
-    `if ! out=$(git commit --allow-empty -m ${m} 2>&1); then`,
+    `if ! out=$(git commit --allow-empty -m ${m}${paths} 2>&1); then`,
     `  case "$out" in`,
-    `    *"empty git commit"*) git commit --allow-empty --no-verify -m ${m} || exit 1 ;;`,
+    `    *"empty git commit"*) git commit --allow-empty --no-verify -m ${m}${paths} || exit 1 ;;`,
     `    *) printf '%s\\n' "$out" >&2; exit 1 ;;`,
     `  esac`,
     `fi`,
@@ -30,6 +31,21 @@ export const CHANGED_SINCE_LAND =
 /** `git add -A || exit 1` (an `&&` left side would not abort under `set -e`) then `commitAllowEmpty`. */
 export const commitAll = (message: string): string =>
   `git add -A || exit 1\n${commitAllowEmpty(message)}`
+
+/** Commits `path` alone, as the worktree has it; every other pending change stays pending. */
+export const commitPath = (path: string, message: string): string =>
+  `git add -A -- ${shellQuote(path)} || exit 1\n${commitAllowEmpty(message, path)}`
+
+/** A pin beat's script. A failed `gtd bundle` leaves no half-written pin behind. */
+export const pinScript = (path: string): string => {
+  const p = shellQuote(path)
+  const slash = path.lastIndexOf("/")
+  const mkdir = slash === -1 ? "" : `mkdir -p ${shellQuote(path.slice(0, slash))}\n`
+  return `${mkdir}gtd bundle >${p} || { rm -f -- ${p}; exit 1; }`
+}
+
+/** An unpin beat's script, and `gtd abandon`'s removal of the pin. */
+export const unpinScript = (path: string): string => `rm -f -- ${shellQuote(path)}`
 
 /**
  * An approval records exactly the judged tree: HEAD is pinned before the
@@ -151,6 +167,8 @@ const renderGitWrite = (write: GitWrite): string => {
   switch (write.kind) {
     case "commitAll":
       return commitAll(write.message)
+    case "commitPath":
+      return commitPath(write.path, write.message)
     case "commitClean":
       return commitClean(write.message)
     case "updateRef":

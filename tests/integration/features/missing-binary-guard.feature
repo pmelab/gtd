@@ -41,6 +41,7 @@ Feature: A declared mode command guards its own missing binary
       # ADR 1: use gtd
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "mode \"adr\": \"validate\" command not found: gtd-test-nonexistent-binary"
@@ -71,6 +72,7 @@ Feature: A declared mode command guards its own missing binary
       # ADR 1: use gtd
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "mode \"adr\": \"format\" command not found: gtd-test-nonexistent-formatter"
@@ -112,6 +114,7 @@ Feature: A declared mode command guards its own missing binary
       # ADR 1: use gtd
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it succeeds
     And stdout does not contain "mode \"adr\": \"validate\" command not found"
@@ -144,6 +147,7 @@ Feature: A declared mode command guards its own missing binary
       # ADR 1: use gtd
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it fails
     And stderr does not contain "command not found: gtd-test-nonexistent-binary"

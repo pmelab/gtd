@@ -20,16 +20,19 @@ import {
   threads,
 } from "../steering/index.js"
 import { accessShapeFault, foldAccess, sameAccess } from "./Access.js"
-import { globMatches } from "../wire/index.js"
+import { globMatches, PIN_PATH } from "../wire/index.js"
 import { refNameFault } from "./RefName.js"
-import { diffTrees, isEmptyDiff, type TreeView } from "./Tree.js"
+import { diffTrees, isEmptyDiff, withoutPath, type TreeView } from "./Tree.js"
 import {
   formatStepId,
   parseCommitMessage,
   type CommitMessage,
   type JudgeVerdict,
   type StepId,
+  PIN_STATES,
 } from "./Trailers.js"
+
+const UNPIN_STATE = PIN_STATES.remove
 
 export interface EpisodeCommit {
   readonly hash: string
@@ -297,7 +300,29 @@ const modeWithoutFile = (step: ReachedStep): string | undefined => {
   return `gtd: step "${step.name}": mode requires file in ${step.kind}() options — name the steering file the mode checks`
 }
 
-export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
+// The pin is the engine's, not the process's: flow code never sees it, so a
+// pin commit is an empty diff replay can step over.
+const withoutPin = (input: ReplayInput): ReplayInput => {
+  const hide = (tree: TreeView): TreeView => withoutPath(tree, PIN_PATH)
+  return {
+    ...input,
+    episode: {
+      base: { ...input.episode.base, tree: hide(input.episode.base.tree) },
+      commits: input.episode.commits.map((c) => ({
+        ...c,
+        tree: hide(c.tree),
+        ...(c.kept !== undefined ? { kept: { ...c.kept, tree: hide(c.kept.tree) } } : {}),
+      })),
+    },
+    ...(input.startTree !== undefined ? { startTree: hide(input.startTree) } : {}),
+    ...(input.pending !== undefined
+      ? { pending: { ...input.pending, tree: hide(input.pending.tree) } }
+      : {}),
+  }
+}
+
+export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
+  const input = withoutPin(raw)
   const commits: readonly ParsedCommit[] = input.episode.commits.map((c) => ({
     ...c,
     parsed: parseCommitMessage(c.message),
@@ -317,6 +342,11 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
   let cursor = 0
   let pendingUsed = false
   let position: Position = input.episode.base
+  // Never stands on a pin commit: `head()` names the turn, so a flow
+  // reverting it reverts the turn, not the pin.
+  const skipPins = (): void => {
+    while (cursor < commits.length && commits[cursor]!.parsed.pin !== undefined) cursor++
+  }
   let previousPosition: Position = input.episode.base
   let expectedNext: { readonly name: string; readonly hash: string } | undefined
   const occurrences = new Map<string, number>()
@@ -560,18 +590,23 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     if (unapproved !== undefined) return finish(unapproved)
     cursor++
     advance(commit)
-    if (commit.parsed.kept !== undefined) {
-      if (commit.kept === undefined) keptTips.delete(step.name)
-      else
-        keptTips.set(step.name, {
-          hash: commit.kept.hash,
-          before: commit.tree,
-          after: commit.kept.tree,
-        })
-    }
+    skipPins()
+    noteKept(step, commit)
     const to = commit.parsed.parsed?.to
-    if (to !== undefined) expectedNext = { name: to, hash: commit.hash }
+    // A turn that ends a pinned process names the unpin, which is no step.
+    if (to !== undefined && to !== UNPIN_STATE) expectedNext = { name: to, hash: commit.hash }
     return replyFor(step.request, commit.parsed.judge)
+  }
+
+  const noteKept = (step: ReachedStep, commit: ParsedCommit): void => {
+    if (commit.parsed.kept === undefined) return
+    if (commit.kept === undefined) keptTips.delete(step.name)
+    else
+      keptTips.set(step.name, {
+        hash: commit.kept.hash,
+        before: commit.tree,
+        after: commit.kept.tree,
+      })
   }
 
   const landPending = (step: ReachedStep, pending: NonNullable<typeof input.pending>): unknown => {
@@ -587,7 +622,10 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
   }
 
   const answer = (step: ReachedStep): unknown => {
-    while (cursor < commits.length && isAttemptAt(commits[cursor]!, step.name)) cursor++
+    while (cursor < commits.length && isAttemptAt(commits[cursor]!, step.name)) {
+      cursor++
+      skipPins()
+    }
     const commit = commits[cursor]
     if (commit !== undefined) return consumeCommit(step, commit)
     if (input.pending === undefined || pendingUsed) {
@@ -604,6 +642,9 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
 
   // gtd.config.ts is loaded without a type check.
   const requestFault = (request: Exclude<StepRequest, { kind: "restart" }>): string | undefined => {
+    if (Object.values(PIN_STATES).includes(scoped(request.name))) {
+      return `gtd: step "${scoped(request.name)}": the name is reserved for the pin and unpin beats — rename the step`
+    }
     if (request.kind === "run" && typeof request.body !== "string") {
       return `gtd: step "${scoped(request.name)}": a run() body is a shell script string — decide in flow code, then render the script (see checkScript and friends)`
     }
@@ -636,13 +677,15 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     return blocker === undefined ? answer(step) : finish(blocker)
   }
 
-  const endOfFlow = (via: "return" | "restart"): ReplayOutcome =>
-    cursor < commits.length
+  const endOfFlow = (via: "return" | "restart"): ReplayOutcome => {
+    skipPins()
+    return cursor < commits.length
       ? {
           kind: "divergence",
           message: `gtd: the flow ended, but commit ${short(commits[cursor]!.hash)} continues the episode — ${DIVERGED}`,
         }
       : { kind: "ended", via, trace, landed, marks }
+  }
 
   const changesSince = (hash: string): readonly Change[] => {
     const tree = treeAt(hash)
@@ -714,13 +757,14 @@ export const replay = async (input: ReplayInput): Promise<ReplayOutcome> => {
     // At the rest, trailing attempts sit above the last step commit: the head a
     // prompt names is the commit the process actually stands on.
     head: () => {
-      const rest = commits.slice(cursor)
+      const rest = commits.slice(cursor).filter((c) => c.parsed.pin === undefined)
       return rest.length > 0 && rest.every((c) => c.parsed.step === undefined)
         ? rest[rest.length - 1]!.hash
         : position.hash
     },
   }
 
+  skipPins()
   installContext(context)
   try {
     // A pre-upgrade flow destructuring `{ entry }` reads `undefined` (an

@@ -56,6 +56,7 @@ Feature: workflow() makes an exported function a workflow
       """
     When I run gtd with args "start hotfix --var ticket=T-1"
     Then it succeeds
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout contains "ticket T-1"

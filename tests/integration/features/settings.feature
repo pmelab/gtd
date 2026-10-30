@@ -41,6 +41,7 @@ Feature: process settings are pinned at process start, environment settings are 
 
   Scenario: a process setting edited in gtd.config.ts mid-process does not re-route the process
     Given gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "gtd.config.ts" with:
       """
       import { agent, envSettings, human, settings, workflow } from "@pmelab/gtd/flows"
@@ -71,6 +72,7 @@ Feature: process settings are pinned at process start, environment settings are 
 
   Scenario: a pinned value survives a GTD_<NAME> export
     Given gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And an environment variable "GTD_ROUTE" set to "slow"
     And a file "work.txt" with:
       """
@@ -88,6 +90,7 @@ Feature: process settings are pinned at process start, environment settings are 
 
   Scenario: an environment setting edited in gtd.config.ts mid-process shows on the next step
     Given gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "work.txt" with:
       """
       done
@@ -119,6 +122,7 @@ Feature: process settings are pinned at process start, environment settings are 
 
   Scenario: GTD_<NAME> overrides an environment setting on any call
     Given gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "work.txt" with:
       """
       done

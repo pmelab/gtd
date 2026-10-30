@@ -69,6 +69,7 @@ Feature: Honoring $TMPDIR and $GIT_DIR — gtd assumes nothing about /tmp or <cw
       export const a = 1
       """
     And gtd lands "gtd(human): idle → reviewing"
+    And I run the pin beat
     And the repo's git dir relocated outside the worktree, with TMPDIR pointed at a fresh scratch directory
     When I run gtd next with "--json=validate"
     Then it succeeds

@@ -47,6 +47,7 @@ import {
   type StatusChange,
   selectPath,
   EXIT_OK,
+  PIN_PATH,
 } from "../wire/index.js"
 import {
   currentRest,
@@ -80,6 +81,7 @@ import {
   deleteRef,
   hardResetTo,
   mixedResetTo,
+  unpinScript,
   ScriptSurface,
   updateRef,
   type RunnableScript,
@@ -799,6 +801,7 @@ const runAbandonCommand = (
     const steps: EmitStep[] = [
       { kind: "gitWrite", command: updateRef(HISTORY_REF, tip) },
       { kind: "gitWrite", command: mixedResetTo(run.startParentHash) },
+      { kind: "gitWrite", command: unpinScript(PIN_PATH) },
       { kind: "outcome", command: abandonedOutcome(restState, run.startParentHash, initial) },
     ]
     const required = emitScripts(steps).required
@@ -1060,7 +1063,7 @@ const runCodeThreadsCheckCommand = (): Effect.Effect<void, Error, CommandRequire
     const workspace = yield* Workspace
     const changed = yield* git.changedPaths(rest.run.diffBase)
     const lines = changed
-      .filter((c) => c.status !== "D")
+      .filter((c) => c.status !== "D" && c.path !== PIN_PATH)
       .flatMap(({ path }) => {
         const { threads, findings } = parseCodeThreads(path, workspace.atPath(path) ?? "")
         return [

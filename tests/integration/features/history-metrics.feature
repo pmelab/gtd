@@ -24,6 +24,7 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
       Build a thing.
       """
     And gtd lands "gtd(human): idle → seam.naive"
+    And I run the pin beat
     And a file "src/a.ts" with:
       """
       export const a = 1
@@ -45,7 +46,8 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
 
       ## a missing test
       """
-    And gtd lands "gtd(agent): build.quality.correctness.reviewing → idle" with "--cost 0.1 --model reviewer"
+    And gtd lands "gtd(agent): build.quality.correctness.reviewing → unpin" with "--cost 0.1 --model reviewer"
+    And I run the unpin beat
 
   @inmem
   Scenario: a rebuilt naive pass reports its refactor-first rate, double work and findings
@@ -90,6 +92,7 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
       Build another thing.
       """
     And gtd lands "gtd(human): idle → seam.naive"
+    And I run the pin beat
     And a file "src/d.ts" with:
       """
       export const d = 4
@@ -109,7 +112,8 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
       """
       export const g = 7
       """
-    And gtd lands "gtd(agent): build.quality.correctness.reviewing → idle"
+    And gtd lands "gtd(agent): build.quality.correctness.reviewing → unpin"
+    And I run the unpin beat
     When I run gtd with args "history metrics main --json=total.processes"
     Then it succeeds
     And stdout is:
@@ -145,13 +149,15 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
       Gate a thing.
       """
     And gtd lands "gtd(human): idle → start-gate.check"
+    And I run the pin beat
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 test timed out
       """
     And gtd lands "gtd(check): start-gate.check → start-gate.recheck"
     And the file ".gtd/FEEDBACK.md" is deleted
-    And gtd lands "gtd(check): start-gate.recheck → idle"
+    And gtd lands "gtd(check): start-gate.recheck → unpin"
+    And I run the unpin beat
     When I run gtd with args "history metrics main"
     Then it succeeds
     And stdout contains "1 flaky (start-gate.recheck 1)"

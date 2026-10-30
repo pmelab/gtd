@@ -69,6 +69,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       a note
       """
     And gtd lands "gtd(human): idle → done"
+    And I run the pin beat
     When I run gtd with args "ui --self-signed --host 100.64.0.1"
     Then it fails
     And the exit code is 2
@@ -91,6 +92,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       a note
       """
     And gtd lands "gtd(human): idle → done"
+    And I run the pin beat
     And a file "scratch.txt" with:
       """
       uncommitted content — dirties the tree, turning the rest into a capture
@@ -119,6 +121,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file "RESULT.md" with:
       """
       done
@@ -147,6 +150,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And gtd lands "gtd(agent): working"
     When I run gtd with args "ui --self-signed --host 100.64.0.1"
     Then it fails
@@ -183,6 +187,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file ".gtd/PLAN.md" with:
       """
       Paragraph zero here.
@@ -223,6 +228,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file ".gtd/REVIEW.md" with:
       """
       Paragraph zero here.
@@ -258,6 +264,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       a note
       """
     And gtd lands "gtd(human): idle → planning"
+    And I run the pin beat
     And a file ".gtd/TODO.md" with:
       """
       # Plan
@@ -299,6 +306,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       a note
       """
     And gtd lands "gtd(human): idle → planning"
+    And I run the pin beat
     And a file ".gtd/TODO.md" with:
       """
       Paragraph zero here.
@@ -324,6 +332,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       a note
       """
     And gtd lands "gtd(human): idle → planning"
+    And I run the pin beat
     And a file ".gtd/TODO.md" with:
       """
       Paragraph zero here.
@@ -350,6 +359,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       a note
       """
     And gtd lands "gtd(human): idle → planning"
+    And I run the pin beat
     And a directory at ".gtd/TODO.md"
     When I attempt to edit paragraph 0 of ".gtd/TODO.md" with the text "Clobber attempt." against an unreadable file via a spawned gtd ui
     Then the write is refused with reason "file-vanished"
@@ -372,6 +382,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       a note
       """
     And gtd lands "gtd(human): idle → planning"
+    And I run the pin beat
     And a file ".gtd/TODO.md" with:
       """
       Paragraph zero here.
@@ -407,6 +418,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       a note
       """
     And gtd lands "gtd(human): idle → planning"
+    And I run the pin beat
     And a file ".gtd/TODO.md" with:
       """
       Paragraph zero here.
@@ -449,6 +461,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file ".gtd/REVIEW.md" with:
       """
       ## Open Questions
@@ -487,6 +500,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
