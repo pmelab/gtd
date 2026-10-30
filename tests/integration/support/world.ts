@@ -24,7 +24,6 @@ import {
 } from "node:fs"
 import { constants as osConstants, networkInterfaces, tmpdir } from "node:os"
 import { join, relative, resolve, sep } from "node:path"
-import { PassThrough } from "node:stream"
 import { setTimeout as delay } from "node:timers/promises"
 import { runCli, runLauncher } from "../../../src/cli/index.js"
 import { runJudge } from "../../../src/judges/index.js"
@@ -707,28 +706,8 @@ export class GtdWorld extends QuickPickleWorld {
     this.lastResult = { exitCode, stdout, stderr }
   }
 
-  /**
-   * The `@inmem` tier's own stdin-piping counterpart: `runCli` runs IN this
-   * test process (no subprocess to spawn), so piping means swapping this
-   * process's own `process.stdin` for a `PassThrough` pre-loaded with
-   * `stdin` — the same technique `src/cli/Program.test.ts`'s `gtd lsp` test and
-   * `src/lsp/Lsp.test.ts` use — restored in a `finally` so a leftover stub can
-   * never leak into a later scenario.
-   */
   private async runGtdInMemWithStdin(stdin: string, ...args: string[]): Promise<void> {
-    await this.withStdin(stdin, () => this.runGtdInMem(...args))
-  }
-
-  private async withStdin<T>(stdin: string, run: () => Promise<T>): Promise<T> {
-    const saved = Object.getOwnPropertyDescriptor(process, "stdin")
-    const fake = new PassThrough()
-    Object.defineProperty(process, "stdin", { value: fake, configurable: true })
-    fake.end(stdin)
-    try {
-      return await run()
-    } finally {
-      if (saved) Object.defineProperty(process, "stdin", saved)
-    }
+    this.lastResult = await this.gtdInMemUntil(undefined, stdin, ...args)
   }
 
   /**
@@ -1133,7 +1112,7 @@ export class GtdWorld extends QuickPickleWorld {
     connect: (url: string, fetch: typeof globalThis.fetch) => UiSession["client"],
   ): Promise<UiSession> {
     const abort = new AbortController()
-    const run = this.gtdInMemUntil(abort.signal, "ui", ...UI_ARGS(target))
+    const run = this.gtdInMemUntil(abort.signal, "", "ui", ...UI_ARGS(target))
     const handler = await this.boundUiHandler(run)
     if (target !== "direct") {
       this.lastServePort = target === "default" ? [...this.serveRecords.keys()][0] : target
@@ -1592,12 +1571,12 @@ export class GtdWorld extends QuickPickleWorld {
       throw new Error(`cannot run \`${segment}\` in memory — only gtd and sh`)
     }
     const args = segment.slice("gtd ".length).split(/\s+/)
-    return this.withStdin(stdin, () => this.gtdInMem(...args))
+    return this.gtdInMemUntil(undefined, stdin, ...args)
   }
 
   /** One in-process gtd run against the in-memory repository, leaving `lastResult` alone. */
   async gtdInMem(...args: string[]): Promise<{ exitCode: number; stdout: string; stderr: string }> {
-    return this.gtdInMemUntil(undefined, ...args)
+    return this.gtdInMemUntil(undefined, "", ...args)
   }
 
   /** `gtd ui` in memory: the real server, on the in-memory host, shell and listener. */
@@ -1632,6 +1611,7 @@ export class GtdWorld extends QuickPickleWorld {
   /** One in-process gtd run, interrupted when `signal` aborts. */
   private async gtdInMemUntil(
     signal: AbortSignal | undefined,
+    stdin: string,
     ...args: string[]
   ): Promise<{ exitCode: number; stdout: string; stderr: string }> {
     // `gtd judge run` is the one tool command `@inmem` scenarios run for real.
@@ -1641,10 +1621,15 @@ export class GtdWorld extends QuickPickleWorld {
       claude: this.scriptedClaude,
       calls: this.claudeCalls,
     })
-    const { io, result } = makeCapturingCliIo(this.repo!, this.envVars, {
-      judge: (request) => runJudge({ ...request, io: judgeIo }),
-      ui: this.uiTool(),
-    })
+    const { io, result } = makeCapturingCliIo(
+      this.repo!,
+      this.envVars,
+      {
+        judge: (request) => runJudge({ ...request, io: judgeIo }),
+        ui: this.uiTool(),
+      },
+      stdin,
+    )
     const run = (argv: readonly string[]) =>
       Effect.runPromise(runCli(argv, io), { signal }).catch((error: unknown) => {
         if (signal?.aborted !== true) throw error

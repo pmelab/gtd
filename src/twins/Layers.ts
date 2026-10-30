@@ -13,6 +13,8 @@ import {
   Narrator,
   GitService,
   Host,
+  type HostOps,
+  scratchDirOf,
   Workspace,
   type WorkspaceOps,
   CommandRunner,
@@ -217,6 +219,8 @@ export interface TestWorldOptions {
   readonly verbose?: boolean
   /** Real or fake driver and tool commands — each one left out fails when called. */
   readonly tools?: Partial<ToolCommands["Service"]>
+  /** What gtd reads on stdin; empty by default, like a closed pipe. */
+  readonly stdin?: string
 }
 
 const missingTool = (name: string) => () =>
@@ -250,6 +254,33 @@ export const ambientFlagEnv = (
     ),
   )
 
+/** Where the in-memory host's scratch files go when `TMPDIR` is unset. */
+export const IN_MEMORY_SCRATCH = "/scratch"
+export const IN_MEMORY_PID = 4242
+
+/**
+ * The in-memory `Host`: nothing read off the real process or `node:os`.
+ * `realPath` is a no-op (there is no real filesystem to resolve symlinks
+ * against), so both sides of `assertRunningFromRepoRoot`'s comparison
+ * collapse to `root`.
+ */
+export const inMemoryHost = (
+  root: string,
+  home: string,
+  env: Readonly<Record<string, string | undefined>>,
+  stdin = "",
+): HostOps => ({
+  root,
+  home,
+  env,
+  scratchDir: scratchDirOf(env, IN_MEMORY_SCRATCH),
+  realPath: () => Effect.succeed(root),
+  pid: IN_MEMORY_PID,
+  uid: undefined,
+  self: ["gtd"],
+  stdin: Effect.succeed(stdin),
+})
+
 /** Every layer `makeProgram` needs — `CommandRequirements`'s return type here IS the guarantee: a new port added there fails this function's typecheck instead of silently under-providing. */
 export function testLayers(
   repo: InMemRepo,
@@ -261,16 +292,7 @@ export function testLayers(
   return Layer.mergeAll(
     gitTestLayer(repo, root),
     Layer.succeed(Workspace, makeInMemoryWorkspaceOps(repo, root)),
-    // `realPath` is a no-op here (there is no real filesystem to resolve
-    // symlinks against): both sides of `assertRunningFromRepoRoot`'s
-    // comparison collapse to `root` when given anything, exactly like the
-    // fake's `root` "resolving" to itself before this port existed.
-    Host.layer({
-      root,
-      home,
-      env: { ...ambientFlagEnv(), ...opts.env },
-      realPath: () => Effect.succeed(root),
-    }),
+    Layer.succeed(Host, inMemoryHost(root, home, { ...ambientFlagEnv(), ...opts.env }, opts.stdin)),
     ConfigService.Live,
     makeInMemoryConfigDiscovery(repo, root),
     Layer.succeed(EngineCore, { source: Effect.succeed(IN_MEMORY_ENGINE) }),

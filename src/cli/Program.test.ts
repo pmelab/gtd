@@ -5,8 +5,7 @@
  */
 
 import { Cause, Context, Effect, Exit } from "effect"
-import { PassThrough } from "node:stream"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 
 // `gtd ui`'s bind-host lookup reads the real `os.networkInterfaces()` — a host
 // on a tailnet would make the "no Tailscale interface" refusal below fail.
@@ -24,6 +23,8 @@ import {
   testLayers,
   applyEmittedScript,
   takePinBeat,
+  IN_MEMORY_PID,
+  IN_MEMORY_SCRATCH,
 } from "../twins/index.js"
 import {
   commitAll,
@@ -673,7 +674,7 @@ describe("gtd validate — the mode-contradiction round-trip", () => {
     const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
     expect(exitCode).toBe(0)
 
-    const samplePath = `/fixture-scratch/gtd-mode-sample-qa-${process.pid}.md`
+    const samplePath = `/fixture-scratch/gtd-mode-sample-qa-${IN_MEMORY_PID}.md`
     const roundTripIndex = stdout.indexOf(`printf '%s' `)
     const guardIndex = stdout.indexOf(`[ -f '.gtd/PLAN.md' ] || exit 0`)
     // The real format command, distinct from the round-trip's own copy
@@ -724,11 +725,11 @@ describe("gtd validate — the mode-contradiction round-trip", () => {
     expect(stdout).not.toContain("skipping")
   })
 
-  it("resolves the scratch dir from node:os's tmpdir() when TMPDIR is unset or empty", async () => {
+  it("falls back to the host's own scratch dir when TMPDIR is unset", async () => {
     const repo = await atWorking(`{ qa: { format: "my-formatter $GTD_FILE" } }`)
     const { stdout, exitCode } = await runEnv(repo, {}, "validate")
     expect(exitCode).toBe(0)
-    expect(stdout).toContain(`gtd-mode-sample-qa-${process.pid}.md`)
+    expect(stdout).toContain(`${IN_MEMORY_SCRATCH}/gtd-mode-sample-qa-${IN_MEMORY_PID}.md`)
   })
 
   it("gtd validate the COMMAND exits 0 even when the emitted SCRIPT would fail if run — gtd only prints it", async () => {
@@ -2186,41 +2187,32 @@ export default workflow(
     expect(first.stdout).toBe(second.stdout)
   })
 
-  let savedStdin: PropertyDescriptor | undefined
-  afterEach(() => {
-    if (savedStdin) {
-      Object.defineProperty(process, "stdin", savedStdin)
-      savedStdin = undefined
-    }
-  })
-
-  const withStdin = async <T>(content: string, fn: () => Promise<T>): Promise<T> => {
-    savedStdin = Object.getOwnPropertyDescriptor(process, "stdin")
-    const stdin = new PassThrough()
-    Object.defineProperty(process, "stdin", { value: stdin, configurable: true })
-    stdin.end(content)
-    try {
-      return await fn()
-    } finally {
-      if (savedStdin) Object.defineProperty(process, "stdin", savedStdin)
-      savedStdin = undefined
-    }
+  const runWithStdin = async (
+    stdin: string,
+    repo: InMemRepo,
+    ...args: string[]
+  ): Promise<{ readonly stdout: string; readonly stderr: string; readonly exitCode: number }> => {
+    const { io, result } = makeCapturingCliIo(repo, {}, {}, stdin)
+    await Effect.runPromise(runCli(["node", "gtd.js", ...args], io))
+    return result()
   }
 
   const VERDICT = JSON.stringify([{ id: "q1", answer: true, p: 0.97 }])
 
   it("gtd judge answer decodes a verdict on stdin against the pending question ids and succeeds", async () => {
     const repo = seededRepo()
-    const { exitCode, stdout } = await withStdin(VERDICT, () => run(repo, "judge", "answer"))
+    const { exitCode, stdout } = await runWithStdin(VERDICT, repo, "judge", "answer")
     expect(exitCode).toBe(0)
     expect(stdout.length).toBeGreaterThan(0)
   })
 
   it("gtd judge answer refuses a verdict naming a question id the pending judgment never declared, with the usage-error exit code", async () => {
     const repo = seededRepo()
-    const { exitCode, stderr } = await withStdin(
+    const { exitCode, stderr } = await runWithStdin(
       JSON.stringify([{ id: "not-a-real-question", answer: true, p: 0.97 }]),
-      () => run(repo, "judge", "answer"),
+      repo,
+      "judge",
+      "answer",
     )
     expect(exitCode).toBe(2)
     expect(stderr).toContain("does not match the pending questions")
@@ -2228,16 +2220,18 @@ export default workflow(
 
   it("gtd judge answer refuses when stdin is not valid JSON at all, with the usage-error exit code", async () => {
     const repo = seededRepo()
-    const { exitCode, stderr } = await withStdin("not json", () => run(repo, "judge", "answer"))
+    const { exitCode, stderr } = await runWithStdin("not json", repo, "judge", "answer")
     expect(exitCode).toBe(2)
     expect(stderr).toContain("stdin is not valid JSON")
   })
 
   it("gtd judge answer refuses a verdict whose p is above 1 — an unvalidated p would clear every minP", async () => {
     const repo = seededRepo()
-    const { exitCode, stderr } = await withStdin(
+    const { exitCode, stderr } = await runWithStdin(
       JSON.stringify([{ id: "q1", answer: true, p: 5 }]),
-      () => run(repo, "judge", "answer"),
+      repo,
+      "judge",
+      "answer",
     )
     expect(exitCode).toBe(2)
     expect(stderr).toContain("does not match the pending questions")
@@ -2245,9 +2239,11 @@ export default workflow(
 
   it("gtd judge answer refuses a verdict whose p is negative", async () => {
     const repo = seededRepo()
-    const { exitCode, stderr } = await withStdin(
+    const { exitCode, stderr } = await runWithStdin(
       JSON.stringify([{ id: "q1", answer: true, p: -0.1 }]),
-      () => run(repo, "judge", "answer"),
+      repo,
+      "judge",
+      "answer",
     )
     expect(exitCode).toBe(2)
     expect(stderr).toContain("does not match the pending questions")
@@ -2255,15 +2251,19 @@ export default workflow(
 
   it("gtd judge answer refuses through the ordinary error envelope when the rest is no judge step", async () => {
     const repo = seededRepoWithoutJudge()
-    const { exitCode, stderr } = await withStdin("[]", () => run(repo, "judge", "answer"))
+    const { exitCode, stderr } = await runWithStdin("[]", repo, "judge", "answer")
     expect(exitCode).toBe(1)
     expect(stderr).toContain('declares no "judge:"')
   })
 
   it("gtd judge answer --json=script emits a POSIX sh script carrying a Gtd-Judge: trailer on the step commit", async () => {
     const repo = seededLandingRepo()
-    const { stdout, exitCode } = await withStdin(VERDICT, () =>
-      run(repo, "judge", "answer", "--json=script"),
+    const { stdout, exitCode } = await runWithStdin(
+      VERDICT,
+      repo,
+      "judge",
+      "answer",
+      "--json=script",
     )
     expect(exitCode).toBe(0)
     expect(stdout).toContain(DID_NOT_RUN_COMMENT)
@@ -2276,16 +2276,14 @@ export default workflow(
 
   it("gtd judge answer --json=script opens with the same leading comment as land's script", async () => {
     const repo = seededLandingRepo()
-    const { stdout: script } = await withStdin(VERDICT, () =>
-      run(repo, "judge", "answer", "--json=script"),
-    )
+    const { stdout: script } = await runWithStdin(VERDICT, repo, "judge", "answer", "--json=script")
     const { stdout: landScript } = await run(repo, "land", "--json=script")
     expect(script.split("\n")[0]).toBe(landScript.split("\n")[0])
   })
 
   it("plain gtd judge answer (no --json) names the commit and points at --json=script, never the script itself", async () => {
     const repo = seededLandingRepo()
-    const { stdout, exitCode } = await withStdin(VERDICT, () => run(repo, "judge", "answer"))
+    const { stdout, exitCode } = await runWithStdin(VERDICT, repo, "judge", "answer")
     expect(exitCode).toBe(0)
     expect(stdout).toContain("--json=script")
     expect(stdout).not.toContain(DID_NOT_RUN_COMMENT)
@@ -2305,8 +2303,12 @@ export default workflow(
 
   it("gtd judge answer records no truncation on the landing commit — replay recomputes the cut from the budget", async () => {
     const repo = seededTruncatingLandingRepo("20", "aaaaaaaaaa\nbbbbbbbbbb\ncccccccccc\n")
-    const { stdout, exitCode } = await withStdin(VERDICT, () =>
-      run(repo, "judge", "answer", "--json=script"),
+    const { stdout, exitCode } = await runWithStdin(
+      VERDICT,
+      repo,
+      "judge",
+      "answer",
+      "--json=script",
     )
     expect(exitCode).toBe(0)
     expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)

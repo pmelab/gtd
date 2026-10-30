@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, statSync } from "node:fs"
 import { Context, Effect, Layer, Path } from "effect"
+import { Host } from "../platform/index.js"
 
 /** The workflow module found on the cwd→home walk, with its source. */
 export interface WorkflowModule {
@@ -54,12 +55,12 @@ export const legacyRcDirs = (path: Path.Path, root: string, home: string): reado
   return chain.includes(home) ? chain : [...chain, home]
 }
 
-const legacyRcFileAt = (path: string): LegacyRcFile | undefined => {
+const legacyRcFileAt = (path: string, uid: number | undefined): LegacyRcFile | undefined => {
   try {
     const stat = statSync(path)
     if (!stat.isFile()) return undefined
     // Above home, a shared directory (`/tmp`) can hold another user's file.
-    return { path, owned: process.getuid === undefined || stat.uid === process.getuid() }
+    return { path, owned: uid === undefined || stat.uid === uid }
   } catch {
     return undefined
   }
@@ -86,11 +87,11 @@ export const walkUp = (path: Path.Path, from: string, home: string): ReadonlyArr
   return chain
 }
 
-const liveDiscovery = (path: Path.Path): ConfigDiscoveryOps => ({
+const liveDiscovery = (path: Path.Path, uid: number | undefined): ConfigDiscoveryOps => ({
   legacyRcFiles: (root, home) =>
     Effect.sync(() =>
       legacyRcDirs(path, root, home).flatMap((dir) =>
-        LEGACY_RC_FILES.flatMap((name) => legacyRcFileAt(path.join(dir, name)) ?? []),
+        LEGACY_RC_FILES.flatMap((name) => legacyRcFileAt(path.join(dir, name), uid) ?? []),
       ),
     ),
   workflowModule: (root, home) =>
@@ -119,5 +120,10 @@ const liveDiscovery = (path: Path.Path): ConfigDiscoveryOps => ({
 export class ConfigDiscovery extends Context.Service<ConfigDiscovery, ConfigDiscoveryOps>()(
   "ConfigDiscovery",
 ) {
-  static Live = Layer.effect(ConfigDiscovery, Effect.map(Path.Path, liveDiscovery))
+  static Live = Layer.effect(
+    ConfigDiscovery,
+    Effect.gen(function* () {
+      return liveDiscovery(yield* Path.Path, (yield* Host).uid)
+    }),
+  )
 }

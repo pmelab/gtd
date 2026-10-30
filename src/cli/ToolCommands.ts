@@ -1,9 +1,7 @@
 import { Context } from "effect"
 import type { Effect } from "effect"
 import type { UiSettings } from "../flows/index.js"
-
-/** How to run THIS gtd — a tool (the LSP) never reads a different version's state than the one it ships with. */
-export type SelfGtd = readonly [string, ...string[]]
+import type { HostOps } from "../platform/index.js"
 
 export interface UiRequest {
   readonly flags: {
@@ -36,7 +34,8 @@ export class ToolCommands extends Context.Service<
       request: UiRequest,
       out: { readonly write: (chunk: string) => void; readonly flush: () => void },
     ) => Effect.Effect<void, Error>
-    readonly lsp: (gtd: SelfGtd) => Effect.Effect<void, Error>
+    /** `gtd` runs THIS gtd, so the LSP never reads a different version's state than the one it ships with. */
+    readonly lsp: (gtd: HostOps["self"]) => Effect.Effect<void, Error>
     readonly judge: (request: JudgeRequest) => Promise<string>
   }
 >()("ToolCommands") {}

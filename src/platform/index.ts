@@ -1,7 +1,7 @@
 /**
  * gtd's two ports onto its environment: `Workspace` (repo file content —
  * working-tree reads/writes plus the read-at-ref path) and `Host` (root,
- * home, env, scratch). `GitService` moved in alongside `Workspace` since
+ * home, env, scratch, process identity, stdio). `GitService` moved in alongside `Workspace` since
  * `committed` IS `git.readFileAtRef` — one module owns every read.
  *
  * Seam rule, stated once: a seam is a `Context.Service` unless the consuming
@@ -9,7 +9,14 @@
  * reads are that exception, and use the `*Sync` members.
  */
 export { Workspace, type WorkspaceOps } from "./Workspace.js"
-export { Host, type HostOps } from "./Host.js"
+export {
+  Host,
+  nodeStdio,
+  scratchDirOf,
+  type HostOps,
+  type NodeProcess,
+  type Stdio,
+} from "./Host.js"
 export {
   GitService,
   type GitOperations,
