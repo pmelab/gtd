@@ -9,7 +9,7 @@ import { InMemRepo, testLayers } from "../twins/index.js"
 import { ConfigDiscovery, ConfigService } from "./index.js"
 
 // A config and the local modules it imports load the same from disk, where
-// jiti resolves them, and from an in-memory discovery, where the loader
+// rolldown resolves them, and from an in-memory discovery, where the loader
 // resolves them itself — the same workflows, the same fingerprint, the same
 // failure for a module that is not there.
 type Files = Readonly<Record<string, string>>
@@ -120,7 +120,24 @@ for (const make of [live, inMemory]) {
       })
     })
 
-    it("leaves a specifier in a string alone, and loads a skipped require never", async () => {
+    it("imports a local module and a gtd subpath dynamically as the flow runs", async () => {
+      t = make()
+      const loaded = await t.load({
+        "gtd.config.ts": [
+          'import { human } from "@pmelab/gtd/flows"',
+          "export default async () => {",
+          '  const { WIRE_SCHEMA } = await import("@pmelab/gtd/wire")',
+          '  const { first } = await import("./first.js")',
+          "  await human(`${first}-${WIRE_SCHEMA}`)",
+          "}",
+          "",
+        ].join("\n"),
+        "first.ts": 'export const first = "idle"\n',
+      })
+      expect(Object.keys(loaded.fingerprint).sort()).toEqual(["first.ts", "gtd.config.ts"])
+    })
+
+    it("leaves a specifier in a string alone, and runs a skipped require never", async () => {
       t = make()
       const loaded = await t.load({
         "gtd.config.ts": config(
@@ -133,14 +150,15 @@ for (const make of [live, inMemory]) {
         "optional.ts": 'throw new Error("optional ran")\n',
       })
       expect(loaded.names).toEqual(["named"])
-      expect(Object.keys(loaded.fingerprint)).toEqual(["gtd.config.ts"])
+      // Bundled, so watched, though it never runs.
+      expect(Object.keys(loaded.fingerprint).sort()).toEqual(["gtd.config.ts", "optional.ts"])
     })
 
     it("fails on an import that is not there, naming it", async () => {
       t = make()
       await expect(
         t.load({ "gtd.config.ts": config('import { brief } from "./missing.js"') }),
-      ).rejects.toThrow(/Cannot find module '\.\/missing\.js'/)
+      ).rejects.toThrow(/Could not resolve '\.\/missing\.js'/)
     })
   })
 }

@@ -441,6 +441,64 @@ describe("ConfigService", () => {
     expect(Object.keys(cfg.fingerprint).sort()).toEqual(["gtd.config.ts", "steps.ts"])
   })
 
+  it("an ES module package gets the shipped gtd, a CommonJS one stays Node's, each module keeps its location", async () => {
+    const vendor = join(projectDir, "vendor", "wf")
+    const pkg = (name: string, manifest: object, file: string, source: string) => {
+      const dir = join(vendor, "node_modules", name)
+      mkdirSync(dir, { recursive: true })
+      writeFileSync(join(dir, "package.json"), JSON.stringify({ name, ...manifest }))
+      writeFileSync(join(dir, file), source)
+    }
+    // No @pmelab/gtd installed: only the shipped copy can serve this import.
+    pkg(
+      "dep",
+      { type: "module", exports: { import: "./index.js" } },
+      "index.js",
+      `import { human } from "@pmelab/gtd/flows"\nexport const file = typeof human\n`,
+    )
+    pkg("ts-dep", { main: "index.ts" }, "index.ts", `export const suffix: string = "ts"\n`)
+    pkg("cjs-dep", {}, "index.js", `module.exports = require("node:path").basename(__dirname)\n`)
+    writeFileSync(
+      join(vendor, "index.ts"),
+      [
+        `import { basename, dirname } from "node:path"`,
+        `import { fileURLToPath } from "node:url"`,
+        `import { file as base } from "dep"`,
+        `import { suffix } from "ts-dep"`,
+        `import cjs from "cjs-dep"`,
+        `const where = basename(dirname(fileURLToPath(import.meta.url)))`,
+        `export const file = [base, suffix, cjs, where].join("-")`,
+        ``,
+      ].join("\n"),
+    )
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [
+        `import { file } from "./vendor/wf/index.js"`,
+        optionedWorkflow("first", "{ steering: { [`.gtd/${file}.md`]: 'qa' } }"),
+      ].join("\n"),
+    )
+
+    const cfg = await getConfig()
+
+    expect(cfg.workflow.steering[".gtd/function-ts-cjs-dep-wf.md"]).toBe("qa")
+    expect(Object.keys(cfg.fingerprint).sort()).toEqual(["gtd.config.ts", "vendor/wf/index.ts"])
+  })
+
+  it("a config may require and require.resolve a local module", async () => {
+    writeFileSync(join(projectDir, "steps.ts"), `export const file = "required"\n`)
+    writeFileSync(
+      join(projectDir, "gtd.config.ts"),
+      [
+        `const { file } = require("./steps.js")`,
+        `const found = require("node:path").basename(require.resolve("./steps.ts"))`,
+        optionedWorkflow("first", "{ steering: { [`.gtd/${file}-${found}.md`]: 'qa' } }"),
+      ].join("\n"),
+    )
+
+    expect((await getConfig()).workflow.steering[".gtd/required-steps.ts.md"]).toBe("qa")
+  })
+
   it("the fingerprint covers gtd.config.ts but no gtd module it imports", async () => {
     const cfg = await getConfig()
 

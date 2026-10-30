@@ -1,7 +1,10 @@
 import { existsSync, readFileSync } from "node:fs"
-import { createRequire } from "node:module"
-import { dirname, join } from "node:path"
+import { createRequire, isBuiltin } from "node:module"
+import { dirname, isAbsolute, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
+import { stripVTControlCharacters } from "node:util"
+import { runInThisContext } from "node:vm"
+import type { Plugin as RolldownPlugin } from "rolldown"
 import { Context, Effect, Layer } from "effect"
 import { GtdError, Narrator } from "../platform/index.js"
 import { accessShapeFault, replay, type TreeView } from "../replay/index.js"
@@ -127,7 +130,7 @@ export const load: Effect.Effect<
     try: shippedModules,
     catch: (e) => new GtdError(`gtd: ${e instanceof Error ? e.message : String(e)}`),
   })
-  const loaded = yield* Effect.try({
+  const loaded = yield* Effect.tryPromise({
     try: () => loadWorkflows(module, shipped),
     catch: (e) =>
       new GtdError(
@@ -200,13 +203,11 @@ interface Settings {
 interface LoadedFile {
   readonly origin: string
   /**
-   * Every real file this module's evaluation touched — `origin` itself plus
-   * any relative import it (transitively) resolved on disk, in NO particular
-   * order. A caller that
-   * needs to know when a workflow's DEFINITION might have changed (the LSP's
-   * steering-map memo) must watch this whole set, not just `origin`: a
-   * `gtd.config.ts` re-exporting a sibling module is a documented pattern,
-   * and jiti resolves that import off disk same as any other require.
+   * Every file bundled evaluating this module — `origin` itself plus every
+   * local module it (transitively) imports, in NO particular order. A caller
+   * that needs to know when a workflow's DEFINITION might have changed (the
+   * LSP's steering-map memo) must watch this whole set, not just `origin`: a
+   * `gtd.config.ts` re-exporting a sibling module is a documented pattern.
    */
   readonly dependencyFiles: readonly string[]
 }
@@ -229,75 +230,6 @@ interface Loaded {
   readonly default: (LoadedWorkflow & { readonly name: string }) | undefined
   readonly config: CompiledConfig
   readonly diagnostics: readonly Diagnostic[]
-}
-
-type JitiInstance = {
-  evalModule: (
-    source: string,
-    options: { filename: string; async?: false; cache?: Record<string, unknown> },
-  ) => unknown
-}
-type JitiModule = {
-  createJiti: (id: string, options: Record<string, unknown>) => JitiInstance
-}
-
-type Transform = (options: { readonly source: string }) => { code: string; error?: unknown }
-
-// Transpiling is most of a load's cost, and a load re-transpiles
-// gtd.config.ts and every shipped module it imports. The same options (the
-// source included) always transpile to the same code, so an in-process memo
-// is safe; evaluation stays fresh on every load.
-const TRANSFORM_MEMO_SIZE = 512
-const memoized = (transform: Transform): Transform => {
-  const memo = new Map<string, ReturnType<Transform>>()
-  return (options) => {
-    const key = JSON.stringify(options)
-    const hit = memo.get(key)
-    if (hit !== undefined) return hit
-    const result = transform(options)
-    if (result.error !== undefined) return result
-    if (memo.size >= TRANSFORM_MEMO_SIZE) memo.delete(memo.keys().next().value!)
-    memo.set(key, result)
-    return result
-  }
-}
-
-let jitiModule: JitiModule | undefined
-let transform: Transform | undefined
-/** Relative specifiers a module imports, served from somewhere other than the disk. */
-interface LocalModules {
-  /** The path a specifier names, or nothing when it names no module. */
-  readonly resolve: (specifier: string) => string | undefined
-  readonly load: (path: string) => unknown
-}
-
-const jiti = (shipped: ShippedModules, local?: LocalModules): JitiInstance => {
-  const require = createRequire(import.meta.url)
-  jitiModule ??= require("jiti") as JitiModule
-  // jiti's own Babel transform, which its package exports don't name.
-  transform ??= memoized(
-    require(join(dirname(require.resolve("jiti/package.json")), "dist", "babel.cjs")) as Transform,
-  )
-  return jitiModule.createJiti(import.meta.url, {
-    // Consulted when a module is required, so a local module is evaluated
-    // only once an import actually runs.
-    virtualModules: new Proxy(shipped.modules, {
-      has: (modules, id) =>
-        id in modules || (typeof id === "string" && local?.resolve(id) !== undefined),
-      get: (modules, id) => {
-        const path = typeof id === "string" ? local?.resolve(id) : undefined
-        return path === undefined ? modules[id as string] : local!.load(path)
-      },
-    }),
-    alias: shipped.missing,
-    // No transpile cache on disk, and a fresh module every load — nothing a
-    // later command could read back instead of the source.
-    fsCache: false,
-    moduleCache: false,
-    transform,
-    // The whole module, not just its default: the named exports are read too.
-    interopDefault: false,
-  })
 }
 
 const PACKAGE = "@pmelab/gtd"
@@ -582,16 +514,10 @@ const namespaceOf = (exported: unknown): Record<string, unknown> =>
 /**
  * Evaluate `gtd.config.ts`. Every export but the reserved names that went
  * through `workflow()` or is a factory workflow is a workflow named by its
- * export. `cache` is jiti's OWN per-call module cache (unrelated to the
- * instance's `moduleCache: false`) — passing an empty object in has the side
- * effect of collecting every real file jiti resolved evaluating this module,
- * module AND every relative import it pulled in, transitively.
+ * export.
  */
-const loadWorkflows = (module: WorkflowModule, shipped: ShippedModules): Loaded => {
-  const { exports: evaluated, files } =
-    module.read === undefined
-      ? evaluateFromDisk(module, shipped)
-      : evaluateRead(module, module.read, shipped)
+const loadWorkflows = async (module: WorkflowModule, shipped: ShippedModules): Promise<Loaded> => {
+  const { exports: evaluated, files } = await evaluate(module, shipped)
   const exports = namespaceOf(evaluated)
   const file: LoadedFile = { origin: module.filepath, dependencyFiles: files }
   const exported = Object.entries(exports).filter(
@@ -658,17 +584,8 @@ const shadowingDoors = (
       origin,
     }))
 
-const evaluateFromDisk = (
-  module: WorkflowModule,
-  shipped: ShippedModules,
-): { readonly exports: unknown; readonly files: readonly string[] } => {
-  const cache: Record<string, unknown> = {}
-  const exports = jiti(shipped).evalModule(module.source, { filename: module.filepath, cache })
-  return { exports, files: Object.keys(cache) }
-}
-
-// How jiti finds a TypeScript module behind a specifier: as written, its
-// `.js` spelling as `.ts`, with `.ts` appended, or as a directory index.
+// How a TypeScript module is found behind a relative specifier: as written,
+// its `.js` spelling as `.ts`, with `.ts` appended, or as a directory index.
 const moduleCandidates = (path: string): readonly string[] => [
   path,
   path.replace(/\.js$/, ".ts"),
@@ -678,39 +595,141 @@ const moduleCandidates = (path: string): readonly string[] => [
 ]
 
 /**
- * Evaluates the config with every local module it imports taken from `read`
- * instead of the disk. jiti matches a virtual module on the specifier as
- * written, so each module gets its own instance resolving against its own
- * directory. A specifier `read` cannot serve falls through to the disk, and
- * fails the way a missing file does.
+ * Bundles the config and every local module it imports in memory, then
+ * evaluates the bundle. With `read`, a relative import `read` can serve is
+ * taken from it instead of the disk; one it cannot falls through to the disk,
+ * and fails the way a missing file does. An ES module or TypeScript package is
+ * bundled too; a CommonJS one is required from where its importer resolved
+ * it, as Node would. `@pmelab/gtd/*` is the running gtd's own copy, and
+ * `files` leaves out every package file.
  */
-const evaluateRead = (
+const evaluate = async (
   module: WorkflowModule,
-  read: (path: string) => string | undefined,
   shipped: ShippedModules,
-): { readonly exports: unknown; readonly files: readonly string[] } => {
-  const files = [module.filepath]
-  const evaluated = new Map<string, unknown>()
-  const evaluate = (filepath: string, source: string): unknown =>
-    jiti(shipped, {
-      resolve: (specifier) =>
-        /^\.\.?\//.test(specifier)
-          ? moduleCandidates(join(dirname(filepath), specifier)).find(
-              (candidate) => read(candidate) !== undefined,
-            )
-          : undefined,
-      load: (path) => {
-        if (!evaluated.has(path)) {
-          // A placeholder first, so an import cycle ends here.
-          evaluated.set(path, {})
-          files.push(path)
-          evaluated.set(path, evaluate(path, read(path)!))
-        }
-        return evaluated.get(path)
-      },
-    }).evalModule(source, { filename: filepath })
-  return { exports: evaluate(module.filepath, module.source), files }
+): Promise<{ readonly exports: unknown; readonly files: readonly string[] }> => {
+  const { read } = module
+  const served = new Set<string>()
+  const fromRead = (path: string): string | null => {
+    const hit = moduleCandidates(path).find((candidate) => read?.(candidate) !== undefined)
+    if (hit === undefined) return null
+    served.add(hit)
+    return hit
+  }
+  const plugin: RolldownPlugin = {
+    name: "gtd-config",
+    async resolveId(source, importer) {
+      if (importer === undefined) return source === module.filepath ? source : null
+      if (source in shipped.modules || source in shipped.missing) {
+        return { id: source, external: true }
+      }
+      if (/^\.\.?(\/|$)/.test(source)) return fromRead(join(dirname(importer), source))
+      if (!isPackage(source)) return null
+      return packageImport(source, await this.resolve(source, importer, { skipSelf: true }))
+    },
+    load(id) {
+      if (id === module.filepath) return module.source
+      return served.has(id) ? read!(id) : null
+    },
+    // One bundle has one file; each module keeps its own location.
+    transform(code, id) {
+      return code.replace(/\bimport\.meta\.(url|filename|dirname)\b/g, (_, key: string) =>
+        JSON.stringify(
+          key === "url" ? pathToFileURL(id).href : key === "filename" ? id : dirname(id),
+        ),
+      )
+    },
+  }
+  const bundle = await (rolldownModule ??= requireRolldown()).rolldown({
+    input: module.filepath,
+    platform: "node",
+    plugins: [plugin],
+    external: (id) => isBuiltin(id),
+    resolve: { extensionAlias: { ".js": [".js", ".ts"], ".mjs": [".mjs", ".mts"] } },
+    // Every statement runs, as it would unbundled.
+    treeshake: false,
+    tsconfig: false,
+    logLevel: "silent",
+  })
+  try {
+    const { output } = await bundle
+      // One chunk, and no `import()` left: the bundle runs as a plain function.
+      .generate({
+        format: "cjs",
+        exports: "named",
+        codeSplitting: false,
+        dynamicImportInCjs: false,
+      })
+      .catch((e) => {
+        throw bundleError(e)
+      })
+    const chunk = output[0]
+    const fromConfig = createRequire(module.filepath)
+    const require = Object.assign(
+      (id: string): unknown =>
+        id in shipped.modules
+          ? shipped.modules[id]
+          : fromConfig(id in shipped.missing ? shipped.missing[id]! : id),
+      { resolve: fromConfig.resolve },
+    )
+    const cjs = { exports: {} as unknown }
+    const run = runInThisContext(
+      `(function (exports, require, module, __filename, __dirname) {${chunk.code}\n})`,
+      { filename: module.filepath },
+    ) as (...args: unknown[]) => void
+    run(cjs.exports, require, cjs, module.filepath, dirname(module.filepath))
+    return {
+      exports: cjs.exports,
+      files: chunk.moduleIds.filter((id) => !id.startsWith("\0") && !inPackage(id)),
+    }
+  } finally {
+    await bundle.close()
+  }
 }
+
+// Bundled, an ES module gets the shipped `@pmelab/gtd/*` like the config
+// does. CommonJS stays Node's: it may read `__dirname`, which a bundle loses.
+const packageImport = (
+  source: string,
+  resolved: { readonly id: string } | null,
+): string | { readonly id: string; readonly external: true } =>
+  resolved !== null && isEsModule(resolved.id)
+    ? resolved.id
+    : { id: resolved?.id ?? source, external: true }
+
+const isEsModule = (path: string): boolean => {
+  if (/\.(mjs|[cm]?tsx?)$/.test(path)) return true
+  if (!/\.jsx?$/.test(path)) return false
+  for (let dir = dirname(path); dirname(dir) !== dir; dir = dirname(dir)) {
+    const file = join(dir, "package.json")
+    if (existsSync(file)) {
+      return (JSON.parse(readFileSync(file, "utf8")) as { type?: string }).type === "module"
+    }
+  }
+  return false
+}
+
+const inPackage = (path: string): boolean => /[\\/]node_modules[\\/]/.test(path)
+
+const isPackage = (specifier: string): boolean => !isAbsolute(specifier) && !isBuiltin(specifier)
+
+// rolldown reports each error with a colored code frame; a diagnostic takes
+// its headline and location.
+const bundleError = (e: unknown): unknown => {
+  const errors = (e as { errors?: readonly { message: string }[] } | null)?.errors
+  if (errors === undefined) return e
+  const lines = errors.map(({ message }) => {
+    const plain = stripVTControlCharacters(message)
+    const at = /\[ (.+:\d+:\d+) \]/.exec(plain)?.[1]
+    const headline = plain.split("\n")[0]!
+    return at === undefined ? headline : `${headline} (${at})`
+  })
+  return new Error(lines.join("\n"))
+}
+
+type Rolldown = typeof import("rolldown")
+let rolldownModule: Rolldown | undefined
+// Required at run time, never bundled: rolldown ships a native binding.
+const requireRolldown = (): Rolldown => createRequire(import.meta.url)("rolldown") as Rolldown
 
 const isWorkflow = (value: unknown): boolean =>
   markedOptions(value) !== undefined || isFactoryWorkflow(value)

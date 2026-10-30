@@ -714,12 +714,11 @@ does not detect an impure config.
 
 What gtd does detect is a config that **changed** while a process runs. The
 landing that starts a process records a `Gtd-Config: <hash> <path>` trailer for
-`gtd.config.ts` and for every local TypeScript or JavaScript module it imports
-(`.json` and `.cjs` imports are not recorded). Paths are relative to the
-repository root, and JSON-quoted when they begin or end with whitespace; the
-hash is the first 16 hex digits of the file's SHA-256. Every later command
-compares those with the files on disk, and on a difference warns on stderr,
-naming the changed files:
+`gtd.config.ts` and for every module it imports that is not a package from
+`node_modules`. Paths are relative to the repository root, and JSON-quoted when
+they begin or end with whitespace; the hash is the first 16 hex digits of the
+file's SHA-256. Every later command compares those with the files on disk, and
+on a difference warns on stderr, naming the changed files:
 
 ```
 gtd: warning: the config changed since this process started (lib/flow.ts) — the rest of the process replays under the changed config
