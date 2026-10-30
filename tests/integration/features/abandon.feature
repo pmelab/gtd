@@ -9,8 +9,9 @@ Feature: gtd abandon — end the process underway without completing it
 
   Nothing is discarded: every turn commit is dropped, and everything they
   carried (the code, the `.gtd/` steering files) stays in the working tree as
-  uncommitted changes. Resting at the initial state is a no-op SUCCESS — a
-  recovery command that fails when there is nothing to recover is a worse tool.
+  uncommitted changes — all but the process's pin, which is removed.
+  Resting at the initial state is a no-op SUCCESS — a recovery command that
+  fails when there is nothing to recover is a worse tool.
 
   Background:
     Given a test project
@@ -64,6 +65,7 @@ Feature: gtd abandon — end the process underway without completing it
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     Given a file "src/a.ts" with:
       """
       export const a = 1
@@ -92,6 +94,7 @@ Feature: gtd abandon — end the process underway without completing it
     When I run gtd with args "start review --var reviewBase=base"
     Then it succeeds
     And the last commit subject is "gtd(human): reviewing"
+    And I run the pin beat
     Given a file ".gtd/REVIEW.md" with:
       """
       # Review

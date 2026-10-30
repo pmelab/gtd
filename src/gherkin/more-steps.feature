@@ -23,6 +23,7 @@ Feature: steps for checks, stalls, beat fields, commit bodies and the environmen
 
   Scenario: the resting step's fields are read by name
     When gtd starts workflow "tested"
+    And the process is driven
     Then the process rests at "build.plan"
     And the resting step's model is "smart"
     And the resting step's idle is "false"

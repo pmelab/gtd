@@ -78,6 +78,7 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
         )
       }, { defaults, base })
       """
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout contains "State: unwind"
@@ -137,6 +138,7 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
         )
       }, { defaults, base })
       """
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout contains "State: review-gate.check"

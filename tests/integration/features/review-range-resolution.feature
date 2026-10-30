@@ -65,6 +65,7 @@ Feature: Review pointers carry a mandatory range — validated at check, resolve
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file "src/big.ts" with:
       """
       export const LINE_01 = 1
@@ -135,6 +136,7 @@ Feature: Review pointers carry a mandatory range — validated at check, resolve
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file "src/big.ts" with:
       """
       export const LINE_01 = 1
@@ -237,6 +239,7 @@ Feature: Review pointers carry a mandatory range — validated at check, resolve
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And "src/mid.ts" is modified to:
       """
       export const CTX_01 = 1
@@ -328,6 +331,7 @@ Feature: Review pointers carry a mandatory range — validated at check, resolve
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And "src/mid.ts" is modified to:
       """
       export const CTX_01 = 1
@@ -388,6 +392,7 @@ Feature: Review pointers carry a mandatory range — validated at check, resolve
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And the file "src/gone.ts" is deleted
     When I resolve the diff for "src/gone.ts#1-1" via a spawned gtd ui
     Then the diff result is the whole-file banner

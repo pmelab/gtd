@@ -30,6 +30,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       a note
       """
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     And a file "src/x.ts" with:
       """
       export const x = 1
@@ -58,13 +59,14 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       a note
       """
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     And a file "src/x.ts" with:
       """
       export const x = 1
       """
     When I run gtd land with "--cost=1450"
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → idle"
+    And the last commit subject is "gtd(agent): building → unpin"
     And the last commit body contains "Gtd-Cost: 1450"
 
   Scenario: gtd next --json shows the running process cost, accumulated across turns
@@ -85,6 +87,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       a note
       """
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     And a file "src/a.ts" with:
       """
       export const a = 1
@@ -123,6 +126,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       a note
       """
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     # building is a bare `prompt` state — plain `gtd next` output there drops
     # the header entirely, so check --json directly: the `cost` field is
     # omitted outright (never emitted as a zero) when nothing was recorded.
@@ -150,6 +154,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       a note
       """
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     And a file "src/a.ts" with:
       """
       export const a = 1
@@ -164,9 +169,10 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       """
     When I run gtd land with "--cost=250"
     Then it succeeds
-    And the last commit subject is "gtd(agent): finishing → idle"
+    And the last commit subject is "gtd(agent): finishing → unpin"
     And the last commit body contains "Gtd-Cost: 250"
-    When I run gtd next with "--json"
+    When I run the unpin beat
+    And I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"idle\":true"
     When I run gtd with args "summary"
@@ -209,6 +215,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       a note
       """
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     And a file "src/x.ts" with:
       """
       export const x = 1
@@ -237,6 +244,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       a note
       """
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     And a file "src/x.ts" with:
       """
       export const x = 1
@@ -263,6 +271,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       a note
       """
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     And a file "src/a.ts" with:
       """
       export const a = 1
@@ -309,6 +318,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       a note
       """
     And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
     And a file "src/a.ts" with:
       """
       export const a = 1
@@ -323,8 +333,9 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       """
     When I run gtd land with "--cost=250" and "--model=opus"
     Then it succeeds
-    And the last commit subject is "gtd(agent): finishing → idle"
+    And the last commit subject is "gtd(agent): finishing → unpin"
     And the last commit body contains "Gtd-Cost: 250 opus"
+    When I run the unpin beat
     When I run gtd with args "summary"
     Then it succeeds
     And stdout contains "feat: ship it"

@@ -54,6 +54,7 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
       export const a = 1
       """
     And gtd lands "gtd(human): idle → reviewing"
+    And I run the pin beat
     When I run gtd with args "validate"
     Then it fails
     And stderr contains "CONFIGURATION BUG"

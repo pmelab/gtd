@@ -49,6 +49,7 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → picking"
+    And I run the pin beat
 
     # picking (task 1 of 2): the arbiter takes the first task file by name
     Given a file ".gtd/NEXT.md" with:
@@ -121,6 +122,7 @@ Feature: A picking-arbiter example — a per-task queue loop via a custom workfl
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → picking"
+    And I run the pin beat
 
     # picking: .gtd/tasks/ was already empty, so a clean step leaves the loop directly
     When I run gtd land

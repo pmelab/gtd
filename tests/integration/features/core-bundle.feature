@@ -29,6 +29,8 @@ Feature: the core bundle — the engine a pinned process runs
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → building"
+    When I run the pin beat
+    Then the last commit subject is "gtd(check): pin → building"
     When I run gtd next
     Then it succeeds
     And stdout contains "build the thing"

@@ -12,8 +12,11 @@ export {
   formatSubject,
   isRecordableApproval,
   parseCommitMessage,
+  type CommitMessage,
   type CommitSpec,
   type JudgeVerdict,
+  type PinChange,
+  PIN_STATES,
 } from "./Trailers.js"
 export { accessShapeFault } from "./Access.js"
 export { formatFault } from "./Format.js"

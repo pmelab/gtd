@@ -1,6 +1,12 @@
 import { Effect, Exit } from "effect"
 import { describe, expect, it } from "vitest"
-import { applyEmittedScript, InMemRepo, makeCapturingCliIo, testLayers } from "../twins/index.js"
+import {
+  applyEmittedScript,
+  InMemRepo,
+  makeCapturingCliIo,
+  takePinBeat,
+  testLayers,
+} from "../twins/index.js"
 import { runCli } from "./index.js"
 import { historyEntries, resolveHistoryRef, type HistoryEntry } from "./History.js"
 
@@ -12,7 +18,9 @@ export default async () => {
 }
 `
 
+/** Lands `files` as one turn, taking a pin beat before it and an unpin beat after it as a driver does. */
 const land = async (repo: InMemRepo, files: Record<string, string>): Promise<string> => {
+  await takePinBeat(repo, "add")
   for (const [path, content] of Object.entries(files)) repo.writeFile(path, content)
   const { io, result } = makeCapturingCliIo(repo)
   await Effect.runPromise(runCli(["node", "gtd.js", "land", "--json"], io))
@@ -24,6 +32,7 @@ const land = async (repo: InMemRepo, files: Record<string, string>): Promise<str
     (JSON.parse(stdout) as { script: string }).script,
   )
   if (!outcome.ok) throw new Error(outcome.error)
+  await takePinBeat(repo, "remove")
   return repo.resolveRef("HEAD")!
 }
 

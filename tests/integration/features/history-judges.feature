@@ -32,6 +32,7 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
       Build a thing.
       """
     And gtd lands "gtd(human): idle → build.quality.reviewing"
+    And I run the pin beat
     And a file ".gtd/QUALITY.md" with:
       """
       ## a stray export
@@ -72,7 +73,8 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
 
       - a missing test (p=0.85) — not noise, we need that test
       """
-    And gtd lands "gtd(human): build.review → idle"
+    And gtd lands "gtd(human): build.review → unpin"
+    And I run the unpin beat
 
   @inmem
   Scenario: a dropped finding the human wrote back on is overturned, per p bucket
@@ -139,6 +141,7 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
       Fix a thing.
       """
     And gtd lands "gtd(human): idle → build.health.check"
+    And I run the pin beat
     And a file ".gtd/FEEDBACK.md" with:
       """
       1 failing
@@ -164,7 +167,8 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
     And the file ".gtd/FEEDBACK.md" is deleted
-    And gtd lands "gtd(check): build.health.check → idle"
+    And gtd lands "gtd(check): build.health.check → unpin"
+    And I run the unpin beat
     When I run gtd with args "history judges"
     Then it succeeds
     And stdout contains "retry: 1 verdicts, 1 scored, 1 overturned (0.9-1.0: 1/1)"
@@ -196,6 +200,7 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
       - it works
       """
     And gtd lands "gtd(human): idle → design.clear"
+    And I run the pin beat
     And gtd lands "gtd(judge): design.clear → design.normalise" judging:
       """
       [{"id":"clear","answer":"yes","p":0.9}]
@@ -217,7 +222,8 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
 
       - AC-1: it works on an empty list
       """
-    And gtd lands "gtd(human): design.gate → idle"
+    And gtd lands "gtd(human): design.gate → unpin"
+    And I run the unpin beat
     When I run gtd with args "history judges"
     Then it succeeds
     And stdout contains "clear: 1 verdicts, 1 scored, 1 overturned (0.9-1.0: 1/1)"

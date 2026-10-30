@@ -18,7 +18,13 @@ vi.mock("node:os", async (importOriginal) => ({
 import { runCli, type Command } from "./index.js"
 import { EXIT_USAGE_ERROR, stallDiagnosis, noopText, WIRE_SCHEMA } from "../wire/index.js"
 import { needsOf, runCommand, SelectorUsageError, type CommandRequirements } from "./Program.js"
-import { InMemRepo, makeCapturingCliIo, testLayers, applyEmittedScript } from "../twins/index.js"
+import {
+  InMemRepo,
+  makeCapturingCliIo,
+  testLayers,
+  applyEmittedScript,
+  takePinBeat,
+} from "../twins/index.js"
 import {
   commitAll,
   DID_NOT_RUN_COMMENT,
@@ -39,13 +45,14 @@ const run = async (
   return result()
 }
 
-/** Lands via `gtd land --json` and applies the emitted script, as a driver would. */
+/** Lands via `gtd land --json` and applies the emitted script, then takes the pin or unpin beat it leads to, as a driver would. */
 const landAndApply = async (
   repo: InMemRepo,
 ): Promise<{ readonly exitCode: number; readonly script: string }> => {
   const { stdout, exitCode } = await run(repo, "land", "--json")
   const script = exitCode === 0 ? (JSON.parse(stdout) as { readonly script: string }).script : ""
   if (exitCode === 0) expect(applyEmittedScript(repo, new Map(), script).ok).toBe(true)
+  if (exitCode === 0) await takePinBeat(repo)
   return { exitCode, script }
 }
 
@@ -104,7 +111,7 @@ export const hotfix = workflow(
     expect(exitCode).toBe(0)
     expect(stdout).toContain(
       commitAll(
-        `gtd(human): working\n\nGtd-Workflow: hotfix\nGtd-Var: greeting=hello\nGtd-Config: ${contentHash(WORKFLOW)} gtd.config.ts\nGtd-Format: 1`,
+        `gtd(human): working\n\nGtd-Workflow: hotfix\nGtd-Var: greeting=hello\nGtd-Config: ${contentHash(WORKFLOW)} gtd.config.ts\nGtd-Format: 2`,
       ),
     )
     expect(repo.commitHistory()).toHaveLength(before)
@@ -190,6 +197,9 @@ export const hotfix = workflow(
     const { stdout } = await run(repo, "start", "hotfix")
     expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
     expect(repo.lastCommitSubject()).toBe("gtd(human): working")
+    const pin = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
+    expect(pin).toMatchObject({ kind: "script", state: "pin", actor: "check", pin: "add" })
+    expect(await takePinBeat(repo, "add")).toBe(true)
     const next = JSON.parse((await run(repo, "next", "--json")).stdout) as Record<string, unknown>
     expect(next.kind).toBe("prompt")
     expect(next.state).toBe("working")
@@ -496,6 +506,7 @@ export const resume = workflow(work)
     const repo = seed(WORKFLOW)
     const { stdout: entry } = await run(repo, "start", "resume")
     expect(applyEmittedScript(repo, new Map(), entry).ok).toBe(true)
+    await takePinBeat(repo, "add")
     const { stdout, exitCode } = await run(repo, "next", "--json")
     expect(exitCode).toBe(0)
     expect(JSON.parse(stdout).kind).toBe("prompt")
@@ -775,20 +786,20 @@ describe("gtd next — refuses when history diverges from what replay reaches", 
     expect(repo.commitHistory()).toHaveLength(before)
 
     expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
-    expect(repo.commitHistory()).toHaveLength(before - 2)
+    expect(repo.commitHistory()).toHaveLength(before - 3)
   })
 })
 
 describe("a history written in a format this gtd does not read", () => {
   // The exact wording is pinned in Format.test.ts; this is the part that proves the format gate fired.
-  const FOREIGN = "is written in history format 2, but this gtd reads format 1"
+  const FOREIGN = "is written in history format 3, but this gtd reads formats 1 to 2"
 
   /** A step commit that would also diverge, so only the format gate can explain the refusal. */
   const foreignStep = async (): Promise<InMemRepo> => {
     const repo = seed(IDLE_THEN_WORKING)
     await landTurn(repo, { "NOTE.md": "a note\n" })
     repo.writeFile("WORK.md", "done\n")
-    repo.seedCommit("gtd(agent): elsewhere → review\n\nGtd-Step: elsewhere#1\nGtd-Format: 2")
+    repo.seedCommit("gtd(agent): elsewhere → review\n\nGtd-Step: elsewhere#1\nGtd-Format: 3")
     return repo
   }
 
@@ -813,7 +824,7 @@ describe("a history written in a format this gtd does not read", () => {
   it("refuses even when a foreign subject hides the commit from the episode", async () => {
     const repo = seed(IDLE_THEN_WORKING)
     repo.writeFile("NOTE.md", "a note\n")
-    repo.seedCommit("gtd2[human] idle -> working\n\nGtd-Format: 2")
+    repo.seedCommit("gtd2[human] idle -> working\n\nGtd-Format: 3")
     for (const command of ["next", "abandon"]) {
       const { exitCode, stderr } = await run(repo, command)
       expect(exitCode).toBe(1)
@@ -824,7 +835,7 @@ describe("a history written in a format this gtd does not read", () => {
   it("a commit gtd never wrote is not read for a format, even quoting the trailer", async () => {
     const repo = seed(IDLE_THEN_WORKING)
     repo.writeFile("NOTE.md", "a note\n")
-    repo.seedCommit("feat: x\n\nGtd-Format: 2")
+    repo.seedCommit("feat: x\n\nGtd-Format: 3")
     expect((await run(repo, "next")).exitCode).toBe(0)
   })
 
@@ -832,7 +843,7 @@ describe("a history written in a format this gtd does not read", () => {
     const repo = seed(IDLE_THEN_WORKING)
     const base = repo.resolveRef("HEAD")!
     repo.writeFile("NOTE.md", "a note\n")
-    repo.seedCommit("gtd(human): idle → working\n\nGtd-Step: idle#1\nGtd-Format: 2")
+    repo.seedCommit("gtd(human): idle → working\n\nGtd-Step: idle#1\nGtd-Format: 3")
     repo.updateRef(HISTORY_REF, repo.resolveRef("HEAD")!)
     repo.hardResetTo(base)
     const { exitCode, stderr } = await run(repo, "restore")
@@ -1390,10 +1401,10 @@ export default async () => {
     expect(await nextOf(repo)).toEqual({ target: "accepted" })
   })
 
-  it("a turn that finishes the flow targets the initial step", async () => {
+  it("a turn that finishes a pinned flow targets the unpin", async () => {
     const repo = await atWorking()
     repo.writeFile("REVIEW.md", "an updated review\n")
-    expect(await nextOf(repo)).toMatchObject({ target: "idle" })
+    expect(await nextOf(repo)).toMatchObject({ target: "unpin" })
   })
 
   it("plain gtd next shows the same preview as a `Next:` line", async () => {
@@ -1476,7 +1487,7 @@ export default async () => {
     expect((JSON.parse(stdout) as { readonly script: string }).script).toContain("git commit")
   })
 
-  it("a clean run that finishes the flow lands an ordinary commit re-entering the initial step", async () => {
+  it("a clean run that finishes a pinned flow lands an ordinary commit at the unpin", async () => {
     const repo = await atChecking(REENTRY_WORKFLOW)
     const { stdout, exitCode } = await run(repo, "land", "--json")
     expect(exitCode).toBe(0)
@@ -1485,7 +1496,7 @@ export default async () => {
     expect(script).not.toContain("git reset --mixed")
     expect(script).not.toContain("nothing to retain")
     expect(applyEmittedScript(repo, new Map(), script).ok).toBe(true)
-    expect(repo.lastCommitSubject()).toBe("gtd(check): checking → idle")
+    expect(repo.lastCommitSubject()).toBe("gtd(check): checking → unpin")
   })
 
   it("the same rest with a pending change lands an ordinary commit too", async () => {
@@ -1523,7 +1534,7 @@ export default async () => {
     expect(parsed.script).toContain("nothing to do")
   })
 
-  it("gtd land --json a decision that re-enters the initial step reports settled:false, idle:true, state:idle", async () => {
+  it("gtd land --json a decision that ends a pinned flow reports settled:false, idle:false, state:unpin", async () => {
     const repo = await atChecking(REENTRY_WORKFLOW)
     const { stdout, exitCode } = await run(repo, "land", "--json")
     expect(exitCode).toBe(0)
@@ -1533,8 +1544,8 @@ export default async () => {
       readonly state: string
     }
     expect(parsed.settled).toBe(false)
-    expect(parsed.idle).toBe(true)
-    expect(parsed.state).toBe("idle")
+    expect(parsed.idle).toBe(false)
+    expect(parsed.state).toBe("unpin")
   })
 
   it("gtd land --json an ordinary commit reports settled:false", async () => {
@@ -1683,7 +1694,7 @@ export default async () => {
     const { exitCode, script } = await landAndApply(repo)
     expect(exitCode).toBe(0)
     expect(script).not.toContain("fmt-notes")
-    expect(repo.lastCommitSubject()).toBe("gtd(agent): drafting → idle")
+    expect(repo.lastCommitSubject("HEAD~1")).toBe("gtd(agent): drafting → unpin")
   })
 
   it("`gtd next --json`'s `validate` field carries the mode's format command", async () => {
@@ -1867,7 +1878,7 @@ export default workflow(
   it("writes the rendered summary, with a trailing newline, counting the human turns after the entry commit", async () => {
     const repo = await reviewed()
     const history = repo.commitHistory()
-    const entryHash = history[history.length - 3]!.hash
+    const entryHash = history[history.length - 4]!.hash
     const tipHash = history[history.length - 1]!.hash
 
     const { exitCode, stdout } = await run(repo, "summary")
@@ -1961,7 +1972,7 @@ export default async () => {
   it("refuses once the process has closed and HEAD rests at the initial step again", async () => {
     const repo = await atDeciding()
     await landTurn(repo)
-    expect(repo.lastCommitSubject()).toBe("gtd(human): deciding → idle")
+    expect(repo.lastCommitSubject()).toBe("gtd(check): unpin → idle")
 
     const { exitCode, stdout, stderr } = await run(repo, "base")
     expect(exitCode).toBe(1)

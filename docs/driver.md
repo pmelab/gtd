@@ -548,6 +548,42 @@ DISPLAY that gate's message, never to decide whether to stop. A run step settles
 only when replaying its clean landing leads straight back to the same step; a
 flow that moves on after a clean run advances instead.
 
+### Pin and unpin beats
+
+A process runs on the engine and workflow it started with, so it commits them:
+its first beat after it starts — after the landing that leaves the default
+workflow's first step, or right after `gtd start <name>`'s opening commit — is
+the **pin beat**, and its last beat, once the flow has ended, is the **unpin
+beat**. Both are ordinary `script` beats at actor `check`, never a human gate,
+so a loop runs them unattended:
+
+| beat  | `state` | `pin`      | script                                                |
+| ----- | ------- | ---------- | ----------------------------------------------------- |
+| pin   | `pin`   | `"add"`    | writes `gtd bundle`'s output to `.gtd/process.gtdpin` |
+| unpin | `unpin` | `"remove"` | `rm -f -- '.gtd/process.gtdpin'`                      |
+
+`pin` is the mark: a driver that wants to may write or delete
+`.gtd/process.gtdpin` its own way instead of running the script. A driver that
+ignores it runs the script like any other — the minimal driver below needs no
+change. Either way it then lands:
+
+- The pin's landing commits `.gtd/process.gtdpin` alone, as
+  `gtd(check): pin → <step>` with a `Gtd-Pin: add` trailer; any other pending
+  edit stays pending. Landing before the file exists is refused (exit `1`).
+- The turn that ends the flow lands as `gtd(<actor>): <step> → unpin`, and
+  `gtd land --json` reports `state: "unpin"` and `idle: false` for it: the
+  process is not over yet.
+- The unpin's landing is the commit that closes the process —
+  `gtd(check): unpin → <first step>` with a `Gtd-Pin: remove` trailer — and the
+  one that writes `refs/gtd/history/<entry>`. Landing it while the file is still
+  there is refused.
+
+Pin and unpin commits are no turns: replay steps over them, flow code never sees
+`.gtd/process.gtdpin`, and `gtd strays` never reports it. A squash of the whole
+process nets the file to nothing. `gtd abandon` removes the file with the rest
+of the process; `gtd restore` brings it back. A process started by an older gtd
+pins on its next beat.
+
 ### Drivers other than sh
 
 The protocol above is JSON in (from `gtd next --json` alone), subprocesses out —
@@ -564,20 +600,21 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 25 keys (21 of them outside `kind: "prompt"`, which is
-the only kind that ever carries `session`/`validate`/`skills`/`access`); a real
-driver reads 9 of the 25. The minimal driver below is the reference for exactly
-which: `kind`, `idle`, `content`, `log`, `session` (read as its two sub-paths,
+`gtd next --json` emits 26 keys (21 of them outside `kind: "prompt"`, which is
+the only kind that ever carries `session`/`validate`/`skills`/`access`, and
+`pin`, which only a pin or unpin beat carries); a real driver reads 9 of the 26.
+The minimal driver below is the reference for exactly which: `kind`, `idle`,
+`content`, `log`, `session` (read as its two sub-paths,
 `session.id`/`session.resume`), `model`, `system`, `validate`, and `judge` —
-every `--json=<path>` selector its `case` arms touch. The remaining 16
+every `--json=<path>` selector its `case` arms touch. The remaining 17
 (`schema`, `initial`, `state`, `actor`, `workflow`, `label`, `memory`, `file`,
 `mode`, `changes`, `next`, `cost`, `costByModel`, `skills`, `access`,
-`approvals`) are read only by a human looking at plain output, or by a driver
-author deciding what to log or preload — no `case` arm in THIS reference driver
-branches on them. This is a property of what a driver NEEDS, not a smaller wire:
-every key stays on every `gtd next --json` line, unconditionally, so
-`--json=<path>` keeps resolving the same way for a human poking at one field as
-for the reference driver reading nine of them in a loop.
+`approvals`, `pin`) are read only by a human looking at plain output, or by a
+driver author deciding what to log or preload — no `case` arm in THIS reference
+driver branches on them. This is a property of what a driver NEEDS, not a
+smaller wire: every key stays on every `gtd next --json` line, unconditionally,
+so `--json=<path>` keeps resolving the same way for a human poking at one field
+as for the reference driver reading nine of them in a loop.
 
 (`gtd land --json` is a separate command with its own eight-key document —
 `schema`/`script`/`settled`/`idle`/`state`/`subject`/`cost`/`model` — never a

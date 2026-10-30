@@ -680,8 +680,11 @@ Everything replay reads back out of git — the commit subject, the `Gtd-*`
 trailers, the steering files committed into a process, and the tip `gtd abandon`
 retains for `gtd restore` — is one versioned **history format**, recorded as a
 `Gtd-Format: <n>` trailer on every commit gtd writes. A commit without the
-trailer predates it and is format 1, the current format. The retained tip is
-versioned by that same trailer on the commit it points at.
+trailer predates it and is format 1. The current format is 2, which adds the pin
+and unpin commits (`Gtd-Pin: add` / `Gtd-Pin: remove`, see
+[Pin and unpin beats](driver.md#pin-and-unpin-beats)): replay steps over them,
+so a gtd that reads only format 1 would misread them as turns. The retained tip
+is versioned by that same trailer on the commit it points at.
 
 The format changes only when one of those encodings does, independently of gtd's
 own version. A gtd reads its current format and, after a change, at least the

@@ -46,7 +46,7 @@ describe("the commit-message codec", () => {
       reviewBase: "abc",
     })
     expect(message).toBe(
-      "gtd(human): fix-precheck\n\nGtd-Workflow: fix\nGtd-Review-Base: abc\nGtd-Format: 1",
+      "gtd(human): fix-precheck\n\nGtd-Workflow: fix\nGtd-Review-Base: abc\nGtd-Format: 2",
     )
     expect(parseCommitMessage(message).workflow).toBe("fix")
     expect(parseCommitMessage("gtd(human): fix-precheck").workflow).toBeUndefined()
@@ -56,7 +56,7 @@ describe("the commit-message codec", () => {
     const one = formatCommitMessage({ actor: "human", to: "x", vars: { b: "2", a: "1", c: "" } })
     const two = formatCommitMessage({ actor: "human", to: "x", vars: { c: "", a: "1", b: "2" } })
     expect(one).toBe(two)
-    expect(one).toBe("gtd(human): x\n\nGtd-Var: a=1\nGtd-Var: b=2\nGtd-Var: c=\nGtd-Format: 1")
+    expect(one).toBe("gtd(human): x\n\nGtd-Var: a=1\nGtd-Var: b=2\nGtd-Var: c=\nGtd-Format: 2")
     expect(parseCommitMessage(one).vars).toEqual({ a: "1", b: "2", c: "" })
   })
 
@@ -68,7 +68,7 @@ describe("the commit-message codec", () => {
       config: { "lib/my flow.ts": "0123456789abcdef", "gtd.config.ts": "deadbeefdeadbeef" },
     })
     expect(message).toBe(
-      "gtd(human): x\n\nGtd-Var: a=1\nGtd-Config: deadbeefdeadbeef gtd.config.ts\nGtd-Config: 0123456789abcdef lib/my flow.ts\nGtd-Format: 1",
+      "gtd(human): x\n\nGtd-Var: a=1\nGtd-Config: deadbeefdeadbeef gtd.config.ts\nGtd-Config: 0123456789abcdef lib/my flow.ts\nGtd-Format: 2",
     )
     expect(parseCommitMessage(message).config).toEqual({
       "gtd.config.ts": "deadbeefdeadbeef",
@@ -118,8 +118,8 @@ describe("the commit-message codec", () => {
   it("reads a Gtd-Version carrying control bytes as unknown, and keeps spaces and parens", () => {
     const withVersion = (value: string) =>
       formatCommitMessage({ actor: "a", to: "b" }).replace(
-        "Gtd-Format: 1",
-        `Gtd-Version: ${value}\nGtd-Format: 1`,
+        "Gtd-Format: 2",
+        `Gtd-Version: ${value}\nGtd-Format: 2`,
       )
     expect(parseCommitMessage(withVersion("1.0\u001b]0;x\u0007")).version).toBeUndefined()
     expect(parseCommitMessage(withVersion("1.0\u009b")).version).toBeUndefined()
@@ -135,15 +135,15 @@ describe("the commit-message codec", () => {
     expect(parsed.version).toBeUndefined()
   })
 
-  it("keeps Gtd-Format at 1 when branch and version are written", () => {
+  it("writes the current Gtd-Format when branch and version are written", () => {
     const message = formatCommitMessage({ actor: "a", to: "b", branch: "m", version: "1" })
-    expect(message.endsWith("Gtd-Format: 1")).toBe(true)
+    expect(message.endsWith("Gtd-Format: 2")).toBe(true)
   })
 
   it("writes Gtd-Format last on every message, even one with no other trailer", () => {
     const message = formatCommitMessage({ actor: "agent", to: "building" })
-    expect(message).toBe("gtd(agent): building\n\nGtd-Format: 1")
-    expect(parseCommitMessage(message).format).toBe(1)
+    expect(message).toBe("gtd(agent): building\n\nGtd-Format: 2")
+    expect(parseCommitMessage(message).format).toBe(2)
   })
 
   it("reads a message without Gtd-Format as format 1, and an explicit one as written", () => {
@@ -183,10 +183,10 @@ describe("Gtd-Kept", () => {
     expect(parseCommitMessage(`gtd(agent): a → b\n\nGtd-Kept: ${hash}0`).kept).toBeUndefined()
   })
 
-  it("reads undefined when absent, and leaves Gtd-Format at 1", () => {
+  it("reads undefined when absent, and leaves Gtd-Format at the current format", () => {
     const parsed = parseCommitMessage(formatCommitMessage({ actor: "agent", to: "b" }))
     expect(parsed.kept).toBeUndefined()
-    expect(parsed.format).toBe(1)
+    expect(parsed.format).toBe(2)
   })
 })
 
@@ -326,7 +326,7 @@ describe("Gtd-Mark", () => {
     const at = lines.findIndex((l) => l.startsWith("Gtd-Mark:"))
     expect(lines[at - 1]).toMatch(/^Gtd-Judge:/)
     expect(lines[at + 1]).toMatch(/^Gtd-Approved:/)
-    expect(lines).toContain("Gtd-Format: 1")
+    expect(lines).toContain("Gtd-Format: 2")
   })
 
   it("writes nothing without marks", () => {

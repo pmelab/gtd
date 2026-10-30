@@ -64,8 +64,9 @@ test("a plan is built, checked and handed to a human", async () => {
   })
 
   assert.equal(rest.state, "sign-off")
-  assert.deepEqual(repo.subjects().slice(-3), [
+  assert.deepEqual(repo.subjects().slice(-4), [
     "gtd(agent): plan → build",
+    "gtd(check): pin → build",
     "gtd(agent): build → test",
     "gtd(check): test → sign-off",
   ])
@@ -120,6 +121,12 @@ without resting fails the test instead of hanging it.
 
 `repo.drive(actors, { checks: "run" })` runs a check step without an actor as
 `runsItsScript` would, its commands canned.
+
+A drive takes a process's pin and unpin beats itself, as a driver would: it runs
+their script and lands, so `.gtd/process.gtdpin` is committed after the start
+and removed by the commit that closes the process. Their commits show up in
+`repo.subjects()` (`gtd(check): pin → <step>`, `gtd(check): unpin → <step>`); no
+actor is needed or taken for them.
 
 A drive is strict: it fails where a mistake would otherwise pass unnoticed:
 

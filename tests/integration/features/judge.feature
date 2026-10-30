@@ -177,6 +177,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → working"
+    And I run the pin beat
 
     Given a file "src/a.ts" with:
       """
@@ -254,6 +255,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start → checking"
+    And I run the pin beat
 
     # Round 1: no .gtd/PRIOR_FEEDBACK.md written — bypasses the judge
     # entirely, straight to fixing. The first red round pays for no judgment.
@@ -354,6 +356,7 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): start → checking"
+    And I run the pin beat
 
     Given a file ".gtd/FEEDBACK.md" with:
       """

@@ -46,6 +46,7 @@ Feature: --json on every command that prints a script
       Build a thing.
       """
     And I run gtd land
+    And I run the pin beat
     And the file "NOTE.md" is deleted
     And I run gtd land
     When I run in the shell:

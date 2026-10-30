@@ -1,6 +1,14 @@
 import type { BeatKind, Demand, DemandSession } from "./Demand.js"
 import type { BeatStatus, NextMatch, StatusChange } from "./BeatStatus.js"
-import type { Actor, ApprovalEntry, ModelCost, StateMode, StateName, StepAccess } from "./types.js"
+import type {
+  Actor,
+  ApprovalEntry,
+  ModelCost,
+  PinMark,
+  StateMode,
+  StateName,
+  StepAccess,
+} from "./types.js"
 import { WIRE_SCHEMA } from "./constants.js"
 
 /** `gtd next --json`'s `next` key — `null` when landing would commit nothing. */
@@ -27,20 +35,30 @@ const dispatchFieldsOf = (
   readonly validate: string | undefined
   readonly skills: readonly string[] | undefined
   readonly access: StepAccess | undefined
+  readonly pin: PinMark | undefined
 } => {
+  const none = {
+    session: undefined,
+    validate: undefined,
+    skills: undefined,
+    access: undefined,
+    pin: undefined,
+  }
   switch (demand.kind) {
     case "prompt":
       return {
+        ...none,
         session: demand.session,
         validate: demand.validate,
         skills: demand.skills,
         access: demand.access,
       }
+    case "script":
+      return { ...none, pin: demand.pin }
     case "capture":
     case "message":
-    case "script":
     case "stalled":
-      return { session: undefined, validate: undefined, skills: undefined, access: undefined }
+      return none
     default:
       return assertNeverDemand(demand)
   }
@@ -57,6 +75,8 @@ export interface BeatDocument {
   readonly model: string | undefined
   readonly system: string | undefined
   readonly validate: string | undefined
+  /** On a pin or unpin beat only: what its script does to `.gtd/process.gtdpin`. */
+  readonly pin: PinMark | undefined
   readonly log: string
   readonly state: StateName
   readonly actor: Actor
@@ -76,13 +96,13 @@ export interface BeatDocument {
 }
 
 /**
- * Flatten a `Demand` plus its `BeatStatus` into the single 25-key document
+ * Flatten a `Demand` plus its `BeatStatus` into the single 26-key document
  * `gtd next --json` emits — the ONLY place the two are joined. `cost`/
  * `costByModel` are omitted together, exactly when no cost was recorded
  * (`cost <= 0`).
  */
 export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument => {
-  const { session, validate, skills, access } = dispatchFieldsOf(demand)
+  const { session, validate, skills, access, pin } = dispatchFieldsOf(demand)
   const hasCost = status.cost > 0
   return {
     schema: WIRE_SCHEMA,
@@ -94,6 +114,7 @@ export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument =
     model: status.model,
     system: status.system,
     validate,
+    pin,
     log: status.log,
     state: status.state,
     actor: status.actor,

@@ -37,6 +37,8 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
       """
 
     And gtd lands "gtd(human): idle → working"
+
+    And I run the pin beat
     And the git index has settled
     And I snapshot the repository
     When I run gtd next with "--json"
@@ -73,6 +75,8 @@ Feature: Reads are safe to poll — a settled rest answers identically and mutat
       """
 
     And gtd lands "gtd(human): idle → working"
+
+    And I run the pin beat
     And a file "notes/sketch.md" with:
       """
       the developed sketch

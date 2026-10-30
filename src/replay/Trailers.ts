@@ -4,6 +4,7 @@
 // command unusable.
 
 import type { Mark } from "../flows/index.js"
+import type { PinMark } from "../wire/index.js"
 import { HISTORY_FORMAT } from "./Format.js"
 
 const TRANSITION_SEP = " → "
@@ -67,6 +68,11 @@ export interface Approval {
   readonly email: string
 }
 
+export type PinChange = PinMark
+
+/** What a pin and an unpin beat rest at, and their commits name — neither is a step of the workflow. */
+export const PIN_STATES: Readonly<Record<PinChange, string>> = { add: "pin", remove: "unpin" }
+
 export interface CommitMessage {
   readonly subject: string
   readonly parsed: ParsedSubject | undefined
@@ -88,6 +94,8 @@ export interface CommitMessage {
   readonly kept: string | undefined
   /** `Gtd-Approved`; a malformed or control-character value is skipped. */
   readonly approved: Approval | undefined
+  /** `Gtd-Pin`: a commit that adds or removes the pin — never a turn. */
+  readonly pin: PinChange | undefined
   readonly format: number
 }
 
@@ -156,6 +164,7 @@ interface Trailers {
   version: string | undefined
   kept: string | undefined
   approved: Approval | undefined
+  pin: PinChange | undefined
   readonly judge: JudgeVerdict[]
   readonly marks: Mark[]
   readonly vars: Record<string, string>
@@ -206,6 +215,9 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
   "Gtd-Approved": (value, into) => {
     into.approved ??= decodeApproval(value)
   },
+  "Gtd-Pin": (value, into) => {
+    if (value === "add" || value === "remove") into.pin ??= value
+  },
   "Gtd-Format": (value, into) => {
     if (FORMAT_RE.test(value)) into.format ??= Number(value)
   },
@@ -226,6 +238,7 @@ export const parseCommitMessage = (message: string): CommitMessage => {
     version: undefined,
     kept: undefined,
     approved: undefined,
+    pin: undefined,
     judge: [],
     marks: [],
     vars: {},
@@ -256,6 +269,7 @@ export interface CommitSpec {
   readonly marks?: readonly Mark[]
   /** Written after `Gtd-Mark`, before `Gtd-Branch`. */
   readonly approved?: Approval
+  readonly pin?: PinChange
   readonly branch?: string
   readonly version?: string
 }
@@ -264,27 +278,28 @@ const sortedEntries = (record: Readonly<Record<string, string>> = {}): [string, 
   Object.entries(record).sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
 
 /** Trailer order is fixed so the same spec always yields the same bytes. */
+const trailer = (name: string, value: string | undefined): readonly string[] =>
+  value === undefined ? [] : [`Gtd-${name}: ${value}`]
+
+const costValue = (cost: CommitSpec["cost"]): string | undefined =>
+  cost === undefined ? undefined : `${cost.cost}${cost.model !== undefined ? ` ${cost.model}` : ""}`
+
 export const formatCommitMessage = (spec: CommitSpec): string => {
-  const lines: string[] = []
-  if (spec.step !== undefined) lines.push(`Gtd-Step: ${formatStepId(spec.step)}`)
-  if (spec.workflow !== undefined) lines.push(`Gtd-Workflow: ${spec.workflow}`)
-  if (spec.reviewBase !== undefined) lines.push(`Gtd-Review-Base: ${spec.reviewBase}`)
-  for (const [name, value] of sortedEntries(spec.vars)) lines.push(`Gtd-Var: ${name}=${value}`)
-  for (const [path, hash] of sortedEntries(spec.config))
-    lines.push(`Gtd-Config: ${hash} ${encodePath(path)}`)
-  if (spec.cost !== undefined) {
-    lines.push(
-      `Gtd-Cost: ${spec.cost.cost}${spec.cost.model !== undefined ? ` ${spec.cost.model}` : ""}`,
-    )
-  }
-  for (const verdict of spec.judge ?? []) lines.push(`Gtd-Judge: ${JSON.stringify(verdict)}`)
-  for (const m of spec.marks ?? []) lines.push(`Gtd-Mark: ${m.name}=${m.value}`)
-  if (spec.approved !== undefined) {
-    lines.push(`Gtd-Approved: ${encodeApproval(spec.approved)}`)
-  }
-  if (spec.branch !== undefined) lines.push(`Gtd-Branch: ${spec.branch}`)
-  if (spec.version !== undefined) lines.push(`Gtd-Version: ${spec.version}`)
-  lines.push(`Gtd-Format: ${HISTORY_FORMAT}`)
+  const lines = [
+    ...trailer("Step", spec.step && formatStepId(spec.step)),
+    ...trailer("Workflow", spec.workflow),
+    ...trailer("Review-Base", spec.reviewBase),
+    ...sortedEntries(spec.vars).map(([name, value]) => `Gtd-Var: ${name}=${value}`),
+    ...sortedEntries(spec.config).map(([path, hash]) => `Gtd-Config: ${hash} ${encodePath(path)}`),
+    ...trailer("Cost", costValue(spec.cost)),
+    ...(spec.judge ?? []).map((verdict) => `Gtd-Judge: ${JSON.stringify(verdict)}`),
+    ...(spec.marks ?? []).map((m) => `Gtd-Mark: ${m.name}=${m.value}`),
+    ...trailer("Approved", spec.approved && encodeApproval(spec.approved)),
+    ...trailer("Pin", spec.pin),
+    ...trailer("Branch", spec.branch),
+    ...trailer("Version", spec.version),
+    `Gtd-Format: ${HISTORY_FORMAT}`,
+  ]
   const subject = formatSubject(spec.actor, spec.to, spec.from)
   return `${subject}\n\n${lines.join("\n")}`
 }

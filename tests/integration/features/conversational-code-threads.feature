@@ -63,6 +63,7 @@ Feature: Code threads — an H:/A: conversation in line comments of changed code
       Add a `greet()` export.
       """
     And gtd lands "gtd(human): idle → drafting"
+    And I run the pin beat
     And ".gtd/PLAN.md" is modified to:
       """
       ## Open Questions
@@ -102,6 +103,7 @@ Feature: Code threads — an H:/A: conversation in line comments of changed code
         Add a `greet()` export.
         """
       And gtd lands "gtd(human): idle → drafting"
+      And I run the pin beat
       And ".gtd/PLAN.md" is modified to:
         """
         ## Open Questions

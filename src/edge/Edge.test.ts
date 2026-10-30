@@ -30,6 +30,7 @@ import {
   applyEmittedScript,
   makeCapturingCliIo,
   makeInMemoryWorkspaceOps,
+  takePinBeat,
   testLayers,
 } from "../twins/index.js"
 
@@ -74,7 +75,7 @@ const write = (repo: InMemRepo, files: Files): void => {
   for (const [path, content] of Object.entries(files)) repo.writeFile(path, content)
 }
 
-const headOf = (repo: InMemRepo): string => repo.resolveRef("HEAD")!
+const headOf = (repo: InMemRepo, ref = "HEAD"): string => repo.resolveRef(ref)!
 
 const repoWith = (config: string, files: Files = {}): InMemRepo => {
   const repo = new InMemRepo()
@@ -95,19 +96,27 @@ const applied = (repo: InMemRepo, script: string): string => {
   return headOf(repo)
 }
 
-/** Lands the pending turn the way a driver does — `gtd land --json`, then its script — and returns the new HEAD. */
+/**
+ * Lands the pending turn the way a driver does — `gtd land --json`, then its
+ * script, then the pin or unpin beat it leads to — and returns the turn's
+ * commit, or the closing commit when the turn led to the unpin.
+ */
 const land = async (repo: InMemRepo, files: Files = {}): Promise<string> => {
   write(repo, files)
   const { stdout, stderr, exitCode } = await cli(repo, "land", "--json")
   if (exitCode !== 0) throw new Error(`gtd land exited ${exitCode}: ${stderr}${stdout}`)
-  return applied(repo, (JSON.parse(stdout) as { readonly script: string }).script)
+  const turn = applied(repo, (JSON.parse(stdout) as { readonly script: string }).script)
+  await takePinBeat(repo, "add")
+  return (await takePinBeat(repo, "remove")) ? headOf(repo) : turn
 }
 
 const enter = async (repo: InMemRepo, workflow: string, ...vars: string[]): Promise<string> => {
   const flags = vars.flatMap((v) => ["--var", v])
   const { stdout, stderr, exitCode } = await cli(repo, "start", workflow, ...flags)
   if (exitCode !== 0) throw new Error(`gtd start exited ${exitCode}: ${stderr}`)
-  return applied(repo, stdout)
+  const opening = applied(repo, stdout)
+  await takePinBeat(repo, "add")
+  return opening
 }
 
 /** Commits an exact message — for trailers no landing writes on its own. */
@@ -174,7 +183,11 @@ describe("currentRun", () => {
       { state: "checking", hash: checking, actor: "agent" },
     ])
     expect(run.episode.base).toBe(boundary)
-    expect(run.episode.commits.map((c) => c.hash)).toEqual([building, checking])
+    expect(run.episode.commits.map((c) => c.message.split("\n")[0])).toEqual([
+      "gtd(human): idle → building",
+      "gtd(check): pin → building",
+      "gtd(agent): building → checking",
+    ])
   })
 
   it("a non-gtd commit on top of a process bounds a fresh episode", async () => {
@@ -192,7 +205,7 @@ describe("currentRun", () => {
     await land(repo, { "a.txt": "a\n" })
     await land(repo, { "b.txt": "b\n" })
     const closing = await land(repo, { "c.txt": "c\n" })
-    expect(repo.lastCommitSubject()).toBe("gtd(agent): checking → idle")
+    expect(repo.lastCommitSubject()).toBe("gtd(check): unpin → idle")
     const next = await land(repo, { "d.txt": "d\n" })
     const run = await provide(currentRun, repo)
     expect(run.startParentHash).toBe(closing)
@@ -203,8 +216,8 @@ describe("currentRun", () => {
     const repo = repoWith(LINEAR)
     const before = headOf(repo)
     const opening = await enter(repo, "side")
-    expect(repo.lastCommitMessage()).toBe(
-      `gtd(human): fixing\n\nGtd-Workflow: side\nGtd-Var: base=\nGtd-Var: reviewer=nobody\nGtd-Config: ${contentHash(LINEAR)} gtd.config.ts\nGtd-Format: 1`,
+    expect(repo.lastCommitMessage(opening)).toBe(
+      `gtd(human): fixing\n\nGtd-Workflow: side\nGtd-Var: base=\nGtd-Var: reviewer=nobody\nGtd-Config: ${contentHash(LINEAR)} gtd.config.ts\nGtd-Format: 2`,
     )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
@@ -216,7 +229,7 @@ describe("currentRun", () => {
       { state: "tidying", hash: fixed, actor: "agent" },
     ])
     expect(run.episode.base).toBe(opening)
-    expect(run.episode.commits.map((c) => c.hash)).toEqual([fixed])
+    expect(run.episode.commits.map((c) => c.hash)).toEqual([headOf(repo, `${fixed}~1`), fixed])
   })
 
   it("a workflow starting at the default's initial step still opens its own episode, not the empty tree", async () => {
@@ -236,8 +249,8 @@ export const again = workflow(async () => {
     const repo = repoWith(STARTS_AT_INITIAL)
     const before = headOf(repo)
     const opening = await enter(repo, "again")
-    expect(repo.lastCommitMessage()).toBe(
-      `gtd(human): idle\n\nGtd-Workflow: again\nGtd-Config: ${contentHash(STARTS_AT_INITIAL)} gtd.config.ts\nGtd-Format: 1`,
+    expect(repo.lastCommitMessage(opening)).toBe(
+      `gtd(human): idle\n\nGtd-Workflow: again\nGtd-Config: ${contentHash(STARTS_AT_INITIAL)} gtd.config.ts\nGtd-Format: 2`,
     )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
@@ -374,15 +387,23 @@ export const again = workflow(async () => {
     it("describes a step commit that changed something", async () => {
       const repo = repoWith(LINEAR)
       await land(repo, { "a.txt": "a\n" })
+      await land(repo, { "b.txt": "b\n" })
       const run = await provide(currentRun, repo)
-      expect(run.headTurn).toEqual({ state: "building", actor: "human", empty: false, step: true })
+      expect(run.headTurn).toEqual({ state: "checking", actor: "agent", empty: false, step: true })
+    })
+
+    it("is undefined at a pin commit, which is no turn", async () => {
+      const repo = repoWith(LINEAR)
+      await land(repo, { "a.txt": "a\n" })
+      expect(repo.lastCommitSubject()).toBe("gtd(check): pin → building")
+      expect((await provide(currentRun, repo)).headTurn).toBeUndefined()
     })
 
     it("describes an attempt: a step-less, empty commit", async () => {
       const repo = repoWith(LINEAR)
       await land(repo, { "a.txt": "a\n" })
       await land(repo)
-      expect(repo.lastCommitMessage()).toBe("gtd(agent): building\n\nGtd-Format: 1")
+      expect(repo.lastCommitMessage()).toBe("gtd(agent): building\n\nGtd-Format: 2")
       const run = await provide(currentRun, repo)
       expect(run.headTurn).toEqual({ state: "building", actor: "agent", empty: true, step: false })
     })
@@ -523,7 +544,8 @@ describe("summaryRun", () => {
     expect(summary.trace).toEqual([
       { state: "building", hash: building, actor: "human" },
       { state: "checking", hash: checking, actor: "agent" },
-      { state: "idle", hash: closing, actor: "agent" },
+      { state: "unpin", hash: headOf(repo, `${closing}~1`), actor: "agent" },
+      { state: "idle", hash: closing, actor: "check" },
     ])
   })
 
@@ -635,7 +657,9 @@ export default workflow(async () => {
       `--model=${model}`,
     )
     if (exitCode !== 0) throw new Error(`gtd land exited ${exitCode}: ${stderr}${stdout}`)
-    return applied(repo, (JSON.parse(stdout) as { readonly script: string }).script)
+    const turn = applied(repo, (JSON.parse(stdout) as { readonly script: string }).script)
+    await takePinBeat(repo, "add")
+    return (await takePinBeat(repo, "remove")) ? headOf(repo) : turn
   }
   type Rendered = {
     entryCommit: string
@@ -711,6 +735,7 @@ describe("restAt", () => {
       )
       expect(exitCode).toBe(0)
       await applied(repo, (JSON.parse(stdout) as { readonly script: string }).script)
+      await takePinBeat(repo, "add")
     }
     const { cost } = await provide(currentRest, repo)
     expect(cost.total).toBe(11)
@@ -806,6 +831,7 @@ export const review = workflow(async () => {
   it("is the base the resting step names", async () => {
     const repo = repoWith(LOOP)
     const first = await land(repo, { "a.txt": "a\n" })
+    expect(repo.lastCommitSubject()).toBe("gtd(check): pin → checkpoint")
     expect(reviewBaseFor(await provide(currentRest, repo))).toBe(first)
     await land(repo, { "b.txt": "b\n" })
     expect(reviewBaseFor(await provide(currentRest, repo))).toBe(first)
@@ -1043,8 +1069,8 @@ export default workflow(async () => {
 
   it("an ordinary start's first commit pins every process setting, sorted by name", async () => {
     const repo = repoWith(LINEAR)
-    await land(repo, { "a.txt": "a\n" })
-    expect(repo.lastCommitMessage()).toContain(
+    const start = await land(repo, { "a.txt": "a\n" })
+    expect(repo.lastCommitMessage(start)).toContain(
       "\n\nGtd-Step: idle#1\nGtd-Var: base=\nGtd-Var: reviewer=nobody",
     )
     await land(repo)
@@ -1265,13 +1291,34 @@ describe("finishing landings keep history", () => {
     return landing
   }
 
+  /** Lands the turn that ends the flow, and runs the unpin beat's script without landing it. */
+  const toUnpin = async (repo: InMemRepo, files: Files) => {
+    write(repo, files)
+    const turn = await cli(repo, "land", "--json")
+    applied(repo, (JSON.parse(turn.stdout) as { readonly script: string }).script)
+    const beat = await cli(repo, "next", "--json")
+    applied(repo, (JSON.parse(beat.stdout) as { readonly content: string }).content)
+  }
+
+  it("a pinned process's last turn lands at the unpin, keeping no history yet", async () => {
+    const repo = repoWith(LINEAR)
+    await land(repo, { "a.txt": "a\n" })
+    await land(repo, { "b.txt": "b\n" })
+    repo.writeFile("c.txt", "c\n")
+    const landing = await landingOf(repo)
+    expect(landing.to).toBe("unpin")
+    expect(landing.keepHistory).toBeUndefined()
+    expect(landing.spec.version).toBeUndefined()
+  })
+
   it("flow return: keeps refs/gtd/history/<startHash>, records version and branch", async () => {
     const repo = repoWith(LINEAR)
     const building = await land(repo, { "a.txt": "a\n" })
     await land(repo, { "b.txt": "b\n" })
-    repo.writeFile("c.txt", "c\n")
+    await toUnpin(repo, { "c.txt": "c\n" })
     const landing = await landingOf(repo)
     expect(landing.to).toBe("idle")
+    expect(landing.spec.pin).toBe("remove")
     expect(landing.keepHistory).toBe(processHistoryRef(building))
     expect(landing.spec.version).toBe(GTD_VERSION)
     expect(landing.spec.branch).toBe(repo.branchName())
@@ -1287,7 +1334,7 @@ export default async () => {
 }
 `)
     const building = await land(repo, { "a.txt": "a\n" })
-    repo.writeFile("b.txt", "b\n")
+    await toUnpin(repo, { "b.txt": "b\n" })
     const landing = await landingOf(repo)
     expect(landing.to).toBe("idle")
     expect(landing.keepHistory).toBe(processHistoryRef(building))
@@ -1314,7 +1361,7 @@ export default async () => {
     const repo = repoWith(LINEAR)
     const building = await land(repo, { "a.txt": "a\n" })
     await land(repo, { "b.txt": "b\n" })
-    repo.writeFile("c.txt", "c\n")
+    await toUnpin(repo, { "c.txt": "c\n" })
     const detached: GitOperations = {
       ...fakeGitOperations(repo),
       currentBranch: () => Effect.succeed(Option.none()),
@@ -1338,7 +1385,7 @@ export const side = workflow(async () => {
 })
 `)
     const opening = await enter(repo, "side")
-    repo.writeFile("a.txt", "a\n")
+    await toUnpin(repo, { "a.txt": "a\n" })
     const landing = await landingOf(repo)
     expect(landing.to).toBe("idle")
     expect(landing.keepHistory).toBe(processHistoryRef(opening))
@@ -1468,14 +1515,20 @@ describe("historyTrail", () => {
     const trail = await provide(historyTrail(tip), repo)
     expect(trail.tip).toBe(tip)
     expect(trail.ended).toBe("return")
-    expect(trail.steps.map((s) => s.hash)).toEqual([building, checking, tip])
+    expect(trail.steps.map((s) => s.hash)).toEqual([
+      building,
+      checking,
+      headOf(repo, `${tip}~1`),
+      tip,
+    ])
     expect(trail.steps[2]).toMatchObject({
-      subject: "gtd(agent): checking → idle",
+      subject: "gtd(agent): checking → unpin",
       actor: "agent",
       from: "checking",
-      to: "idle",
+      to: "unpin",
       verdicts: [],
     })
+    expect(trail.steps[3]).toMatchObject({ subject: "gtd(check): unpin → idle", actor: "check" })
     expect(trail.steps[0]).toMatchObject({ actor: "human", to: "building" })
   })
 
@@ -1628,7 +1681,7 @@ export default async () => {
         )
       }).pipe(Effect.provide(testLayers(repo, {}))),
     )
-    expect(trail.steps).toHaveLength(3)
+    expect(trail.steps).toHaveLength(4)
     expect(calls).toBe(1)
   })
 

@@ -636,6 +636,13 @@ included, as one gzipped ES module after a plain-text
 `gtdpin <format> gtd <version>` line. A workflow using a package with a native
 addon cannot be pinned.
 
+Every process commits its pin: its first beat after it starts is a pin beat
+writing `gtd bundle`'s output to `.gtd/process.gtdpin`, and its last, once the
+flow has ended, an unpin beat removing it — the commit that closes the process.
+Both are ordinary `script` beats a driver runs unattended; see
+[Pin and unpin beats](https://github.com/pmelab/gtd/blob/main/docs/driver.md#pin-and-unpin-beats).
+Histories with pin commits are history format 2, which an older gtd refuses.
+
 ## License
 
 MIT

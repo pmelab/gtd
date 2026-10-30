@@ -1,7 +1,7 @@
 import { formatCommitMessage, type JudgeVerdict } from "../replay/index.js"
 import type { StateName } from "../workflow/index.js"
-import type { LandStep } from "./LandStep.js"
-import type { RepoSnapshot } from "./RepoSnapshot.js"
+import type { GitWrite, LandStep } from "./LandStep.js"
+import type { Landing, RepoSnapshot } from "./RepoSnapshot.js"
 
 export type { JudgeVerdict }
 
@@ -34,6 +34,13 @@ const uncheckStep = (snapshot: RepoSnapshot): readonly LandStep[] =>
   snapshot.file !== undefined
     ? [{ kind: "uncheck", file: snapshot.file }]
     : []
+
+const gitWriteOf = (landing: Extract<Landing, { kind: "commit" }>, message: string): GitWrite => {
+  if (landing.only !== undefined) return { kind: "commitPath", path: landing.only, message }
+  if (landing.keepTurn !== undefined) return { kind: "keepTurn", ref: landing.keepTurn, message }
+  if (landing.spec.approved !== undefined) return { kind: "commitClean", message }
+  return { kind: "commitAll", message }
+}
 
 export const planStep = (
   snapshot: RepoSnapshot,
@@ -84,12 +91,7 @@ export const planStep = (
       ...uncheckStep(snapshot),
       {
         kind: "gitWrite",
-        write:
-          landing.keepTurn !== undefined
-            ? { kind: "keepTurn", ref: landing.keepTurn, message }
-            : landing.spec.approved !== undefined
-              ? { kind: "commitClean", message }
-              : { kind: "commitAll", message },
+        write: gitWriteOf(landing, message),
       },
       ...(landing.keepHistory !== undefined
         ? [

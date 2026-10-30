@@ -5,10 +5,11 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
   src/edge/Edge.ts). Proves the rewritten edge/CLI wiring
   end to end: a handful of hops through every step kind of one inline flow,
   the `gtd next --json` contract, and a custom `gtd.config.ts` workflow whose
-  sign-off lands an ordinary commit entering its initial state, retaining
-  every prior turn commit. Comprehensive coverage (every state, retry/
-  escalation, the full check/fix/review tail, both refusal shapes) has its own
-  dedicated feature files — see refusals.feature and retry.feature.
+  sign-off, closed by its unpin beat, lands an ordinary commit entering its
+  initial state, retaining every prior turn commit. Comprehensive coverage
+  (every state, retry/escalation, the full check/fix/review tail, both
+  refusal shapes) has its own dedicated feature files — see refusals.feature
+  and retry.feature.
 
   Scenario: a happy path advances idle -> checking -> designing -> approving -> judging -> applying -> idle
     Given a test project
@@ -46,6 +47,7 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → checking"
+    And I run the pin beat
     # The green check: a clean tree (the command passes) advances to designing.
     When I run gtd land
     Then it succeeds
@@ -77,7 +79,9 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): applying → idle"
+    And the last commit subject is "gtd(check): applying → unpin"
+    And I run the unpin beat
+    And the last commit subject is "gtd(check): unpin → idle"
     And ".gtd/REQUIREMENTS.md" does not exist
     And "src/feature.ts" exists
 
@@ -118,16 +122,20 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → working"
+    And I run the pin beat
     Given a file "src/milk.ts" with:
       """
       export const milk = "remembered"
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): working → idle"
+    And the last commit subject is "gtd(agent): working → unpin"
+    And I run the unpin beat
+    And the last commit subject is "gtd(check): unpin → idle"
     And "NOTE.md" exists
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"idle\":true"
-    # both turn commits stay on the branch — no collapse.
-    And the commit count increased by 2
+    # both turn commits and the pin and unpin beats stay on the branch — no
+    # collapse.
+    And the commit count increased by 4

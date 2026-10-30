@@ -27,6 +27,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file "PLAN.md" with:
       """
       Paragraph zero here.
@@ -54,6 +55,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file "PLAN.md" with:
       """
       Paragraph zero here.
@@ -91,6 +93,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file "PLAN.md" with:
       """
       Paragraph zero here.
@@ -119,6 +122,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file "PLAN.md" with:
       """
       Paragraph zero here.
@@ -147,6 +151,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file ".gtd/PLAN.md" with:
       """
       Paragraph zero here.
@@ -180,6 +185,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file ".gtd/PLAN.md" with:
       """
       Paragraph zero here.
@@ -213,6 +219,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file ".gtd/REVIEW.md" with:
       """
       # Review: abc1234
@@ -256,6 +263,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file ".gtd/PLAN.md" with:
       """
       Paragraph zero here.
@@ -305,6 +313,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file ".gtd/PLAN.md" with:
       """
       Paragraph zero here.
@@ -339,6 +348,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file ".gtd/PLAN.md" with:
       """
       Paragraph zero here.
@@ -371,6 +381,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file ".gtd/PLAN.md" with:
       """
       Sample plan.
@@ -409,6 +420,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file ".gtd/PLAN.md" with:
       """
       Sample plan.
@@ -454,6 +466,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     And a file ".gtd/PLAN.md" with:
       """
       Paragraph zero here.

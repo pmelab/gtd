@@ -34,6 +34,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       a sketch
       """
     And gtd lands "gtd(human): idle → design.triage"
+    And I run the pin beat
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"design.triage\""
@@ -90,6 +91,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       a sketch
       """
     And gtd lands "gtd(human): idle → build.fix"
+    And I run the pin beat
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.fix\""
@@ -146,6 +148,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       a sketch
       """
     And gtd lands "gtd(human): idle → build.fix"
+    And I run the pin beat
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"build.fix\""
@@ -226,6 +229,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       a sketch
       """
     And gtd lands "gtd(human): idle → implement.building"
+    And I run the pin beat
     When I run gtd next with "--json"
     Then it succeeds
     And I record the json field "memory" as "the builder's turn"
@@ -269,6 +273,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       a sketch
       """
     And gtd lands "gtd(human): idle → build.work"
+    And I run the pin beat
     And a file "src/widget.ts" with:
       """
       export const widget = () => undefined
@@ -336,6 +341,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       a sketch
       """
     And gtd lands "gtd(human): idle → design.triage"
+    And I run the pin beat
     And a file "PLAN.md" with:
       """
       round 1
@@ -408,6 +414,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       a sketch
       """
     And gtd lands "gtd(human): idle → design.triage"
+    And I run the pin beat
     When I run gtd next with "--json"
     Then it succeeds
     And I record the json field "memory" as "the design conversation's turn"
@@ -462,6 +469,7 @@ Feature: Machine-scoped memory — a computed <scope>#<hash> key, not an authore
       a note
       """
     And gtd lands "gtd(human): idle → draft"
+    And I run the pin beat
     And a file "DRAFT.md" with:
       """
       a draft

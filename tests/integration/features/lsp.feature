@@ -69,6 +69,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -102,6 +103,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       the plan under development
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -134,6 +136,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       }, { defaults })
       """
     And I run gtd with args "start reviewCheck --var planFile=OTHER.md"
+    And I run the pin beat
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -203,6 +206,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -392,6 +396,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -446,6 +451,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
       """
       Build a calculator.
@@ -476,6 +482,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -516,6 +523,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
@@ -560,6 +568,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error

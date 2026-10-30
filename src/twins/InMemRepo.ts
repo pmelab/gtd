@@ -474,6 +474,20 @@ export class InMemRepo {
     this.resetHard()
   }
 
+  /** Twin of `GitScript.commitPath`: commits `path` as the worktree has it, every other staged change left staged. */
+  commitPath(path: string, message: string): string | undefined {
+    if (!this.worktree.has(path) && !this.headTree().has(path) && !this.index.has(path)) {
+      return `error: pathspec '${path}' did not match any file(s) known to git`
+    }
+    const staged = new Map(this.index)
+    this.index = new Map(this.headTree())
+    this.stage(path)
+    const failure = this.commitAsIs(message)
+    this.index = staged
+    this.stage(path)
+    return failure
+  }
+
   commitAllWithPrefix(prefix: string): string | undefined {
     this.index = new Map(this.worktree)
     return this.commitAsIs(prefix)

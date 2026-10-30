@@ -19,6 +19,8 @@ export type Landing =
       readonly keepHistory?: string
       /** The kept ref this landing's turn goes to; the branch gets a marker commit instead. */
       readonly keepTurn?: string
+      /** The one path this landing commits; every other pending change stays pending. */
+      readonly only?: string
     }
 
 /**

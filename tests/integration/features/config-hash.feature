@@ -62,6 +62,7 @@ Feature: a config change during a running process is visible
   Scenario: changing a local import mid-process warns, naming the file, and the process goes on
     When I run gtd with args "start working"
     Then it succeeds
+    And I run the pin beat
     Given a file "brief.ts" with:
       """
       export const brief = "do the work, differently"
@@ -87,6 +88,7 @@ Feature: a config change during a running process is visible
       Gtd-Workflow: working
       Gtd-Format: 1
       """
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout contains "do the work"
@@ -159,6 +161,7 @@ Feature: a config change during a running process is visible
     When I run gtd with args "start judged"
     Then it succeeds
     And the last commit subject is "gtd(human): judging"
+    And I run the pin beat
     Given a file "brief.ts" with:
       """
       export const brief = "do the work, differently"

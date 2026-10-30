@@ -6,6 +6,7 @@ import {
   changes,
   changesSince,
   codeThreads,
+  head,
   human,
   judge,
   kept,
@@ -1215,5 +1216,58 @@ describe("human({ approve })", () => {
       await human("after")
     }, h)
     expect(outcome.kind).toBe("rest")
+  })
+})
+
+describe("pin commits", () => {
+  const PIN = ".gtd/process.gtdpin"
+  const pinned = () =>
+    new History()
+      .land("human", "idle", 1, "build", { "NOTE.md": "n" })
+      .raw("gtd(check): pin → build\n\nGtd-Pin: add", { [PIN]: "gtdpin 1 gtd 1\n" })
+
+  it("are never a turn: the next step answers from the commit after the pin", async () => {
+    const flow = async () => {
+      await human("idle")
+      await agent("build", "b")
+      await agent("check", "c")
+    }
+    const h = pinned().land("agent", "build", 1, "check", { "a.ts": "a" })
+    expect(restName(await replayOf(flow, h))).toBe("check#1")
+  })
+
+  it("hide the pin from every tree flow code reads, so a turn's changes leave it out", async () => {
+    let seen: { readonly changed: readonly string[]; readonly pin: string | undefined } | undefined
+    const flow = async () => {
+      await human("idle")
+      await agent("build", "b")
+      seen = { changed: changes().map((c) => c.path), pin: read(PIN) }
+      await agent("check", "c")
+    }
+    const h = pinned().land("agent", "build", 1, "check", { "a.ts": "a" })
+    await replayOf(flow, h)
+    expect(seen).toEqual({ changed: ["a.ts"], pin: undefined })
+  })
+
+  it("are never what head() names: a flow reverting the start reverts the turn", async () => {
+    let named: string | undefined
+    const flow = async () => {
+      await human("idle")
+      named = head()
+      await agent("build", "b")
+    }
+    await replayOf(flow, pinned())
+    expect(named).toBe(hashOf(1))
+  })
+
+  it("trailing an ended flow are no divergence", async () => {
+    const flow = async () => {
+      await human("idle")
+      await agent("build", "b")
+    }
+    const h = pinned()
+      .land("agent", "build", 1, "unpin", { "a.ts": "a" })
+      .raw("gtd(check): unpin → idle\n\nGtd-Pin: remove", { [PIN]: null })
+    expect((await replayOf(flow, h)).kind).toBe("ended")
   })
 })

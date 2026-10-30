@@ -10,6 +10,9 @@ export type StateName = string
 /** The three content kinds a state can carry — exactly one per state. */
 export type ContentKind = "script" | "prompt" | "message"
 
+/** What a pin or unpin beat does to the pin; a driver may do it its own way instead of running the script. */
+export type PinMark = "add" | "remove"
+
 /** The name of a steering-file mode. Not a closed vocabulary: the valid set derives from the active definition (`BUILT_IN_MODES` plus whatever `modes:` declares). */
 export type StateMode = string
 
@@ -51,4 +54,5 @@ export interface RenderedDemandSource {
   readonly judge?: string
   readonly skills?: readonly string[]
   readonly access?: StepAccess
+  readonly pin?: PinMark
 }

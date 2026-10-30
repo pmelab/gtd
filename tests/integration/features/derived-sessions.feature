@@ -38,6 +38,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
 
     When I run gtd next with "--json"
     Then it succeeds
@@ -71,6 +72,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
 
     Given a file "CHECKFILE.md" with:
       """
@@ -92,6 +94,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → working"
+    And I run the pin beat
 
     When I run gtd next with "--json"
     Then it succeeds
@@ -151,6 +154,7 @@ Feature: Derived sessions — session.id is UUIDv5(memory key), never stored
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
 
     Given a file "CHECKFILE.md" with:
       """

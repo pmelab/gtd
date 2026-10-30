@@ -35,6 +35,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → checking"
+    And I run the pin beat
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"checking\""
@@ -58,6 +59,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
@@ -101,6 +103,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → checking"
+    And I run the pin beat
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"kind\":\"script\""
@@ -130,6 +133,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "DONE.md" with:
       """
       done!
@@ -168,6 +172,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "DONE.md" with:
       """
       done!
@@ -197,6 +202,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "scratch.txt" with:
       """
       not matched by any pattern
@@ -224,6 +230,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout does not contain "Model:"
@@ -248,6 +255,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout does not contain "Model:"
@@ -274,6 +282,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout does not contain "You are a careful senior engineer."
@@ -301,6 +310,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
@@ -327,6 +337,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout matches "^do the work described in NOTE\.md\n$"
@@ -347,6 +358,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout does not contain "Memory:"
@@ -390,6 +402,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout does not contain "Label:"
@@ -414,6 +427,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout does not contain "Label:"
@@ -440,6 +454,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "DONE.md" with:
       """
       done!
@@ -470,6 +485,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout does not contain "File:"
@@ -496,6 +512,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd next
     Then it succeeds
     And stdout does not contain "File:"
@@ -601,6 +618,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → checking"
+    And I run the pin beat
     When I run gtd land
     Then it settles
     And stdout contains "nothing to do"
@@ -623,6 +641,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd land with "--json"
     Then it succeeds
     And stdout contains "\"settled\":false"
@@ -644,7 +663,11 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
       a note
       """
     And gtd lands "gtd(human): idle → checking"
+    And I run the pin beat
     When I run gtd land
     Then it succeeds
-    And the commit count increased by 2
-    And the last commit subject is "gtd(check): checking → idle"
+    And the commit count increased by 3
+    And the last commit subject is "gtd(check): checking → unpin"
+    When I run the unpin beat
+    Then the commit count increased by 4
+    And the last commit subject is "gtd(check): unpin → idle"

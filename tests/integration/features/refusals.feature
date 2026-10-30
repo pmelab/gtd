@@ -29,6 +29,7 @@ Feature: Refusals — no-match steps commit nothing
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → working"
+    And I run the pin beat
     Given I record the commit count
     And a file "scratch.txt" with:
       """

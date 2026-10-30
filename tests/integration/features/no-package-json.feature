@@ -22,13 +22,17 @@ Feature: a repository without a package.json runs its workflows
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → working"
+    When I run the pin beat
+    Then the last commit subject is "gtd(check): pin → working"
     Given a file "notes/milk.md" with:
       """
       The milk is remembered.
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): working → idle"
+    And the last commit subject is "gtd(agent): working → unpin"
+    When I run the unpin beat
+    Then the last commit subject is "gtd(check): unpin → idle"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"idle\":true"

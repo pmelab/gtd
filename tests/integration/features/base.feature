@@ -46,6 +46,7 @@ Feature: gtd base — prints the review anchor hash, writing nothing
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → building"
+    And I run the pin beat
 
     # Before the first review round: gtd base names the process's diff base.
     When I run gtd with args "base"
@@ -121,11 +122,13 @@ Feature: gtd base — prints the review anchor hash, writing nothing
     And stdout contains the hash of "second-round"
     And stdout does not contain the hash of "first-round"
 
-    # Sign off for good — the process closes and HEAD rests at the initial
-    # state again.
+    # Sign off for good — the process closes, the unpin beat lands the
+    # closing commit, and HEAD rests at the initial state again.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): deciding → idle"
+    And the last commit subject is "gtd(human): deciding → unpin"
+    And I run the unpin beat
+    And the last commit subject is "gtd(check): unpin → idle"
 
     When I run gtd with args "base"
     Then it fails
@@ -180,6 +183,7 @@ Feature: gtd base — prints the review anchor hash, writing nothing
     When I run gtd with args "start review --var reviewBase=boundary"
     Then it succeeds
     And the last commit subject is "gtd(human): reviewing"
+    And I run the pin beat
 
     When I run gtd with args "base"
     Then it succeeds

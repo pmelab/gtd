@@ -40,11 +40,15 @@ Feature: the return-lap stop is the human's silence, not a round cap
       - [ ] GraphQL
       """
     And gtd lands "gtd(agent): drafting → answering"
+    And I run the pin beat
 
   Scenario: a clean tree at the answer gate lands with the question still unanswered
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): answering → drafting"
+    # Back at the first step, the process ends: it lands at the unpin.
+    And the last commit subject is "gtd(human): answering → unpin"
+    When I run the unpin beat
+    Then the last commit subject is "gtd(check): unpin → drafting"
 
   Scenario: editing the qa file itself with the question left unticked is still refused
     Given a file ".gtd/TODO.md" with:
@@ -62,4 +66,4 @@ Feature: the return-lap stop is the human's silence, not a round cap
     Then it fails
     And stderr contains "answer-completeness"
     And stderr contains "1 open question(s)"
-    And the last commit subject is "gtd(agent): drafting → answering"
+    And the last commit subject is "gtd(check): pin → answering"

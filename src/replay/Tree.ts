@@ -43,3 +43,14 @@ export const diffTrees = (before: TreeView, after: TreeView): TreeDiff => {
 
 export const isEmptyDiff = (diff: TreeDiff): boolean =>
   diff.added.length === 0 && diff.modified.length === 0 && diff.deleted.length === 0
+
+export const withoutPath = (tree: TreeView, hidden: string): TreeView => {
+  let paths: readonly string[] | undefined
+  return {
+    paths: () => (paths ??= tree.paths().filter((path) => path !== hidden)),
+    read: (path) => (path === hidden ? undefined : tree.read(path)),
+    ...(tree.id !== undefined
+      ? { id: (path: string) => (path === hidden ? undefined : tree.id!(path)) }
+      : {}),
+  }
+}

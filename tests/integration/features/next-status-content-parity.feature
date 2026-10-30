@@ -45,6 +45,7 @@ Feature: gtd next's three encodings (plain, --json, --json=<path>) describe the 
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     When I run gtd with args "next"
     And I record stdout as "next-content"
     When I run gtd next with "--json"
@@ -60,6 +61,7 @@ Feature: gtd next's three encodings (plain, --json, --json=<path>) describe the 
       a note
       """
     And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
     And a file "WORK.md" with:
       """
       the work

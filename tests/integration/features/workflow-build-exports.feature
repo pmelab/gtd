@@ -55,13 +55,16 @@ Feature: a workflow factory's build carries skills, access, steering and summary
       """
     When I run gtd land
     Then it succeeds
+    And I run the pin beat
     Given a file "src/a.ts" with:
       """
       export const a = 1
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → idle"
+    And the last commit subject is "gtd(agent): building → unpin"
+    And I run the unpin beat
+    And the last commit subject is "gtd(check): unpin → idle"
     When I run gtd with args "summary"
     Then it succeeds
     And stdout contains "Built summary for"
