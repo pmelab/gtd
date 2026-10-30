@@ -120,7 +120,7 @@ const npmAllowList = [
     ],
     units: ["^src/steering/"],
   },
-  { packages: ["jiti"], units: ["^src/workflow/"] },
+  { packages: ["rolldown"], units: ["^src/workflow/"] },
   {
     packages: [
       "react",

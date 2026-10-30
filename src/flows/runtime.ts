@@ -1,7 +1,7 @@
 // The authoring surface of a gtd workflow. Every function here is a thin
 // facade over the replay context the engine installs on `globalThis` — keyed by
 // a registered symbol, not a module-local variable, so a copy of this file
-// loaded through a user's `gtd.config.ts` (jiti) and the copy bundled into the
+// a user's `gtd.config.ts` brings along and the copy bundled into the
 // gtd binary drive the same replay.
 import type { WorkflowBuild } from "./factory.js"
 

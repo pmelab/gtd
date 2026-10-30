@@ -25,6 +25,11 @@ That installs `latest`, which moves once a day to the newest release. Every
 merge to `main` publishes to `next` first: `npm install -g @pmelab/gtd@next`
 gets each one as it lands.
 
+gtd bundles `gtd.config.ts` with [rolldown](https://rolldown.rs), whose native
+binary npm installs for your platform. Where rolldown ships none, install its
+WebAssembly build next to gtd:
+`npm install -g --force @rolldown/binding-wasm32-wasi`.
+
 Or run without installing (prefix every `gtd` below with `npx`) — see
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for the settings most projects tune. A process setting's value is committed to
