@@ -2,7 +2,7 @@ import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { ConfigDiscovery, LEGACY_RC_FILES, walkUp } from "../workflow/index.js"
 import { InMemRepo } from "./index.js"
-import { ambientFlagEnv, testLayers } from "./Layers.js"
+import { ambientFlagEnv, inMemPath, testLayers } from "./Layers.js"
 import { Host } from "../platform/index.js"
 
 // The in-memory `ConfigDiscovery` counterpart walks the SAME root→home chain
@@ -40,7 +40,7 @@ describe("the in-memory ConfigDiscovery counterpart", () => {
     seed(repo, ROOT, LEGACY_RC_FILES[1]!, "{}\n")
     seed(repo, ABOVE_HOME, LEGACY_RC_FILES[0]!, "never-walked: true\n")
     const found = (await runDiscovery(repo, (d) => d.legacyRcFiles(ROOT, HOME))).map((f) => f.path)
-    expect(walkUp(ROOT, HOME)).toEqual([ROOT, MIDDLE, HOME])
+    expect(walkUp(inMemPath, ROOT, HOME)).toEqual([ROOT, MIDDLE, HOME])
     expect(found).toEqual([
       `${ROOT}/${LEGACY_RC_FILES[0]}`,
       `${ROOT}/${LEGACY_RC_FILES[1]}`,

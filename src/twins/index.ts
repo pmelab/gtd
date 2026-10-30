@@ -1,5 +1,6 @@
 export { InMemRepo } from "./InMemRepo.js"
 export {
+  inMemPath,
   makeInMemoryWorkspaceOps,
   testLayers,
   type CommandTable,

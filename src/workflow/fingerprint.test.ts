@@ -9,6 +9,7 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
+import { inMemPath } from "../twins/index.js"
 import { changedConfigFiles, configFingerprint } from "./fingerprint.js"
 
 const read = (path: string): string | undefined => {
@@ -27,6 +28,7 @@ describe("the config fingerprint", () => {
     writeFileSync(join(root, "lib", "flow.ts"), "export const a = 1\n")
 
     const fingerprint = configFingerprint(
+      inMemPath,
       [join(root, "gtd.config.ts"), join(root, "lib", "flow.ts"), join(root, "gone.ts")],
       root,
       read,
@@ -38,7 +40,12 @@ describe("the config fingerprint", () => {
     expect(
       changedConfigFiles(
         fingerprint,
-        configFingerprint([join(root, "gtd.config.ts"), join(root, "lib", "flow.ts")], root, read),
+        configFingerprint(
+          inMemPath,
+          [join(root, "gtd.config.ts"), join(root, "lib", "flow.ts")],
+          root,
+          read,
+        ),
       ),
     ).toEqual(["lib/flow.ts"])
   })
@@ -50,7 +57,9 @@ describe("the config fingerprint", () => {
     symlinkSync(real, link)
 
     expect(
-      Object.keys(configFingerprint([join(realpathSync(real), "gtd.config.ts")], link, read)),
+      Object.keys(
+        configFingerprint(inMemPath, [join(realpathSync(real), "gtd.config.ts")], link, read),
+      ),
     ).toEqual(["gtd.config.ts"])
   })
 
@@ -58,7 +67,7 @@ describe("the config fingerprint", () => {
     const root = mkdtempSync(join(tmpdir(), "gtd-fingerprint-"))
     writeFileSync(join(root, "a\x1b.ts"), "export const a = 1\n")
 
-    expect(configFingerprint([join(root, "a\x1b.ts")], root, read)).toEqual({})
+    expect(configFingerprint(inMemPath, [join(root, "a\x1b.ts")], root, read)).toEqual({})
   })
 
   it("names a file only one side has as changed", () => {

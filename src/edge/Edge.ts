@@ -1,4 +1,4 @@
-import { Effect, Option } from "effect"
+import { Effect, Option, Path } from "effect"
 import {
   Narrator,
   GitService,
@@ -62,7 +62,6 @@ import {
 
 import { GTD_VERSION } from "../install/index.js"
 import { keptRef, processHistoryRef } from "../platform/index.js"
-import { isAbsolute, relative, resolve, sep } from "node:path"
 import { accessRefusal, type Landing, type RepoSnapshot } from "../step/index.js"
 
 export { UNATTRIBUTED_MODEL }
@@ -421,7 +420,14 @@ const computeProcessRun = (
     runOf(history, locateEpisode(def, history)),
   )
 
-type ConfigRequirements = GitService | ConfigService | ConfigDiscovery | Narrator | Workspace | Host
+type ConfigRequirements =
+  | GitService
+  | ConfigService
+  | ConfigDiscovery
+  | Narrator
+  | Workspace
+  | Host
+  | Path.Path
 
 /** The run alone, never replaying — `gtd abandon` must work even when replay would refuse, short of a history it cannot read. */
 export const currentRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = Effect.gen(
@@ -1564,10 +1570,16 @@ export interface HistoryTrail {
  * repository cannot be read at a ref, so it is left out. A file only the old
  * config read needs no check: whichever file imported it differs too.
  */
-const inRepoConfigPaths = (root: string, files: readonly string[]): readonly string[] => {
-  const paths = new Set<string>()
-  for (const file of files) paths.add(relative(root, resolve(root, file)).split(sep).join("/"))
-  return [...paths].filter((p) => p !== "" && !p.startsWith("..") && !isAbsolute(p)).sort()
+const inRepoConfigPaths = (
+  path: Path.Path,
+  root: string,
+  files: readonly string[],
+): readonly string[] => {
+  const found = new Set<string>()
+  for (const file of files) {
+    found.add(path.relative(root, path.resolve(root, file)).split(path.sep).join("/"))
+  }
+  return [...found].filter((p) => p !== "" && !p.startsWith("..") && !path.isAbsolute(p)).sort()
 }
 
 const configRefusal = (
@@ -1589,7 +1601,8 @@ const differingConfigPaths = (
 ) =>
   Effect.gen(function* () {
     const differing: string[] = []
-    for (const path of inRepoConfigPaths(root, Object.keys(config.fingerprint))) {
+    const configPaths = inRepoConfigPaths(yield* Path.Path, root, Object.keys(config.fingerprint))
+    for (const path of configPaths) {
       const atTip = yield* Effect.orElseSucceed(git.readFileAtRef(hash, path), () => undefined)
       if (atTip !== workspace.readSync(path)) differing.push(path)
     }

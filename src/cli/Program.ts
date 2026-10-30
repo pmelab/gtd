@@ -1,4 +1,4 @@
-import { Effect, Option, Schema } from "effect"
+import { Effect, Option, type Path, Schema } from "effect"
 import {
   GtdError,
   GtdUsageError,
@@ -246,7 +246,7 @@ const runBundleCommand = (
 ): Effect.Effect<
   void,
   Error,
-  ConfigService | ConfigDiscovery | EngineCore | Host | Narrator | Workspace
+  ConfigService | ConfigDiscovery | EngineCore | Host | Path.Path | Narrator | Workspace
 > =>
   Effect.gen(function* () {
     yield* (yield* ConfigService).load
@@ -946,7 +946,7 @@ const resolveValidateScript = (
 ): Effect.Effect<
   { readonly file: string; readonly mode: StateMode; readonly script: string } | undefined,
   Error,
-  Host
+  Host | Path.Path
 > =>
   Effect.gen(function* () {
     const file = rest.hints.file

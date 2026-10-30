@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { Effect } from "effect"
+import { Effect, Layer, Path } from "effect"
 import { resolveMode, validateScriptFor, type ModeResolution } from "./SteeringMode.js"
 import { Host } from "../platform/index.js"
 import { steeringFormatFor } from "../steering/index.js"
@@ -16,7 +16,9 @@ const envVarsLayer = Host.layer({ root: "/repo", home: "/repo", env: { PATH: "/u
 
 const runScript = (resolved: ModeResolution, file: string) => {
   if (resolved.kind !== "resolved") throw new Error("expected a resolved mode")
-  return Effect.runPromise(validateScriptFor(resolved, file).pipe(Effect.provide(envVarsLayer)))
+  return Effect.runPromise(
+    validateScriptFor(resolved, file).pipe(Effect.provide(Layer.merge(envVarsLayer, Path.layer))),
+  )
 }
 
 describe("resolveMode", () => {

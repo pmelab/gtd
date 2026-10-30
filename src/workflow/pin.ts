@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs"
-import { join } from "node:path"
 import { gunzipSync, gzipSync } from "node:zlib"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Path } from "effect"
 import { GtdError } from "../platform/index.js"
 import { ownPackage, pinnedWorkflowSource } from "./load.js"
 import type { WorkflowModule } from "./discovery.js"
@@ -27,7 +26,11 @@ export class EngineCore extends Context.Service<
         })
       }),
     })
-  static Live = EngineCore.layer(() => join(ownPackage().root, "dist", "gtd.core.mjs"))
+  static Live = Layer.unwrap(
+    Effect.map(Path.Path, (path) =>
+      EngineCore.layer(() => path.join(ownPackage(path).root, "dist", "gtd.core.mjs")),
+    ),
+  )
 }
 
 /**
@@ -39,11 +42,12 @@ export const pin = (
   module: WorkflowModule,
   root: string,
   version: string,
-): Effect.Effect<Uint8Array, Error, EngineCore> =>
+): Effect.Effect<Uint8Array, Error, EngineCore | Path.Path> =>
   Effect.gen(function* () {
     const core = yield* (yield* EngineCore).source
+    const path = yield* Path.Path
     const workflow = yield* Effect.tryPromise({
-      try: () => pinnedWorkflowSource(module, root, version),
+      try: () => pinnedWorkflowSource(path, module, root, version),
       catch: (e) =>
         new GtdError(
           `gtd bundle: ${module.filepath}: ${e instanceof Error ? e.message : String(e)}`,

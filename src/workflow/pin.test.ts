@@ -2,10 +2,11 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "nod
 import { isBuiltin } from "node:module"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { Effect, Exit } from "effect"
+import { Effect, Exit, Layer } from "effect"
 import { parseAst } from "rolldown/parseAst"
 import { afterEach, describe, expect, it } from "vitest"
 import { PIN_KEY } from "../install/index.js"
+import { NodeServices } from "../platform/index.js"
 import { InMemRepo, testLayers } from "../twins/index.js"
 import { ConfigDiscovery, ConfigService } from "./index.js"
 import { EngineCore, pin, readPin } from "./pin.js"
@@ -16,7 +17,7 @@ afterEach(() => {
 
 // A pin must run with nothing installed: the engine imports Node and nothing else.
 describe.each([
-  ["live", EngineCore.Live],
+  ["live", EngineCore.Live.pipe(Layer.provide(NodeServices.layer))],
   ["in memory", testLayers(new InMemRepo())],
 ])("EngineCore (%s)", (_, layer) => {
   const source = () =>

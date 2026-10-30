@@ -1,6 +1,5 @@
 import { existsSync, readFileSync, statSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Path } from "effect"
 
 /** The workflow module found on the cwd→home walk, with its source. */
 export interface WorkflowModule {
@@ -50,8 +49,8 @@ export const LEGACY_RC_FILES = [
 ]
 
 /** The directories searched for a leftover rc file: the walk, plus `home` when the walk misses it. */
-export const legacyRcDirs = (root: string, home: string): readonly string[] => {
-  const chain = walkUp(root, home)
+export const legacyRcDirs = (path: Path.Path, root: string, home: string): readonly string[] => {
+  const chain = walkUp(path, root, home)
   return chain.includes(home) ? chain : [...chain, home]
 }
 
@@ -74,40 +73,38 @@ const legacyRcFileAt = (path: string): LegacyRcFile | undefined => {
  * shared implementation, not a second copy in `src/twins/Layers.ts` that
  * could silently diverge.
  */
-export const walkUp = (from: string, home: string): ReadonlyArray<string> => {
+export const walkUp = (path: Path.Path, from: string, home: string): ReadonlyArray<string> => {
   const chain: Array<string> = []
   let dir = from
   while (true) {
     chain.push(dir)
     if (dir === home) break
-    const parent = dirname(dir)
+    const parent = path.dirname(dir)
     if (parent === dir) break // filesystem root
     dir = parent
   }
   return chain
 }
 
-const legacyRcFiles = (root: string, home: string): Effect.Effect<readonly LegacyRcFile[], Error> =>
-  Effect.sync(() =>
-    legacyRcDirs(root, home).flatMap((dir) =>
-      LEGACY_RC_FILES.flatMap((name) => legacyRcFileAt(join(dir, name)) ?? []),
+const liveDiscovery = (path: Path.Path): ConfigDiscoveryOps => ({
+  legacyRcFiles: (root, home) =>
+    Effect.sync(() =>
+      legacyRcDirs(path, root, home).flatMap((dir) =>
+        LEGACY_RC_FILES.flatMap((name) => legacyRcFileAt(path.join(dir, name)) ?? []),
+      ),
     ),
-  )
-
-const workflowModule = (
-  root: string,
-  home: string,
-): Effect.Effect<WorkflowModule | undefined, Error> =>
-  Effect.try({
-    try: () => {
-      for (const dir of walkUp(root, home)) {
-        const filepath = join(dir, WORKFLOW_MODULE)
-        if (existsSync(filepath)) return { filepath, source: readFileSync(filepath, "utf8") }
-      }
-      return undefined
-    },
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
+  workflowModule: (root, home) =>
+    Effect.try({
+      try: () => {
+        for (const dir of walkUp(path, root, home)) {
+          const filepath = path.join(dir, WORKFLOW_MODULE)
+          if (existsSync(filepath)) return { filepath, source: readFileSync(filepath, "utf8") }
+        }
+        return undefined
+      },
+      catch: (e) => (e instanceof Error ? e : new Error(String(e))),
+    }),
+})
 
 /**
  * The discovery seam — a `Context.Service`, not part of `WorkflowFiles` (that
@@ -122,5 +119,5 @@ const workflowModule = (
 export class ConfigDiscovery extends Context.Service<ConfigDiscovery, ConfigDiscoveryOps>()(
   "ConfigDiscovery",
 ) {
-  static Live = Layer.succeed(ConfigDiscovery, { legacyRcFiles, workflowModule })
+  static Live = Layer.effect(ConfigDiscovery, Effect.map(Path.Path, liveDiscovery))
 }

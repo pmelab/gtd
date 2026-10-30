@@ -8,8 +8,7 @@ import {
   renameSync,
   writeFileSync,
 } from "node:fs"
-import { dirname, isAbsolute, join } from "node:path"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Path } from "effect"
 import { GitService, type GitOperations } from "./Git.js"
 import { Host } from "./Host.js"
 
@@ -23,12 +22,6 @@ const HASH_CHUNK = 500
 const isObjectHash = (ref: string): boolean => /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(ref)
 
 const GTD_CACHE_SUBDIR = "gtd-cache"
-
-const treeCachePath = (commonDir: string, hash: string): string =>
-  join(commonDir, GTD_CACHE_SUBDIR, "trees", hash)
-
-const blobCachePath = (commonDir: string, id: string): string =>
-  join(commonDir, GTD_CACHE_SUBDIR, "blobs", id)
 
 const readTextCache = (path: string): string | undefined => {
   try {
@@ -46,9 +39,9 @@ const readTextCache = (path: string): string | undefined => {
  * cache is a best-effort speedup, never a correctness dependency, and the
  * alternative — failing a gtd command over a cache write — is worse.
  */
-const writeTextCacheAtomic = (path: string, content: string): void => {
+const writeTextCacheAtomic = (paths: Path.Path, path: string, content: string): void => {
   try {
-    mkdirSync(dirname(path), { recursive: true })
+    mkdirSync(paths.dirname(path), { recursive: true })
     const tmp = `${path}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`
     writeFileSync(tmp, content, "utf8")
     renameSync(tmp, path)
@@ -58,8 +51,8 @@ const writeTextCacheAtomic = (path: string, content: string): void => {
 }
 
 /** A commit's `path → blob id` map, serialized as JSON. `undefined` on ANY read failure — missing, truncated, unparseable — so the caller falls back to asking git. */
-const readTreeCache = (commonDir: string, hash: string): Map<string, string> | undefined => {
-  const raw = readTextCache(treeCachePath(commonDir, hash))
+const readTreeCache = (file: string): Map<string, string> | undefined => {
+  const raw = readTextCache(file)
   if (raw === undefined) return undefined
   try {
     const parsed: unknown = JSON.parse(raw)
@@ -75,8 +68,8 @@ const readTreeCache = (commonDir: string, hash: string): Map<string, string> | u
   }
 }
 
-const writeTreeCache = (commonDir: string, hash: string, tree: ReadonlyMap<string, string>): void =>
-  writeTextCacheAtomic(treeCachePath(commonDir, hash), JSON.stringify(Object.fromEntries(tree)))
+const writeTreeCache = (paths: Path.Path, file: string, tree: ReadonlyMap<string, string>): void =>
+  writeTextCacheAtomic(paths, file, JSON.stringify(Object.fromEntries(tree)))
 
 /**
  * One raw `git log --raw` diff entry, already resolved to what it does to a
@@ -263,8 +256,8 @@ export interface WorkspaceOps {
   readonly writeAtPath: (path: string, content: string) => Effect.Effect<void, Error>
 }
 
-const assertRepoRelative = (path: string): string => {
-  if (isAbsolute(path)) {
+const assertRepoRelative = (paths: Path.Path, path: string): string => {
+  if (paths.isAbsolute(path)) {
     throw new Error(
       `Workspace: "${path}" is an absolute path — this member takes repo-relative paths only (use "atPath"/"writeAtPath" to read/write outside the repo)`,
     )
@@ -366,8 +359,15 @@ const makeWorkspaceOps = (
   root: string,
   git: GitOperations,
   commonDir: string | undefined,
+  paths: Path.Path,
 ): WorkspaceOps => {
-  const resolveAny = (path: string): string => (isAbsolute(path) ? path : join(root, path))
+  const resolveAny = (path: string): string =>
+    paths.isAbsolute(path) ? path : paths.join(root, path)
+  const repoPath = (path: string): string => paths.join(root, assertRepoRelative(paths, path))
+  const treeCachePath = (dir: string, hash: string): string =>
+    paths.join(dir, GTD_CACHE_SUBDIR, "trees", hash)
+  const blobCachePath = (dir: string, id: string): string =>
+    paths.join(dir, GTD_CACHE_SUBDIR, "blobs", id)
 
   // Per-PROCESS memo, on the workspace instance rather than any one replay's
   // `TreeView` — an immutable key (a commit hash, a blob id) can never serve
@@ -381,18 +381,17 @@ const makeWorkspaceOps = (
     const memoHit = treeMemo.get(hash)
     if (memoHit !== undefined) return memoHit
     if (commonDir === undefined) return undefined
-    const cached = readTreeCache(commonDir, hash)
+    const cached = readTreeCache(treeCachePath(commonDir, hash))
     if (cached !== undefined) treeMemo.set(hash, cached)
     return cached
   }
 
   const rememberTree = (hash: string, tree: ReadonlyMap<string, string>): void => {
     treeMemo.set(hash, tree)
-    if (commonDir !== undefined) writeTreeCache(commonDir, hash, tree)
+    if (commonDir !== undefined) writeTreeCache(paths, treeCachePath(commonDir, hash), tree)
   }
 
-  const readSync = (path: string): string | undefined =>
-    readFileOrAbsent(join(root, assertRepoRelative(path)))
+  const readSync = (path: string): string | undefined => readFileOrAbsent(repoPath(path))
 
   /**
    * A blob's content, keyed on its OWN id rather than a (path, ref) pair —
@@ -422,7 +421,7 @@ const makeWorkspaceOps = (
       return undefined
     }
     blobMemo.set(id, content)
-    if (commonDir !== undefined) writeTextCacheAtomic(blobCachePath(commonDir, id), content)
+    if (commonDir !== undefined) writeTextCacheAtomic(paths, blobCachePath(commonDir, id), content)
     return content
   }
 
@@ -439,7 +438,7 @@ const makeWorkspaceOps = (
   // is never cached here, since it can move mid-process (a landing commit),
   // and goes straight to `git show` as before.
   const readCommittedSync = (path: string, ref = "HEAD"): string | undefined => {
-    const relPath = assertRepoRelative(path)
+    const relPath = assertRepoRelative(paths, path)
     if (isObjectHash(ref)) {
       const id = treeSync(ref).get(relPath)
       return id === undefined ? undefined : readBlobSync(id)
@@ -544,13 +543,13 @@ const makeWorkspaceOps = (
     for (const record of status.split("\0")) {
       if (record.length < 4) continue
       const path = record.slice(3).replace(/\/$/, "")
-      const stat = lstatOrAbsent(join(root, path))
+      const stat = lstatOrAbsent(paths.join(root, path))
       if (stat === undefined) entries.delete(path)
       else if (stat.isSymbolicLink()) {
-        entries.set(path, blobId(readlinkSync(join(root, path), "utf8")))
+        entries.set(path, blobId(readlinkSync(paths.join(root, path), "utf8")))
       } else if (stat.isDirectory()) {
         // Only a directory holding its own repository is committed, as a gitlink.
-        if (lstatOrAbsent(join(root, path, ".git")) === undefined) entries.delete(path)
+        if (lstatOrAbsent(paths.join(root, path, ".git")) === undefined) entries.delete(path)
         else entries.set(path, gitlinkOf(path))
       } else files.push(path)
     }
@@ -568,7 +567,7 @@ const makeWorkspaceOps = (
   const gitlinkOf = (path: string): string | undefined => {
     try {
       return execFileSync("git", ["rev-parse", "HEAD"], {
-        cwd: join(root, path),
+        cwd: paths.join(root, path),
         encoding: "utf8",
       }).trim()
     } catch {
@@ -594,11 +593,11 @@ const makeWorkspaceOps = (
     read: (path) => Effect.try({ try: () => readSync(path), catch: toError }),
     write: (path, content) =>
       Effect.try({
-        try: () => writeFileSync(join(root, assertRepoRelative(path)), content, "utf8"),
+        try: () => writeFileSync(repoPath(path), content, "utf8"),
         catch: toError,
       }),
     committed: (path, ref = "HEAD") =>
-      Effect.try({ try: () => assertRepoRelative(path), catch: toError }).pipe(
+      Effect.try({ try: () => assertRepoRelative(paths, path), catch: toError }).pipe(
         Effect.flatMap((relPath) =>
           git.readFileAtRef(ref, relPath).pipe(Effect.catch(() => Effect.succeed(undefined))),
         ),
@@ -616,6 +615,7 @@ export class Workspace extends Context.Service<Workspace, WorkspaceOps>()("Works
     Effect.gen(function* () {
       const { root } = yield* Host
       const git = yield* GitService
+      const paths = yield* Path.Path
       // Resolved once per process, not lazily inside a sync method: the
       // common dir is git's own concern to answer, and every cache read/
       // write below is synchronous. A repo whose common dir can't be
@@ -625,7 +625,7 @@ export class Workspace extends Context.Service<Workspace, WorkspaceOps>()("Works
       const commonDir = yield* git
         .gitCommonDir()
         .pipe(Effect.catch(() => Effect.succeed(undefined)))
-      return makeWorkspaceOps(root, git, commonDir)
+      return makeWorkspaceOps(root, git, commonDir, paths)
     }),
   )
 }

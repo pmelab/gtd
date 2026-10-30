@@ -1,5 +1,4 @@
-import { join } from "node:path"
-import { Effect } from "effect"
+import { Effect, Path } from "effect"
 import { Host } from "../platform/index.js"
 import {
   isSeededValidateCommand,
@@ -191,8 +190,8 @@ const modeCommandSteps = (resolved: ResolvedMode, file: string): readonly EmitSt
 }
 
 /** `<Host.scratchDir>/gtd-mode-sample-<mode>-<pid>.md` — an absolute literal baked in at emit time, never a shell variable. `<pid>` avoids collisions between concurrent `gtd` processes. Never a `/tmp` literal or `mktemp` (`tests/tooling/no-tmp-assumption.test.ts` scans for both). */
-const scratchSamplePath = (scratchDir: string, mode: StateMode): string =>
-  join(scratchDir, `gtd-mode-sample-${mode}-${process.pid}.md`)
+const scratchSamplePath = (path: Path.Path, scratchDir: string, mode: StateMode): string =>
+  path.join(scratchDir, `gtd-mode-sample-${mode}-${process.pid}.md`)
 
 /**
  * The contradiction round-trip/skip-notice steps for `resolved`'s `mode:`.
@@ -204,13 +203,13 @@ const scratchSamplePath = (scratchDir: string, mode: StateMode): string =>
  */
 const modeContradictionSteps = (
   resolved: ResolvedMode,
-): Effect.Effect<readonly EmitStep[], Error, Host> =>
+): Effect.Effect<readonly EmitStep[], Error, Host | Path.Path> =>
   Effect.gen(function* () {
     if (resolved.formatCommand === undefined) return []
     const { capabilities } = resolved
     if (capabilities.format !== undefined && capabilities.liveValidate !== undefined) {
       const { scratchDir } = yield* Host
-      const samplePath = scratchSamplePath(scratchDir, resolved.mode)
+      const samplePath = scratchSamplePath(yield* Path.Path, scratchDir, resolved.mode)
       const formatCommand = withFileVar(resolved.formatCommand, samplePath)
       return [
         {
@@ -245,7 +244,7 @@ export interface ValidateScript {
 export const validateScriptFor = (
   resolved: ResolvedMode,
   file: string,
-): Effect.Effect<ValidateScript, Error, Host> =>
+): Effect.Effect<ValidateScript, Error, Host | Path.Path> =>
   Effect.gen(function* () {
     const steps: EmitStep[] = [
       ...(yield* modeContradictionSteps(resolved)),
