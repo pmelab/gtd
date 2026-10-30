@@ -96,7 +96,8 @@ const npmAllowList = [
     ],
   },
   {
-    packages: ["@effect/platform"],
+    // Subprocesses, which v3 kept in @effect/platform.
+    packages: ["effect/process"],
     units: [
       units.testkit,
       units.twins,
@@ -106,15 +107,8 @@ const npmAllowList = [
     ],
   },
   {
-    packages: ["@effect/platform-node"],
-    units: [
-      units.testkit,
-      units.twins,
-      "^src/cli/",
-      ...compositionRoots,
-      "^src/(platform|ui|workflow)/.+\\.test\\.ts$",
-      "^tests/",
-    ],
+    packages: ["@effect/platform-node-shared"],
+    units: ["^src/platform/NodeServices\\.ts$", ...compositionRoots],
   },
   { packages: ["@standard-schema/spec"], units: ["^src/flows/"] },
   {

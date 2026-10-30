@@ -45,8 +45,7 @@ import {
   type UiConfig,
   type UiHandler,
 } from "../../../src/ui/index.js"
-import { GtdError, GtdUsageError } from "../../../src/platform/index.js"
-import { NodeContext } from "@effect/platform-node"
+import { GtdError, GtdUsageError, NodeServices } from "../../../src/platform/index.js"
 import { inMemoryUiHost, inMemoryUiLayers, type FakeTailnet } from "./ui-host.js"
 import type { SteeringAnchor, SteeringView } from "../../../src/steering/index.js"
 
@@ -1568,7 +1567,7 @@ export class GtdWorld extends QuickPickleWorld {
         request.root,
       ).pipe(
         Effect.provide(layers),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
         Effect.mapError((error) =>
           error instanceof UiUsageError
             ? new GtdUsageError(error.message, error.detail)

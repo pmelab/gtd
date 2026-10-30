@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform"
-import { Cause, Effect, Exit, Layer, Option } from "effect"
+import { Cause, Effect, Exit, FileSystem, Layer, Option } from "effect"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { expect, it, vi } from "vitest"
@@ -64,7 +63,7 @@ it("gtd ui over a worktree that can't be read refuses as a usage error", async (
   )
 
   const error = Exit.isFailure(exit)
-    ? Option.getOrUndefined(Cause.failureOption(exit.cause))
+    ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
     : undefined
   expect(error).toBeInstanceOf(GtdUsageError)
   expect(error?.message).toMatch(/^gtd ui: refuses to start — this worktree can't be read/)

@@ -158,11 +158,11 @@ const resolveBase = (
     const git = yield* GitService
     const rendered = value.trim()
     const target = rendered === "" ? yield* git.defaultBranch() : rendered
-    const resolvedBase = yield* Effect.either(git.resolveRef(target))
-    if (resolvedBase._tag === "Left") {
+    const resolvedBase = yield* Effect.result(git.resolveRef(target))
+    if (resolvedBase._tag === "Failure") {
       return refusal(`${commandLabel}: "${target}" does not resolve to a commit`)
     }
-    const mergeBase = yield* git.mergeBase(resolvedBase.right, "HEAD")
+    const mergeBase = yield* git.mergeBase(resolvedBase.success, "HEAD")
     if (Option.isNone(mergeBase)) {
       return refusal(`${commandLabel}: "${target}" shares no common ancestor with HEAD`)
     }

@@ -4,8 +4,7 @@ import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Cause, Effect, Exit, Layer } from "effect"
-import { NodeContext } from "@effect/platform-node"
-import { Narrator, GitService, Host, Workspace } from "../platform/index.js"
+import { Narrator, GitService, Host, Workspace, NodeServices } from "../platform/index.js"
 import {
   ConfigDiscovery,
   ConfigService,
@@ -23,7 +22,7 @@ type Env = Readonly<Record<string, string>>
 
 const baseLayer = (dir: string, env: Env = {}) => {
   const hostLayer = Host.layer({ root: dir, home: homeDir, env })
-  const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeContext.layer)))
+  const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeServices.layer)))
   const workspaceLayer = Workspace.Live.pipe(Layer.provide(Layer.merge(hostLayer, gitLayer)))
   return Layer.mergeAll(hostLayer, gitLayer, workspaceLayer)
 }

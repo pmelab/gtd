@@ -2,10 +2,9 @@ import { execSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { NodeContext } from "@effect/platform-node"
 import { Effect, Layer } from "effect"
 import { afterEach, describe, expect, it } from "vitest"
-import { GitService, Host, Narrator, Workspace } from "../platform/index.js"
+import { GitService, Host, Narrator, Workspace, NodeServices } from "../platform/index.js"
 import { InMemRepo, testLayers } from "../twins/index.js"
 import { ConfigDiscovery, ConfigService } from "./index.js"
 
@@ -63,7 +62,7 @@ const live = (): Tier => {
         writeFileSync(join(root, path), content)
       }
       const host = Host.layer({ root, home: root, env: {} })
-      const git = GitService.Live.pipe(Layer.provide(Layer.merge(host, NodeContext.layer)))
+      const git = GitService.Live.pipe(Layer.provide(Layer.merge(host, NodeServices.layer)))
       const workspace = Workspace.Live.pipe(Layer.provide(Layer.merge(host, git)))
       return loadWith(
         Layer.mergeAll(

@@ -3,9 +3,9 @@ import { Context } from "effect"
 const PREFIX = "GTD_"
 
 /** The live release flags as `flag_<name>` settings, provided by the CLI; absent means no flags. */
-export class StartFlags extends Context.Reference<StartFlags>()("StartFlags", {
-  defaultValue: (): Readonly<Record<string, string>> => ({}),
-}) {}
+export const StartFlags = Context.Reference<Readonly<Record<string, string>>>("StartFlags", {
+  defaultValue: () => ({}),
+})
 
 /**
  * One kind of setting, later wins: the workflow's own defaults, `--var`

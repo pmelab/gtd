@@ -4,7 +4,7 @@
  * home, env, scratch). `GitService` moved in alongside `Workspace` since
  * `committed` IS `git.readFileAtRef` — one module owns every read.
  *
- * Seam rule, stated once: a seam is a `Context.Tag` unless the consuming
+ * Seam rule, stated once: a seam is a `Context.Service` unless the consuming
  * code is synchronous, non-Effect code that cannot `yield*` — replay's flow
  * reads are that exception, and use the `*Sync` members.
  */
@@ -19,6 +19,7 @@ export {
 } from "./Git.js"
 export { Narrator, GtdError, GtdUsageError, renderFailure } from "./Commentary.js"
 export { CommandRunner } from "./CommandRunner.js"
+export * as NodeServices from "./NodeServices.js"
 export { loopLogPath } from "./WorktreeState.js"
 export {
   HISTORY_REF,

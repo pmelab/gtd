@@ -1,5 +1,5 @@
-import { Command, CommandExecutor } from "@effect/platform"
 import { Context, Effect, Layer, Option, Stream } from "effect"
+import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { Host } from "./Host.js"
 
 export interface GitReaderOperations {
@@ -80,7 +80,7 @@ export interface GitReaderOperations {
     skip: number,
     head?: string,
   ) => Effect.Effect<ReadonlyArray<{ readonly hash: string; readonly subject: string }>, Error>
-  /** Fails when the path doesn't exist at `ref` — a caller expecting that (e.g. the review sign-off gate) handles it with an explicit `catchAll`. */
+  /** Fails when the path doesn't exist at `ref` — a caller expecting that (e.g. the review sign-off gate) handles it with an explicit `catch`. */
   readonly readFileAtRef: (ref: string, path: string) => Effect.Effect<string, Error>
   /**
    * Pending working-tree changes vs `base` (default `HEAD`), as
@@ -216,7 +216,7 @@ const blobsAtRef = (
   paths: ReadonlyArray<string>,
 ): Effect.Effect<Map<string, string>, Error> =>
   exec("git", "ls-tree", "-r", "-z", ref, "--", ...paths).pipe(
-    Effect.catchAll(() => Effect.succeed("")),
+    Effect.catch(() => Effect.succeed("")),
     Effect.map((out) => {
       const blobs = new Map<string, string>()
       for (const entry of splitNul(out)) {
@@ -256,7 +256,7 @@ const hashObjects = (
             .map((oid, i) => [paths[i] ?? "", oid.trim()] as const),
         ),
     ),
-    Effect.catchAll(() => Effect.succeed(new Map<string, string>())),
+    Effect.catch(() => Effect.succeed(new Map<string, string>())),
   )
 
 /**
@@ -287,25 +287,28 @@ const classifyUntracked = (
 
 /**
  * Run a command and return its stdout — FAILING on a non-zero exit code with
- * the command line and stderr in the error message. `Command.string` alone
- * silently ignores exit codes, which used to make gtd report success on
- * rejected commits and lose files whose quoted paths broke a swallowed
- * `git add`. Callers that expect a probe to fail handle it with an explicit
- * `catchAll`.
+ * the command line and stderr in the error message. Ignoring exit codes
+ * used to make gtd report success on rejected commits and lose files whose
+ * quoted paths broke a swallowed `git add`. Callers that expect a probe to
+ * fail handle it with an explicit `catch`.
  */
 const run = (
   root: string,
   ...args: [string, ...Array<string>]
-): Effect.Effect<string, Error, CommandExecutor.CommandExecutor> =>
+): Effect.Effect<string, Error, ChildProcessSpawner.ChildProcessSpawner> =>
   Effect.scoped(
     Effect.gen(function* () {
-      const executor = yield* CommandExecutor.CommandExecutor
-      const process = yield* executor.start(
-        Command.make(...args).pipe(
-          Command.workingDirectory(root),
-          Command.stdout("pipe"),
-          Command.stderr("pipe"),
-        ),
+      const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
+      const [command, ...rest] = args
+      const process = yield* spawner.spawn(
+        // Not detached: the spawner SIGTERMs a detached child's whole group once it
+        // exits, which would kill a git hook's background job.
+        ChildProcess.make(command, rest, {
+          cwd: root,
+          stdout: "pipe",
+          stderr: "pipe",
+          detached: false,
+        }),
       )
       const collect = (stream: typeof process.stdout) =>
         stream.pipe(Stream.decodeText(), Stream.mkString)
@@ -353,11 +356,12 @@ export const resolvedRefOrCorrupted = (
     ? Effect.succeed(hash)
     : Effect.fail(new InvalidRefError(`Invalid ref: ${ref}`, [`ref: ${ref}`]))
 
-const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): GitOperations => {
+const makeGitImpl = (
+  spawner: ChildProcessSpawner.ChildProcessSpawner["Service"],
+  root: string,
+): GitOperations => {
   const exec = (...args: [string, ...Array<string>]) =>
-    run(root, ...args).pipe(
-      Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
-    )
+    run(root, ...args).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner))
 
   return {
     lastCommitSubject: (ref = "HEAD") =>
@@ -374,7 +378,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
       exec("git", "symbolic-ref", "--quiet", "--short", "HEAD").pipe(
         Effect.map((s) => s.trim()),
         Effect.map((name) => Option.some(name)),
-        Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+        Effect.catch(() => Effect.succeed(Option.none<string>())),
       ),
 
     listRefs: (prefix: string) =>
@@ -399,7 +403,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
     hasCommits: () =>
       exec("git", "rev-parse", "--verify", "HEAD").pipe(
         Effect.map(() => true),
-        Effect.catchAll(() => Effect.succeed(false)),
+        Effect.catch(() => Effect.succeed(false)),
       ),
 
     readFileAtRef: (ref: string, path: string) => exec("git", "show", `${ref}:${path}`),
@@ -427,7 +431,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
             ? Option.none()
             : Option.some({ name: match[1]!, email: match[2]! })
         }),
-        Effect.catchAll(() => Effect.succeed(Option.none())),
+        Effect.catch(() => Effect.succeed(Option.none())),
       ),
 
     changedPaths: (base?: string) =>
@@ -436,7 +440,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         // Tolerates the empty-repo case (no HEAD), where the diff has no ref
         // to compare against and reports no tracked changes.
         const nameStatusOut = yield* exec("git", "diff", "--name-status", "-z", ref).pipe(
-          Effect.catchAll(() => Effect.succeed("")),
+          Effect.catch(() => Effect.succeed("")),
         )
         const trackedPaths = parseNameStatus(splitNul(nameStatusOut))
 
@@ -469,7 +473,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
 
     stagedPaths: () =>
       exec("git", "diff", "--cached", "--name-status", "--no-renames", "-z", "HEAD").pipe(
-        Effect.catchAll(() => Effect.succeed("")),
+        Effect.catch(() => Effect.succeed("")),
         Effect.map((out) => parseNameStatus(splitNul(out))),
       ),
 
@@ -482,26 +486,26 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
     readRefOption: (ref: string) =>
       exec("git", "rev-parse", "--verify", "--quiet", ref).pipe(
         Effect.map((s) => Option.some(s.trim())),
-        Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+        Effect.catch(() => Effect.succeed(Option.none<string>())),
       ),
 
     isAncestor: (a: string, b: string) =>
       run(root, "git", "merge-base", "--is-ancestor", a, b).pipe(
-        Effect.provide(Layer.succeed(CommandExecutor.CommandExecutor, executor)),
+        Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
         Effect.map(() => true),
-        Effect.catchAll(() => Effect.succeed(false)),
+        Effect.catch(() => Effect.succeed(false)),
       ),
 
     mergeBase: (a: string, b: string) =>
       exec("git", "merge-base", a, b).pipe(
         Effect.map((s) => Option.some(s.trim())),
-        Effect.catchAll(() => Effect.succeed(Option.none<string>())),
+        Effect.catch(() => Effect.succeed(Option.none<string>())),
       ),
 
     defaultBranch: () =>
       exec("git", "symbolic-ref", "--quiet", "--short", "refs/remotes/origin/HEAD").pipe(
         Effect.map((s) => s.trim()),
-        Effect.catchAll(() => Effect.succeed("")),
+        Effect.catch(() => Effect.succeed("")),
         Effect.map((name) => (name === "" ? "main" : name)),
       ),
 
@@ -546,7 +550,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
             }),
         ),
         // Empty repo (no HEAD) makes `git log` fail; treat as no commits.
-        Effect.catchAll(() =>
+        Effect.catch(() =>
           Effect.succeed(
             [] as ReadonlyArray<{
               readonly hash: string
@@ -582,7 +586,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
         ),
         // Empty repo (no HEAD), or an unresolvable `head`, makes `git log`
         // fail; treat as no commits — the same fold `commitHistory` applies.
-        Effect.catchAll(() =>
+        Effect.catch(() =>
           Effect.succeed([] as ReadonlyArray<{ readonly hash: string; readonly subject: string }>),
         ),
       )
@@ -592,7 +596,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
       Effect.gen(function* () {
         yield* exec("git", "add", "-A")
         yield* exec("git", "commit", "--allow-empty", "-m", prefix).pipe(
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             // Hooks like lint-staged block empty commits even with --allow-empty.
             // gtd's workflow commits have nothing for code-quality hooks to validate,
             // so retry without the pre-commit hook when that guard fires.
@@ -608,7 +612,7 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
     commitAsIs: (message: string) =>
       exec("git", "commit", "--allow-empty", "-m", message)
         .pipe(
-          Effect.catchAll((error) =>
+          Effect.catch((error) =>
             error.message.includes("empty git commit")
               ? exec("git", "commit", "--allow-empty", "--no-verify", "-m", message)
               : Effect.fail(error),
@@ -634,11 +638,11 @@ const makeGitImpl = (executor: CommandExecutor.CommandExecutor, root: string): G
 }
 
 const makeLiveEffect = Effect.gen(function* () {
-  const executor = yield* CommandExecutor.CommandExecutor
+  const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
   const { root } = yield* Host
-  return makeGitImpl(executor, root)
+  return makeGitImpl(spawner, root)
 })
 
-export class GitService extends Context.Tag("GitService")<GitService, GitOperations>() {
+export class GitService extends Context.Service<GitService, GitOperations>()("GitService") {
   static Live = Layer.effect(GitService, makeLiveEffect)
 }

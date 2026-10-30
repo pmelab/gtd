@@ -7,8 +7,7 @@ import { dirname, join } from "node:path"
 import { Readable } from "node:stream"
 import { fileURLToPath } from "node:url"
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
-import { FileSystem } from "@effect/platform"
-import { Context, Deferred, Effect, Layer, Runtime } from "effect"
+import { Context, Deferred, Effect, FileSystem, Layer } from "effect"
 import generatedClientHtml from "./client.generated.html"
 import { readStep, type BeatDeps, type Step, type StepRead } from "./Beat.js"
 import { pickBindHost } from "./Bind.js"
@@ -157,15 +156,15 @@ interface UiListenOptions {
  * `http.createServer` — the fake in `Server.test.ts` stays a single
  * function either way.
  */
-export class UiListener extends Context.Tag("UiListener")<
+export class UiListener extends Context.Service<
   UiListener,
   {
     readonly listen: (options: UiListenOptions) => Effect.Effect<BoundServer, UiError>
   }
->() {
+>()("UiListener") {
   static readonly Live = Layer.succeed(UiListener, {
     listen: ({ tls, host, port, handler }) =>
-      Effect.async<BoundServer, UiError>((resume) => {
+      Effect.callback<BoundServer, UiError>((resume) => {
         const serve = viaNode(handler)
         const server =
           tls !== undefined
@@ -283,7 +282,7 @@ const readDevTemplate = (fs: FileSystem.FileSystem, root: string): Effect.Effect
  * subprocess amplification for free.
  */
 const rebuildDevClientScript = (
-  runner: Context.Tag.Service<typeof UiShell>,
+  runner: Context.Service.Shape<typeof UiShell>,
   fs: FileSystem.FileSystem,
   root: string,
 ): Effect.Effect<string, UiError> =>
@@ -319,7 +318,7 @@ const rebuildDevClientScript = (
  * teaching tsdown about CSS at all.
  */
 const rebuildDevClientCss = (
-  runner: Context.Tag.Service<typeof UiShell>,
+  runner: Context.Service.Shape<typeof UiShell>,
   fs: FileSystem.FileSystem,
   root: string,
 ): Effect.Effect<string, UiError> =>
@@ -353,7 +352,7 @@ const rebuildDevClientCss = (
 /** The one piece of content this server ever serves: the client HTML, with its JS AND CSS inlined — a build-time constant in production, resolved ONCE at startup under `--dev` too (T5) and held for the process's whole lifetime, never re-read or rebuilt per request. */
 export const resolveClientHtml = (
   dev: boolean,
-  runner: Context.Tag.Service<typeof UiShell>,
+  runner: Context.Service.Shape<typeof UiShell>,
   fs: FileSystem.FileSystem,
 ): Effect.Effect<string, UiError> =>
   dev
@@ -467,7 +466,7 @@ const probeLiveServeMapping = (
     const runner = yield* UiShell
     const outcome = yield* runner
       .bash("tailscale serve status --json")
-      .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+      .pipe(Effect.catch(() => Effect.succeed(undefined)))
     if (outcome === undefined || outcome.status !== 0) return { ok: false }
     // `outcome.output` is stdout+stderr MERGED (`UiShell.ts`'s own
     // doc comment) — a version-mismatch warning or any other exit-0 stderr
@@ -502,7 +501,7 @@ const clearOrphanForPublish = (
       return probe.mapping === undefined ? "clear" : "occupied"
     }
     if (host.isPidAlive(record.pid) && record.pid !== process.pid) return "occupied"
-    yield* unpublishServe(servePort).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+    yield* unpublishServe(servePort).pipe(Effect.catch(() => Effect.succeed(undefined)))
     host.serveRecords.delete(servePort)
     return "clear"
   })
@@ -531,7 +530,7 @@ type ServeAttempt =
 const attemptServe = (
   servePort: number,
   worktree: string,
-  uiListener: Context.Tag.Service<typeof UiListener>,
+  uiListener: Context.Service.Shape<typeof UiListener>,
   handler: UiHandler,
 ): Effect.Effect<ServeAttempt, never, UiShell | UiHost> =>
   Effect.gen(function* () {
@@ -558,7 +557,7 @@ const attemptServe = (
 
     const boundAttempt = yield* uiListener.listen({ host: "127.0.0.1", port: 0, handler }).pipe(
       Effect.map((bound) => ({ ok: true as const, bound })),
-      Effect.catchAll((e) => Effect.succeed({ ok: false as const, reason: e.message })),
+      Effect.catch((e) => Effect.succeed({ ok: false as const, reason: e.message })),
     )
     if (!boundAttempt.ok) {
       return {
@@ -570,7 +569,7 @@ const attemptServe = (
     const bound = boundAttempt.bound
 
     const publishResult = yield* publishServe({ servePort, targetPort: bound.port }).pipe(
-      Effect.catchAll((e) => Effect.succeed({ ok: false as const, reason: e.message, output: "" })),
+      Effect.catch((e) => Effect.succeed({ ok: false as const, reason: e.message, output: "" })),
     )
     if (!publishResult.ok) {
       yield* Effect.sync(() => bound.close())
@@ -612,7 +611,7 @@ const teardownServe = (servePort: number): Effect.Effect<void, never, UiShell | 
     const probe = yield* probeLiveServeMapping(servePort)
     if (!probe.ok) return
     if (probe.mapping !== undefined && probe.mapping.targetUrl === record.target) {
-      yield* unpublishServe(servePort).pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+      yield* unpublishServe(servePort).pipe(Effect.catch(() => Effect.succeed(undefined)))
     }
     host.serveRecords.delete(servePort)
   })
@@ -628,7 +627,7 @@ const resolveListener = (args: {
   readonly explicitPort: number | undefined
   readonly explicitHost: string | undefined
   readonly worktree: string
-  readonly uiListener: Context.Tag.Service<typeof UiListener>
+  readonly uiListener: Context.Service.Shape<typeof UiListener>
   readonly handler: UiHandler
   readonly out: UiOut
 }): Effect.Effect<
@@ -731,7 +730,6 @@ export const runUiCommand = (
     const runner = yield* UiShell
     const fs = yield* FileSystem.FileSystem
     const uiListener = yield* UiListener
-    const runtime = yield* Effect.runtime<UiRequirements>()
 
     const explicitPort = normalizePort(options.port ?? config?.port)
     const explicitHost = options.host ?? config?.host
@@ -769,7 +767,7 @@ export const runUiCommand = (
     // whichever fires first wins and the process still exits exactly once,
     // exit 0.
     const endServer = (): void => {
-      Runtime.runFork(runtime)(Deferred.succeed(handoffDeferred, undefined))
+      Deferred.doneUnsafe(handoffDeferred, Effect.void)
     }
 
     // The `step` query's actual resolver — every read after startup is

@@ -180,7 +180,7 @@ for (const makeTier of gitTiers) {
       // As a landing renders it: under `set -eu`, which a failing update-ref relies on to stop.
       const keepTurn = (ref: string, message: string) =>
         ScriptSurface.render([{ kind: "gitWrite", write: { kind: "keepTurn", ref, message } }])
-      const git = <A>(f: (g: GitService["Type"]) => Effect.Effect<A, Error>) =>
+      const git = <A>(f: (g: GitService["Service"]) => Effect.Effect<A, Error>) =>
         t.provide(Effect.flatMap(GitService, f))
       const keptTip = async () => {
         const marker = await git((g) => g.lastCommitMessage())

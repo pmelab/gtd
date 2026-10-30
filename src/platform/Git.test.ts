@@ -2,11 +2,10 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { NodeContext } from "@effect/platform-node"
 import { Cause, Effect, Exit, Option } from "effect"
 import { describe, expect, it } from "vitest"
 import { GitService, InvalidRefError, resolvedRefOrCorrupted } from "./Git.js"
-import { Host } from "./index.js"
+import { Host, NodeServices } from "./index.js"
 import { gitTiers, runGitServiceContract, runGitScriptContract } from "../twins/index.js"
 
 /**
@@ -78,7 +77,7 @@ describe("diffPaths [Live]", () => {
         Effect.flatMap(GitService, (g) => g.diffPaths(base, tip)).pipe(
           Effect.provide(GitService.Live),
           Effect.provide(Host.layer({ root: join(root, "sub"), home: root, env: {} })),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
       expect([...paths].sort()).toEqual(["sub/a.txt", "top.txt"])
@@ -131,7 +130,7 @@ describe("diffPaths [Live]", () => {
         Effect.flatMap(GitService, (g) => g.diffPaths(base, tip)).pipe(
           Effect.provide(GitService.Live),
           Effect.provide(Host.layer({ root: repo, home: root, env: {} })),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
       expect([...paths]).toEqual(["sub"])
@@ -155,7 +154,7 @@ describe("authorIdent [Live]", () => {
         Effect.flatMap(GitService, (g) => g.authorIdent()).pipe(
           Effect.provide(GitService.Live),
           Effect.provide(Host.layer({ root, home: root, env: {} })),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
       expect(Option.isNone(ident)).toBe(true)

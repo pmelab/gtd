@@ -61,6 +61,8 @@ const installedConsumer = (): Promise<string> =>
     )
     for (const name of COMPANIONS) {
       const link = join(consumer, "node_modules", name)
+      // A dependency may pull a companion in (`@types/ws` brings `@types/node`): the checkout's copy wins.
+      rmSync(link, { recursive: true, force: true })
       mkdirSync(dirname(link), { recursive: true })
       symlinkSync(join(PROJECT_ROOT, "node_modules", name), link)
     }

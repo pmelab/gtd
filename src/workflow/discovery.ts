@@ -110,18 +110,17 @@ const workflowModule = (
   })
 
 /**
- * The discovery seam — a `Context.Tag`, not part of `WorkflowFiles` (that
+ * The discovery seam — a `Context.Service`, not part of `WorkflowFiles` (that
  * port is a plain sync record for `compileWorkflow`'s own content-file-ref
  * reads; discovery is effectful and environment-dependent: `.Live` reads
  * REAL disk, so an `@inmem` scenario's fake
  * `Workspace` — a pure in-memory `Map`, no real files anywhere on disk —
  * cannot back it. `src/twins/Layers.ts` provides the in-memory
  * counterpart instead, mirroring how `Workspace`/`Host`/`GitService` already
- * each have a production and a fake layer behind one Tag.
+ * each have a production and a fake layer behind one service.
  */
-export class ConfigDiscovery extends Context.Tag("ConfigDiscovery")<
-  ConfigDiscovery,
-  ConfigDiscoveryOps
->() {
+export class ConfigDiscovery extends Context.Service<ConfigDiscovery, ConfigDiscoveryOps>()(
+  "ConfigDiscovery",
+) {
   static Live = Layer.succeed(ConfigDiscovery, { legacyRcFiles, workflowModule })
 }

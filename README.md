@@ -15,6 +15,8 @@ to any machine that checks it out.
 
 ## Install
 
+gtd needs Node 22.19 or newer.
+
 ```bash
 npm install -g @pmelab/gtd
 ```

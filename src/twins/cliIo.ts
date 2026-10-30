@@ -11,7 +11,7 @@ export interface CapturedCliResult {
 export const makeCapturingCliIo = (
   repo: InMemRepo,
   env: Readonly<Record<string, string | undefined>> = {},
-  tools: Partial<ToolCommands["Type"]> = {},
+  tools: Partial<ToolCommands["Service"]> = {},
 ): { readonly io: CliIo; readonly result: () => CapturedCliResult } => {
   let stdout = ""
   let stderr = ""

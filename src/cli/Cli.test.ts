@@ -1548,7 +1548,7 @@ describe("runCli — stdout stays byte-empty on every failing surface", () => {
 })
 
 describe("nodeCliIo", () => {
-  const io = nodeCliIo(Layer.succeed(ToolCommands, {} as ToolCommands["Type"]))
+  const io = nodeCliIo(Layer.succeed(ToolCommands, {} as ToolCommands["Service"]))
 
   it("exposes stdout/stderr/exit/layers", () => {
     expect(typeof io.stdout).toBe("function")

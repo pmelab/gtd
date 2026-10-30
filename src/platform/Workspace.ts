@@ -600,7 +600,7 @@ const makeWorkspaceOps = (
     committed: (path, ref = "HEAD") =>
       Effect.try({ try: () => assertRepoRelative(path), catch: toError }).pipe(
         Effect.flatMap((relPath) =>
-          git.readFileAtRef(ref, relPath).pipe(Effect.catchAll(() => Effect.succeed(undefined))),
+          git.readFileAtRef(ref, relPath).pipe(Effect.catch(() => Effect.succeed(undefined))),
         ),
       ),
     readCommittedSync,
@@ -610,7 +610,7 @@ const makeWorkspaceOps = (
   }
 }
 
-export class Workspace extends Context.Tag("Workspace")<Workspace, WorkspaceOps>() {
+export class Workspace extends Context.Service<Workspace, WorkspaceOps>()("Workspace") {
   static Live = Layer.effect(
     Workspace,
     Effect.gen(function* () {
@@ -624,7 +624,7 @@ export class Workspace extends Context.Tag("Workspace")<Workspace, WorkspaceOps>
       // like a full-disk failure does.
       const commonDir = yield* git
         .gitCommonDir()
-        .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+        .pipe(Effect.catch(() => Effect.succeed(undefined)))
       return makeWorkspaceOps(root, git, commonDir)
     }),
   )

@@ -1,6 +1,5 @@
 import { join } from "node:path"
-import { FileSystem } from "@effect/platform"
-import { Effect } from "effect"
+import { Effect, FileSystem } from "effect"
 import { UiError, UiHost, UiShell } from "./Ports.js"
 import { shellQuote } from "./Quote.js"
 

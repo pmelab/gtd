@@ -76,7 +76,7 @@
     "url": "https://github.com/pmelab/gtd.git"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.19.0"
   },
   "type": "module",
   "packageManager": "npm@11.17.0",
@@ -173,11 +173,10 @@
     }
   },
   "dependencies": {
-    "@effect/platform": "^0.97.3",
-    "@effect/platform-node": "^0.108.4",
+    "@effect/platform-node-shared": "^4.1.0",
     "@standard-schema/spec": "^1.1.0",
     "@trpc/server": "^11.18.0",
-    "effect": "^3.22.4",
+    "effect": "^4.1.0",
     "jiti": "^2.7.0",
     "mdast-util-from-markdown": "^2.0.3",
     "mdast-util-gfm-autolink-literal": "^2.0.1",

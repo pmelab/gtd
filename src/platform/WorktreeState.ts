@@ -17,7 +17,7 @@ export const worktreeGitDir: Effect.Effect<string, never, Host | Workspace> = Ef
     const workspace = yield* Workspace
     const content = yield* workspace
       .read(".git")
-      .pipe(Effect.catchAll(() => Effect.succeed(undefined)))
+      .pipe(Effect.catch(() => Effect.succeed(undefined)))
     const pointer = content === undefined ? null : GITDIR_POINTER.exec(content)
     if (pointer === null) return ".git"
     const gitdir = pointer[1]!.trim()

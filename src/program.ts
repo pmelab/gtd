@@ -1,5 +1,4 @@
-import { FileSystem } from "@effect/platform"
-import { Effect, Layer } from "effect"
+import { Effect, FileSystem, Layer } from "effect"
 import { ToolCommands, type LiveToolCommands, type UiRequest } from "./cli/index.js"
 import { CommandRunner, GtdError, GtdUsageError } from "./platform/index.js"
 import type { UiConfig } from "./ui/index.js"

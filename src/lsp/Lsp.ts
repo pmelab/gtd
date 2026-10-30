@@ -611,7 +611,7 @@ const serve = (io: LspIo, connection: Connection): Effect.Effect<void> =>
     const documents = new TextDocuments(TextDocument)
     const warn = (message: string): void => connection.console.warn(`gtd lsp: ${message}`)
     bindSteeringServer(connection, documents, makeSteeringLanguageService(makeLspEnv(io), warn))
-    yield* Effect.async<void>((resume) => {
+    yield* Effect.callback<void>((resume) => {
       connection.onExit(() => resume(Effect.void))
     })
   })

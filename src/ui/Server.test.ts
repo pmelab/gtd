@@ -13,10 +13,8 @@ import {
 } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { FileSystem } from "@effect/platform"
-import { NodeContext } from "@effect/platform-node"
+import { Cause, Effect, Exit, Fiber, FileSystem, Layer } from "effect"
 import { createTRPCClient, httpBatchLink, TRPCClientError } from "@trpc/client"
-import { Cause, Effect, Exit, Fiber, Layer } from "effect"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
   liveHeadSha,
@@ -83,7 +81,7 @@ const tailnetAddress = (address: string): void => {
   }
 }
 
-import { Host } from "../platform/index.js"
+import { Host, NodeServices } from "../platform/index.js"
 import { liveUiHost, UiError, UiShell, UiUsageError, type UiHandler } from "./index.js"
 import { liveUiShell } from "./Ports.fixture.js"
 import type { UiConfig } from "./Server.js"
@@ -255,7 +253,7 @@ describe("resolveCertPair", () => {
       ).pipe(
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
         Effect.flip,
       ),
     )
@@ -280,7 +278,11 @@ describe("resolveCertPair", () => {
         "localhost",
         "localhost",
         undefined,
-      ).pipe(Effect.provide(runner), Effect.provide(liveUiHost), Effect.provide(NodeContext.layer)),
+      ).pipe(
+        Effect.provide(runner),
+        Effect.provide(liveUiHost),
+        Effect.provide(NodeServices.layer),
+      ),
     )
     expect(commands).toHaveLength(1)
     expect(commands[0]).toContain("DNS:localhost")
@@ -307,7 +309,11 @@ describe("resolveCertPair", () => {
           hostname: "host.tailnet.ts.net",
           certDomains: [],
         },
-      ).pipe(Effect.provide(runner), Effect.provide(liveUiHost), Effect.provide(NodeContext.layer)),
+      ).pipe(
+        Effect.provide(runner),
+        Effect.provide(liveUiHost),
+        Effect.provide(NodeServices.layer),
+      ),
     )
     expect(commands).toHaveLength(1)
     expect(commands[0]).toContain("DNS:host.tailnet.ts.net")
@@ -331,7 +337,7 @@ describe("resolveCertPair", () => {
       ).pipe(
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
     expect(pair.cert).toContain("BEGIN CERTIFICATE")
@@ -349,7 +355,7 @@ describe("resolveCertPair", () => {
       ).pipe(
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
         Effect.flip,
       ),
     )
@@ -370,7 +376,7 @@ describe("resolveCertPair", () => {
       ).pipe(
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
         Effect.flip,
       ),
     )
@@ -391,7 +397,7 @@ describe("resolveCertPair", () => {
       ).pipe(
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
         Effect.flip,
       ),
     )
@@ -425,7 +431,7 @@ describe("resolveCertPair", () => {
       }).pipe(
         Effect.provide(runner),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
     expect(commands).toHaveLength(1)
@@ -470,7 +476,11 @@ describe("resolveCertPair", () => {
         "100.90.1.2",
         "100.90.1.2",
         realStatus,
-      ).pipe(Effect.provide(runner), Effect.provide(liveUiHost), Effect.provide(NodeContext.layer)),
+      ).pipe(
+        Effect.provide(runner),
+        Effect.provide(liveUiHost),
+        Effect.provide(NodeServices.layer),
+      ),
     )
     expect(commands).toHaveLength(1)
     expect(commands[0]).toContain("tailscale cert")
@@ -486,7 +496,7 @@ describe("resolveCertPair", () => {
       }).pipe(
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
         Effect.flip,
       ),
     )
@@ -508,7 +518,7 @@ describe("resolveCertPair", () => {
       }).pipe(
         Effect.provide(runner),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
         Effect.flip,
       ),
     )
@@ -528,7 +538,7 @@ describe("UiListener.Live", () => {
         Effect.provide(liveUiShell),
         Effect.provide(Host.layer({ root: tmpDir, home: tmpDir, env: process.env })),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
   })
@@ -840,7 +850,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
 
@@ -880,7 +890,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
 
@@ -918,7 +928,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
 
@@ -956,7 +966,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
 
@@ -1030,7 +1040,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -1118,7 +1128,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -1172,7 +1182,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -1226,7 +1236,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -1273,7 +1283,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -1346,7 +1356,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -1414,7 +1424,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -1474,7 +1484,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -1528,7 +1538,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -1576,7 +1586,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
 
@@ -1612,7 +1622,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
 
@@ -1657,7 +1667,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
 
@@ -1712,7 +1722,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
 
@@ -1774,7 +1784,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(runner),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
 
@@ -1849,7 +1859,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -1917,7 +1927,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -1976,7 +1986,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -2034,7 +2044,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -2107,7 +2117,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -2170,7 +2180,7 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(runner),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
 
@@ -2269,7 +2279,7 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
         Effect.provideService(FileSystem.FileSystem, FileSystem.makeNoop({} as never)),
       ),
     )
@@ -2301,13 +2311,13 @@ describe("runUiCommand", () => {
         Effect.provide(fakeUiListener),
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
-        Effect.provide(NodeContext.layer),
+        Effect.provide(NodeServices.layer),
       ),
     )
 
     expect(Exit.isFailure(exit)).toBe(true)
     if (Exit.isFailure(exit)) {
-      const failure = Cause.failureOption(exit.cause)
+      const failure = Cause.findErrorOption(exit.cause)
       expect(failure._tag).toBe("Some")
       if (failure._tag === "Some") {
         expect(failure.value.message).toBe("gtd ui: port 4443 is already in use")
@@ -2361,22 +2371,20 @@ describe("runUiCommand", () => {
           Effect.provide(fakeUiListener),
           Effect.provide(noShell),
           Effect.provide(liveUiHost),
-          Effect.provide(NodeContext.layer),
+          Effect.provide(NodeServices.layer),
         ),
       )
       for (let i = 0; i < 400; i += 1) {
         if (listenCalled) break
-        const polled = await Effect.runPromise(Fiber.poll(fiber))
-        if (polled._tag === "Some") break
+        if (fiber.pollUnsafe() !== undefined) break
         await new Promise((resolve) => setTimeout(resolve, 25))
       }
-      const exit = await Effect.runPromise(Fiber.interrupt(fiber))
+      await Effect.runPromise(Fiber.interrupt(fiber))
+      const exit = await Effect.runPromise(Fiber.await(fiber))
 
-      const error = Exit.isFailure(exit)
-        ? exit.cause._tag === "Fail"
-          ? exit.cause.error
-          : undefined
-        : undefined
+      const reasons = Exit.isFailure(exit) ? exit.cause.reasons : []
+      const error =
+        reasons.length === 1 && reasons[0]!._tag === "Fail" ? reasons[0]!.error : undefined
       return { listenCalled, error }
     }
 
@@ -2515,7 +2523,7 @@ const startRealServer = async (
   format?: string,
   /** The fake `gtd`'s own beat JSON — `renderablePromptJson` (the default) unless a test needs a different rest (an idle one, for package 02). */
   beatJson: string = renderablePromptJson,
-): Promise<{ readonly boundUrl: string; readonly fiber: Fiber.RuntimeFiber<void, unknown> }> => {
+): Promise<{ readonly boundUrl: string; readonly fiber: Fiber.Fiber<void, unknown> }> => {
   initGitRepo(dir)
   installFakeGtd(dir, beatJson)
 
@@ -2526,7 +2534,7 @@ const startRealServer = async (
       Effect.provide(liveUiShell),
       Effect.provide(Host.layer({ root: dir, home: dir, env: process.env })),
       Effect.provide(liveUiHost),
-      Effect.provide(NodeContext.layer),
+      Effect.provide(NodeServices.layer),
     ),
   )
   writeFileSync(certPath, cert.cert)
@@ -2545,7 +2553,7 @@ const startRealServer = async (
       Effect.provide(UiListener.Live),
       Effect.provide(noShell),
       Effect.provide(liveUiHost),
-      Effect.provide(NodeContext.layer),
+      Effect.provide(NodeServices.layer),
     ),
   )
 

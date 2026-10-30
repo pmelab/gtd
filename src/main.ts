@@ -1,5 +1,5 @@
-import { Runtime } from "@effect/platform"
-import { NodeRuntime } from "@effect/platform-node"
+import { Runtime } from "effect"
+import { NodeRuntime } from "@effect/platform-node-shared"
 import { nodeCliIo, runCli } from "./cli/index.js"
 import { liveToolCommands } from "./program.js"
 
