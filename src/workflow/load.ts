@@ -1,11 +1,9 @@
 import { existsSync, readFileSync, realpathSync } from "node:fs"
 import { createRequire, isBuiltin } from "node:module"
-import { dirname, isAbsolute, join, relative, resolve as resolvePath, sep } from "node:path"
-import { fileURLToPath, pathToFileURL } from "node:url"
 import { stripVTControlCharacters } from "node:util"
 import { runInThisContext } from "node:vm"
 import type { Plugin as RolldownPlugin } from "rolldown"
-import { Context, Effect, Layer } from "effect"
+import { Context, Effect, Layer, Path } from "effect"
 import { GtdError, Narrator } from "../platform/index.js"
 import { accessShapeFault, replay, type TreeView } from "../replay/index.js"
 // The published facade: what a config's `@pmelab/gtd/flows` import is served.
@@ -129,22 +127,23 @@ const configModule: Effect.Effect<WorkflowModule, Error, Host | ConfigDiscovery>
 export const load: Effect.Effect<
   ConfigOperations,
   Error,
-  Narrator | Workspace | Host | ConfigDiscovery
+  Narrator | Workspace | Host | Path.Path | ConfigDiscovery
 > = Effect.gen(function* () {
   const host = yield* Host
+  const paths = yield* Path.Path
   yield* refuseLegacyRc
   const pinned = pinnedWorkflow()
   const module: WorkflowModule =
     pinned === undefined
       ? yield* configModule
-      : { filepath: resolvePath(host.root, pinned.origin), source: "" }
+      : { filepath: paths.resolve(host.root, pinned.origin), source: "" }
   yield* (yield* Narrator).narrate(
     `config: ${pinned === undefined ? "module" : "pinned module"} ${module.filepath}`,
   )
   const shipped =
     pinned === undefined
       ? yield* Effect.tryPromise({
-          try: shippedModules,
+          try: () => shippedModules(paths),
           catch: (e) => new GtdError(`gtd: ${e instanceof Error ? e.message : String(e)}`),
         })
       : undefined
@@ -153,8 +152,8 @@ export const load: Effect.Effect<
       loadWorkflows(
         module.filepath,
         shipped === undefined
-          ? runPinned(pinned!, module.filepath, host.root)
-          : await evaluate(module, shipped),
+          ? runPinned(paths, pinned!, module.filepath, host.root)
+          : await evaluate(paths, module, shipped),
       ),
     catch: (e) =>
       new GtdError(
@@ -205,14 +204,15 @@ export const load: Effect.Effect<
     warnings: diagnostics.filter((d) => d.severity === "warning"),
     fingerprint:
       pinned?.fingerprint ??
-      configFingerprint(loaded.file.dependencyFiles, host.root, module.read ?? readFromDisk),
+      configFingerprint(paths, loaded.file.dependencyFiles, host.root, module.read ?? readFromDisk),
     drift:
       pinned === undefined
         ? []
         : changedConfigFiles(
             pinned.fingerprint,
             configFingerprint(
-              Object.keys(pinned.fingerprint).map((file) => resolvePath(host.root, file)),
+              paths,
+              Object.keys(pinned.fingerprint).map((file) => paths.resolve(host.root, file)),
               host.root,
               readFromDisk,
             ),
@@ -275,15 +275,17 @@ interface PackageJson {
 
 // Only gtd's own package.json: whatever other one sits nearest (a vendored
 // bundle inside a project) must never get its exports executed.
-export const ownPackage = (): { readonly root: string; readonly pkg: PackageJson } => {
-  const start = dirname(fileURLToPath(import.meta.url))
-  for (let dir = start; ; dir = dirname(dir)) {
-    const file = join(dir, "package.json")
+export const ownPackage = (
+  paths: Path.Path,
+): { readonly root: string; readonly pkg: PackageJson } => {
+  const start = paths.dirname(Effect.runSync(paths.fromFileUrl(new URL(import.meta.url))))
+  for (let dir = start; ; dir = paths.dirname(dir)) {
+    const file = paths.join(dir, "package.json")
     if (existsSync(file)) {
       const pkg = JSON.parse(readFileSync(file, "utf8")) as PackageJson
       if (pkg.name === PACKAGE) return { root: dir, pkg }
     }
-    if (dirname(dir) === dir) throw new Error(`no ${PACKAGE} package.json above ${start}`)
+    if (paths.dirname(dir) === dir) throw new Error(`no ${PACKAGE} package.json above ${start}`)
   }
 }
 
@@ -302,10 +304,10 @@ interface ShippedModules {
 // config — or a workflow as it runs — requires it, so a command loads only the
 // subpaths its config uses; elsewhere, and from source, all of them up front.
 let shippedMemo: Promise<ShippedModules> | undefined
-const shippedModules = (): Promise<ShippedModules> =>
+const shippedModules = (paths: Path.Path): Promise<ShippedModules> =>
   (shippedMemo ??= (async () => {
     const fromSource = import.meta.url.endsWith(".ts")
-    const files = subpathFiles(fromSource ? "source" : "default")
+    const files = subpathFiles(paths, fromSource ? "source" : "default")
     const modules: Record<string, unknown> = { [FLOWS]: flows }
     const missing: Record<string, string> = {}
     if (process.features.require_module && !fromSource) {
@@ -313,7 +315,7 @@ const shippedModules = (): Promise<ShippedModules> =>
     }
     for (const [id, path] of files) {
       try {
-        modules[id] = await import(pathToFileURL(path).href)
+        modules[id] = await import(fileUrl(paths, path))
       } catch {
         missing[id] = path
       }
@@ -322,14 +324,14 @@ const shippedModules = (): Promise<ShippedModules> =>
   })())
 
 /** The file each subpath a config may import serves: all but `flows`, the engine's own, and the testkit's. */
-const subpathFiles = (condition: string): ReadonlyMap<string, string> => {
-  const { root, pkg } = ownPackage()
+const subpathFiles = (paths: Path.Path, condition: string): ReadonlyMap<string, string> => {
+  const { root, pkg } = ownPackage(paths)
   const files = new Map<string, string>()
   for (const [subpath, target] of Object.entries(pkg.exports)) {
     const file = typeof target === "string" ? target : target[condition]
     // A config runs no tests, and the gherkin steps import the consumer's test runner.
     if (subpath === "./flows" || subpath.startsWith("./testkit") || file === undefined) continue
-    files.set(`${PACKAGE}/${subpath.replace(/^\.\//, "")}`, join(root, file))
+    files.set(`${PACKAGE}/${subpath.replace(/^\.\//, "")}`, paths.join(root, file))
   }
   return files
 }
@@ -619,12 +621,12 @@ const shadowingDoors = (
 
 // How a TypeScript module is found behind a relative specifier: as written,
 // its `.js` spelling as `.ts`, with `.ts` appended, or as a directory index.
-const moduleCandidates = (path: string): readonly string[] => [
+const moduleCandidates = (paths: Path.Path, path: string): readonly string[] => [
   path,
   path.replace(/\.js$/, ".ts"),
   path.replace(/\.mjs$/, ".mts"),
   `${path}.ts`,
-  join(path, "index.ts"),
+  paths.join(path, "index.ts"),
 ]
 
 interface Evaluated {
@@ -641,9 +643,14 @@ type Chunk = (
   __dirname: string,
 ) => void
 
-const execute = (chunk: Chunk, filepath: string, require: (id: string) => unknown): unknown => {
+const execute = (
+  paths: Path.Path,
+  chunk: Chunk,
+  filepath: string,
+  require: (id: string) => unknown,
+): unknown => {
   const cjs = { exports: {} as unknown }
-  chunk(cjs.exports, require, cjs, filepath, dirname(filepath))
+  chunk(cjs.exports, require, cjs, filepath, paths.dirname(filepath))
   return cjs.exports
 }
 
@@ -656,8 +663,12 @@ const execute = (chunk: Chunk, filepath: string, require: (id: string) => unknow
  * it, as Node would. `@pmelab/gtd/*` is the running gtd's own copy, and
  * `files` leaves out every package file.
  */
-const evaluate = async (module: WorkflowModule, shipped: ShippedModules): Promise<Evaluated> => {
-  const { code, files } = await bundleConfig(module, { kind: "evaluate", shipped })
+const evaluate = async (
+  paths: Path.Path,
+  module: WorkflowModule,
+  shipped: ShippedModules,
+): Promise<Evaluated> => {
+  const { code, files } = await bundleConfig(paths, module, { kind: "evaluate", shipped })
   const fromConfig = createRequire(module.filepath)
   const require = Object.assign(
     (id: string): unknown =>
@@ -670,7 +681,7 @@ const evaluate = async (module: WorkflowModule, shipped: ShippedModules): Promis
     `(function (exports, require, module, __filename, __dirname) {${code}\n})`,
     { filename: module.filepath },
   ) as Chunk
-  return { exports: execute(chunk, module.filepath, require), files }
+  return { exports: execute(paths, chunk, module.filepath, require), files }
 }
 
 /**
@@ -688,12 +699,17 @@ interface PinnedWorkflow {
 const pinnedWorkflow = (): PinnedWorkflow | undefined =>
   (globalThis as { [PIN_KEY]?: PinnedWorkflow })[PIN_KEY]
 
-const runPinned = (pinned: PinnedWorkflow, filepath: string, root: string): Evaluated => ({
+const runPinned = (
+  paths: Path.Path,
+  pinned: PinnedWorkflow,
+  filepath: string,
+  root: string,
+): Evaluated => ({
   // Everything but the engine's own flows and Node's builtins is in the bundle.
-  exports: execute(pinned.run, filepath, (id) =>
+  exports: execute(paths, pinned.run, filepath, (id) =>
     id === FLOWS ? flows : createRequire(import.meta.url)(id),
   ),
-  files: Object.keys(pinned.fingerprint).map((file) => resolvePath(root, file)),
+  files: Object.keys(pinned.fingerprint).map((file) => paths.resolve(root, file)),
 })
 
 /**
@@ -702,22 +718,24 @@ const runPinned = (pinned: PinnedWorkflow, filepath: string, root: string): Eval
  * one function, so the engine runs it without a config, a package or rolldown.
  */
 export const pinnedWorkflowSource = async (
+  paths: Path.Path,
   module: WorkflowModule,
   root: string,
   version: string,
 ): Promise<string> => {
-  const gtd = realpathSync(ownPackage().root) + sep
-  const { code, files } = await bundleConfig(module, {
+  const gtd = realpathSync(ownPackage(paths).root) + paths.sep
+  const { code, files } = await bundleConfig(paths, module, {
     kind: "pin",
-    shipped: subpathFiles(import.meta.url.endsWith(".ts") ? "source" : "default"),
+    shipped: subpathFiles(paths, import.meta.url.endsWith(".ts") ? "source" : "default"),
   })
   // gtd's own subpaths are bundled from its package, which only a config
   // living in gtd's own repository may count among its files.
   const own = (file: string) => file.startsWith(gtd) && !module.filepath.startsWith(gtd)
   const registered = {
     version,
-    origin: relative(root, module.filepath),
+    origin: paths.relative(root, module.filepath),
     fingerprint: configFingerprint(
+      paths,
       files.filter((file) => !own(file)),
       root,
       module.read ?? readFromDisk,
@@ -743,13 +761,14 @@ const shippedImport = (
 }
 
 const bundleConfig = async (
+  paths: Path.Path,
   module: WorkflowModule,
   mode: BundleMode,
 ): Promise<{ readonly code: string; readonly files: readonly string[] }> => {
   const { read } = module
   const served = new Set<string>()
   const fromRead = (path: string): string | null => {
-    const hit = moduleCandidates(path).find((candidate) => read?.(candidate) !== undefined)
+    const hit = moduleCandidates(paths, path).find((candidate) => read?.(candidate) !== undefined)
     if (hit === undefined) return null
     served.add(hit)
     return hit
@@ -760,13 +779,15 @@ const bundleConfig = async (
       if (importer === undefined) return source === module.filepath ? source : null
       const shipped = shippedImport(source, mode)
       if (shipped !== undefined) return shipped
-      if (/^\.\.?(\/|$)/.test(source)) return fromRead(join(dirname(importer), source))
-      if (!isPackage(source)) return null
+      if (/^\.\.?(\/|$)/.test(source)) return fromRead(paths.join(paths.dirname(importer), source))
+      if (!isPackage(paths, source)) return null
       const resolved = await this.resolve(source, importer, { skipSelf: true })
-      return mode.kind === "pin" ? resolved : packageImport(source, resolved)
+      return mode.kind === "pin" ? resolved : packageImport(paths, source, resolved)
     },
     load(id) {
-      if (mode.kind === "pin" && isNativeAddon(id)) throw new Error(nativeAddon(id))
+      if (mode.kind === "pin" && isNativeAddon(paths, id)) {
+        throw new Error(nativeAddon(paths, id))
+      }
       if (id === module.filepath) return module.source
       return served.has(id) ? read!(id) : null
     },
@@ -774,7 +795,7 @@ const bundleConfig = async (
     transform(code, id) {
       return code.replace(/\bimport\.meta\.(url|filename|dirname)\b/g, (_, key: string) =>
         JSON.stringify(
-          key === "url" ? pathToFileURL(id).href : key === "filename" ? id : dirname(id),
+          key === "url" ? fileUrl(paths, id) : key === "filename" ? id : paths.dirname(id),
         ),
       )
     },
@@ -814,17 +835,19 @@ const bundleConfig = async (
 
 // A pin is plain JavaScript: a compiled addon stays a file on one machine.
 // A package node-gyp builds loads its addon by a path no bundler sees.
-const isNativeAddon = (id: string): boolean => {
+const isNativeAddon = (paths: Path.Path, id: string): boolean => {
   if (id.endsWith(".node")) return true
+  const { sep } = paths
   const at = id.lastIndexOf(`node_modules${sep}`)
   if (at < 0) return false
   const rest = id.slice(at + `node_modules${sep}`.length).split(sep)
   const root =
     id.slice(0, at) + ["node_modules", ...rest.slice(0, rest[0]!.startsWith("@") ? 2 : 1)].join(sep)
-  return existsSync(join(root, "binding.gyp"))
+  return existsSync(paths.join(root, "binding.gyp"))
 }
 
-const nativeAddon = (path: string): string => {
+const nativeAddon = (paths: Path.Path, path: string): string => {
+  const { sep } = paths
   const at = path.lastIndexOf(`node_modules${sep}`)
   const rest = at < 0 ? [] : path.slice(at + `node_modules${sep}`.length).split(sep)
   const name = rest[0]?.startsWith("@") ? rest.slice(0, 2).join("/") : rest[0]
@@ -834,18 +857,19 @@ const nativeAddon = (path: string): string => {
 // Bundled, an ES module gets the shipped `@pmelab/gtd/*` like the config
 // does. CommonJS stays Node's: it may read `__dirname`, which a bundle loses.
 const packageImport = (
+  paths: Path.Path,
   source: string,
   resolved: { readonly id: string } | null,
 ): string | { readonly id: string; readonly external: true } =>
-  resolved !== null && isEsModule(resolved.id)
+  resolved !== null && isEsModule(paths, resolved.id)
     ? resolved.id
     : { id: resolved?.id ?? source, external: true }
 
-const isEsModule = (path: string): boolean => {
+const isEsModule = (paths: Path.Path, path: string): boolean => {
   if (/\.(mjs|[cm]?tsx?)$/.test(path)) return true
   if (!/\.jsx?$/.test(path)) return false
-  for (let dir = dirname(path); dirname(dir) !== dir; dir = dirname(dir)) {
-    const file = join(dir, "package.json")
+  for (let dir = paths.dirname(path); paths.dirname(dir) !== dir; dir = paths.dirname(dir)) {
+    const file = paths.join(dir, "package.json")
     if (existsSync(file)) {
       return (JSON.parse(readFileSync(file, "utf8")) as { type?: string }).type === "module"
     }
@@ -855,7 +879,12 @@ const isEsModule = (path: string): boolean => {
 
 const inPackage = (path: string): boolean => /[\\/]node_modules[\\/]/.test(path)
 
-const isPackage = (specifier: string): boolean => !isAbsolute(specifier) && !isBuiltin(specifier)
+const isPackage = (paths: Path.Path, specifier: string): boolean =>
+  !paths.isAbsolute(specifier) && !isBuiltin(specifier)
+
+// `toFileUrl` fails only where `pathToFileURL` throws.
+const fileUrl = (paths: Path.Path, path: string): string =>
+  Effect.runSync(paths.toFileUrl(path)).href
 
 // rolldown reports each error with a colored code frame; a diagnostic takes
 // its headline and location.
@@ -1119,7 +1148,7 @@ interface ConfigServiceOperations {
   readonly load: Effect.Effect<
     ConfigOperations,
     Error,
-    Narrator | Workspace | Host | ConfigDiscovery
+    Narrator | Workspace | Host | Path.Path | ConfigDiscovery
   >
 }
 

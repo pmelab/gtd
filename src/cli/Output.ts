@@ -1,4 +1,4 @@
-import { Effect } from "effect"
+import { Effect, type Path } from "effect"
 import { CommandRunner, GitService, Host, Narrator, Workspace } from "../platform/index.js"
 import {
   renderScriptJson,
@@ -70,6 +70,7 @@ export type CommandRequirements =
   | EngineCore
   | Workspace
   | Host
+  | Path.Path
   | Narrator
   | CommandRunner
   | ToolCommands

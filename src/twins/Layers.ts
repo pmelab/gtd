@@ -8,8 +8,7 @@
 // simulates a driver running gtd's emitted scripts against the in-memory
 // worktree — a wholly separate mechanism from any gtd-internal layer.
 
-import { Effect, Layer } from "effect"
-import { isAbsolute, join } from "node:path"
+import { Effect, Layer, Path } from "effect"
 import {
   Narrator,
   GitService,
@@ -48,6 +47,10 @@ const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(Strin
  */
 const isGitDirKey = (key: string): boolean => key.startsWith(".git/")
 
+// The in-memory tier's `Path`: Effect's own POSIX one, which needs no Node.
+export const inMemPath = Effect.runSync(Effect.provide(Path.Path, Path.layer))
+const paths = inMemPath
+
 /**
  * `Workspace` for the in-memory tier. `readSync`/`read`/`write`/`committed`
  * take a repo-relative key ONLY (mirroring the live adapter's
@@ -63,12 +66,12 @@ const isGitDirKey = (key: string): boolean => key.startsWith(".git/")
  */
 export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): WorkspaceOps => {
   const toKey = (path: string): string => {
-    if (!isAbsolute(path)) return path
+    if (!paths.isAbsolute(path)) return path
     const prefix = `${root}/`
     return path === root ? "" : path.startsWith(prefix) ? path.slice(prefix.length) : path
   }
   const assertRepoRelative = (path: string): string => {
-    if (isAbsolute(path)) {
+    if (paths.isAbsolute(path)) {
       throw new Error(
         `Workspace: "${path}" is an absolute path — this member takes repo-relative paths only (use "atPath" to read outside the repo)`,
       )
@@ -146,8 +149,8 @@ const makeInMemoryConfigDiscovery = (
     legacyRcFiles: (levelRoot, levelHome) =>
       Effect.try({
         try: () =>
-          legacyRcDirs(levelRoot, levelHome).flatMap((dir) =>
-            LEGACY_RC_FILES.map((name) => join(dir, name))
+          legacyRcDirs(paths, levelRoot, levelHome).flatMap((dir) =>
+            LEGACY_RC_FILES.map((name) => paths.join(dir, name))
               .filter((filepath) => workspace.atPath(filepath) !== undefined)
               .map((path) => ({ path, owned: true })),
           ),
@@ -156,8 +159,8 @@ const makeInMemoryConfigDiscovery = (
     workflowModule: (levelRoot, levelHome) =>
       Effect.try({
         try: () => {
-          for (const dir of walkUp(levelRoot, levelHome)) {
-            const filepath = join(dir, WORKFLOW_MODULE)
+          for (const dir of walkUp(paths, levelRoot, levelHome)) {
+            const filepath = paths.join(dir, WORKFLOW_MODULE)
             const source = workspace.atPath(filepath)
             if (source !== undefined) return { filepath, source, read: workspace.atPath }
           }
@@ -272,6 +275,7 @@ export function testLayers(
     makeInMemoryConfigDiscovery(repo, root),
     Layer.succeed(EngineCore, { source: Effect.succeed(IN_MEMORY_ENGINE) }),
     Narrator.layer(opts.narrate ?? (() => {}), opts.verbose ?? true),
+    Path.layer,
     // Drivers and tools are unit-tested in their own folders; a call reaching
     // one of these is a test gap, not silence. A test opts into one via `tools`.
     Layer.succeed(ToolCommands, { ...missingToolCommands, ...opts.tools }),

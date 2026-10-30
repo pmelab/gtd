@@ -1,9 +1,4 @@
-import { existsSync } from "node:fs"
-import { createRequire } from "node:module"
-import { dirname, join } from "node:path"
-import { fileURLToPath } from "node:url"
-
-const _require = createRequire(import.meta.url)
+import { existsSync, readFileSync } from "node:fs"
 
 // A source-relative literal (`../../package.json`) breaks the built single-file
 // bundle: bundling doesn't rewrite `import.meta.url` per original module, so a
@@ -11,13 +6,14 @@ const _require = createRequire(import.meta.url)
 // dist/ vs src/ — they differ (dist/gtd.bundle.mjs is always one level below
 // repo root; src/install/Version.ts is two). Walking up from wherever this module
 // actually runs from resolves correctly in both the unbundled (vitest/tsc) and
-// bundled (dist/gtd.bundle.mjs) case.
-const findPackageJson = (fromUrl: string): string => {
-  let dir = dirname(fileURLToPath(fromUrl))
+// bundled (dist/gtd.bundle.mjs) case. URLs, not paths: this runs at import,
+// before any Effect service exists.
+const findPackageJson = (fromUrl: string): URL => {
+  let dir = new URL(".", fromUrl)
   for (let i = 0; i < 5; i++) {
-    const candidate = join(dir, "package.json")
+    const candidate = new URL("package.json", dir)
     if (existsSync(candidate)) return candidate
-    dir = dirname(dir)
+    dir = new URL("..", dir)
   }
   throw new Error(`package.json not found by walking up from ${fromUrl}`)
 }
@@ -30,4 +26,6 @@ export const PIN_KEY = Symbol.for("@pmelab/gtd/pin")
 const pinned = (globalThis as { [PIN_KEY]?: { readonly version: string } })[PIN_KEY]?.version
 
 export const GTD_VERSION: string =
-  pinned ?? (_require(findPackageJson(import.meta.url)) as { version: string }).version
+  pinned ??
+  (JSON.parse(readFileSync(findPackageJson(import.meta.url), "utf8")) as { version: string })
+    .version

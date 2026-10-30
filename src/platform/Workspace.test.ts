@@ -54,7 +54,9 @@ const makeLiveTier = (): WorkspaceTier => {
 
   const hostLayer = Host.layer({ root, home: root, env: {} })
   const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeServices.layer)))
-  const workspaceLayer = Workspace.Live.pipe(Layer.provide(Layer.merge(hostLayer, gitLayer)))
+  const workspaceLayer = Workspace.Live.pipe(
+    Layer.provide(Layer.mergeAll(hostLayer, gitLayer, NodeServices.layer)),
+  )
 
   return {
     root,
@@ -270,8 +272,9 @@ describe("Workspace [Live] worktreeSync", () => {
         Effect.provide(
           Workspace.Live.pipe(
             Layer.provide(
-              Layer.merge(
+              Layer.mergeAll(
                 Host.layer({ root, home: root, env: {} }),
+                NodeServices.layer,
                 GitService.Live.pipe(
                   Layer.provide(
                     Layer.merge(Host.layer({ root, home: root, env: {} }), NodeServices.layer),
@@ -361,7 +364,9 @@ const makeLiveEpisodeTier = () => {
 
   const hostLayer = Host.layer({ root, home: root, env: {} })
   const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeServices.layer)))
-  const workspaceLayer = Workspace.Live.pipe(Layer.provide(Layer.merge(hostLayer, gitLayer)))
+  const workspaceLayer = Workspace.Live.pipe(
+    Layer.provide(Layer.mergeAll(hostLayer, gitLayer, NodeServices.layer)),
+  )
   const ops = (): Promise<WorkspaceOps> =>
     Effect.runPromise(
       Effect.gen(function* () {

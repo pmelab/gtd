@@ -3,7 +3,7 @@ import { existsSync, readFileSync, mkdtempSync, rmSync, writeFileSync, mkdirSync
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
-import { Cause, Effect, Exit, Layer } from "effect"
+import { Cause, Effect, Exit, Layer, type Path } from "effect"
 import { Narrator, GitService, Host, Workspace, NodeServices } from "../platform/index.js"
 import {
   ConfigDiscovery,
@@ -23,7 +23,9 @@ type Env = Readonly<Record<string, string>>
 const baseLayer = (dir: string, env: Env = {}) => {
   const hostLayer = Host.layer({ root: dir, home: homeDir, env })
   const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeServices.layer)))
-  const workspaceLayer = Workspace.Live.pipe(Layer.provide(Layer.merge(hostLayer, gitLayer)))
+  const workspaceLayer = Workspace.Live.pipe(
+    Layer.provide(Layer.mergeAll(hostLayer, gitLayer, NodeServices.layer)),
+  )
   return Layer.mergeAll(hostLayer, gitLayer, workspaceLayer)
 }
 
@@ -36,16 +38,24 @@ const layer = (dir: string, env: Env = {}) =>
     ConfigDiscovery.Live,
     baseLayer(dir, env),
     Narrator.layer(() => {}, false),
-  )
+  ).pipe(Layer.provideMerge(NodeServices.layer))
 
 const run = <A>(
-  eff: Effect.Effect<A, Error, ConfigService | ConfigDiscovery | Narrator | Workspace | Host>,
+  eff: Effect.Effect<
+    A,
+    Error,
+    ConfigService | ConfigDiscovery | Narrator | Workspace | Host | Path.Path
+  >,
   dir: string = projectDir,
   env: Env = {},
 ) => Effect.runPromise(eff.pipe(Effect.provide(layer(dir, env))))
 
 const runExit = <A>(
-  eff: Effect.Effect<A, Error, ConfigService | ConfigDiscovery | Narrator | Workspace | Host>,
+  eff: Effect.Effect<
+    A,
+    Error,
+    ConfigService | ConfigDiscovery | Narrator | Workspace | Host | Path.Path
+  >,
   dir: string = projectDir,
 ) => Effect.runPromiseExit(eff.pipe(Effect.provide(layer(dir))))
 
@@ -265,6 +275,7 @@ describe("ConfigService", () => {
             others,
             baseLayer(projectDir),
             Narrator.layer((m) => warnings.push(m), false),
+            NodeServices.layer,
           ),
         ),
       ),

@@ -2,7 +2,7 @@ import { execSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { Effect, Layer } from "effect"
+import { Effect, Layer, type Path } from "effect"
 import { afterEach, describe, expect, it } from "vitest"
 import { GitService, Host, Narrator, Workspace, NodeServices } from "../platform/index.js"
 import { InMemRepo, testLayers } from "../twins/index.js"
@@ -34,7 +34,7 @@ const config = (imports: string): string =>
   ].join("\n")
 
 const loadWith = (
-  layer: Layer.Layer<ConfigService | Narrator | Workspace | Host | ConfigDiscovery>,
+  layer: Layer.Layer<ConfigService | Narrator | Workspace | Host | Path.Path | ConfigDiscovery>,
 ) =>
   Effect.runPromise(
     Effect.flatMap(ConfigService, (service) => service.load).pipe(
@@ -63,7 +63,9 @@ const live = (): Tier => {
       }
       const host = Host.layer({ root, home: root, env: {} })
       const git = GitService.Live.pipe(Layer.provide(Layer.merge(host, NodeServices.layer)))
-      const workspace = Workspace.Live.pipe(Layer.provide(Layer.merge(host, git)))
+      const workspace = Workspace.Live.pipe(
+        Layer.provide(Layer.mergeAll(host, git, NodeServices.layer)),
+      )
       return loadWith(
         Layer.mergeAll(
           ConfigService.Live,
@@ -71,7 +73,7 @@ const live = (): Tier => {
           host,
           workspace,
           Narrator.layer(() => {}, false),
-        ),
+        ).pipe(Layer.provideMerge(NodeServices.layer)),
       )
     },
     dispose: () => rmSync(root, { recursive: true, force: true }),
