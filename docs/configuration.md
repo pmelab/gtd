@@ -661,12 +661,28 @@ the landing. Opening there is fine.
 A process opened by the removed `gtd --entry` (an opening commit with no
 `Gtd-Workflow:` trailer) is refused by every command but `gtd abandon`.
 
-**There is no migration.** A process's commits are only meaningful to the
-workflow that made them. If you change `gtd.config.ts` (or upgrade the workflow
-it imports) while a process is underway and its history no longer replays to the
-steps its commits name, gtd refuses loudly with a **divergence** error and tells
-you to run `gtd abandon`. Finish or abandon an in-flight process before changing
-the workflow under it.
+A process's commits are only meaningful to the workflow that made them. A pinned
+process ignores a changed `gtd.config.ts` until `gtd repin`. Where a workflow's
+history no longer replays to the steps its commits name (an unpinned process, or
+`--live`), gtd refuses loudly with a **divergence** error: it points at
+`gtd abandon`, and for a pinned process at `gtd repin` too.
+
+`gtd repin` continues from the divergence instead of starting over. It replays
+the history under the live workflow first; where that diverges, its commit
+records an **anchor** — a `Gtd-Anchor: <hash>` trailer naming the last commit
+the live workflow still replays — and names the step the live workflow reached
+there from HEAD's tree. Replay then answers steps from the commits up to the
+anchored one, keeps the commits between it and the repin as files only, and
+reads HEAD's tree from there on: the actor redoes that step with every earlier
+change in place. When the live flow ends there instead, the repin names the
+unpin and the process closes on its next beat. A repin never continues at the
+default workflow's first step — that is where a finished process waits. A later
+repin can anchor again, on top of the first.
+
+Flow code never reads a commit an anchor set aside as a step's: its judge
+verdicts, marks, approvals and kept tips are gone, `changesSince()` on its hash
+fails, and `changes()` counts the whole set-aside range as part of the anchored
+commit's step. The review base, recorded on the process's first commit, stays.
 
 A workflow whose first step reads a process or environment setting (enumerating
 them included) fails to load: that step is where a finished process waits. A
@@ -679,11 +695,14 @@ Everything replay reads back out of git — the commit subject, the `Gtd-*`
 trailers, the steering files committed into a process, and the tip `gtd abandon`
 retains for `gtd restore` — is one versioned **history format**, recorded as a
 `Gtd-Format: <n>` trailer on every commit gtd writes. A commit without the
-trailer predates it and is format 1. The current format is 2, which adds the pin
-and unpin commits (`Gtd-Pin: add` / `Gtd-Pin: remove`, see
+trailer predates it and is format 1. Format 2 adds the pin and unpin commits
+(`Gtd-Pin: add` / `Gtd-Pin: remove`, see
 [Pin and unpin beats](driver.md#pin-and-unpin-beats)): replay steps over them,
-so a gtd that reads only format 1 would misread them as turns. The retained tip
-is versioned by that same trailer on the commit it points at.
+so a gtd that reads only format 1 would misread them as turns. The current
+format is 3, which adds a repin's `Gtd-Anchor` (see
+[Episodes, replay and divergence](#episodes-replay-and-divergence)): a gtd that
+reads only format 2 would replay the commits it sets aside. The retained tip is
+versioned by that same trailer on the commit it points at.
 
 The format changes only when one of those encodings does, independently of gtd's
 own version. A gtd reads its current format and, after a change, at least the

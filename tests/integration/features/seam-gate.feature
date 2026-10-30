@@ -104,7 +104,7 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
     And the last commit subject is "gtd(human): gate → again"
     And the last commit body contains 'Gtd-Approved: {"step":"gate#1","name":"Test","email":"test@test.com"}'
     And the last commit body does not contain "Signed-off-by:"
-    And the last commit body contains "Gtd-Format: 2"
+    And the last commit body contains "Gtd-Format: 3"
 
   @inmem
   Scenario: a staging hook does not reach the approval

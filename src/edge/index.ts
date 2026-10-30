@@ -3,6 +3,7 @@ export {
   summaryRun,
   restAt,
   currentRest,
+  repinAnchor,
   startRefusal,
   reviewBaseFor,
   type RenderedRest,

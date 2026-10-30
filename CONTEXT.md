@@ -41,7 +41,8 @@ does not run or `--live` asks for this gtd. _Avoid_: delegation, proxy, shim
 `check`, marked `pin: "add"`, whose script writes `gtd bundle`'s output to
 `.gtd/process.gtdpin`; its landing commits that file alone, with a `Gtd-Pin`
 trailer. Never a turn. `gtd repin` runs it again mid-process, from the live
-engine and config. _Avoid_: snapshot, freeze, frozen engine
+engine and config, with an [anchor](#anchor) when the live workflow diverges.
+_Avoid_: snapshot, freeze, frozen engine
 
 **Unpin beat**: A process's last beat, once its flow has ended — a `script` beat
 marked `pin: "remove"` that deletes `.gtd/process.gtdpin`; its landing is the
@@ -111,7 +112,13 @@ so flow code must be pure too. _Avoid_: fold, resume, reconstruct
 
 **Divergence**: History that no longer replays — a commit naming a step the
 current workflow does not reach there. gtd refuses loudly and points at
-`gtd abandon`; there is no migration. _Avoid_: drift, stale state, migration
+`gtd abandon`, and at `gtd repin` for a pinned process, which continues from it
+through an [anchor](#anchor). _Avoid_: drift, stale state, migration
+
+**Anchor**: A repin's `Gtd-Anchor` trailer, naming the last commit the new
+workflow replays. The commits after it stay as files only, never step answers,
+and the process rests at the step the new workflow reached there, on HEAD's tree
+— or ends, when the flow ended there. _Avoid_: migration, rebase, checkpoint
 
 **History format**: The version of everything replay reads back out of git —
 subject, `Gtd-*` trailers, committed steering formats, the retained tip —

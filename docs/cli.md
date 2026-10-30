@@ -288,11 +288,14 @@ the process.
 `gtd repin` switches the process to the live engine and config for good — the
 way out when its workflow needs a fix mid-process. Its script runs the pin beat
 again and lands it as `gtd(check): pin → <step>` with a `Gtd-Pin: add` trailer;
-the process rests where it was, on the new pin. It refuses, writing nothing,
-when the live workflow does not replay the process. Its script bundles into a
-temporary file first, so a failing `gtd bundle` leaves the old pin in place; if
-the commit itself fails, `git checkout HEAD -- .gtd/process.gtdpin` puts the old
-pin back.
+the process rests where it was, on the new pin. When the live workflow no longer
+replays the process, the repin continues from the divergence: its commit carries
+a `Gtd-Anchor` naming the last commit the live workflow replays and names the
+step it reached there, or `unpin` when the live flow ends there (see
+[Episodes, replay and divergence](configuration.md#episodes-replay-and-divergence)).
+Its script bundles into a temporary file first, so a failing `gtd bundle` leaves
+the old pin in place; if the commit itself fails,
+`git checkout HEAD -- .gtd/process.gtdpin` puts the old pin back.
 
 The pin's first line is plain text, `gtdpin <format> gtd <version>`, followed by
 one gzipped ES module. The format is 1. A pin in another format, or a file there
@@ -438,9 +441,13 @@ Usage: gtd repin [options]
 Switch the process underway to the live engine and workflow, the way out when
 the workflow needs a fix mid-process: the printed script runs the pin beat
 again, writing `gtd bundle`'s output to .gtd/process.gtdpin and committing that
-file alone. Always runs on the gtd on PATH, never on the pin. Refuses when no
-process is underway, when the next beat is a pin or unpin beat already, or when
-the live workflow does not replay the process.
+file alone. Always runs on the gtd on PATH, never on the pin. When the live
+workflow no longer replays the process, the commit continues from the
+divergence: a Gtd-Anchor trailer names the last commit it replays, the later
+commits stay as files only, and the process rests at the step the live workflow
+reached there. Refuses when no process is underway, when the next beat is a pin
+or unpin beat already, when an unpinned process diverges, or when the live
+workflow would continue at the default workflow's first step.
 
   s=$(gtd repin --json=script) && sh -c "$s"
 

@@ -34,7 +34,7 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
     Then the last commit subject is "gtd(check): unpin → idle"
     And the last commit body contains "Gtd-Branch: main"
     And the last commit body contains "Gtd-Version: "
-    And the last commit body contains "Gtd-Format: 2"
+    And the last commit body contains "Gtd-Format: 3"
     Given I mark the current commit as "tip"
     Then the history ref of "entry" points at "tip"
 

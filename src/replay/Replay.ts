@@ -127,7 +127,14 @@ export type ReplayOutcome =
       readonly landed: ReachedStep | undefined
       readonly marks: readonly Mark[]
     }
-  | { readonly kind: "divergence"; readonly message: string }
+  | {
+      readonly kind: "divergence"
+      readonly message: string
+      /** The commit replay last stood on — where a repin anchors. */
+      readonly at: string
+      /** The step replay reached there; `undefined` when the flow ended instead. */
+      readonly reached: string | undefined
+    }
   | { readonly kind: "refused"; readonly message: string }
   | { readonly kind: "failed"; readonly message: string }
 
@@ -261,6 +268,38 @@ interface ParsedCommit extends EpisodeCommit {
   readonly parsed: CommitMessage
 }
 
+const anchorOf = (parsed: CommitMessage): string | undefined =>
+  parsed.pin === "add" ? parsed.anchor : undefined
+
+const isAnchor = (commit: ParsedCommit): boolean => anchorOf(commit.parsed) !== undefined
+
+/**
+ * The commits every anchor sets aside — those between the commit it names and
+ * itself — or a fault for an anchor naming no commit still read.
+ */
+export const setAsideBy = (
+  base: string,
+  all: readonly { readonly hash: string; readonly parsed: CommitMessage }[],
+): { readonly setAside: ReadonlySet<string> } | { readonly fault: string } => {
+  const setAside = new Set<string>()
+  if (all.every((c) => anchorOf(c.parsed) === undefined)) return { setAside }
+  let kept: string[] = []
+  for (const commit of all) {
+    const anchor = anchorOf(commit.parsed)
+    if (anchor !== undefined) {
+      const at = anchor === base ? -1 : kept.indexOf(anchor)
+      if (anchor !== base && at === -1) {
+        return {
+          fault: `gtd: commit ${short(commit.hash)} anchors the process at ${short(anchor)}, which is no commit replay reads in this episode`,
+        }
+      }
+      for (const hash of kept.splice(at + 1)) setAside.add(hash)
+    }
+    kept.push(commit.hash)
+  }
+  return { setAside }
+}
+
 /**
  * Replay one episode: run its entry flow, answering each step from the
  * episode's commits in order, until a step has no commit left — the rest.
@@ -323,10 +362,17 @@ const withoutPin = (input: ReplayInput): ReplayInput => {
 
 export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
   const input = withoutPin(raw)
-  const commits: readonly ParsedCommit[] = input.episode.commits.map((c) => ({
+  const all: readonly ParsedCommit[] = input.episode.commits.map((c) => ({
     ...c,
     parsed: parseCommitMessage(c.message),
   }))
+  const resolved = setAsideBy(input.episode.base.hash, all)
+  if ("fault" in resolved) return { kind: "failed", message: resolved.fault }
+  const setAside = resolved.setAside
+  const commits = all.filter((c) => !setAside.has(c.hash))
+  const pinned = (raw.episode.commits.at(-1)?.tree ?? raw.episode.base.tree)
+    .paths()
+    .includes(PIN_PATH)
 
   // Every replay re-derives base, commits and head() from whatever history
   // exists right now, so a hash a flow reads this same run (head()/start())
@@ -343,12 +389,27 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
   let pendingUsed = false
   let position: Position = input.episode.base
   // Never stands on a pin commit: `head()` names the turn, so a flow
-  // reverting it reverts the turn, not the pin.
+  // reverting it reverts the turn, not the pin. An anchor is the exception:
+  // replay stands on it for HEAD's tree, so the flow code leading to the step
+  // it names, and that step's actor, see the set-aside work in place.
+  // `changes()` keeps the previous position: the set-aside range counts as
+  // part of the last step replay read.
   const skipPins = (): void => {
-    while (cursor < commits.length && commits[cursor]!.parsed.pin !== undefined) cursor++
+    while (cursor < commits.length && commits[cursor]!.parsed.pin !== undefined) {
+      const commit = commits[cursor]!
+      cursor++
+      if (!isAnchor(commit)) continue
+      position = commit
+      const to = commit.parsed.parsed?.to
+      expectedNext =
+        to === undefined || to === UNPIN_STATE ? undefined : { name: to, hash: commit.hash }
+      anchorPending = expectedNext !== undefined
+    }
   }
   let previousPosition: Position = input.episode.base
   let expectedNext: { readonly name: string; readonly hash: string } | undefined
+  // Whether `expectedNext` is an anchor's, which a flow that ends contradicts.
+  let anchorPending = false
   const occurrences = new Map<string, number>()
   const personas = new Map<string, Identity>()
   const scopes: ScopeOptions[] = []
@@ -547,18 +608,28 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
       : `gtd: "${step.name}" runs with a different model, system prompt, skills or file access than an earlier agent step in its conversation in memory scope "${step.memoryScope || "root"}" — a conversation has one identity`
   }
 
-  const DIVERGED = "the workflow changed under this process; run `gtd abandon` to start over"
+  const DIVERGED = pinned
+    ? "the workflow changed under this process; run `gtd repin` to continue under it from there, or `gtd abandon` to start over"
+    : "the workflow changed under this process; run `gtd abandon` to start over"
+
+  const diverged = (message: string, reached: ReachedStep | undefined): ReplayOutcome => ({
+    kind: "divergence",
+    message: `${message} — ${DIVERGED}`,
+    at: position.hash,
+    reached: reached?.name,
+  })
 
   // Checks a reached step against what the previous commit's subject promised
   // and against the persona of its scope — the reasons replay cannot go on.
   const blockerAt = (step: ReachedStep): ReplayOutcome | undefined => {
     const expected = expectedNext
     expectedNext = undefined
+    anchorPending = false
     if (expected !== undefined && expected.name !== step.name) {
-      return {
-        kind: "divergence",
-        message: `gtd: commit ${short(expected.hash)} names "${expected.name}" as the next step, but replay reached "${step.name}" — ${DIVERGED}`,
-      }
+      return diverged(
+        `gtd: commit ${short(expected.hash)} names "${expected.name}" as the next step, but replay reached "${step.name}"`,
+        step,
+      )
     }
     const error =
       unknownOptions(step) ?? approveConflict(step) ?? modeWithoutFile(step) ?? checkIdentity(step)
@@ -569,10 +640,10 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
     if (step.request.kind !== "human" || step.request.options.approve !== true) return undefined
     const approved = commit.parsed.approved
     if (approved !== undefined && formatStepId(approved.step) === expected) return undefined
-    return {
-      kind: "divergence" as const,
-      message: `gtd: commit ${short(commit.hash)} completes approval gate "${expected}" but records no Gtd-Approved for it — ${DIVERGED}`,
-    }
+    return diverged(
+      `gtd: commit ${short(commit.hash)} completes approval gate "${expected}" but records no Gtd-Approved for it`,
+      step,
+    )
   }
 
   const consumeCommit = (step: ReachedStep, commit: ParsedCommit): unknown => {
@@ -581,21 +652,27 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
     if (recorded === undefined || formatStepId(recorded) !== expected) {
       const what =
         recorded === undefined ? "records no step" : `records step "${formatStepId(recorded)}"`
-      return finish({
-        kind: "divergence",
-        message: `gtd: commit ${short(commit.hash)} ${what}, but replay expected "${expected}" — ${DIVERGED}`,
-      })
+      return finish(
+        diverged(
+          `gtd: commit ${short(commit.hash)} ${what}, but replay expected "${expected}"`,
+          step,
+        ),
+      )
     }
     const unapproved = missingApproval(step, commit, expected)
     if (unapproved !== undefined) return finish(unapproved)
     cursor++
     advance(commit)
+    expectNextOf(commit)
     skipPins()
     noteKept(step, commit)
-    const to = commit.parsed.parsed?.to
-    // A turn that ends a pinned process names the unpin, which is no step.
-    if (to !== undefined && to !== UNPIN_STATE) expectedNext = { name: to, hash: commit.hash }
     return replyFor(step.request, commit.parsed.judge)
+  }
+
+  // A turn that ends a pinned process names the unpin, which is no step.
+  const expectNextOf = (commit: ParsedCommit): void => {
+    const to = commit.parsed.parsed?.to
+    if (to !== undefined && to !== UNPIN_STATE) expectedNext = { name: to, hash: commit.hash }
   }
 
   const noteKept = (step: ReachedStep, commit: ParsedCommit): void => {
@@ -679,16 +756,27 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
 
   const endOfFlow = (via: "return" | "restart"): ReplayOutcome => {
     skipPins()
+    if (anchorPending && cursor === commits.length) {
+      return diverged(
+        `gtd: the flow ended, but commit ${short(expectedNext!.hash)} continues the process at "${expectedNext!.name}"`,
+        undefined,
+      )
+    }
     return cursor < commits.length
-      ? {
-          kind: "divergence",
-          message: `gtd: the flow ended, but commit ${short(commits[cursor]!.hash)} continues the episode — ${DIVERGED}`,
-        }
+      ? diverged(
+          `gtd: the flow ended, but commit ${short(commits[cursor]!.hash)} continues the episode`,
+          undefined,
+        )
       : { kind: "ended", via, trace, landed, marks }
   }
 
   const changesSince = (hash: string): readonly Change[] => {
     const tree = treeAt(hash)
+    if (setAside.has(hash)) {
+      throw new Error(
+        `gtd: changesSince(${hash}): a repin set ${short(hash)} aside — pass a hash this run read from head() or start()`,
+      )
+    }
     if (tree === undefined) {
       throw new Error(
         `gtd: changesSince(${hash}): ${hash} is not the episode base or one of its commits — pass a hash this run read from head() or start(), not one captured earlier, read from state, or from another branch`,

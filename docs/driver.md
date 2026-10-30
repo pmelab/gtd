@@ -102,6 +102,11 @@ remembered session is gone — retention expired, `~/.claude/projects` wiped —
 `--resume` fails and the driver falls back to `--session-id`). There is no file
 to delete and nothing to restart.
 
+After a `gtd repin` that continues from a divergence, the key derives from the
+new workflow's trace: the step the process rests at resumes the conversation
+before the divergence only when it shares that conversation's memory scope, and
+starts a fresh one in any other.
+
 ### Terminal-multiplexer status: a herdr wrapper
 
 [herdr](https://herdr.dev) shows a per-pane status in its sidebar. This wrapper
@@ -583,7 +588,8 @@ Pin and unpin commits are no turns: replay steps over them, flow code never sees
 process nets the file to nothing. `gtd abandon` removes the file with the rest
 of the process; `gtd restore` brings it back. A process started by an older gtd
 pins on its next beat. `gtd repin` runs the pin beat again on demand — a commit
-of the same shape, which replay steps over like any pin commit.
+of the same shape, which replay steps over like any pin commit, unless its
+`Gtd-Anchor` continues the process from a divergence.
 
 ### Drivers other than sh
 

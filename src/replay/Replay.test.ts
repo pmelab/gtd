@@ -1154,6 +1154,8 @@ describe("human({ approve })", () => {
     expect(outcome).toEqual({
       kind: "divergence",
       message: `gtd: commit ${hashOf(1).slice(0, 7)} completes approval gate "gate#1" but records no Gtd-Approved for it — the workflow changed under this process; run \`gtd abandon\` to start over`,
+      at: hashOf(0),
+      reached: "gate",
     })
   })
 
@@ -1269,5 +1271,90 @@ describe("pin commits", () => {
       .land("agent", "build", 1, "unpin", { "a.ts": "a" })
       .raw("gtd(check): unpin → idle\n\nGtd-Pin: remove", { [PIN]: null })
     expect((await replayOf(flow, h)).kind).toBe("ended")
+  })
+})
+
+describe("replay: a repin's anchor", () => {
+  const anchorTo = (to: string, at: number): string =>
+    formatCommitMessage({ actor: "check", from: "pin", to, pin: "add", anchor: hashOf(at) })
+
+  // The old flow went idle → build → old; this one goes idle → build → check.
+  const anchoredHistory = (): History =>
+    new History()
+      .land("human", "idle", 1, "build", { "a.txt": "a" })
+      .land("agent", "build", 1, "old", { "b.txt": "b" })
+      .raw(anchorTo("build", 1))
+
+  it("records where replay diverged and the step it reached there", async () => {
+    const h = new History().land("human", "idle", 1, "fix", { "TODO.md": "go" })
+    const outcome = await replayOf(fixLoop, h)
+    expect(outcome).toMatchObject({ kind: "divergence", at: hashOf(1), reached: "check" })
+  })
+
+  it("rests at the anchored step, redone on the anchor's tree", async () => {
+    let afterBuild: readonly string[] = []
+    const flow: Flow = async () => {
+      await human("idle")
+      await agent("build", "p")
+      afterBuild = changes().map((c) => c.path)
+      await agent("check", "p")
+    }
+    expect(restName(await replayOf(flow, anchoredHistory()))).toBe("build#1")
+    const outcome = await replayOf(flow, anchoredHistory(), { pending: { "c.txt": "c" } })
+    expect(restName(outcome)).toBe("check#1")
+    expect(afterBuild).toEqual(["c.txt"])
+  })
+
+  it("fails changesSince() on a commit it set aside", async () => {
+    const flow: Flow = async () => {
+      await human("idle")
+      changesSince(hashOf(2))
+      await agent("build", "p")
+    }
+    const outcome = await replayOf(flow, anchoredHistory())
+    expect(outcome.kind === "failed" && outcome.message).toContain("a repin set 0000000 aside")
+  })
+
+  it("diverges again when the flow reaches another step than the anchor names", async () => {
+    const flow: Flow = async () => {
+      await human("idle")
+      await agent("make", "p")
+    }
+    expect(await replayOf(flow, anchoredHistory())).toMatchObject({
+      kind: "divergence",
+      at: hashOf(3),
+      reached: "make",
+    })
+  })
+
+  it("lets the flow code leading to the step read HEAD's tree", async () => {
+    const flow: Flow = async () => {
+      await human("idle")
+      await agent("build", `seen: ${read("b.txt") ?? "nothing"}`)
+    }
+    const outcome = await replayOf(flow, anchoredHistory())
+    expect(outcome.kind === "rest" && outcome.rest.request).toMatchObject({ prompt: "seen: b" })
+  })
+
+  it("diverges when the flow ends where it names a step", async () => {
+    const outcome = await replayOf(async () => void (await human("idle")), anchoredHistory())
+    expect(outcome).toMatchObject({ kind: "divergence", at: hashOf(3), reached: undefined })
+  })
+
+  it("closes the process when it names the unpin and the flow ends", async () => {
+    const h = new History()
+      .land("human", "idle", 1, "build", { "a.txt": "a" })
+      .land("agent", "build", 1, "old")
+      .raw(anchorTo("unpin", 1))
+    const outcome = await replayOf(async () => void (await human("idle")), h)
+    expect(outcome.kind).toBe("ended")
+  })
+
+  it("fails when it names no commit replay reads", async () => {
+    const h = anchoredHistory().raw(anchorTo("build", 2))
+    const outcome = await replayOf(async () => void (await human("idle")), h)
+    expect(outcome.kind === "failed" && outcome.message).toContain(
+      "which is no commit replay reads",
+    )
   })
 })

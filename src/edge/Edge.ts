@@ -36,7 +36,9 @@ import {
   parseCommitMessage,
   replay,
   type CommitMessage,
+  formatCommitMessage,
   scopeRunStart,
+  setAsideBy,
   treeFromRecord,
   type EpisodeCommit,
   type JudgeVerdict,
@@ -259,6 +261,18 @@ const approvalEntryOf = (
         },
       ]
 
+// What an anchor set aside answers no step: it records no mark, approval or
+// verdict. An anchor naming no commit is replay's to refuse.
+const setAsideIn = (history: History, location: EpisodeLocation): ReadonlySet<string> => {
+  const anchored = setAsideBy(
+    hashAt(history, location.baseIndex) ?? EMPTY_TREE,
+    history
+      .slice(location.baseIndex + 1)
+      .map((c) => ({ hash: c.hash, parsed: parseCommitMessage(c.message) })),
+  )
+  return "setAside" in anchored ? anchored.setAside : new Set()
+}
+
 const buildRun = (
   history: History,
   location: EpisodeLocation,
@@ -269,6 +283,9 @@ const buildRun = (
   // A pin commit is no turn; the unpin commit stays, as the one that closes the process.
   const processCommits = allProcessCommits.filter((_, i) => allParsed[i]!.pin !== "add")
   const parsed = allParsed.filter((m) => m.pin !== "add")
+  const setAside = setAsideIn(history, location)
+  const answering = parsed.filter((_, i) => !setAside.has(processCommits[i]!.hash))
+  const answeringCommits = processCommits.filter((c) => !setAside.has(c.hash))
   const first = parsed[0]
   const startParentHash = hashAt(history, location.processStart - 1) ?? EMPTY_TREE
   const head = history[history.length - 1]
@@ -280,10 +297,10 @@ const buildRun = (
     diffBase: first?.reviewBase ?? startParentHash,
     trace: processCommits.map((c, i) => traceEntryOf(c.hash, parsed[i]!)),
     costEntries: parsed.flatMap((m, i) => costEntriesOf(processCommits[i]!.hash, m)),
-    judgeVerdicts: parsed.flatMap((m) => m.judge),
+    judgeVerdicts: answering.flatMap((m) => m.judge),
     pinCommitted: allParsed.some((m) => m.pin === "add"),
-    marks: parsed.flatMap((m) => m.marks),
-    approvals: processCommits.flatMap((c, i) => approvalEntryOf(c.hash, parsed[i]!)),
+    marks: answering.flatMap((m) => m.marks),
+    approvals: answeringCommits.flatMap((c, i) => approvalEntryOf(c.hash, answering[i]!)),
     pinnedVars: { ...first?.vars },
     headTurn: headTurnOf(head),
     closingHash,
@@ -1011,6 +1028,54 @@ export const restAt = (
   })
 
 export const currentRest: Effect.Effect<Rest, Error, RestRequirements> = restAt(undefined)
+
+/**
+ * Where `gtd repin` anchors a pinned process the live workflow no longer
+ * replays: the commit replay last stood on, and the step the live workflow
+ * reaches from there on HEAD's tree — the unpin when the flow ends instead.
+ * `undefined` when there is nothing to anchor: no divergence, or no pin.
+ */
+export const repinAnchor: Effect.Effect<
+  { readonly at: string; readonly to: string } | undefined,
+  Error,
+  RestRequirements
+> = Effect.gen(function* () {
+  const git = yield* GitService
+  const config = yield* (yield* ConfigService).load
+  const workspace = yield* Workspace
+  const run = yield* computeProcessRun(git, config.workflow)
+  const { def, setup } = yield* setupFor(config, run, workspace, yield* Host)
+  const diverged = yield* Effect.promise(() => replayFor(setup))
+  if (diverged.kind !== "divergence" || !headHasPin(workspace, run)) return undefined
+  // A trial anchor naming the reserved pin state diverges at whatever step the
+  // flow reaches once it stands on HEAD's tree.
+  const trial: EpisodeCommit = {
+    hash: "",
+    message: formatCommitMessage({
+      actor: "check",
+      from: PIN_STATES.add,
+      to: PIN_STATES.add,
+      pin: "add",
+      anchor: diverged.at,
+    }),
+    tree: setup.episode.at(-1)?.tree ?? setup.base.tree,
+  }
+  const outcome = yield* Effect.promise(() =>
+    replayFor({ ...setup, episode: [...setup.episode, trial] }),
+  )
+  if (outcome.kind !== "divergence") {
+    return yield* Effect.fail(replayError(outcome) ?? new Error("gtd repin: replay found no step"))
+  }
+  const to = outcome.reached ?? PIN_STATES.remove
+  if (run.workflow === undefined && to === def.initial) {
+    return yield* Effect.fail(
+      new Error(
+        `gtd repin: the live workflow continues this process at "${to}", the default workflow's first step, where a finished process waits — run \`gtd abandon\` to start over`,
+      ),
+    )
+  }
+  return { at: diverged.at, to }
+})
 
 /** The step the process rests at and the trace that reached it — at an unpin, the flow's last step. */
 const restingOn = (outcome: ReplayOutcome, pin: PinChange | undefined) => {

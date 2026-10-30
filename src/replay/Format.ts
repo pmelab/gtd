@@ -1,7 +1,8 @@
 // Bump only when what replay reads back out of git changes incompatibly — the
 // package version must not stand in for it, since most majors leave history
-// untouched. Format 2 adds pin commits, which format 1 would replay as turns.
-export const HISTORY_FORMAT = 2
+// untouched. Format 2 adds pin commits, which format 1 would replay as turns;
+// format 3 adds the anchor, whose set-aside commits format 2 would replay.
+export const HISTORY_FORMAT = 3
 const OLDEST_READABLE_FORMAT = 1
 
 const short = (hash: string): string => hash.slice(0, 7)
