@@ -7,6 +7,7 @@ import {
   discardPending,
   hardResetTo,
   keepTurn,
+  repinScript,
   mixedResetTo,
   softResetTo,
   updateRef,
@@ -49,6 +50,7 @@ const gitBuilders: Record<string, string> = {
   updateRef: updateRef("refs/worktree/gtd/history", SAMPLE_HEAD),
   deleteRef: deleteRef("refs/worktree/gtd/history"),
   keepTurn: keepTurn("refs/gtd/kept/entry/step", "gtd(agent): sample"),
+  repinScript: repinScript(".gtd/process.gtdpin"),
 }
 
 for (const [name, bare] of Object.entries(gitBuilders)) {

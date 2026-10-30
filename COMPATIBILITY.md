@@ -52,7 +52,7 @@ histories written by an older or newer gtd.
 ## Follows package SemVer
 
 - **CLI** — every command (`next`, `land`, `start`, `abandon`, `restore`,
-  `validate`, `check`, `uncheck`, `guide`, `bundle`, `summary`, `base`,
+  `repin`, `validate`, `check`, `uncheck`, `guide`, `bundle`, `summary`, `base`,
   `strays`, `history list`, `history show`, `history metrics`, `history judges`,
   `history fetch`, `version`, `help`, `ui`, `lsp`, `judge`, `judge answer`,
   `judge run`), option and argument in [CLI reference](docs/cli.md) — the bare

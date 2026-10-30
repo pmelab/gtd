@@ -11,6 +11,7 @@ const LIVE_KINDS: ReadonlySet<Command["kind"]> = new Set<Command["kind"]>([
   "lsp",
   "guide",
   "bundle",
+  "repin",
   "historyList",
   "historyShow",
   "historyMetrics",

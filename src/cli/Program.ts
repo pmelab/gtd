@@ -65,6 +65,7 @@ import {
   summaryRun,
   type RenderedRest,
 } from "../edge/index.js"
+import { formatCommitMessage, PIN_STATES } from "../replay/index.js"
 import { planStart, planStep as planStepPure, type JudgeVerdict } from "../step/index.js"
 import {
   BUILT_IN_MODE_NAMES,
@@ -82,6 +83,9 @@ import {
   hardResetTo,
   mixedResetTo,
   unpinScript,
+  repinScript,
+  commitPath,
+  transitionOutcome,
   ScriptSurface,
   updateRef,
   type RunnableScript,
@@ -154,6 +158,7 @@ export type Command =
     }
   | { readonly kind: "abandon" }
   | { readonly kind: "restore" }
+  | { readonly kind: "repin" }
   | { readonly kind: "next" }
   | { readonly kind: "validate" }
   | {
@@ -863,6 +868,40 @@ const runRestoreCommand = (
   })
 
 /**
+ * `gtd repin`: the pin beat's script and landing, on demand. It runs live,
+ * so reading the rest first refuses a live workflow that cannot replay the
+ * process before any pin is written.
+ */
+const runRepinCommand = (
+  json: JsonMode,
+  out: ArtifactOut,
+): Effect.Effect<void, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const rest = yield* currentRest
+    const refusal =
+      rest.pin === "add"
+        ? "the next beat pins the process already — run it (`gtd next --json=content`), then land"
+        : rest.pin === "remove"
+          ? "the flow has ended — its unpin beat is next, so there is nothing to repin"
+          : noProcessUnderway(rest)
+            ? "no gtd process is underway — nothing to repin"
+            : undefined
+    if (refusal !== undefined) return yield* Effect.fail(new Error(`gtd repin: ${refusal}`))
+    const message = formatCommitMessage({
+      actor: "check",
+      from: PIN_STATES.add,
+      to: rest.step.name,
+      pin: "add",
+    })
+    const steps: EmitStep[] = [
+      { kind: "gitWrite", command: repinScript(PIN_PATH) },
+      { kind: "gitWrite", command: commitPath(PIN_PATH, message) },
+      { kind: "outcome", command: transitionOutcome(PIN_STATES.add, rest.step.name) },
+    ]
+    yield* writeScript(json, out, combinedScript(emitScripts(steps).required, ""))
+  })
+
+/**
  * The mode's own validate command for `file`: a declared `validate:` command
  * verbatim; a `"builtin"` validator or no mode at all names the leaf
  * `gtd check <mode>` invocation instead, so there's always something concrete
@@ -1339,6 +1378,8 @@ const dispatchVoidCommand = (
       return runAbandonCommand(json, out)
     case "restore":
       return runRestoreCommand(json, out)
+    case "repin":
+      return runRepinCommand(json, out)
     case "next":
       return runNextCommand(json, out)
     case "validate":

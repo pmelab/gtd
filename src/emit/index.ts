@@ -18,6 +18,7 @@ export {
   commitClean,
   commitPath,
   pinScript,
+  repinScript,
   unpinScript,
   CHANGED_SINCE_LAND,
   softResetTo,

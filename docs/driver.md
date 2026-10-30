@@ -391,25 +391,25 @@ the engine itself is a supported public surface, and anything below holds for
 any driver you write against it. gtd decides and prints; it never commits, never
 moves HEAD or a ref, and never writes the git index — every git write is in a
 script the driver runs. The commands that change anything — `gtd land`,
-`gtd start <name>`, `gtd abandon`, `gtd restore`, `gtd judge answer` and
-`gtd history fetch` — perform no git write when run: each one's `--json=script`
-form carries ONE POSIX sh script for YOU to execute — a leading comment ("gtd
-emitted this and did NOT run it — run it with `sh` to apply it"), then the
-REQUIRED half verbatim, then, only when there's a presentation-only follow-up, a
-second comment ("presentation only — safe to skip") and the OPTIONAL half
-wrapped in a subshell whose own non-zero exit is swallowed (reported to stderr
-as a warning, never turning a landed turn into a failing one). Plain `gtd land`
-(and plain `gtd judge answer`) is the one exception: it prints a human-readable
-sentence, never a script (see below) — a driver reads the script from
-`--json=script` instead, the one form every one of them takes (see
-[Schema](./cli.md#schema)). Printing gtd's output and never running it is not
-driving anything; a driver must pipe or execute what gtd prints — e.g. the
-capture-then-pipe form the reference driver below uses, via
+`gtd start <name>`, `gtd abandon`, `gtd restore`, `gtd repin`,
+`gtd judge answer` and `gtd history fetch` — perform no git write when run: each
+one's `--json=script` form carries ONE POSIX sh script for YOU to execute — a
+leading comment ("gtd emitted this and did NOT run it — run it with `sh` to
+apply it"), then the REQUIRED half verbatim, then, only when there's a
+presentation-only follow-up, a second comment ("presentation only — safe to
+skip") and the OPTIONAL half wrapped in a subshell whose own non-zero exit is
+swallowed (reported to stderr as a warning, never turning a landed turn into a
+failing one). Plain `gtd land` (and plain `gtd judge answer`) is the one
+exception: it prints a human-readable sentence, never a script (see below) — a
+driver reads the script from `--json=script` instead, the one form every one of
+them takes (see [Schema](./cli.md#schema)). Printing gtd's output and never
+running it is not driving anything; a driver must pipe or execute what gtd
+prints — e.g. the capture-then-pipe form the reference driver below uses, via
 `gtd land --json=script`.
 
 Every script gtd emits — `gtd land --json=script`, `gtd start <name>`,
-`gtd abandon`, `gtd restore`, `gtd judge answer --json=script`, and the
-format/validate script `gtd validate` prints — is POSIX `sh`, portable to
+`gtd abandon`, `gtd restore`, `gtd repin`, `gtd judge answer --json=script`, and
+the format/validate script `gtd validate` prints — is POSIX `sh`, portable to
 `dash`: a driver may run any of them with any POSIX-compliant shell, not
 specifically bash. The same convention extends to a workflow's test command
 (gtd-workflows' `testCommand`, run through `sh -c`): it is expected to be POSIX
@@ -582,7 +582,8 @@ Pin and unpin commits are no turns: replay steps over them, flow code never sees
 `.gtd/process.gtdpin`, and `gtd strays` never reports it. A squash of the whole
 process nets the file to nothing. `gtd abandon` removes the file with the rest
 of the process; `gtd restore` brings it back. A process started by an older gtd
-pins on its next beat.
+pins on its next beat. `gtd repin` runs the pin beat again on demand — a commit
+of the same shape, which replay steps over like any pin commit.
 
 ### Drivers other than sh
 

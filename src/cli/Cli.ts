@@ -131,6 +131,7 @@ const SCRIPT_KINDS: ReadonlySet<Command["kind"]> = new Set<Command["kind"]>([
   "start",
   "abandon",
   "restore",
+  "repin",
   "validate",
   "historyFetch",
 ])
@@ -447,6 +448,16 @@ With no <name>, list every workflow and door it can start. An unknown <name>, th
     group: "Start and stop",
     summary: "Bring back the last abandoned process",
     details: `Bring back the process the last \`gtd abandon\` stopped: the printed script resets HEAD to that process's last commit. Refuses on a dirty working tree, when nothing was abandoned, or when commits made since would be lost.`,
+  },
+  {
+    token: "repin",
+    kind: "repin",
+    arity: "none",
+    group: "Start and stop",
+    summary: "Pin the process to the live gtd and workflow",
+    details: `Switch the process underway to the live engine and workflow, the way out when the workflow needs a fix mid-process: the printed script runs the pin beat again, writing \`gtd bundle\`'s output to .gtd/process.gtdpin and committing that file alone. Always runs on the gtd on PATH, never on the pin. Refuses when no process is underway, when the next beat is a pin or unpin beat already, or when the live workflow does not replay the process.
+
+  s=$(gtd repin --json=script) && sh -c "$s"`,
   },
   {
     token: "summary",
@@ -1306,6 +1317,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "lsp"
       | "abandon"
       | "restore"
+      | "repin"
       | "next"
       | "validate"
       | "guide"
