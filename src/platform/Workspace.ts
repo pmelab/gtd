@@ -1,31 +1,22 @@
-import { execFileSync } from "node:child_process"
-import { createHash } from "node:crypto"
-import {
-  lstatSync,
-  mkdirSync,
-  readFileSync,
-  readlinkSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs"
 import { Context, Effect, Layer, Path } from "effect"
 import { GitService, type GitOperations } from "./Git.js"
 import { Host, type HostOps } from "./Host.js"
+import { nodeSyncIo } from "./NodeSync.js"
+import type { SyncIo } from "./SyncIo.js"
 
 const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
 
-// A tree listing, or one committed file, can overflow execFileSync's 1 MB default.
-const MAX_BUFFER = 256 * 1024 * 1024
 const HASH_CHUNK = 500
+const encoder = new TextEncoder()
 
 /** A full sha1 or sha256 object id — the only refs an immutable, disk-cached read is safe to key on. */
 const isObjectHash = (ref: string): boolean => /^[0-9a-f]{40}$|^[0-9a-f]{64}$/.test(ref)
 
 const GTD_CACHE_SUBDIR = "gtd-cache"
 
-const readTextCache = (path: string): string | undefined => {
+const readTextCache = (io: SyncIo, path: string): string | undefined => {
   try {
-    return readFileSync(path, "utf8")
+    return io.readText(path)
   } catch {
     return undefined
   }
@@ -40,24 +31,25 @@ const readTextCache = (path: string): string | undefined => {
  * alternative — failing a gtd command over a cache write — is worse.
  */
 const writeTextCacheAtomic = (
+  io: SyncIo,
   paths: Path.Path,
   pid: number,
   path: string,
   content: string,
 ): void => {
   try {
-    mkdirSync(paths.dirname(path), { recursive: true })
+    io.makeDirectory(paths.dirname(path))
     const tmp = `${path}.tmp-${pid}-${Math.random().toString(36).slice(2)}`
-    writeFileSync(tmp, content, "utf8")
-    renameSync(tmp, path)
+    io.writeText(tmp, content)
+    io.rename(tmp, path)
   } catch {
     // A full disk or read-only git dir silently disables the cache.
   }
 }
 
 /** A commit's `path → blob id` map, serialized as JSON. `undefined` on ANY read failure — missing, truncated, unparseable — so the caller falls back to asking git. */
-const readTreeCache = (file: string): Map<string, string> | undefined => {
-  const raw = readTextCache(file)
+const readTreeCache = (io: SyncIo, file: string): Map<string, string> | undefined => {
+  const raw = readTextCache(io, file)
   if (raw === undefined) return undefined
   try {
     const parsed: unknown = JSON.parse(raw)
@@ -74,11 +66,12 @@ const readTreeCache = (file: string): Map<string, string> | undefined => {
 }
 
 const writeTreeCache = (
+  io: SyncIo,
   paths: Path.Path,
   pid: number,
   file: string,
   tree: ReadonlyMap<string, string>,
-): void => writeTextCacheAtomic(paths, pid, file, JSON.stringify(Object.fromEntries(tree)))
+): void => writeTextCacheAtomic(io, paths, pid, file, JSON.stringify(Object.fromEntries(tree)))
 
 /**
  * One raw `git log --raw` diff entry, already resolved to what it does to a
@@ -179,19 +172,14 @@ const parseLsTree = (out: string): Map<string, string> => {
  * check `ok` before doing so.
  */
 const fetchTree = (
+  io: SyncIo,
   root: string,
   ref: string,
 ): { readonly ok: boolean; readonly entries: Map<string, string> } => {
   try {
     return {
       ok: true,
-      entries: parseLsTree(
-        execFileSync("git", ["ls-tree", "-r", "-z", "--full-tree", ref], {
-          cwd: root,
-          encoding: "utf8",
-          maxBuffer: MAX_BUFFER,
-        }),
-      ),
+      entries: parseLsTree(io.git(root, ["ls-tree", "-r", "-z", "--full-tree", ref])),
     }
   } catch {
     return { ok: false, entries: new Map() }
@@ -274,24 +262,6 @@ const assertRepoRelative = (paths: Path.Path, path: string): string => {
   return path
 }
 
-const readFileOrAbsent = (path: string): string | undefined => {
-  try {
-    return readFileSync(path, "utf8")
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined
-    throw e
-  }
-}
-
-const lstatOrAbsent = (path: string): ReturnType<typeof lstatSync> | undefined => {
-  try {
-    return lstatSync(path)
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined
-    throw e
-  }
-}
-
 /** One replayed commit: its hash and the (already-`\n`-stripped) `--raw -z` body `parseRawDiff` consumes. */
 interface RawLogEntry {
   readonly hash: string
@@ -306,27 +276,24 @@ interface RawLogEntry {
  * bounds no longer match git's own history.
  */
 const runRawLogReplay = (
+  io: SyncIo,
   root: string,
   base: string | undefined,
   head: string,
   commits: readonly string[],
 ): readonly RawLogEntry[] => {
   const range = base !== undefined ? `${base}..${head}` : head
-  const out = execFileSync(
-    "git",
-    [
-      "log",
-      "--first-parent",
-      "--reverse",
-      "-z",
-      "--raw",
-      "-r",
-      "--no-abbrev",
-      "--format=%x01%H",
-      range,
-    ],
-    { cwd: root, encoding: "utf8", maxBuffer: MAX_BUFFER },
-  )
+  const out = io.git(root, [
+    "log",
+    "--first-parent",
+    "--reverse",
+    "-z",
+    "--raw",
+    "-r",
+    "--no-abbrev",
+    "--format=%x01%H",
+    range,
+  ])
   const chunks = out.split("\x01").filter((c) => c.length > 0)
   if (chunks.length !== commits.length) {
     throw new Error(
@@ -369,6 +336,7 @@ const makeWorkspaceOps = (
   git: GitOperations,
   commonDir: string | undefined,
   paths: Path.Path,
+  io: SyncIo,
 ): WorkspaceOps => {
   const resolveAny = (path: string): string =>
     paths.isAbsolute(path) ? path : paths.join(root, path)
@@ -390,17 +358,18 @@ const makeWorkspaceOps = (
     const memoHit = treeMemo.get(hash)
     if (memoHit !== undefined) return memoHit
     if (commonDir === undefined) return undefined
-    const cached = readTreeCache(treeCachePath(commonDir, hash))
+    const cached = readTreeCache(io, treeCachePath(commonDir, hash))
     if (cached !== undefined) treeMemo.set(hash, cached)
     return cached
   }
 
   const rememberTree = (hash: string, tree: ReadonlyMap<string, string>): void => {
     treeMemo.set(hash, tree)
-    if (commonDir !== undefined) writeTreeCache(paths, pid, treeCachePath(commonDir, hash), tree)
+    if (commonDir !== undefined)
+      writeTreeCache(io, paths, pid, treeCachePath(commonDir, hash), tree)
   }
 
-  const readSync = (path: string): string | undefined => readFileOrAbsent(repoPath(path))
+  const readSync = (path: string): string | undefined => io.readText(repoPath(path))
 
   /**
    * A blob's content, keyed on its OWN id rather than a (path, ref) pair —
@@ -413,7 +382,7 @@ const makeWorkspaceOps = (
     const memoHit = blobMemo.get(id)
     if (memoHit !== undefined) return memoHit
     if (commonDir !== undefined) {
-      const cached = readTextCache(blobCachePath(commonDir, id))
+      const cached = readTextCache(io, blobCachePath(commonDir, id))
       if (cached !== undefined) {
         blobMemo.set(id, cached)
         return cached
@@ -421,24 +390,20 @@ const makeWorkspaceOps = (
     }
     let content: string
     try {
-      content = execFileSync("git", ["cat-file", "-p", id], {
-        cwd: root,
-        encoding: "utf8",
-        maxBuffer: MAX_BUFFER,
-      })
+      content = io.git(root, ["cat-file", "-p", id])
     } catch {
       return undefined
     }
     blobMemo.set(id, content)
     if (commonDir !== undefined)
-      writeTextCacheAtomic(paths, pid, blobCachePath(commonDir, id), content)
+      writeTextCacheAtomic(io, paths, pid, blobCachePath(commonDir, id), content)
     return content
   }
 
   // A raw, synchronous `git show <ref>:<path>` — the sync counterpart to
   // `committed`, for replay, which can't `yield*` mid-flow. Bypasses the Effect-based `GitOperations`
   // entirely, the same escape `readSync` already takes around the Effect
-  // `FileSystem` — both are raw Node calls, not a second git abstraction.
+  // `FileSystem` — both go through the sync port, not a second git abstraction.
   // ANY failure (missing ref, missing path at that ref, git not on PATH)
   // folds to `undefined`, matching `committed`'s own catch-all-as-absence.
   //
@@ -454,11 +419,7 @@ const makeWorkspaceOps = (
       return id === undefined ? undefined : readBlobSync(id)
     }
     try {
-      return execFileSync("git", ["show", `${ref}:${relPath}`], {
-        cwd: root,
-        encoding: "utf8",
-        maxBuffer: MAX_BUFFER,
-      })
+      return io.git(root, ["show", `${ref}:${relPath}`])
     } catch {
       return undefined
     }
@@ -473,7 +434,7 @@ const makeWorkspaceOps = (
       const cached = peekTree(ref)
       if (cached !== undefined) return cached
     }
-    const { ok, entries } = fetchTree(root, ref)
+    const { ok, entries } = fetchTree(io, root, ref)
     if (!ok) {
       if (onFailure === "throw") {
         throw new Error(`gtd: failed to read the tree at "${ref}" — git ls-tree did not succeed`)
@@ -519,7 +480,7 @@ const makeWorkspaceOps = (
         }
 
         const head = commits[commits.length - 1]!
-        const replay = runRawLogReplay(root, base, head, commits)
+        const replay = runRawLogReplay(io, root, base, head, commits)
         for (const [hash, tree] of foldRawDiffs(baseTree, replay, rememberTree))
           result.set(hash, tree)
         return result
@@ -527,13 +488,7 @@ const makeWorkspaceOps = (
       catch: toError,
     })
 
-  const gitSync = (args: readonly string[], input?: string): string =>
-    execFileSync("git", args, {
-      cwd: root,
-      encoding: "utf8",
-      maxBuffer: MAX_BUFFER,
-      ...(input !== undefined ? { input } : {}),
-    })
+  const gitSync = (args: readonly string[]): string => io.git(root, args)
 
   // A path git status reports is re-hashed the way `git add` would store it;
   // every other path keeps HEAD's blob id, so an untouched file is never
@@ -553,13 +508,13 @@ const makeWorkspaceOps = (
     for (const record of status.split("\0")) {
       if (record.length < 4) continue
       const path = record.slice(3).replace(/\/$/, "")
-      const stat = lstatOrAbsent(paths.join(root, path))
+      const stat = io.lstat(paths.join(root, path))
       if (stat === undefined) entries.delete(path)
-      else if (stat.isSymbolicLink()) {
-        entries.set(path, blobId(readlinkSync(paths.join(root, path), "utf8")))
-      } else if (stat.isDirectory()) {
+      else if (stat.type === "symlink") {
+        entries.set(path, blobId(io.readLink(paths.join(root, path))))
+      } else if (stat.type === "directory") {
         // Only a directory holding its own repository is committed, as a gitlink.
-        if (lstatOrAbsent(paths.join(root, path, ".git")) === undefined) entries.delete(path)
+        if (io.lstat(paths.join(root, path, ".git")) === undefined) entries.delete(path)
         else entries.set(path, gitlinkOf(path))
       } else files.push(path)
     }
@@ -576,10 +531,7 @@ const makeWorkspaceOps = (
   /** A submodule's (or embedded repository's) checked-out commit — what `git add` records for it. */
   const gitlinkOf = (path: string): string | undefined => {
     try {
-      return execFileSync("git", ["rev-parse", "HEAD"], {
-        cwd: paths.join(root, path),
-        encoding: "utf8",
-      }).trim()
+      return io.git(paths.join(root, path), ["rev-parse", "HEAD"]).trim()
     } catch {
       return undefined
     }
@@ -588,11 +540,8 @@ const makeWorkspaceOps = (
   let objectFormat: string | undefined
   const blobId = (content: string): string => {
     objectFormat ??= gitSync(["rev-parse", "--show-object-format"]).trim()
-    const bytes = Buffer.from(content, "utf8")
-    return createHash(objectFormat === "sha256" ? "sha256" : "sha1")
-      .update(`blob ${bytes.length}\0`)
-      .update(bytes)
-      .digest("hex")
+    const bytes = encoder.encode(content)
+    return io.hash(objectFormat === "sha256" ? "sha256" : "sha1", `blob ${bytes.length}\0`, bytes)
   }
 
   return {
@@ -603,7 +552,7 @@ const makeWorkspaceOps = (
     read: (path) => Effect.try({ try: () => readSync(path), catch: toError }),
     write: (path, content) =>
       Effect.try({
-        try: () => writeFileSync(repoPath(path), content, "utf8"),
+        try: () => io.writeText(repoPath(path), content),
         catch: toError,
       }),
     committed: (path, ref = "HEAD") =>
@@ -613,9 +562,9 @@ const makeWorkspaceOps = (
         ),
       ),
     readCommittedSync,
-    atPath: (path) => readFileOrAbsent(resolveAny(path)),
+    atPath: (path) => io.readText(resolveAny(path)),
     writeAtPath: (path, content) =>
-      Effect.try({ try: () => writeFileSync(resolveAny(path), content, "utf8"), catch: toError }),
+      Effect.try({ try: () => io.writeText(resolveAny(path), content), catch: toError }),
   }
 }
 
@@ -635,7 +584,7 @@ export class Workspace extends Context.Service<Workspace, WorkspaceOps>()("Works
       const commonDir = yield* git
         .gitCommonDir()
         .pipe(Effect.catch(() => Effect.succeed(undefined)))
-      return makeWorkspaceOps(host, git, commonDir, paths)
+      return makeWorkspaceOps(host, git, commonDir, paths, nodeSyncIo)
     }),
   )
 }

@@ -1,7 +1,5 @@
-import { readFileSync } from "node:fs"
-import { gunzipSync, gzipSync } from "node:zlib"
 import { Context, Effect, Layer, Path } from "effect"
-import { GtdError } from "../platform/index.js"
+import { GtdError, NodeRuntime, nodeSyncIo } from "../platform/index.js"
 import { ownPackage, pinnedWorkflowSource } from "./load.js"
 import type { WorkflowModule } from "./discovery.js"
 
@@ -21,7 +19,11 @@ export class EngineCore extends Context.Service<
       source: Effect.suspend(() => {
         const file = path()
         return Effect.try({
-          try: () => readFileSync(file, "utf8"),
+          try: () => {
+            const source = nodeSyncIo.readText(file)
+            if (source === undefined) throw new Error("absent")
+            return source
+          },
           catch: () => new GtdError(`gtd bundle: no engine at ${file} — build gtd first`),
         })
       }),
@@ -57,7 +59,7 @@ export const pin = (
     const source = workflow + core.replace(/^#!.*\n/, "")
     return Buffer.concat([
       Buffer.from(`gtdpin ${PIN_FORMAT} gtd ${version}\n`),
-      gzipSync(source, { level: 9 }),
+      NodeRuntime.gzip(source),
     ])
   })
 
@@ -79,6 +81,6 @@ export const readPin = (
   if (header === undefined) throw new Error("not a gtd pin")
   return {
     ...header,
-    source: gunzipSync(bytes.subarray(bytes.indexOf(0x0a) + 1)).toString("utf8"),
+    source: NodeRuntime.gunzip(bytes.subarray(bytes.indexOf(0x0a) + 1)),
   }
 }
