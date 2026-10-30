@@ -99,7 +99,7 @@ import {
   restoredOutcome,
 } from "../emit/index.js"
 import { GTD_VERSION, renderBriefing, WORKFLOWS_REPO } from "../install/index.js"
-import { ToolCommands, type SelfGtd } from "./ToolCommands.js"
+import { ToolCommands } from "./ToolCommands.js"
 import {
   normalizeScriptNewline,
   SelectorUsageError,
@@ -210,14 +210,12 @@ export type Command =
  */
 export type Needs = "pure" | "removed" | "none" | "fs" | "state"
 
-const selfGtd = (): SelfGtd => {
-  const script = process.argv[1]
-  return script === undefined ? ["gtd"] : [process.execPath, script]
-}
-
 /** `needs: "none"` skips the repo-root guard — the server is keyed on file name, not workflow state. */
-const runLspCommand = (): Effect.Effect<void, Error, ToolCommands> =>
-  Effect.flatMap(ToolCommands, (tools) => tools.lsp(selfGtd()))
+const runLspCommand = (): Effect.Effect<void, Error, ToolCommands | Host> =>
+  Effect.gen(function* () {
+    const { self } = yield* Host
+    return yield* (yield* ToolCommands).lsp(self)
+  })
 
 /**
  * Prints the briefing, emitted by the binary itself so it's always current.
@@ -430,23 +428,6 @@ const parseJudgeDocument = (rendered: string): Effect.Effect<JudgeDocument, Erro
       ),
   })
 
-/**
- * The first stdin-consuming command outside `src/lsp/Lsp.ts` (which reads LSP's
- * own length-prefixed frames off `process.stdin`, not a one-shot read) —
- * reads stdin to completion and decodes it as UTF-8 text, no framing.
- */
-const readStdin = (): Effect.Effect<string, Error> =>
-  Effect.tryPromise({
-    try: async () => {
-      const chunks: Buffer[] = []
-      for await (const chunk of process.stdin as AsyncIterable<Buffer>) {
-        chunks.push(chunk)
-      }
-      return Buffer.concat(chunks).toString("utf8")
-    },
-    catch: (e) => (e instanceof Error ? e : new Error(String(e))),
-  })
-
 /** A stdin that is no judgment is the caller's mistake, a usage error like `gtd judge answer`'s. */
 const judgmentShape = (input: string): Effect.Effect<void, GtdUsageError> => {
   let doc: unknown
@@ -470,7 +451,7 @@ const runJudgeRunCommand = (
     const host = yield* Host
     const tools = yield* ToolCommands
     yield* refuseLegacyRc
-    const input = yield* readStdin()
+    const input = yield* host.stdin
     yield* judgmentShape(input)
     const verdict = yield* Effect.tryPromise({
       try: () =>
@@ -535,7 +516,7 @@ const runJudgeAnswerCommand = (
     const document = yield* parseJudgeDocument(rendered.judge)
     const ids = document.questions.map((q) => q.id)
 
-    const raw = yield* readStdin()
+    const raw = yield* (yield* Host).stdin
     const parsed = yield* Effect.try({
       try: () => JSON.parse(raw) as unknown,
       catch: () => new SelectorUsageError("gtd judge answer: stdin is not valid JSON"),

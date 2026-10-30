@@ -70,10 +70,9 @@ const live = (): Tier => {
         Layer.mergeAll(
           ConfigService.Live,
           ConfigDiscovery.Live,
-          host,
           workspace,
           Narrator.layer(() => {}, false),
-        ).pipe(Layer.provideMerge(NodeServices.layer)),
+        ).pipe(Layer.provideMerge(host), Layer.provideMerge(NodeServices.layer)),
       )
     },
     dispose: () => rmSync(root, { recursive: true, force: true }),

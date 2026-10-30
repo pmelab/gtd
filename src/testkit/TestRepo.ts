@@ -1,5 +1,4 @@
 import { Effect } from "effect"
-import { PassThrough } from "node:stream"
 import { runCli } from "../cli/index.js"
 import { EXIT_OK, type BeatDocument } from "../wire/index.js"
 import {
@@ -450,8 +449,8 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
 
   // The modules are registered only while gtd runs, so nothing outlives the
   // call that loads them and no test can reach another's module.
-  const gtd = async (...args: string[]): Promise<CapturedCliResult> => {
-    const { io, result } = makeCapturingCliIo(repo, seenEnv())
+  const gtdWithStdin = async (stdin: string, ...args: string[]): Promise<CapturedCliResult> => {
+    const { io, result } = makeCapturingCliIo(repo, seenEnv(), {}, stdin)
     if (typeof workflow !== "string") registry().set(id, workflow)
     for (const [specifier, module] of modules) registry().set(moduleKey(specifier), module)
     try {
@@ -462,19 +461,7 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
     }
     return result()
   }
-
-  // `gtd judge answer` reads its verdict off stdin, so it is swapped for the call.
-  const withStdin = async <T>(stdin: string, fn: () => Promise<T>): Promise<T> => {
-    const saved = Object.getOwnPropertyDescriptor(process, "stdin")
-    const fake = new PassThrough()
-    Object.defineProperty(process, "stdin", { value: fake, configurable: true })
-    fake.end(stdin)
-    try {
-      return await fn()
-    } finally {
-      if (saved) Object.defineProperty(process, "stdin", saved)
-    }
-  }
+  const gtd = (...args: string[]): Promise<CapturedCliResult> => gtdWithStdin("", ...args)
 
   const apply = (what: string, script: string): void => {
     if (script.length === 0) return
@@ -488,8 +475,7 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
     stdin?: string,
     refused: (error: Error) => Error = (error) => error,
   ): Promise<CapturedCliResult> => {
-    const call = (...extra: string[]) =>
-      stdin === undefined ? gtd(...args, ...extra) : withStdin(stdin, () => gtd(...args, ...extra))
+    const call = (...extra: string[]) => gtdWithStdin(stdin ?? "", ...args, ...extra)
     const reported = await call()
     if (reported.exitCode !== EXIT_OK) throw refused(failed(`gtd ${args.join(" ")}`, reported))
     const script = await call("--json=script")

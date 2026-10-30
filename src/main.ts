@@ -1,7 +1,7 @@
 import { Runtime } from "effect"
 import { NodeRuntime } from "@effect/platform-node-shared"
 import { nodeCliIo, runCli, runLauncher } from "./cli/index.js"
-import { livePinFile, runPinModule } from "./platform/index.js"
+import { livePinFile, nodeStdio, runPinModule } from "./platform/index.js"
 import { PIN_PATH } from "./wire/index.js"
 import { liveToolCommands } from "./program.js"
 
@@ -41,15 +41,7 @@ const runLive = (argv: readonly string[]): void => {
 // The pin's engine installs its own signal handling: nothing above may run
 // before the hand-over, or both engines would answer one signal.
 await runLauncher(process.argv, livePinFile(process.cwd(), PIN_PATH), {
-  stdout: (chunk) => {
-    process.stdout.write(chunk)
-  },
-  stderr: (chunk) => {
-    process.stderr.write(chunk)
-  },
-  exit: (code) => {
-    process.exitCode = code
-  },
+  ...nodeStdio(),
   live: runLive,
   pin: (launch) => runPinModule(launch.path, launch.source()),
 })

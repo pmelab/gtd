@@ -36,9 +36,8 @@ const layer = (dir: string, env: Env = {}) =>
   Layer.mergeAll(
     ConfigService.Live,
     ConfigDiscovery.Live,
-    baseLayer(dir, env),
     Narrator.layer(() => {}, false),
-  ).pipe(Layer.provideMerge(NodeServices.layer))
+  ).pipe(Layer.provideMerge(baseLayer(dir, env)), Layer.provideMerge(NodeServices.layer))
 
 const run = <A>(
   eff: Effect.Effect<

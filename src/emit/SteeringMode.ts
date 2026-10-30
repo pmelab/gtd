@@ -1,5 +1,5 @@
 import { Effect, Path } from "effect"
-import { Host } from "../platform/index.js"
+import { Host, type HostOps } from "../platform/index.js"
 import {
   isSeededValidateCommand,
   knownModes,
@@ -190,8 +190,11 @@ const modeCommandSteps = (resolved: ResolvedMode, file: string): readonly EmitSt
 }
 
 /** `<Host.scratchDir>/gtd-mode-sample-<mode>-<pid>.md` — an absolute literal baked in at emit time, never a shell variable. `<pid>` avoids collisions between concurrent `gtd` processes. Never a `/tmp` literal or `mktemp` (`tests/tooling/no-tmp-assumption.test.ts` scans for both). */
-const scratchSamplePath = (path: Path.Path, scratchDir: string, mode: StateMode): string =>
-  path.join(scratchDir, `gtd-mode-sample-${mode}-${process.pid}.md`)
+const scratchSamplePath = (
+  path: Path.Path,
+  { scratchDir, pid }: HostOps,
+  mode: StateMode,
+): string => path.join(scratchDir, `gtd-mode-sample-${mode}-${pid}.md`)
 
 /**
  * The contradiction round-trip/skip-notice steps for `resolved`'s `mode:`.
@@ -208,8 +211,7 @@ const modeContradictionSteps = (
     if (resolved.formatCommand === undefined) return []
     const { capabilities } = resolved
     if (capabilities.format !== undefined && capabilities.liveValidate !== undefined) {
-      const { scratchDir } = yield* Host
-      const samplePath = scratchSamplePath(yield* Path.Path, scratchDir, resolved.mode)
+      const samplePath = scratchSamplePath(yield* Path.Path, yield* Host, resolved.mode)
       const formatCommand = withFileVar(resolved.formatCommand, samplePath)
       return [
         {

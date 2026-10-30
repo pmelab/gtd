@@ -25,7 +25,7 @@ import {
 import { EXIT_CODES, EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 import { Host } from "../platform/index.js"
 import { type CommandRequirements } from "./Cli.js"
-import { InMemRepo, makeCapturingCliIo, testLayers } from "../twins/index.js"
+import { InMemRepo, inMemoryHost, makeCapturingCliIo, testLayers } from "../twins/index.js"
 
 const FLAG_NAMES = [
   "--json",
@@ -1342,13 +1342,10 @@ describe("runCli — a garbled GTD_FLAG_* value", () => {
   it("exits 1 naming the variable", async () => {
     const { io, captured } = capturingIo(
       () =>
-        Layer.succeed(Host, {
-          root: "/",
-          home: "/",
-          scratchDir: "/",
-          realPath: (p: string) => Effect.succeed(p),
-          env: { GTD_FLAG_BETA: "ture" },
-        }) as unknown as Layer.Layer<CommandRequirements>,
+        Layer.succeed(
+          Host,
+          inMemoryHost("/", "/", { GTD_FLAG_BETA: "ture" }),
+        ) as unknown as Layer.Layer<CommandRequirements>,
     )
     await Effect.runPromise(
       runCli(["node", "gtd.js", "next"], {

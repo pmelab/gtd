@@ -9,6 +9,8 @@ import {
   Workspace,
   CommandRunner,
   NodeServices,
+  nodeStdio,
+  type Stdio,
 } from "../platform/index.js"
 import {
   flagSettings,
@@ -1334,10 +1336,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
 // runCli
 // ---------------------------------------------------------------------------
 
-export interface CliIo {
-  readonly stdout: (chunk: string | Uint8Array) => void
-  readonly stderr: (chunk: string) => void
-  readonly exit: (code: number) => void
+export interface CliIo extends Stdio {
   /**
    * Deferred thunk — a layer is built only for a resolved `Command`, never
    * for `--version`/`--help`/a usage error. `verbose` (`--verbose`/`-v`,
@@ -1349,13 +1348,10 @@ export interface CliIo {
   readonly flags?: readonly FlagDeclaration[]
 }
 
-// The one write-to-stderr primitive nodeCliIo uses for both `stderr` (errors)
-// and `layers`'s `Narrator` (narration) — same sink, so a real invocation's
-// narration and its remediation interleave on the same fd exactly as
-// written.
-const writeStderr = (chunk: string): void => {
-  process.stderr.write(chunk)
-}
+// `nodeCliIo` hands this one sink to both `stderr` (errors) and `layers`'s
+// `Narrator` (narration), so a real invocation's narration and its
+// remediation interleave on the same fd exactly as written.
+const stdio = nodeStdio()
 
 export type LiveToolCommands = Layer.Layer<
   ToolCommands,
@@ -1364,21 +1360,7 @@ export type LiveToolCommands = Layer.Layer<
 >
 
 export const nodeCliIo = (tools: LiveToolCommands): CliIo => ({
-  // `process.stdout.write` is asynchronous whenever stdout is a pipe or
-  // socket — passing a completion callback (and never force-closing, see
-  // `exit` below) keeps a queued remainder from being discarded, so a large
-  // artifact still reaches a slow reader even after a non-zero exit.
-  stdout: (chunk) => {
-    process.stdout.write(chunk, () => {})
-  },
-  stderr: writeStderr,
-  exit: (code) => {
-    // Never `process.exit(code)`: that tears the process down out from under
-    // an undrained `stdout.write` above and truncates the artifact mid-pipe.
-    // Setting `exitCode` lets the event loop run to completion — draining
-    // any queued write — before Node exits gracefully with this code.
-    process.exitCode = code
-  },
+  ...stdio,
   // A Layer is a lazy description, not a running service — building this
   // object touches no filesystem/git; only `Effect.provide` running the
   // result does. `runCli` calls this thunk exactly when `plan.kind ===
@@ -1394,7 +1376,7 @@ export const nodeCliIo = (tools: LiveToolCommands): CliIo => ({
           ConfigDiscovery.Live,
           EngineCore.Live,
           Workspace.Live,
-          Narrator.layer(writeStderr, verbose),
+          Narrator.layer(stdio.stderr, verbose),
           CommandRunner.Live,
         ).pipe(
           Layer.provideMerge(GitService.Live),

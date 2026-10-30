@@ -10,7 +10,7 @@ import {
 } from "node:fs"
 import { Context, Effect, Layer, Path } from "effect"
 import { GitService, type GitOperations } from "./Git.js"
-import { Host } from "./Host.js"
+import { Host, type HostOps } from "./Host.js"
 
 const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
 
@@ -39,10 +39,15 @@ const readTextCache = (path: string): string | undefined => {
  * cache is a best-effort speedup, never a correctness dependency, and the
  * alternative — failing a gtd command over a cache write — is worse.
  */
-const writeTextCacheAtomic = (paths: Path.Path, path: string, content: string): void => {
+const writeTextCacheAtomic = (
+  paths: Path.Path,
+  pid: number,
+  path: string,
+  content: string,
+): void => {
   try {
     mkdirSync(paths.dirname(path), { recursive: true })
-    const tmp = `${path}.tmp-${process.pid}-${Math.random().toString(36).slice(2)}`
+    const tmp = `${path}.tmp-${pid}-${Math.random().toString(36).slice(2)}`
     writeFileSync(tmp, content, "utf8")
     renameSync(tmp, path)
   } catch {
@@ -68,8 +73,12 @@ const readTreeCache = (file: string): Map<string, string> | undefined => {
   }
 }
 
-const writeTreeCache = (paths: Path.Path, file: string, tree: ReadonlyMap<string, string>): void =>
-  writeTextCacheAtomic(paths, file, JSON.stringify(Object.fromEntries(tree)))
+const writeTreeCache = (
+  paths: Path.Path,
+  pid: number,
+  file: string,
+  tree: ReadonlyMap<string, string>,
+): void => writeTextCacheAtomic(paths, pid, file, JSON.stringify(Object.fromEntries(tree)))
 
 /**
  * One raw `git log --raw` diff entry, already resolved to what it does to a
@@ -356,7 +365,7 @@ const foldRawDiffs = (
 }
 
 const makeWorkspaceOps = (
-  root: string,
+  { root, pid }: HostOps,
   git: GitOperations,
   commonDir: string | undefined,
   paths: Path.Path,
@@ -388,7 +397,7 @@ const makeWorkspaceOps = (
 
   const rememberTree = (hash: string, tree: ReadonlyMap<string, string>): void => {
     treeMemo.set(hash, tree)
-    if (commonDir !== undefined) writeTreeCache(paths, treeCachePath(commonDir, hash), tree)
+    if (commonDir !== undefined) writeTreeCache(paths, pid, treeCachePath(commonDir, hash), tree)
   }
 
   const readSync = (path: string): string | undefined => readFileOrAbsent(repoPath(path))
@@ -421,7 +430,8 @@ const makeWorkspaceOps = (
       return undefined
     }
     blobMemo.set(id, content)
-    if (commonDir !== undefined) writeTextCacheAtomic(paths, blobCachePath(commonDir, id), content)
+    if (commonDir !== undefined)
+      writeTextCacheAtomic(paths, pid, blobCachePath(commonDir, id), content)
     return content
   }
 
@@ -613,7 +623,7 @@ export class Workspace extends Context.Service<Workspace, WorkspaceOps>()("Works
   static Live = Layer.effect(
     Workspace,
     Effect.gen(function* () {
-      const { root } = yield* Host
+      const host = yield* Host
       const git = yield* GitService
       const paths = yield* Path.Path
       // Resolved once per process, not lazily inside a sync method: the
@@ -625,7 +635,7 @@ export class Workspace extends Context.Service<Workspace, WorkspaceOps>()("Works
       const commonDir = yield* git
         .gitCommonDir()
         .pipe(Effect.catch(() => Effect.succeed(undefined)))
-      return makeWorkspaceOps(root, git, commonDir, paths)
+      return makeWorkspaceOps(host, git, commonDir, paths)
     }),
   )
 }

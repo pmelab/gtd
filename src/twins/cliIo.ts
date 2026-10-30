@@ -14,6 +14,7 @@ export const makeCapturingCliIo = (
   repo: InMemRepo,
   env: Readonly<Record<string, string | undefined>> = {},
   tools: Partial<ToolCommands["Service"]> = {},
+  stdin = "",
 ): { readonly io: CliIo; readonly result: () => CapturedCliResult } => {
   let stdout: Buffer = Buffer.alloc(0)
   let stderr = ""
@@ -32,7 +33,13 @@ export const makeCapturingCliIo = (
     // errors into — narration lands in the exact same buffer, exactly like a
     // real invocation's narration and remediation share one fd.
     layers: (verbose) =>
-      testLayers(repo, { env, narrate: (line) => (stderr += line), verbose, tools }),
+      testLayers(repo, {
+        env,
+        narrate: (line) => (stderr += line),
+        verbose,
+        tools,
+        stdin,
+      }),
   }
   return {
     io,

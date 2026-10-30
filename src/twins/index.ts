@@ -1,6 +1,9 @@
 export { InMemRepo } from "./InMemRepo.js"
 export {
   inMemPath,
+  inMemoryHost,
+  IN_MEMORY_PID,
+  IN_MEMORY_SCRATCH,
   makeInMemoryWorkspaceOps,
   testLayers,
   type CommandTable,
