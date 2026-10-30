@@ -89,7 +89,7 @@ const npmAllowList = [
       units.core,
       units.testkit,
       units.twins,
-      "^src/(lsp|ui)/",
+      "^src/(lsp|ui|judges)/",
       ...compositionRoots,
       ...compositionRootTests,
       "^tests/",
@@ -101,7 +101,7 @@ const npmAllowList = [
     units: [
       units.testkit,
       units.twins,
-      "^src/(platform|ui)/",
+      "^src/(platform|ui|judges)/",
       ...compositionRoots,
       ...compositionRootTests,
     ],
@@ -329,16 +329,19 @@ export default {
       comment:
         "Unit map, tools import only contracts (tests included): src/ui/, src/lsp/ and src/judges/ import their own folder and the contracts — never core.",
       severity: "error",
-      from: { path: "^src/(ui|lsp|judges)/", pathNot: "^src/ui/.+\\.(test\\.tsx?|fixture\\.ts)$" },
+      from: {
+        path: "^src/(ui|lsp|judges)/",
+        pathNot: "^src/(ui|judges)/.+\\.(test\\.tsx?|fixture\\.ts)$",
+      },
       to: { path: local, pathNot: ["^src/$1/", units.contracts] },
     },
     {
-      name: "ui-tests-import-only-contracts-and-platform",
+      name: "tool-tests-import-only-contracts-and-platform",
       comment:
-        "Unit map, tools import only contracts (tests included): src/ui/'s tests and fixtures may also build real src/platform/ layers.",
+        "Unit map, tools import only contracts (tests included): src/ui/'s and src/judges/'s tests and fixtures may also build real src/platform/ layers.",
       severity: "error",
-      from: { path: "^src/ui/.+\\.(test\\.tsx?|fixture\\.ts)$" },
-      to: { path: local, pathNot: ["^src/ui/", units.contracts, "^src/platform/"] },
+      from: { path: "^src/(ui|judges)/.+\\.(test\\.tsx?|fixture\\.ts)$" },
+      to: { path: local, pathNot: ["^src/$1/", units.contracts, "^src/platform/"] },
     },
     {
       name: "web-imports-only-contracts",

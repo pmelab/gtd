@@ -386,15 +386,17 @@ describe("spec 20: the unit map", () => {
     ).toEqual(["contracts-import-nothing-outside-themselves: src/flows/x.ts -> tsdown.config.ts"])
   })
 
-  it("lets a ui test build platform layers, but not reach core elsewhere", () => {
+  it("lets a ui or judges test build platform layers, but not reach core elsewhere", () => {
     expect(
       cruiseFiles({
         "src/platform/index.ts": `export const platform = 1\n`,
         "src/cli/index.ts": `export const cli = 1\n`,
         "src/ui/Server.test.ts": `import { platform } from "../platform/index.js"\nimport { cli } from "../cli/index.js"\nvoid platform\nvoid cli\n`,
+        "src/judges/io.fixture.ts": `import { platform } from "../platform/index.js"\nimport { cli } from "../cli/index.js"\nvoid platform\nvoid cli\n`,
       }),
     ).toEqual([
-      "ui-tests-import-only-contracts-and-platform: src/ui/Server.test.ts -> src/cli/index.ts",
+      "tool-tests-import-only-contracts-and-platform: src/judges/io.fixture.ts -> src/cli/index.ts",
+      "tool-tests-import-only-contracts-and-platform: src/ui/Server.test.ts -> src/cli/index.ts",
     ])
   })
 

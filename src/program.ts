@@ -1,4 +1,5 @@
 import { Effect, FileSystem, Layer } from "effect"
+import { ChildProcessSpawner } from "effect/process"
 import { ToolCommands, type LiveToolCommands, type UiRequest } from "./cli/index.js"
 import { CommandRunner, GtdError, GtdUsageError } from "./platform/index.js"
 import type { UiConfig } from "./ui/index.js"
@@ -35,6 +36,7 @@ export const liveToolCommands = Layer.effect(
   Effect.gen(function* () {
     const shell = yield* CommandRunner
     const fs = yield* FileSystem.FileSystem
+    const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     return {
       ui: (request, out) =>
         lazy("ui", async () => {
@@ -59,10 +61,18 @@ export const liveToolCommands = Layer.effect(
           return () => startLspServer({ gtd })
         }),
       judge: async (request) => {
-        const { runJudge } = await import("./judges/index.js").catch((error: unknown) => {
-          throw loadFailure("judge")(error)
-        })
-        return runJudge(request)
+        const { runJudge, liveJudgeIo } = await import("./judges/index.js").catch(
+          (error: unknown) => {
+            throw loadFailure("judge")(error)
+          },
+        )
+        const io = await Effect.runPromise(
+          liveJudgeIo.pipe(
+            Effect.provideService(FileSystem.FileSystem, fs),
+            Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+          ),
+        )
+        return runJudge({ ...request, io })
       },
     }
   }),

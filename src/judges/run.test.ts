@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { runJudge } from "./run.js"
 import { claudeShim as shimDir } from "./shim.fixture.js"
+import { nodeJudgeIo as io } from "./io.fixture.js"
 
 const doc = JSON.stringify({
   state: {},
@@ -14,20 +15,20 @@ const env = { GTD_JUDGE_ANSWERS: '[{"id":"q","answer":true,"p":0.7}]' }
 
 describe("runJudge", () => {
   it("writes the verdict as newline-terminated JSON", async () => {
-    expect(await runJudge({ provider: "fixed", env, input: doc, cwd })).toBe(
+    expect(await runJudge({ io, provider: "fixed", env, input: doc, cwd })).toBe(
       '[{"id":"q","answer":true,"p":0.7}]\n',
     )
   })
   it("rejects invalid JSON and a missing questions array, naming gtd judge run", async () => {
-    await expect(runJudge({ provider: "fixed", env, input: "x", cwd })).rejects.toThrow(
+    await expect(runJudge({ io, provider: "fixed", env, input: "x", cwd })).rejects.toThrow(
       /gtd judge run/,
     )
-    await expect(runJudge({ provider: "fixed", env, input: "{}", cwd })).rejects.toThrow(
+    await expect(runJudge({ io, provider: "fixed", env, input: "{}", cwd })).rejects.toThrow(
       /gtd judge run/,
     )
   })
   it("jev without TYPESAFE_API_KEY rejects before any request", async () => {
-    await expect(runJudge({ provider: "jev", env: {}, input: doc, cwd })).rejects.toThrow(
+    await expect(runJudge({ io, provider: "jev", env: {}, input: doc, cwd })).rejects.toThrow(
       "gtd judge run: --provider jev needs TYPESAFE_API_KEY",
     )
   })
@@ -39,6 +40,7 @@ describe("runJudge", () => {
     const dir = shimDir(`touch ${marker}; echo '${answer}'`)
     await expect(
       runJudge({
+        io,
         provider: undefined,
         env: {
           PATH: `${dir}:/bin:/usr/bin`,
@@ -55,6 +57,7 @@ describe("runJudge", () => {
   it("refuses --model alongside a provider that is not the llm", async () => {
     await expect(
       runJudge({
+        io,
         provider: "jev",
         model: "sonnet",
         env: { TYPESAFE_API_KEY: "k" },
@@ -68,6 +71,7 @@ describe("runJudge", () => {
     const dir = shimDir(`echo '${answer}'`)
     expect(
       await runJudge({
+        io,
         provider: undefined,
         model: "sonnet",
         env: { PATH: `${dir}:/bin:/usr/bin`, TYPESAFE_API_KEY: "k" },
@@ -95,6 +99,7 @@ describe("runJudge with a user-level judge.json", () => {
   }
   const run = (extra: { model?: string; env: Record<string, string> }, dir: string) =>
     runJudge({
+      io,
       provider: "llm",
       model: extra.model,
       env: { PATH: `${dir}:/bin:/usr/bin`, ...extra.env },
@@ -118,6 +123,7 @@ describe("runJudge with a user-level judge.json", () => {
   it("empty GTD_JUDGE_* values count as unset", async () => {
     expect(
       await runJudge({
+        io,
         provider: undefined,
         env: {
           ...env,
@@ -133,6 +139,7 @@ describe("runJudge with a user-level judge.json", () => {
   it("ranks GTD_JUDGE_PROVIDER above the user file", async () => {
     await expect(
       runJudge({
+        io,
         provider: undefined,
         env: { ...env, GTD_JUDGE_PROVIDER: "jev", XDG_CONFIG_HOME: home('{"provider":"fixed"}') },
         input: doc,
@@ -145,12 +152,13 @@ describe("runJudge with a user-level judge.json", () => {
     mkdirSync(join(dir, ".config", "gtd"), { recursive: true })
     writeFileSync(join(dir, ".config", "gtd", "judge.json"), '{"provider":"fixed"}')
     expect(
-      await runJudge({ provider: undefined, env: { ...env, HOME: dir }, input: doc, cwd }),
+      await runJudge({ io, provider: undefined, env: { ...env, HOME: dir }, input: doc, cwd }),
     ).toBe('[{"id":"q","answer":true,"p":0.7}]\n')
   })
   it("rejects an unknown key or provider, naming the file", async () => {
     await expect(
       runJudge({
+        io,
         provider: undefined,
         env: { ...env, XDG_CONFIG_HOME: home('{"provider":"gpt"}') },
         input: doc,
@@ -159,6 +167,7 @@ describe("runJudge with a user-level judge.json", () => {
     ).rejects.toThrow(/judge\.json: "provider" must be one of fixed, jev, llm/)
     await expect(
       runJudge({
+        io,
         provider: undefined,
         env: { ...env, XDG_CONFIG_HOME: home('{"answers":"x"}') },
         input: doc,

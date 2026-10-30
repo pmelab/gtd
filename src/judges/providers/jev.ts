@@ -1,11 +1,11 @@
 import { splitLabels } from "../criteria.js"
-import { liveJudgeIo, type JudgeIo } from "./io.js"
+import type { JudgeIo } from "./io.js"
 import type { Answerer, Question, Verdict } from "../types.js"
 
 export interface JevOptions {
   readonly env: Readonly<Record<string, string | undefined>>
   readonly retryDelayMs?: number
-  readonly io?: JudgeIo
+  readonly io: JudgeIo
 }
 
 const DEFAULT_URL = "https://api.typesafe.ai/v1/systemone"
@@ -116,23 +116,22 @@ const post = async (
   delayMs: number,
 ): Promise<string> => {
   for (let attempt = 0; ; attempt++) {
-    const res = await io
-      .fetch(url, {
-        method: "POST",
-        headers: { Authorization: `Bearer ${key}`, "Content-Type": "application/json" },
-        body,
-        signal: AbortSignal.timeout(180_000),
+    const { status, text } = await io
+      .post({
+        url,
+        headers: { Authorization: `Bearer ${key}` },
+        json: body,
+        timeoutMs: 180_000,
       })
       .catch((e: unknown) =>
         fail(`jev request failed: ${e instanceof Error ? e.message : String(e)}`),
       )
-    const text = await res.text()
-    if (res.status === 200) return text
-    if ((res.status === 429 || res.status === 529) && attempt < RETRIES) {
+    if (status === 200) return text
+    if ((status === 429 || status === 529) && attempt < RETRIES) {
       await sleep(delayMs)
       continue
     }
-    return fail(`jev responded ${res.status}: ${text.slice(0, 2048)}`)
+    return fail(`jev responded ${status}: ${text.slice(0, 2048)}`)
   }
 }
 
@@ -145,7 +144,7 @@ const parse = (text: string): unknown => {
 }
 
 export const jev =
-  ({ env, retryDelayMs = 2000, io = liveJudgeIo }: JevOptions): Answerer =>
+  ({ env, retryDelayMs = 2000, io }: JevOptions): Answerer =>
   async (questions, state) => {
     const key = env["TYPESAFE_API_KEY"]
     if (key === undefined || key === "") return fail("--provider jev needs TYPESAFE_API_KEY")

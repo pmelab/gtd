@@ -4,6 +4,7 @@ import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { fixed } from "./fixed.js"
 import type { Question } from "../types.js"
+import { nodeJudgeIo as io } from "../io.fixture.js"
 
 const q = (id: string): Question => ({ id, primitive: "noul", instructions: "i", criteria: "c" })
 const file = (content: string): string => {
@@ -11,7 +12,8 @@ const file = (content: string): string => {
   writeFileSync(path, content)
   return path
 }
-const run = (opts: Parameters<typeof fixed>[0], ids: string[]) => fixed(opts)(ids.map(q), {})
+const run = (opts: Omit<Parameters<typeof fixed>[0], "io">, ids: string[]) =>
+  fixed({ io, ...opts })(ids.map(q), {})
 
 describe("fixed provider", () => {
   it("drops entries for unasked questions and leaves uncovered ones out", async () => {
@@ -28,6 +30,11 @@ describe("fixed provider", () => {
     const answersPath = file(JSON.stringify([{ id: "a", answer: 1, p: 1 }]))
     const env = { GTD_JUDGE_ANSWERS: JSON.stringify([{ id: "a", answer: 2, p: 0 }]) }
     expect(await run({ answersPath, env }, ["a"])).toEqual([{ id: "a", answer: 1, p: 1 }])
+  })
+
+  it("rejects an absent --answers file", async () => {
+    const answersPath = join(tmpdir(), "gtd-no-such-answers.json")
+    await expect(run({ answersPath, env: {} }, ["a"])).rejects.toThrow(/no such file/)
   })
 
   it("rejects when neither source is present", async () => {

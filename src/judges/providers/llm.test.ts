@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest"
 import { llm, toPrompt, toSchema, toLlmVerdicts } from "./llm.js"
 import type { Question } from "../types.js"
 import { claudeShim as shim } from "../shim.fixture.js"
+import { nodeJudgeIo as io } from "../io.fixture.js"
 
 const q = (id: string, primitive: Question["primitive"], criteria = "c"): Question => ({
   id,
@@ -105,7 +106,7 @@ describe("llm answerer", () => {
 
   it("defaults to sonnet, sends the prompt on stdin, isolates the call, never --bare", async () => {
     const r = recording()
-    const out = await llm({ env: { PATH: `${r.dir}:/bin:/usr/bin` }, cwd: tmpdir() })(ask, {
+    const out = await llm({ io, env: { PATH: `${r.dir}:/bin:/usr/bin` }, cwd: tmpdir() })(ask, {
       note: "evidence",
     })
     expect(out).toEqual([{ id: "n", answer: "yes", p: 0.7 }])
@@ -121,19 +122,19 @@ describe("llm answerer", () => {
   })
   it("fails when claude is missing from PATH", async () => {
     await expect(
-      llm({ env: { PATH: tmpdir() + "/nope" }, cwd: tmpdir() })(ask, {}),
+      llm({ io, env: { PATH: tmpdir() + "/nope" }, cwd: tmpdir() })(ask, {}),
     ).rejects.toThrow("gtd judge run: --provider llm needs `claude` on PATH")
   })
   it("fails on a non-zero exit with stderr", async () => {
     const dir = shim("echo boom >&2; exit 3")
     await expect(
-      llm({ env: { PATH: `${dir}:/bin:/usr/bin` }, cwd: tmpdir() })(ask, {}),
+      llm({ io, env: { PATH: `${dir}:/bin:/usr/bin` }, cwd: tmpdir() })(ask, {}),
     ).rejects.toThrow("gtd judge run: claude exited 3: boom")
   })
   it("kills the child past the timeout", async () => {
     const dir = shim("sleep 5")
     await expect(
-      llm({ env: { PATH: `${dir}:/bin:/usr/bin` }, cwd: tmpdir(), timeoutMs: 100 })(ask, {}),
+      llm({ io, env: { PATH: `${dir}:/bin:/usr/bin` }, cwd: tmpdir(), timeoutMs: 100 })(ask, {}),
     ).rejects.toThrow(/gtd judge run: claude timed out/)
   })
 })

@@ -1,10 +1,10 @@
-import { liveJudgeIo, type JudgeIo } from "./io.js"
+import type { JudgeIo } from "./io.js"
 import type { Answerer, Verdict } from "../types.js"
 
 export interface FixedOptions {
   readonly answersPath?: string | undefined
   readonly env: Readonly<Record<string, string | undefined>>
-  readonly io?: JudgeIo
+  readonly io: JudgeIo
 }
 
 const fail = (message: string): never => {
@@ -28,18 +28,19 @@ const validate = (entry: unknown, index: number): Verdict => {
 }
 
 export const fixed =
-  ({ answersPath, env, io = liveJudgeIo }: FixedOptions): Answerer =>
+  ({ answersPath, env, io }: FixedOptions): Answerer =>
   async (questions) => {
     const inline = env["GTD_JUDGE_ANSWERS"]
     let raw: string
     if (answersPath !== undefined) {
-      raw = await io
-        .readFile(answersPath)
-        .catch((e: unknown) =>
-          fail(
-            `cannot read --answers ${answersPath}: ${e instanceof Error ? e.message : String(e)}`,
-          ),
-        )
+      raw =
+        (await io
+          .readFile(answersPath)
+          .catch((e: unknown) =>
+            fail(
+              `cannot read --answers ${answersPath}: ${e instanceof Error ? e.message : String(e)}`,
+            ),
+          )) ?? fail(`cannot read --answers ${answersPath}: no such file`)
     } else if (inline !== undefined && inline !== "") {
       raw = inline
     } else {
