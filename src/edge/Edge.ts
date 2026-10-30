@@ -12,8 +12,6 @@ import {
 import {
   ConfigDiscovery,
   ConfigService,
-  changedConfigFiles,
-  contentHash,
   multilineSetting,
   resolveVars,
   resolveStartVars,
@@ -173,8 +171,6 @@ export interface ProcessRun {
   readonly approvals: readonly ApprovalEntry[]
   /** The process settings recorded in the process's first commit (empty for a process started before pinning existed). */
   readonly pinnedVars: Record<string, string>
-  /** Absent for a process started before recording existed. */
-  readonly pinnedConfig: { readonly commit: string; readonly files: ConfigFingerprint } | undefined
   /** HEAD's own gtd commit, when it is one — `empty` is whether it changed nothing. */
   readonly headTurn:
     | {
@@ -248,17 +244,6 @@ const runOf = (
     : Effect.fail(new Error(fault))
 }
 
-// The newest recording, not the first process commit's: the episode is
-// located by the CURRENT config's first step, so a config that renamed it can
-// move the boundary onto the start commit itself, or behind it.
-const pinnedConfigOf = (history: History): ProcessRun["pinnedConfig"] => {
-  for (let i = history.length - 1; i >= 0; i--) {
-    const files = parseCommitMessage(history[i]!.message).config
-    if (Object.keys(files).length > 0) return { commit: history[i]!.hash, files }
-  }
-  return undefined
-}
-
 const approvalEntryOf = (
   hash: string,
   message: ReturnType<typeof parseCommitMessage>,
@@ -300,7 +285,6 @@ const buildRun = (
     marks: parsed.flatMap((m) => m.marks),
     approvals: processCommits.flatMap((c, i) => approvalEntryOf(c.hash, parsed[i]!)),
     pinnedVars: { ...first?.vars },
-    pinnedConfig: pinnedConfigOf(history.slice(Math.max(location.baseIndex, 0))),
     headTurn: headTurnOf(head),
     closingHash,
     episode: {
@@ -419,37 +403,6 @@ const computeProcessRun = (
   Effect.flatMap(historyUpTo(git, def, head), (history) =>
     runOf(history, locateEpisode(def, history)),
   )
-
-// A file matching its copy in the recording commit is unchanged: the hashes
-// are taken before the commit's own hooks run, and a hook may reformat it.
-const changedSinceStart = (
-  pinned: ProcessRun["pinnedConfig"],
-  current: ConfigFingerprint,
-  workspace: WorkspaceOps,
-): readonly string[] => {
-  if (pinned === undefined) return []
-  return changedConfigFiles(pinned.files, current).filter((path) => {
-    const committed = workspace.readCommittedSync(path, pinned.commit)
-    return (
-      current[path] === undefined ||
-      committed === undefined ||
-      contentHash(committed) !== current[path]
-    )
-  })
-}
-
-const warnConfigChanges = (
-  run: ProcessRun,
-  current: ConfigFingerprint,
-  workspace: WorkspaceOps,
-): Effect.Effect<void, never, Narrator> =>
-  Effect.gen(function* () {
-    const changed = changedSinceStart(run.pinnedConfig, current, workspace)
-    if (changed.length === 0) return
-    yield* (yield* Narrator).warn(
-      `gtd: warning: the config changed since this process started (${changed.join(", ")}) — the rest of the process replays under the changed config`,
-    )
-  })
 
 type ConfigRequirements = GitService | ConfigService | ConfigDiscovery | Narrator | Workspace | Host
 
@@ -876,8 +829,6 @@ interface Rest extends ResolvedRest {
   readonly run: ProcessRun
   readonly vars: Record<string, string>
   readonly env: Record<string, string>
-  /** What a landing that starts the process records. */
-  readonly config: ConfigFingerprint
   readonly changes: readonly PendingChange[]
   readonly memory: string | undefined
   readonly memoryResumed: boolean
@@ -1030,11 +981,13 @@ export const restAt = (
             path: e.path,
           }))
         : []
-    const configNow = config.fingerprint
-    // Only the current rest warns, so a command must read it once — a second
-    // read warns twice. An earlier ref (restore's tip) would warn about a
-    // process the command is not acting on.
-    if (ref === undefined) yield* warnConfigChanges(run, configNow, workspace)
+    // Only the current rest notices, so a command must read it once — a
+    // second read notices twice. An earlier ref (restore's tip) is not the
+    // process the command acts on.
+    if (ref === undefined && config.drift.length > 0)
+      yield* (yield* Narrator).warn(
+        `gtd: notice: the live config differs from the pinned one (${config.drift.join(", ")}); \`gtd repin\` to switch`,
+      )
     return {
       def,
       workflowName: resolved.name,
@@ -1048,7 +1001,6 @@ export const restAt = (
       run,
       vars,
       env,
-      config: configNow,
       changes,
       memory: memory.key,
       memoryResumed: memory.resumed,
@@ -1406,8 +1358,7 @@ const pinRefusal = (pin: PinChange): Landing => ({
       : `gtd land: ${PIN_PATH} is still there — run the unpin beat's script (\`gtd next --json=content\`), then land`,
 })
 
-const startTrailers = (rest: Rest, starts: boolean) =>
-  starts ? { vars: rest.vars, config: rest.config } : {}
+const startTrailers = (rest: Rest, starts: boolean) => (starts ? { vars: rest.vars } : {})
 
 const outcomeMarks = (outcome: ReplayOutcome): readonly Mark[] =>
   outcome.kind === "rest" || outcome.kind === "ended" ? outcome.marks : []
@@ -1543,13 +1494,13 @@ export interface HistoryTrail {
   readonly versionWarning?: string
 }
 
-/** Repository-relative paths of the config files today's config and the process's own record name; one outside the repository cannot be read at a ref, so it is left out. */
-const inRepoConfigPaths = (
-  root: string,
-  files: readonly string[],
-  recorded: ConfigFingerprint,
-): readonly string[] => {
-  const paths = new Set<string>(Object.keys(recorded))
+/**
+ * Repository-relative paths of today's config files; one outside the
+ * repository cannot be read at a ref, so it is left out. A file only the old
+ * config read needs no check: whichever file imported it differs too.
+ */
+const inRepoConfigPaths = (root: string, files: readonly string[]): readonly string[] => {
+  const paths = new Set<string>()
   for (const file of files) paths.add(relative(root, resolve(root, file)).split(sep).join("/"))
   return [...paths].filter((p) => p !== "" && !p.startsWith("..") && !isAbsolute(p)).sort()
 }
@@ -1569,16 +1520,11 @@ const differingConfigPaths = (
   workspace: Workspace["Service"],
   root: string,
   config: { readonly fingerprint: ConfigFingerprint },
-  run: ProcessRun,
   hash: string,
 ) =>
   Effect.gen(function* () {
     const differing: string[] = []
-    for (const path of inRepoConfigPaths(
-      root,
-      Object.keys(config.fingerprint),
-      run.pinnedConfig?.files ?? {},
-    )) {
+    for (const path of inRepoConfigPaths(root, Object.keys(config.fingerprint))) {
       const atTip = yield* Effect.orElseSucceed(git.readFileAtRef(hash, path), () => undefined)
       if (atTip !== workspace.readSync(path)) differing.push(path)
     }
@@ -1664,7 +1610,7 @@ const replayFinishedProcess = (
     // A refusal is often caused by the version change, so it carries the warning.
     const withWarning = (err: Error): Error =>
       versionWarning === undefined ? err : new Error(`${err.message}\n${versionWarning}`)
-    const differing = yield* differingConfigPaths(git, workspace, host.root, config, run, hash)
+    const differing = yield* differingConfigPaths(git, workspace, host.root, config, hash)
     if (differing.length > 0)
       return yield* Effect.fail(
         withWarning(configRefusal(how.command, hash, differing, how.configReason)),

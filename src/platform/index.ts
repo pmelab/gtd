@@ -29,3 +29,4 @@ export {
   readRetainedHistory,
   restorability,
 } from "./RetainedHistory.js"
+export { livePinFile, runPinModule, type PinFile } from "./PinFile.js"

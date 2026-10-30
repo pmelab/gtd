@@ -30,18 +30,24 @@ histories written by an older or newer gtd.
   at least the one before it; an unreadable format is refused with exit `1`. A
   new trailer is additive and does not bump `Gtd-Format` when an older gtd skips
   it as unknown and a newer gtd treats it as absent on older commits.
-  `Gtd-Config:` is one: it only feeds a warning, never a step. `Gtd-Kept:` is
-  another: only a step with the `keep` option writes it, and an older gtd
-  refuses that workflow at load through its unknown-option check, so nothing is
-  read wrongly. `Gtd-Approved:` is a third: only a `human` step with the
+  `Gtd-Kept:` is one: only a step with the `keep` option writes it, and an older
+  gtd refuses that workflow at load through its unknown-option check, so nothing
+  is read wrongly. `Gtd-Approved:` is another: only a `human` step with the
   `approve` option writes it, and an older gtd refuses that workflow at load the
-  same way. `Gtd-Mark:` is a fourth: additive, no `Gtd-Format` bump, written
-  only by a workflow that calls `mark()`, and replay never reads it. Replay
-  reads the kept object it names to answer `kept()`, which lives under
+  same way. `Gtd-Mark:` is a third: additive, no `Gtd-Format` bump, written only
+  by a workflow that calls `mark()`, and replay never reads it. Replay reads the
+  kept object it names to answer `kept()`, which lives under
   `refs/gtd/kept/<entry>/<step>/<hash>` in the clone that landed it: a kept ref
   is local and its object is part of what replay needs there. `Gtd-Pin:` is not
   additive: replay steps over the pin and unpin commits it marks, which an older
-  gtd would replay as turns, so it moved `Gtd-Format` to 2.
+  gtd would replay as turns, so it moved `Gtd-Format` to 2. gtd no longer writes
+  `Gtd-Config:` and ignores it on older commits.
+- **Pin format** — what the `gtd` on `PATH` reads to hand a pinned process over:
+  the `gtdpin <format> gtd <version>` header line of `.gtd/process.gtdpin`, then
+  one gzipped ES module, in [Pinned processes](docs/cli.md#pinned-processes).
+  Versioned by `<format>`, bumped when a launcher could no longer run an older
+  pin the same way. A launcher runs only the formats it knows and refuses any
+  other with exit `1`, never guessing.
 
 ## Follows package SemVer
 

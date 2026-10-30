@@ -83,8 +83,6 @@ export interface CommitMessage {
   /** `Gtd-Mark`, in order; a malformed or control-character line is skipped. */
   readonly marks: readonly Mark[]
   readonly vars: Readonly<Record<string, string>>
-  /** Written only on a process's first commit. */
-  readonly config: Readonly<Record<string, string>>
   readonly reviewBase: string | undefined
   readonly cost: readonly CostEntry[]
   /** Written only on a process's finishing landing. */
@@ -120,20 +118,10 @@ const parseJson = (raw: string): unknown => {
 const TRAILER_RE = /^(Gtd-[A-Za-z-]+):[ \t]*(.*?)[ \t]*$/gm
 const COST_RE = /^([0-9]+(?:\.[0-9]+)?)(?:[ \t]+(.+))?$/
 const VAR_RE = /^([^=\s]+)=(.*)$/
-const CONFIG_RE = /^([0-9a-f]{16}) (.+)$/
-// A path git's message cleanup or the trailer syntax would alter travels as a
-// JSON string. A control character is refused on read: history written by
-// someone else must never put escape sequences on a terminal.
+// A control character is refused on read: history written by someone else
+// must never put escape sequences on a terminal.
 // eslint-disable-next-line no-control-regex -- the control range IS the point
 const CONTROL_CHARACTER = /[\x00-\x1f\x7f-\x9f\u2028\u2029]/
-const encodePath = (path: string): string =>
-  path.trim() !== path || path.startsWith('"') || CONTROL_CHARACTER.test(path)
-    ? JSON.stringify(path)
-    : path
-const decodePath = (raw: string): string | undefined => {
-  const path = raw.startsWith('"') ? parseJson(raw) : raw
-  return typeof path === "string" && path !== "" && !CONTROL_CHARACTER.test(path) ? path : undefined
-}
 const decodeApproval = (raw: string): Approval | undefined => {
   const parsed = parseJson(raw)
   if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return undefined
@@ -168,7 +156,6 @@ interface Trailers {
   readonly judge: JudgeVerdict[]
   readonly marks: Mark[]
   readonly vars: Record<string, string>
-  readonly config: Record<string, string>
   readonly cost: CostEntry[]
   format: number | undefined
 }
@@ -192,11 +179,6 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
   "Gtd-Var": (value, into) => {
     const kv = VAR_RE.exec(value)
     if (kv !== null) into.vars[kv[1]!] = kv[2]!
-  },
-  "Gtd-Config": (value, into) => {
-    const entry = CONFIG_RE.exec(value)
-    const path = entry === null ? undefined : decodePath(entry[2]!)
-    if (path !== undefined) into.config[path] = entry![1]!
   },
   "Gtd-Review-Base": (value, into) => {
     into.reviewBase ??= value.split(/\s/)[0]
@@ -242,7 +224,6 @@ export const parseCommitMessage = (message: string): CommitMessage => {
     judge: [],
     marks: [],
     vars: {},
-    config: {},
     cost: [],
     format: undefined,
   }
@@ -262,7 +243,6 @@ export interface CommitSpec {
   readonly workflow?: string
   readonly reviewBase?: string
   readonly vars?: Readonly<Record<string, string>>
-  readonly config?: Readonly<Record<string, string>>
   readonly cost?: { readonly cost: number; readonly model?: string }
   readonly judge?: readonly JudgeVerdict[]
   /** Written after `Gtd-Judge`, before `Gtd-Approved`. */
@@ -290,7 +270,6 @@ export const formatCommitMessage = (spec: CommitSpec): string => {
     ...trailer("Workflow", spec.workflow),
     ...trailer("Review-Base", spec.reviewBase),
     ...sortedEntries(spec.vars).map(([name, value]) => `Gtd-Var: ${name}=${value}`),
-    ...sortedEntries(spec.config).map(([path, hash]) => `Gtd-Config: ${hash} ${encodePath(path)}`),
     ...trailer("Cost", costValue(spec.cost)),
     ...(spec.judge ?? []).map((verdict) => `Gtd-Judge: ${JSON.stringify(verdict)}`),
     ...(spec.marks ?? []).map((m) => `Gtd-Mark: ${m.name}=${m.value}`),

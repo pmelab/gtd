@@ -33,7 +33,6 @@ import {
   restoredOutcome,
 } from "../emit/index.js"
 import { GitService, HISTORY_REF, Host } from "../platform/index.js"
-import { contentHash } from "../workflow/index.js"
 import { WORKFLOWS_REPO } from "../install/index.js"
 
 const run = async (
@@ -111,7 +110,7 @@ export const hotfix = workflow(
     expect(exitCode).toBe(0)
     expect(stdout).toContain(
       commitAll(
-        `gtd(human): working\n\nGtd-Workflow: hotfix\nGtd-Var: greeting=hello\nGtd-Config: ${contentHash(WORKFLOW)} gtd.config.ts\nGtd-Format: 2`,
+        `gtd(human): working\n\nGtd-Workflow: hotfix\nGtd-Var: greeting=hello\nGtd-Format: 2`,
       ),
     )
     expect(repo.commitHistory()).toHaveLength(before)

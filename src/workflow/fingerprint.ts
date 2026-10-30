@@ -7,12 +7,12 @@ export type ConfigFingerprint = Readonly<Record<string, string>>
 
 const HASH_LENGTH = 16
 
-// A path the trailer cannot carry printably is never recorded, so it can never
+// A path with a control character is never recorded, so it can never
 // reach a terminal from history.
 // eslint-disable-next-line no-control-regex -- the control range IS the point
 const CONTROL_CHARACTER = /[\x00-\x1f\x7f-\x9f]/
 
-export const contentHash = (content: string | Buffer): string =>
+const contentHash = (content: string | Buffer): string =>
   createHash("sha256").update(content).digest("hex").slice(0, HASH_LENGTH)
 
 const realOr = (path: string): string => {
