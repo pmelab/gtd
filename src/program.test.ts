@@ -1,4 +1,5 @@
 import { Cause, Effect, Exit, FileSystem, Layer, Option } from "effect"
+import { ChildProcessSpawner } from "effect/process"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { expect, it, vi } from "vitest"
@@ -33,6 +34,12 @@ export default async () => {
 const tools = liveToolCommands.pipe(
   Layer.provide(CommandRunner.layer(() => Effect.fail(new Error("no shell in this test")))),
   Layer.provide(FileSystem.layerNoop({})),
+  Layer.provide(
+    Layer.succeed(
+      ChildProcessSpawner.ChildProcessSpawner,
+      ChildProcessSpawner.make(() => Effect.die("no spawn in this test")),
+    ),
+  ),
 )
 
 it("gtd next loads no ui, lsp or judge module", async () => {

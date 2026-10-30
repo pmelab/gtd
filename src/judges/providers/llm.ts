@@ -1,5 +1,5 @@
 import { splitLabels } from "../criteria.js"
-import { liveJudgeIo, type JudgeIo } from "./io.js"
+import type { JudgeIo } from "./io.js"
 import type { Answerer, Question, Verdict } from "../types.js"
 
 export interface LlmOptions {
@@ -7,7 +7,7 @@ export interface LlmOptions {
   readonly cwd: string
   readonly model?: string | undefined
   readonly timeoutMs?: number
-  readonly io?: JudgeIo
+  readonly io: JudgeIo
 }
 
 const DEFAULT_MODEL = "sonnet"
@@ -133,13 +133,7 @@ const run = async (io: JudgeIo, call: Parameters<JudgeIo["claude"]>[0]): Promise
 }
 
 export const llm =
-  ({
-    env,
-    cwd,
-    model = DEFAULT_MODEL,
-    timeoutMs = TIMEOUT_MS,
-    io = liveJudgeIo,
-  }: LlmOptions): Answerer =>
+  ({ env, cwd, model = DEFAULT_MODEL, timeoutMs = TIMEOUT_MS, io }: LlmOptions): Answerer =>
   async (questions, state) => {
     const schema = JSON.stringify(toSchema(questions))
     const prompt = toPrompt(questions, state)

@@ -3,6 +3,7 @@ import type { AddressInfo } from "node:net"
 import { describe, expect, it } from "vitest"
 import { jev, toRequest, toVerdicts } from "./jev.js"
 import type { Question } from "../types.js"
+import { nodeJudgeIo as io } from "../io.fixture.js"
 
 const q = (id: string, primitive: Question["primitive"], criteria = "c"): Question => ({
   id,
@@ -112,19 +113,21 @@ describe("jev transport", () => {
   const ok = '{"answers":{"a":{"type":"noul","noul":1}}}'
 
   it("rejects without a key", async () => {
-    await expect(jev({ env: {} })([q("a", "noul")], {})).rejects.toThrow(/needs TYPESAFE_API_KEY/)
+    await expect(jev({ io, env: {} })([q("a", "noul")], {})).rejects.toThrow(
+      /needs TYPESAFE_API_KEY/,
+    )
   })
   it("retries 429 and 529 then succeeds", async () => {
     const s = await serve([429, 529, 200], ok)
     const env = { TYPESAFE_API_KEY: "k", JEV_BASE_URL: s.url }
-    await expect(jev({ env, retryDelayMs: 0 })([q("a", "noul")], {})).resolves.toHaveLength(1)
+    await expect(jev({ io, env, retryDelayMs: 0 })([q("a", "noul")], {})).resolves.toHaveLength(1)
     expect(s.calls()).toBe(3)
     s.close()
   })
   it("gives up after 3 retries", async () => {
     const s = await serve([429], "slow down")
     const env = { TYPESAFE_API_KEY: "k", JEV_BASE_URL: s.url }
-    await expect(jev({ env, retryDelayMs: 0 })([q("a", "noul")], {})).rejects.toThrow(
+    await expect(jev({ io, env, retryDelayMs: 0 })([q("a", "noul")], {})).rejects.toThrow(
       /429.*slow down/,
     )
     expect(s.calls()).toBe(4)
@@ -133,14 +136,18 @@ describe("jev transport", () => {
   it("fails at once on another non-200, carrying the body", async () => {
     const s = await serve([500], "boom")
     const env = { TYPESAFE_API_KEY: "k", JEV_BASE_URL: s.url }
-    await expect(jev({ env, retryDelayMs: 0 })([q("a", "noul")], {})).rejects.toThrow(/500.*boom/)
+    await expect(jev({ io, env, retryDelayMs: 0 })([q("a", "noul")], {})).rejects.toThrow(
+      /500.*boom/,
+    )
     expect(s.calls()).toBe(1)
     s.close()
   })
   it("rejects a body that is not JSON", async () => {
     const s = await serve([200], "<html>")
     const env = { TYPESAFE_API_KEY: "k", JEV_BASE_URL: s.url }
-    await expect(jev({ env, retryDelayMs: 0 })([q("a", "noul")], {})).rejects.toThrow(/not JSON/)
+    await expect(jev({ io, env, retryDelayMs: 0 })([q("a", "noul")], {})).rejects.toThrow(
+      /not JSON/,
+    )
     s.close()
   })
 })

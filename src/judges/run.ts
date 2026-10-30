@@ -1,4 +1,4 @@
-import { liveJudgeIo, type JudgeIo } from "./providers/io.js"
+import type { JudgeIo } from "./providers/io.js"
 import { fixed } from "./providers/fixed.js"
 import { jev } from "./providers/jev.js"
 import { llm } from "./providers/llm.js"
@@ -19,7 +19,7 @@ export interface RunJudgeInput {
   readonly answers?: string | undefined
   readonly env: Readonly<Record<string, string | undefined>>
   readonly input: string
-  readonly io?: JudgeIo
+  readonly io: JudgeIo
 }
 
 const fail = (message: string): never => {
@@ -47,14 +47,12 @@ const userConfigPath = (env: RunJudgeInput["env"]): string | undefined => {
   return home ? `${home}/.config/gtd/judge.json` : undefined
 }
 
-const readText = async (io: JudgeIo, path: string): Promise<string | undefined> => {
-  try {
-    return await io.readFile(path)
-  } catch (e) {
-    if ((e as NodeJS.ErrnoException).code === "ENOENT") return undefined
-    return fail(`cannot read ${path}: ${e instanceof Error ? e.message : String(e)}`)
-  }
-}
+const readText = (io: JudgeIo, path: string): Promise<string | undefined> =>
+  io
+    .readFile(path)
+    .catch((e: unknown) =>
+      fail(`cannot read ${path}: ${e instanceof Error ? e.message : String(e)}`),
+    )
 
 const parseObject = (path: string, text: string): Record<string, unknown> => {
   let json: unknown
@@ -110,7 +108,7 @@ const selectJudge = (
 
 /** The only place auto selection lives; it never falls back across providers. */
 const answererFor = async (opts: RunJudgeInput): Promise<Answerer> => {
-  const { answers, env, cwd, io = liveJudgeIo } = opts
+  const { answers, env, cwd, io } = opts
   const { provider, model } = selectJudge(opts, await readUserConfig(io, env))
   if (provider === "fixed") return fixed({ answersPath: answers, env, io })
   // A configured model asks for the llm, so it outranks a configured jev key.

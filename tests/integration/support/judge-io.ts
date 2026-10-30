@@ -8,9 +8,6 @@ export interface ScriptedClaude {
   readonly stderr: string
 }
 
-const absent = (path: string): Error =>
-  Object.assign(new Error(`ENOENT: no such file or directory, open '${path}'`), { code: "ENOENT" })
-
 /**
  * The judge's file reads, network and `claude` calls, answered in memory:
  * files from the repository rooted at `root` or from `userFiles`, the network from `fetch` when a
@@ -30,16 +27,17 @@ export const inMemoryJudgeIo = (
 ): JudgeIo => ({
   readFile: async (path) => {
     const relative = path.startsWith(`${root}/`) ? path.slice(root.length + 1) : path
-    const content = relative.startsWith("/")
-      ? options.userFiles.get(relative)
-      : repo.readFile(relative)
-    if (content === undefined) throw absent(path)
-    return content
+    return relative.startsWith("/") ? options.userFiles.get(relative) : repo.readFile(relative)
   },
-  fetch: (input, init) =>
-    options.fetch === undefined
-      ? Promise.reject(new Error("fetch failed: no network in memory"))
-      : options.fetch(input, init),
+  post: async ({ url, headers, json }) => {
+    if (options.fetch === undefined) throw new Error("fetch failed: no network in memory")
+    const res = await options.fetch(url, {
+      method: "POST",
+      headers: { ...headers, "Content-Type": "application/json" },
+      body: json,
+    })
+    return { status: res.status, text: await res.text() }
+  },
   claude: async ({ argv }) => {
     if (options.claude === undefined) return { kind: "missing" }
     options.calls.push([...argv])
