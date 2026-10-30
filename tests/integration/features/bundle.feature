@@ -4,7 +4,7 @@ Feature: gtd bundle — the pin of the current workflow
   and the gtd version, then gtd's engine and the current workflow — the config
   and every module it imports — as one gzipped ES module. The workflow
   registers itself ahead of the engine, which runs it instead of loading
-  gtd.config.ts. gtd writes no file; nothing runs a pin yet.
+  gtd.config.ts. gtd writes no file.
 
   Background:
     Given a test project

@@ -33,6 +33,10 @@ never writes it. A process's pin is the one committed at `.gtd/process.gtdpin`,
 by its [pin beat](#pin-beat). _Avoid_: snapshot, freeze, frozen engine,
 lockfile, bundle (for the file)
 
+**Hand-over**: The `gtd` on `PATH` running a command on the process's pin
+instead of itself, in the same Node process — unless the command is one the pin
+does not run or `--live` asks for this gtd. _Avoid_: delegation, proxy, shim
+
 **Pin beat**: A process's first beat after it starts — a `script` beat at actor
 `check`, marked `pin: "add"`, whose script writes `gtd bundle`'s output to
 `.gtd/process.gtdpin`; its landing commits that file alone, with a `Gtd-Pin`

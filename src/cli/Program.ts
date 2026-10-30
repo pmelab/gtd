@@ -619,7 +619,6 @@ const startWorkflow = (
         first: started,
         commandLabel,
         vars: varOverrides,
-        config: rest.config,
       },
     )
     if (plan.kind === "refusal") {

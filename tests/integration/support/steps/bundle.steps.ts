@@ -33,7 +33,7 @@ When("I save the pin as {string}", (world: GtdWorld, path: string) => {
   writeFileSync(join(world.repoDir, path), world.pin)
 })
 
-// What a launcher will do: unpack the pin and run its module as the engine.
+// The pin's module on its own, without the launcher that hands over to it.
 When(
   "I run the pin {string} with {string}",
   async (world: GtdWorld, path: string, args: string) => {

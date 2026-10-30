@@ -26,12 +26,13 @@ import { constants as osConstants, networkInterfaces, tmpdir } from "node:os"
 import { join, relative, resolve, sep } from "node:path"
 import { PassThrough } from "node:stream"
 import { setTimeout as delay } from "node:timers/promises"
-import { runCli } from "../../../src/cli/index.js"
+import { runCli, runLauncher } from "../../../src/cli/index.js"
 import { runJudge } from "../../../src/judges/index.js"
 import { inMemoryJudgeIo, type ScriptedClaude } from "./judge-io.js"
-import { EXIT_OK } from "../../../src/wire/index.js"
+import { EXIT_OK, PIN_PATH } from "../../../src/wire/index.js"
 import {
   makeCapturingCliIo,
+  inMemPinFile,
   type ScriptedCommand,
   InMemRepo,
   applyEmittedScript,
@@ -1644,9 +1645,20 @@ export class GtdWorld extends QuickPickleWorld {
       judge: (request) => runJudge({ ...request, io: judgeIo }),
       ui: this.uiTool(),
     })
-    await Effect.runPromise(runCli(["node", "gtd.js", ...args], io), { signal }).catch(
-      (error: unknown) => {
+    const run = (argv: readonly string[]) =>
+      Effect.runPromise(runCli(argv, io), { signal }).catch((error: unknown) => {
         if (signal?.aborted !== true) throw error
+      })
+    // The in-memory pin carries no engine: this same one stands in for it.
+    await runLauncher(
+      ["node", "gtd.js", ...args],
+      inMemPinFile(this.repo!, this.repoDir, PIN_PATH),
+      {
+        stdout: io.stdout,
+        stderr: io.stderr,
+        exit: io.exit,
+        live: run,
+        pin: (launch) => run(launch.argv),
       },
     )
     return result()

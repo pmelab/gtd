@@ -163,9 +163,8 @@ judge question), `Gtd-Var:` (a process setting), `Gtd-Cost:` (a
 `Gtd-Mark:` (`<name>=<value>`, one per `mark()` call), `Gtd-Kept:` (only on the
 marker a `keep` step lands, see [Step options](#step-options)), `Gtd-Approved:`
 (only on the landing that completes an `approve` gate: one JSON object with the
-`step`, the git `user.name` and `user.email`), and `Gtd-Config:` (see
-[Config purity](#config-purity)). Every commit gtd writes also carries
-`Gtd-Format:` (see [History format](#history-format)).
+`step`, the git `user.name` and `user.email`). Every commit gtd writes also
+carries `Gtd-Format:` (see [History format](#history-format)).
 
 ### Step options
 
@@ -715,24 +714,14 @@ config — its top level, its imports, and the flows it exports — is pure:
 A `run()` body is exempt — it runs once, and what it leaves is committed. gtd
 does not detect an impure config.
 
-What gtd does detect is a config that **changed** while a process runs. The
-landing that starts a process records a `Gtd-Config: <hash> <path>` trailer for
-`gtd.config.ts` and for every module it imports that is not a package from
-`node_modules`. Paths are relative to the repository root, and JSON-quoted when
-they begin or end with whitespace; the hash is the first 16 hex digits of the
-file's SHA-256. Every later command compares those with the files on disk, and
-on a difference warns on stderr, naming the changed files:
+A config that **changes** while a process runs changes nothing: the process runs
+on its [pin](cli.md#pinned-processes), the workflow as it was when the process
+started. Every command that reads the process's rest notes, on stderr, which of
+the files the pin was made from differ on disk now:
 
 ```
-gtd: warning: the config changed since this process started (lib/flow.ts) — the rest of the process replays under the changed config
+gtd: notice: the live config differs from the pinned one (lib/flow.ts); `gtd repin` to switch
 ```
-
-A file that matches its copy in the commit that started the process counts as
-unchanged, so a pre-commit hook reformatting the config does not warn.
-
-It is a warning, not an error: fixing a config mid-process is legitimate. It
-repeats on every command until the process ends. A process started before
-`Gtd-Config:` existed carries no trailer and is never warned about.
 
 ### Rules for flow code
 

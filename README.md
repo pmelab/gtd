@@ -643,6 +643,15 @@ Both are ordinary `script` beats a driver runs unattended; see
 [Pin and unpin beats](https://github.com/pmelab/gtd/blob/main/docs/driver.md#pin-and-unpin-beats).
 Histories with pin commits are history format 2, which an older gtd refuses.
 
+While a process is pinned, the `gtd` on your `PATH` hands every command over to
+the pin, so editing the workflow or upgrading gtd mid-process changes nothing;
+gtd notes on stderr when the live config differs from the pinned one. `ui`,
+`lsp`, `guide`, `bundle`, `help`, `version` and the `history` commands always
+run live, and `gtd --live <command>` runs the live engine for any other, at the
+risk of misreading the process. A pin in a format your gtd does not know is
+refused: upgrade gtd. See
+[Pinned processes](https://github.com/pmelab/gtd/blob/main/docs/cli.md#pinned-processes).
+
 ## License
 
 MIT

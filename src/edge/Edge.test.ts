@@ -23,7 +23,7 @@ import { keptRef, processHistoryRef } from "../platform/index.js"
 import { GitService, Workspace, type GitOperations, type WorkspaceOps } from "../platform/index.js"
 import type { Mark } from "../flows/index.js"
 import { formatCommitMessage, type CommitSpec } from "../replay/index.js"
-import { contentHash, StartFlags } from "../workflow/index.js"
+import { StartFlags } from "../workflow/index.js"
 import {
   fakeGitOperations,
   InMemRepo,
@@ -217,7 +217,7 @@ describe("currentRun", () => {
     const before = headOf(repo)
     const opening = await enter(repo, "side")
     expect(repo.lastCommitMessage(opening)).toBe(
-      `gtd(human): fixing\n\nGtd-Workflow: side\nGtd-Var: base=\nGtd-Var: reviewer=nobody\nGtd-Config: ${contentHash(LINEAR)} gtd.config.ts\nGtd-Format: 2`,
+      `gtd(human): fixing\n\nGtd-Workflow: side\nGtd-Var: base=\nGtd-Var: reviewer=nobody\nGtd-Format: 2`,
     )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
@@ -250,7 +250,7 @@ export const again = workflow(async () => {
     const before = headOf(repo)
     const opening = await enter(repo, "again")
     expect(repo.lastCommitMessage(opening)).toBe(
-      `gtd(human): idle\n\nGtd-Workflow: again\nGtd-Config: ${contentHash(STARTS_AT_INITIAL)} gtd.config.ts\nGtd-Format: 2`,
+      `gtd(human): idle\n\nGtd-Workflow: again\nGtd-Format: 2`,
     )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)

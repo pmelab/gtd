@@ -12,3 +12,4 @@ export { gitTiers, runGitServiceContract, runGitScriptContract, type GitTier } f
 export { strictGitOperations } from "./StrictGitOperations.js"
 export { fakeGitOperations } from "./FakeGitOperations.js"
 export { takePinBeat } from "./PinBeats.js"
+export { inMemPinFile } from "./PinFile.js"

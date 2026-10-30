@@ -7,7 +7,6 @@ import {
   ownFlagRefusal,
   resolveStartVars,
   StartFlags,
-  type ConfigFingerprint,
   type ResolvedWorkflow,
 } from "../workflow/index.js"
 import { formatCommitMessage, formatSubject } from "../replay/index.js"
@@ -70,8 +69,7 @@ const checkOverrides = (
  * `gtd start <name>`: start a brand NEW process on a workflow, writing an
  * opening commit that names the workflow's first step and carries a
  * `Gtd-Workflow:` trailer, every process setting as a `Gtd-Var:` trailer, plus
- * a `Gtd-Review-Base:` trailer when the workflow fixes the process's diff base,
- * and a `Gtd-Config:` trailer per config file.
+ * and a `Gtd-Review-Base:` trailer when the workflow fixes the process's diff base.
  * All validation is a REFUSAL, not an Effect failure.
  */
 export const planStart = (
@@ -83,7 +81,6 @@ export const planStart = (
     readonly first: { readonly firstStep: string } | { readonly refusal: string }
     readonly commandLabel: string
     readonly vars: Record<string, string>
-    readonly config: ConfigFingerprint
   },
 ): Effect.Effect<
   StartOutcome,
@@ -136,7 +133,6 @@ export const planStart = (
       workflow: name,
       ...(base !== undefined ? { reviewBase: base } : {}),
       vars,
-      config: start.config,
     })
     const steps: readonly LandStep[] = [
       { kind: "gitWrite", write: { kind: "commitAll", message } },

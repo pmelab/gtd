@@ -632,6 +632,7 @@ const flagHeader = (row: FlagRow): string => {
 
 const GLOBAL_OPTIONS: readonly (readonly [string, string])[] = [
   ["-v, --verbose", "Narrate on stderr what gtd resolved"],
+  ["--live", "Run this gtd, not the process's pin; it may misread the process"],
   ["-h, --help", "Print help; gtd <command> --help for one command"],
   ["-V, --version", "Print the version"],
   ["--", "End the options: every word after it is an argument"],
@@ -643,7 +644,11 @@ const EXTRA_TOPICS: readonly (readonly [string, string, string])[] = [
     "Print help for gtd or one command",
     "Print gtd's overview, or with <command> that command's own help.",
   ],
-  ["version", "Print the version", "Print gtd's version."],
+  [
+    "version",
+    "Print the version",
+    "Print gtd's version, and the version of a pinned process's gtd.",
+  ],
 ]
 
 const EXAMPLES = `  $ gtd start                                   list what can start

@@ -17,7 +17,7 @@ import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { compileConfig, type CompiledConfig } from "./compile.js"
 import { SETTING_NAME_RULE, isSettingName } from "./vars.js"
 import { ConfigDiscovery, WORKFLOW_MODULE, type WorkflowModule } from "./discovery.js"
-import { configFingerprint, type ConfigFingerprint } from "./fingerprint.js"
+import { changedConfigFiles, configFingerprint, type ConfigFingerprint } from "./fingerprint.js"
 import { PIN_KEY } from "../install/index.js"
 import {
   dedupeDiagnostics,
@@ -50,6 +50,8 @@ export interface ConfigOperations {
   readonly warnings: readonly Diagnostic[]
   /** The content hash of every file `gtd.config.ts`'s evaluation touched — itself plus any relative import — by path relative to the root. */
   readonly fingerprint: ConfigFingerprint
+  /** Inside a pin, the files it was bundled from that differ on disk now. */
+  readonly drift: readonly string[]
 }
 
 // Everything lives in `message` (not `GtdError.detail`) — `renderFailure`
@@ -204,6 +206,17 @@ export const load: Effect.Effect<
     fingerprint:
       pinned?.fingerprint ??
       configFingerprint(loaded.file.dependencyFiles, host.root, module.read ?? readFromDisk),
+    drift:
+      pinned === undefined
+        ? []
+        : changedConfigFiles(
+            pinned.fingerprint,
+            configFingerprint(
+              Object.keys(pinned.fingerprint).map((file) => resolvePath(host.root, file)),
+              host.root,
+              readFromDisk,
+            ),
+          ),
   }
 })
 

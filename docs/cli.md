@@ -43,6 +43,8 @@ Driver plumbing:
 
 Options:
   -v, --verbose             Narrate on stderr what gtd resolved
+  --live                    Run this gtd, not the process's pin; it may misread
+                            the process
   -h, --help                Print help; gtd <command> --help for one command
   -V, --version             Print the version
   --                        End the options: every word after it is an argument
@@ -256,6 +258,36 @@ blocks — a question fails with a code when the tty cannot be opened rather tha
 hanging. The reason is the section above: stderr already has several occupants,
 narration, remediation and warnings, and a question mixed into that stream would
 deadlock a driver that never reads stderr.
+
+## Pinned processes
+
+A process runs on its pin, `.gtd/process.gtdpin`, which its
+[pin beat](driver.md#pin-and-unpin-beats) commits. The `gtd` on `PATH` looks for
+that file in the worktree, or in HEAD once the unpin beat has deleted it, and
+runs the command on the engine and workflow the pin carries, in the same Node
+process: output, exit code and signal death are the pin's. Editing
+`gtd.config.ts`, a module it imports, or upgrading gtd mid-process changes
+nothing about the process. A command that reads the rest notes the config files
+that differ from the pinned ones:
+
+```
+gtd: notice: the live config differs from the pinned one (lib/flow.ts); `gtd repin` to switch
+```
+
+These never run on the pin: `ui`, `lsp`, `guide`, `bundle`, `help`, `version`
+and the `history` commands. `gtd version` (and `-V`) adds the pin's version:
+`<version> (this process is pinned to gtd <version>)`. `--verbose` narrates the
+hand-over as `launcher: running the pin <path> (gtd <version>)`.
+
+`--live`, accepted before any command, runs the `gtd` on `PATH` instead of the
+pin. It replays the process under the live engine and config, so it may misread
+the process.
+
+The pin's first line is plain text, `gtdpin <format> gtd <version>`, followed by
+one gzipped ES module. The format is 1. A pin in another format, or a file there
+that is no pin, is refused with exit `1`, naming its format and the gtd that
+made it: upgrade gtd. A process started before pins existed has none and runs on
+the `gtd` on `PATH`.
 
 ## Every command
 
@@ -693,5 +725,5 @@ Print gtd's overview, or with <command> that command's own help.
 ```
 Usage: gtd version
 
-Print gtd's version.
+Print gtd's version, and the version of a pinned process's gtd.
 ```

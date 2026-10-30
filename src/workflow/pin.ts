@@ -7,7 +7,7 @@ import { ownPackage, pinnedWorkflowSource } from "./load.js"
 import type { WorkflowModule } from "./discovery.js"
 
 /** Bumped when a launcher could no longer run an older pin the same way. */
-const PIN_FORMAT = 1
+export const PIN_FORMAT = 1
 
 /**
  * The engine a pin carries, as ES module source. Live, the `gtd.core.mjs` the
@@ -57,16 +57,24 @@ export const pin = (
     ])
   })
 
+/** A pin's header line, read without unpacking it; undefined when the bytes are no pin. */
+export const pinHeader = (
+  bytes: Uint8Array,
+): { readonly format: number; readonly version: string } | undefined => {
+  const end = bytes.indexOf(0x0a)
+  const header =
+    end < 0 ? null : /^gtdpin (\d+) gtd (\S+)$/.exec(Buffer.from(bytes.subarray(0, end)).toString())
+  return header === null ? undefined : { format: Number(header[1]), version: header[2]! }
+}
+
 /** A pin's header and module source. */
 export const readPin = (
   bytes: Uint8Array,
 ): { readonly format: number; readonly version: string; readonly source: string } => {
-  const end = bytes.indexOf(0x0a)
-  const header = /^gtdpin (\d+) gtd (\S+)$/.exec(Buffer.from(bytes.subarray(0, end)).toString())
-  if (end < 0 || header === null) throw new Error("not a gtd pin")
+  const header = pinHeader(bytes)
+  if (header === undefined) throw new Error("not a gtd pin")
   return {
-    format: Number(header[1]),
-    version: header[2]!,
-    source: gunzipSync(bytes.subarray(end + 1)).toString("utf8"),
+    ...header,
+    source: gunzipSync(bytes.subarray(bytes.indexOf(0x0a) + 1)).toString("utf8"),
   }
 }
