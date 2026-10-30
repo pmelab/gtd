@@ -345,6 +345,17 @@ describe("spec 20: the unit map", () => {
     ).toEqual(["npm-react-only-where-used: src/replay/Replay.ts -> react"])
   })
 
+  it("fails core importing a Node builtin outside src/platform/Node*.ts", () => {
+    expect(
+      cruiseFiles({
+        "src/platform/NodeSync.ts": `import { readFileSync } from "node:fs"\nexport const read = readFileSync\n`,
+        "src/platform/Workspace.ts": `import { join } from "node:path"\nexport const at = join\n`,
+        "src/platform/Workspace.test.ts": `import { tmpdir } from "node:os"\nvoid tmpdir\n`,
+        "src/main.ts": `import { argv } from "node:process"\nvoid argv\n`,
+      }),
+    ).toEqual(["core-reaches-node-through-its-node-files: src/platform/Workspace.ts -> path"])
+  })
+
   it("fails core importing a tool, and passes the composition root doing it", () => {
     expect(
       cruiseFiles({

@@ -1,10 +1,6 @@
-import { existsSync, readFileSync, realpathSync } from "node:fs"
-import { createRequire, isBuiltin } from "node:module"
-import { stripVTControlCharacters } from "node:util"
-import { runInThisContext } from "node:vm"
 import type { Plugin as RolldownPlugin } from "rolldown"
 import { Context, Effect, Layer, Path } from "effect"
-import { GtdError, Narrator } from "../platform/index.js"
+import { GtdError, Narrator, NodeRuntime, nodeSyncIo } from "../platform/index.js"
 import { accessShapeFault, replay, type TreeView } from "../replay/index.js"
 // The published facade: what a config's `@pmelab/gtd/flows` import is served.
 import * as flows from "../flows/index.js"
@@ -204,13 +200,20 @@ export const load: Effect.Effect<
     warnings: diagnostics.filter((d) => d.severity === "warning"),
     fingerprint:
       pinned?.fingerprint ??
-      configFingerprint(paths, loaded.file.dependencyFiles, host.root, module.read ?? readFromDisk),
+      configFingerprint(
+        nodeSyncIo,
+        paths,
+        loaded.file.dependencyFiles,
+        host.root,
+        module.read ?? readFromDisk,
+      ),
     drift:
       pinned === undefined
         ? []
         : changedConfigFiles(
             pinned.fingerprint,
             configFingerprint(
+              nodeSyncIo,
               paths,
               Object.keys(pinned.fingerprint).map((file) => paths.resolve(host.root, file)),
               host.root,
@@ -220,9 +223,11 @@ export const load: Effect.Effect<
   }
 })
 
+// Loading reads the real disk in every tier, as rolldown does: gtd's own
+// package and the config's node_modules exist nowhere else.
 const readFromDisk = (path: string): string | undefined => {
   try {
-    return readFileSync(path, "utf8")
+    return nodeSyncIo.readText(path)
   } catch {
     return undefined
   }
@@ -280,9 +285,9 @@ export const ownPackage = (
 ): { readonly root: string; readonly pkg: PackageJson } => {
   const start = paths.dirname(Effect.runSync(paths.fromFileUrl(new URL(import.meta.url))))
   for (let dir = start; ; dir = paths.dirname(dir)) {
-    const file = paths.join(dir, "package.json")
-    if (existsSync(file)) {
-      const pkg = JSON.parse(readFileSync(file, "utf8")) as PackageJson
+    const source = readFromDisk(paths.join(dir, "package.json"))
+    if (source !== undefined) {
+      const pkg = JSON.parse(source) as PackageJson
       if (pkg.name === PACKAGE) return { root: dir, pkg }
     }
     if (paths.dirname(dir) === dir) throw new Error(`no ${PACKAGE} package.json above ${start}`)
@@ -340,7 +345,7 @@ const requiredOnUse = (
   modules: Record<string, unknown>,
   files: ReadonlyMap<string, string>,
 ): Record<string, unknown> => {
-  const require = createRequire(import.meta.url)
+  const require = NodeRuntime.createRequire(import.meta.url)
   return new Proxy(modules, {
     has: (loaded, id) => id in loaded || (typeof id === "string" && files.has(id)),
     get: (loaded, id) =>
@@ -669,7 +674,7 @@ const evaluate = async (
   shipped: ShippedModules,
 ): Promise<Evaluated> => {
   const { code, files } = await bundleConfig(paths, module, { kind: "evaluate", shipped })
-  const fromConfig = createRequire(module.filepath)
+  const fromConfig = NodeRuntime.createRequire(module.filepath)
   const require = Object.assign(
     (id: string): unknown =>
       id in shipped.modules
@@ -677,9 +682,9 @@ const evaluate = async (
         : fromConfig(id in shipped.missing ? shipped.missing[id]! : id),
     { resolve: fromConfig.resolve },
   )
-  const chunk = runInThisContext(
+  const chunk = NodeRuntime.compileScript(
     `(function (exports, require, module, __filename, __dirname) {${code}\n})`,
-    { filename: module.filepath },
+    module.filepath,
   ) as Chunk
   return { exports: execute(paths, chunk, module.filepath, require), files }
 }
@@ -707,7 +712,7 @@ const runPinned = (
 ): Evaluated => ({
   // Everything but the engine's own flows and Node's builtins is in the bundle.
   exports: execute(paths, pinned.run, filepath, (id) =>
-    id === FLOWS ? flows : createRequire(import.meta.url)(id),
+    id === FLOWS ? flows : NodeRuntime.createRequire(import.meta.url)(id),
   ),
   files: Object.keys(pinned.fingerprint).map((file) => paths.resolve(root, file)),
 })
@@ -723,7 +728,7 @@ export const pinnedWorkflowSource = async (
   root: string,
   version: string,
 ): Promise<string> => {
-  const gtd = realpathSync(ownPackage(paths).root) + paths.sep
+  const gtd = nodeSyncIo.realPath(ownPackage(paths).root) + paths.sep
   const { code, files } = await bundleConfig(paths, module, {
     kind: "pin",
     shipped: subpathFiles(paths, import.meta.url.endsWith(".ts") ? "source" : "default"),
@@ -735,6 +740,7 @@ export const pinnedWorkflowSource = async (
     version,
     origin: paths.relative(root, module.filepath),
     fingerprint: configFingerprint(
+      nodeSyncIo,
       paths,
       files.filter((file) => !own(file)),
       root,
@@ -804,7 +810,7 @@ const bundleConfig = async (
     input: module.filepath,
     platform: "node",
     plugins: [plugin],
-    external: (id) => isBuiltin(id),
+    external: (id) => NodeRuntime.isBuiltin(id),
     resolve: { extensionAlias: { ".js": [".js", ".ts"], ".mjs": [".mjs", ".mts"] } },
     // Every statement runs, as it would unbundled.
     treeshake: false,
@@ -843,7 +849,11 @@ const isNativeAddon = (paths: Path.Path, id: string): boolean => {
   const rest = id.slice(at + `node_modules${sep}`.length).split(sep)
   const root =
     id.slice(0, at) + ["node_modules", ...rest.slice(0, rest[0]!.startsWith("@") ? 2 : 1)].join(sep)
-  return existsSync(paths.join(root, "binding.gyp"))
+  try {
+    return nodeSyncIo.stat(paths.join(root, "binding.gyp")) !== undefined
+  } catch {
+    return false
+  }
 }
 
 const nativeAddon = (paths: Path.Path, path: string): string => {
@@ -869,10 +879,8 @@ const isEsModule = (paths: Path.Path, path: string): boolean => {
   if (/\.(mjs|[cm]?tsx?)$/.test(path)) return true
   if (!/\.jsx?$/.test(path)) return false
   for (let dir = paths.dirname(path); paths.dirname(dir) !== dir; dir = paths.dirname(dir)) {
-    const file = paths.join(dir, "package.json")
-    if (existsSync(file)) {
-      return (JSON.parse(readFileSync(file, "utf8")) as { type?: string }).type === "module"
-    }
+    const source = readFromDisk(paths.join(dir, "package.json"))
+    if (source !== undefined) return (JSON.parse(source) as { type?: string }).type === "module"
   }
   return false
 }
@@ -880,7 +888,7 @@ const isEsModule = (paths: Path.Path, path: string): boolean => {
 const inPackage = (path: string): boolean => /[\\/]node_modules[\\/]/.test(path)
 
 const isPackage = (paths: Path.Path, specifier: string): boolean =>
-  !paths.isAbsolute(specifier) && !isBuiltin(specifier)
+  !paths.isAbsolute(specifier) && !NodeRuntime.isBuiltin(specifier)
 
 // `toFileUrl` fails only where `pathToFileURL` throws.
 const fileUrl = (paths: Path.Path, path: string): string =>
@@ -892,7 +900,7 @@ const bundleError = (e: unknown): unknown => {
   const errors = (e as { errors?: readonly { message: string }[] } | null)?.errors
   if (errors === undefined) return e
   const lines = errors.map(({ message }) => {
-    const plain = stripVTControlCharacters(message)
+    const plain = NodeRuntime.stripVTControlCharacters(message)
     const at = /\[ (.+:\d+:\d+) \]/.exec(plain)?.[1]
     const headline = plain.split("\n")[0]!
     return at === undefined ? headline : `${headline} (${at})`
@@ -903,7 +911,8 @@ const bundleError = (e: unknown): unknown => {
 type Rolldown = typeof import("rolldown")
 let rolldownModule: Rolldown | undefined
 // Required at run time, never bundled: rolldown ships a native binding.
-const requireRolldown = (): Rolldown => createRequire(import.meta.url)("rolldown") as Rolldown
+const requireRolldown = (): Rolldown =>
+  NodeRuntime.createRequire(import.meta.url)("rolldown") as Rolldown
 
 const isWorkflow = (value: unknown): boolean =>
   markedOptions(value) !== undefined || isFactoryWorkflow(value)

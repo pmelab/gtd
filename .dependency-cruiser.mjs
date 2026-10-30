@@ -415,6 +415,14 @@ export default {
       },
       to: { dependencyTypes: ["core"] },
     },
+    {
+      name: "core-reaches-node-through-its-node-files",
+      comment:
+        "Unit map, npm dependencies — a Node builtin is one too: the core imports Node's modules only in src/platform/Node*.ts, its Node implementations.",
+      severity: "error",
+      from: { path: units.core, pathNot: [productionExcluded, "^src/platform/Node[^/]*\\.ts$"] },
+      to: { dependencyTypes: ["core"] },
+    },
 
     {
       name: "flags-only-at-composition-points",

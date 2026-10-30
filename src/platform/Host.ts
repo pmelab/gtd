@@ -1,6 +1,6 @@
-import { realpathSync } from "node:fs"
-import { homedir, tmpdir } from "node:os"
 import { Context, Effect, Layer } from "effect"
+import { homedir, tmpdir } from "./NodeRuntime.js"
+import { nodeSyncIo } from "./NodeSync.js"
 
 const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(String(e)))
 
@@ -8,7 +8,7 @@ export interface HostOps {
   readonly root: string
   readonly home: string
   readonly env: Readonly<Record<string, string | undefined>>
-  /** `env["TMPDIR"]` when set, `node:os`'s `tmpdir()` otherwise — never a `/tmp` literal or `mktemp` (`tests/tooling/no-tmp-assumption.test.ts` scans for both). */
+  /** `env["TMPDIR"]` when set, the host's temp dir otherwise — never a `/tmp` literal or `mktemp` (`tests/tooling/no-tmp-assumption.test.ts` scans for both). */
   readonly scratchDir: string
   /** The real, symlink-resolved form of `path` — used to compare a possibly-symlinked cwd (macOS `/tmp` → `/private/tmp`) against git's own resolution. */
   readonly realPath: (path: string) => Effect.Effect<string, Error>
@@ -57,7 +57,8 @@ const makeHostOps = (opts: HostOpsInput, proc: NodeProcess): HostOps => {
   const script = proc.argv[1]
   return {
     scratchDir: scratchDirOf(opts.env, tmpdir()),
-    realPath: (path: string) => Effect.try({ try: () => realpathSync(path), catch: toError }),
+    realPath: (path: string) =>
+      Effect.try({ try: () => nodeSyncIo.realPath(path), catch: toError }),
     pid: proc.pid,
     uid: proc.getuid?.(),
     self: script === undefined ? ["gtd"] : [proc.execPath, script],
@@ -86,7 +87,7 @@ export const nodeStdio = (proc: NodeProcess = process): Stdio => ({
   },
 })
 
-/** Every member not given in `opts` comes from Node: `proc`, `node:os`, `node:fs`. */
+/** Every member not given in `opts` comes from Node: `proc`, its OS and its file system. */
 export class Host extends Context.Service<Host, HostOps>()("Host") {
   static layer = (opts: HostOpsInput, proc: NodeProcess = process): Layer.Layer<Host> =>
     Layer.succeed(Host, makeHostOps(opts, proc))

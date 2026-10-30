@@ -1,6 +1,5 @@
-import { createHash } from "node:crypto"
-import { realpathSync } from "node:fs"
 import type { Path } from "effect"
+import type { SyncIo } from "../platform/index.js"
 
 /** Path (relative to `root`) → content hash of every file a config load touched. */
 export type ConfigFingerprint = Readonly<Record<string, string>>
@@ -12,12 +11,9 @@ const HASH_LENGTH = 16
 // eslint-disable-next-line no-control-regex -- the control range IS the point
 const CONTROL_CHARACTER = /[\x00-\x1f\x7f-\x9f]/
 
-const contentHash = (content: string | Buffer): string =>
-  createHash("sha256").update(content).digest("hex").slice(0, HASH_LENGTH)
-
-const realOr = (path: string): string => {
+const realOr = (io: SyncIo, path: string): string => {
   try {
-    return realpathSync(path)
+    return io.realPath(path)
   } catch {
     return path
   }
@@ -28,18 +24,19 @@ const realOr = (path: string): string => {
 // Paths are real paths: a loader may report `/private/var/…` for a root
 // reached through the `/var` symlink, and the two must still relate.
 export const configFingerprint = (
+  io: SyncIo,
   paths: Path.Path,
   files: readonly string[],
   root: string,
   read: (path: string) => string | undefined,
 ): ConfigFingerprint => {
   const fingerprint: Record<string, string> = {}
-  const realRoot = realOr(root)
+  const realRoot = realOr(io, root)
   for (const file of files) {
-    const path = paths.relative(realRoot, realOr(file)).split(paths.sep).join("/")
+    const path = paths.relative(realRoot, realOr(io, file)).split(paths.sep).join("/")
     if (CONTROL_CHARACTER.test(path)) continue
     const content = read(file)
-    if (content !== undefined) fingerprint[path] = contentHash(content)
+    if (content !== undefined) fingerprint[path] = io.hash("sha256", content).slice(0, HASH_LENGTH)
   }
   return fingerprint
 }

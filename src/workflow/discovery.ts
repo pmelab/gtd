@@ -1,6 +1,5 @@
-import { existsSync, readFileSync, statSync } from "node:fs"
 import { Context, Effect, Layer, Path } from "effect"
-import { Host } from "../platform/index.js"
+import { Host, nodeSyncIo, type SyncIo } from "../platform/index.js"
 
 /** The workflow module found on the cwd→home walk, with its source. */
 export interface WorkflowModule {
@@ -55,10 +54,14 @@ export const legacyRcDirs = (path: Path.Path, root: string, home: string): reado
   return chain.includes(home) ? chain : [...chain, home]
 }
 
-const legacyRcFileAt = (path: string, uid: number | undefined): LegacyRcFile | undefined => {
+const legacyRcFileAt = (
+  io: SyncIo,
+  path: string,
+  uid: number | undefined,
+): LegacyRcFile | undefined => {
   try {
-    const stat = statSync(path)
-    if (!stat.isFile()) return undefined
+    const stat = io.stat(path)
+    if (stat?.type !== "file") return undefined
     // Above home, a shared directory (`/tmp`) can hold another user's file.
     return { path, owned: uid === undefined || stat.uid === uid }
   } catch {
@@ -87,11 +90,15 @@ export const walkUp = (path: Path.Path, from: string, home: string): ReadonlyArr
   return chain
 }
 
-const liveDiscovery = (path: Path.Path, uid: number | undefined): ConfigDiscoveryOps => ({
+const liveDiscovery = (
+  io: SyncIo,
+  path: Path.Path,
+  uid: number | undefined,
+): ConfigDiscoveryOps => ({
   legacyRcFiles: (root, home) =>
     Effect.sync(() =>
       legacyRcDirs(path, root, home).flatMap((dir) =>
-        LEGACY_RC_FILES.flatMap((name) => legacyRcFileAt(path.join(dir, name), uid) ?? []),
+        LEGACY_RC_FILES.flatMap((name) => legacyRcFileAt(io, path.join(dir, name), uid) ?? []),
       ),
     ),
   workflowModule: (root, home) =>
@@ -99,7 +106,8 @@ const liveDiscovery = (path: Path.Path, uid: number | undefined): ConfigDiscover
       try: () => {
         for (const dir of walkUp(path, root, home)) {
           const filepath = path.join(dir, WORKFLOW_MODULE)
-          if (existsSync(filepath)) return { filepath, source: readFileSync(filepath, "utf8") }
+          const source = io.readText(filepath)
+          if (source !== undefined) return { filepath, source }
         }
         return undefined
       },
@@ -123,7 +131,7 @@ export class ConfigDiscovery extends Context.Service<ConfigDiscovery, ConfigDisc
   static Live = Layer.effect(
     ConfigDiscovery,
     Effect.gen(function* () {
-      return liveDiscovery(yield* Path.Path, (yield* Host).uid)
+      return liveDiscovery(nodeSyncIo, yield* Path.Path, (yield* Host).uid)
     }),
   )
 }

@@ -1,4 +1,4 @@
-import { existsSync, readFileSync } from "node:fs"
+import { NodeRuntime, nodeSyncIo } from "../platform/index.js"
 
 // A source-relative literal (`../../package.json`) breaks the built single-file
 // bundle: bundling doesn't rewrite `import.meta.url` per original module, so a
@@ -6,13 +6,18 @@ import { existsSync, readFileSync } from "node:fs"
 // dist/ vs src/ — they differ (dist/gtd.bundle.mjs is always one level below
 // repo root; src/install/Version.ts is two). Walking up from wherever this module
 // actually runs from resolves correctly in both the unbundled (vitest/tsc) and
-// bundled (dist/gtd.bundle.mjs) case. URLs, not paths: this runs at import,
+// bundled (dist/gtd.bundle.mjs) case. URLs, not Path: this runs at import,
 // before any Effect service exists.
-const findPackageJson = (fromUrl: string): URL => {
+const readPackageJson = (fromUrl: string): string => {
   let dir = new URL(".", fromUrl)
   for (let i = 0; i < 5; i++) {
     const candidate = new URL("package.json", dir)
-    if (existsSync(candidate)) return candidate
+    try {
+      const source = nodeSyncIo.readText(NodeRuntime.fileURLToPath(candidate))
+      if (source !== undefined) return source
+    } catch {
+      // Unreadable counts as absent, as it did for `existsSync`.
+    }
     dir = new URL("..", dir)
   }
   throw new Error(`package.json not found by walking up from ${fromUrl}`)
@@ -26,6 +31,4 @@ export const PIN_KEY = Symbol.for("@pmelab/gtd/pin")
 const pinned = (globalThis as { [PIN_KEY]?: { readonly version: string } })[PIN_KEY]?.version
 
 export const GTD_VERSION: string =
-  pinned ??
-  (JSON.parse(readFileSync(findPackageJson(import.meta.url), "utf8")) as { version: string })
-    .version
+  pinned ?? (JSON.parse(readPackageJson(import.meta.url)) as { version: string }).version
