@@ -83,7 +83,7 @@
   "scripts": {
     "prepare": "husky",
     "dev": "node dev/run.mjs",
-    "build": "tsdown --filter web && npx @tailwindcss/cli -i src/web/styles.css -o dist/web/main.css --minify && node scripts/inline-web-client.mjs && tsdown --filter gtd && tsdown --filter entrypoints",
+    "build": "tsdown --filter web && npx @tailwindcss/cli -i src/web/styles.css -o dist/web/main.css --minify && node scripts/inline-web-client.mjs && tsdown --filter gtd --filter core && tsdown --filter entrypoints",
     "postbuild": "node scripts/assert-no-test-doubles.mjs",
     "watch": "tsdown --watch",
     "bench:replay": "node scripts/bench-replay.mjs",

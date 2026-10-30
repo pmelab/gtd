@@ -99,6 +99,16 @@ Given(
   },
 )
 
+Given(
+  "every live gtd call, and the gtd on PATH, runs this build's {string}",
+  (world: GtdWorld, bundle: string) => {
+    world.gtdBin = join(PROJECT_ROOT, bundle)
+    const shim = join(world.pathShimDir!, "gtd")
+    writeFileSync(shim, `#!/usr/bin/env bash\nexec node "${world.gtdBin}" "$@"\n`)
+    chmodSync(shim, 0o755)
+  },
+)
+
 When(
   "I run in the shell within {int} seconds:",
   async (world: GtdWorld, seconds: number, command: string) => {

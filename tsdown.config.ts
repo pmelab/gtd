@@ -1,14 +1,48 @@
-import { defineConfig } from "tsdown"
+import { defineConfig, type UserConfig } from "tsdown"
 
-// Three configs, browser-first: the phone/web client bundles for the browser
-// platform, then `scripts/inline-web-client.mjs` folds its output into
-// src/ui/client.generated.html (gitignored), which the node config below imports
-// through the ".html" text loader. tsdown builds array
-// entries in PARALLEL (see its `buildWithConfigs`), so this ordering is not
-// self-enforcing — `npm run build`'s script runs `tsdown --filter web`,
-// the inline step, `tsdown --filter gtd`, then `tsdown --filter entrypoints` as
-// separate sequential steps, using each
-// config's `name` to select it.
+const NODE_BANNER = `#!/usr/bin/env node
+import { createRequire as __createRequire } from 'module';
+const require = __createRequire(import.meta.url);`
+
+// A pinned process carries no ui or lsp: loading either fails, and the
+// command that loaded it fails with this message as a GtdError.
+const PINNED_STUB = "\0gtd-core-stub"
+const withoutUiAndLsp = {
+  name: "gtd-core-stubs",
+  async resolveId(
+    this: { resolve: (source: string, importer?: string) => Promise<{ id: string } | null> },
+    source: string,
+    importer: string | undefined,
+  ) {
+    if (!/(^|\/)(ui|lsp)\/index\.js$/.test(source)) return null
+    const resolved = await this.resolve(source, importer)
+    return resolved && /[\\/]src[\\/](ui|lsp)[\\/]index\.ts$/.test(resolved.id) ? PINNED_STUB : null
+  },
+  load(id: string) {
+    return id === PINNED_STUB ? 'throw new Error("not available in a pinned process")' : null
+  },
+}
+
+const gtdBinary = {
+  format: ["esm"],
+  platform: "node",
+  target: "node20",
+  outDir: "dist",
+  outExtensions: () => ({ js: ".mjs" }),
+  banner: { js: NODE_BANNER },
+  deps: { alwaysBundle: [/.*/] },
+  dts: false,
+  outputOptions: { codeSplitting: false },
+} satisfies UserConfig
+
+// Browser-first: the phone/web client bundles for the browser platform, then
+// `scripts/inline-web-client.mjs` folds its output into
+// src/ui/client.generated.html (gitignored), which the `gtd` config imports
+// through the ".html" text loader. tsdown builds array entries in PARALLEL
+// (see its `buildWithConfigs`), so this ordering is not self-enforcing —
+// `npm run build`'s script runs `tsdown --filter web`, the inline step, then
+// `gtd` and `core` together, then `entrypoints`, using each config's `name` to
+// select it.
 export default defineConfig([
   {
     name: "web",
@@ -33,25 +67,22 @@ export default defineConfig([
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
   },
   {
+    ...gtdBinary,
     name: "gtd",
     entry: { "gtd.bundle": "src/main.ts" },
-    format: ["esm"],
-    platform: "node",
-    target: "node20",
-    outDir: "dist",
-    outExtensions: () => ({ js: ".mjs" }),
     loader: { ".html": "text" },
-    banner: {
-      js: `#!/usr/bin/env node
-import { createRequire as __createRequire } from 'module';
-const require = __createRequire(import.meta.url);`,
-    },
     // Only its own file: `tsdown --watch` builds every config in parallel,
     // and cleaning all of dist/ would race the `entrypoints` build.
     clean: ["dist/gtd.bundle.mjs"],
-    deps: { alwaysBundle: [/.*/] },
-    dts: false,
-    outputOptions: { codeSplitting: false },
+  },
+  {
+    // The engine a pin carries: judges stay, since verdicts decide the path.
+    ...gtdBinary,
+    name: "core",
+    entry: { "gtd.core": "src/main.ts" },
+    plugins: [withoutUiAndLsp],
+    minify: true,
+    clean: ["dist/gtd.core.mjs"],
   },
   {
     // Every other package subpath. One build so the entries share chunks;
