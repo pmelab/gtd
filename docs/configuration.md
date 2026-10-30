@@ -1133,10 +1133,10 @@ A workflow declaring one name in both `defaults` and `envDefaults` fails to
 load. All load failures exit **1** and write to **stderr**, never stdout.
 
 gtd requires a repository with **at least one commit** before any state command
-(`land`, `start`, `next`, `abandon`, `restore`, `validate`, `summary`) will run
-— there is no workflow state to derive from an empty history. `gtd guide`,
-`gtd lsp`, and `gtd check` are unaffected, since none of them needs a process
-history (`gtd lsp` then serves `REVIEW.md` alone).
+(`land`, `start`, `next`, `abandon`, `restore`, `repin`, `validate`, `summary`)
+will run — there is no workflow state to derive from an empty history.
+`gtd guide`, `gtd lsp`, and `gtd check` are unaffected, since none of them needs
+a process history (`gtd lsp` then serves `REVIEW.md` alone).
 
 ## Judge settings
 

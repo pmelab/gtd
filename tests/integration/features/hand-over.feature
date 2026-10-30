@@ -4,8 +4,8 @@ Feature: hand-over — a pinned process runs on its pin
   when the worktree's copy is gone, and runs the command on the engine and
   workflow the pin carries, passing its exit code and signals through. `--live`
   runs this gtd instead. The commands a pin's engine lacks, or that read the
-  live state, never hand over: `ui`, `lsp`, `guide`, `bundle`, `help`,
-  `version` and the `history` commands. A pin whose format this gtd does not
+  live state, never hand over: `ui`, `lsp`, `guide`, `bundle`, `repin`,
+  `help`, `version` and the `history` commands. A pin whose format this gtd does not
   know is refused, never guessed at. The in-memory pin carries no engine, so
   the in-memory tier stands this engine in for it; only `@live` runs a real
   one.
@@ -77,6 +77,7 @@ Feature: hand-over — a pinned process runs on its pin
       | command      |
       | guide        |
       | bundle       |
+      | repin        |
       | history list |
       | help         |
 

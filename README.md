@@ -624,10 +624,10 @@ install for any of these but the testkit's: gtd resolves a `gtd.config.ts`'s
 `@pmelab/gtd/*` imports to its own copy.
 
 The `gtd` bin's commands — `next`, `land`, `start`, `abandon`, `restore`,
-`validate`, `check`, `uncheck`, `guide`, `bundle`, `summary`, `base`, `version`,
-`help`, `history list`, `history show`, `history metrics`, `history judges`,
-`history fetch`, `strays`, the tools `ui`, `lsp`, `judge` (`judge answer`,
-`judge run`) — are listed in the
+`repin`, `validate`, `check`, `uncheck`, `guide`, `bundle`, `summary`, `base`,
+`version`, `help`, `history list`, `history show`, `history metrics`,
+`history judges`, `history fetch`, `strays`, the tools `ui`, `lsp`, `judge`
+(`judge answer`, `judge run`) — are listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md). Every
 command that prints a script takes `--json=script`, and `--` ends the options.
 
@@ -646,10 +646,12 @@ Histories with pin commits are history format 2, which an older gtd refuses.
 While a process is pinned, the `gtd` on your `PATH` hands every command over to
 the pin, so editing the workflow or upgrading gtd mid-process changes nothing;
 gtd notes on stderr when the live config differs from the pinned one. `ui`,
-`lsp`, `guide`, `bundle`, `help`, `version` and the `history` commands always
-run live, and `gtd --live <command>` runs the live engine for any other, at the
-risk of misreading the process. A pin in a format your gtd does not know is
-refused: upgrade gtd. See
+`lsp`, `guide`, `bundle`, `repin`, `help`, `version` and the `history` commands
+always run live, and `gtd --live <command>` runs the live engine for any other,
+at the risk of misreading the process. To fix a workflow mid-process, edit it
+and run `gtd repin`: its script commits a fresh pin from the live engine and
+config, and the process continues on it. A pin in a format your gtd does not
+know is refused: upgrade gtd. See
 [Pinned processes](https://github.com/pmelab/gtd/blob/main/docs/cli.md#pinned-processes).
 
 ## License

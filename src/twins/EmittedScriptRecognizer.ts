@@ -26,6 +26,7 @@ import {
   modeContradictionSkipNotice,
   OUTCOME_MARKER,
   pinScript,
+  repinScript,
   unpinScript,
 } from "../emit/index.js"
 import {
@@ -272,9 +273,9 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
 /** What the in-memory `gtd bundle` prints: a pin header, and no engine behind it. */
 const IN_MEMORY_PIN = "gtdpin 1 gtd in-memory\n"
 
-/** A pin or unpin beat's script. */
+/** A pin or unpin beat's script, or `gtd repin`'s. */
 const recognizePinScripts = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
-  if (block === pinScript(PIN_PATH)) {
+  if (block === pinScript(PIN_PATH) || block === repinScript(PIN_PATH)) {
     repo.writeFile(PIN_PATH, IN_MEMORY_PIN)
     return { kind: "applied" }
   }

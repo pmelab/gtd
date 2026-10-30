@@ -44,6 +44,13 @@ export const pinScript = (path: string): string => {
   return `${mkdir}gtd bundle >${p} || { rm -f -- ${p}; exit 1; }`
 }
 
+/** `gtd repin`'s pin write: a failed `gtd bundle` leaves the committed pin in place. */
+export const repinScript = (path: string): string => {
+  const p = shellQuote(path)
+  const next = shellQuote(`${path}.new`)
+  return `gtd bundle >${next} || { rm -f -- ${next}; exit 1; }\nmv -f -- ${next} ${p}`
+}
+
 /** An unpin beat's script, and `gtd abandon`'s removal of the pin. */
 export const unpinScript = (path: string): string => `rm -f -- ${shellQuote(path)}`
 

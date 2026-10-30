@@ -40,7 +40,8 @@ does not run or `--live` asks for this gtd. _Avoid_: delegation, proxy, shim
 **Pin beat**: A process's first beat after it starts — a `script` beat at actor
 `check`, marked `pin: "add"`, whose script writes `gtd bundle`'s output to
 `.gtd/process.gtdpin`; its landing commits that file alone, with a `Gtd-Pin`
-trailer. Never a turn. _Avoid_: snapshot, freeze, frozen engine
+trailer. Never a turn. `gtd repin` runs it again mid-process, from the live
+engine and config. _Avoid_: snapshot, freeze, frozen engine
 
 **Unpin beat**: A process's last beat, once its flow has ended — a `script` beat
 marked `pin: "remove"` that deletes `.gtd/process.gtdpin`; its landing is the

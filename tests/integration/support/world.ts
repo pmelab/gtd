@@ -136,9 +136,9 @@ const doneNoteRequest = (
 /**
  * Commands that print a `required`/`optional` script for a driver to run
  * instead of performing their git effect directly (`land`, `abandon`,
- * `restore`, `gtd start <name>`). Everything else is a read command with nothing to drive.
+ * `restore`, `repin`, `gtd start <name>`). Everything else is a read command with nothing to drive.
  */
-const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set(["land", "abandon", "restore"])
+const WRITE_COMMAND_TOKENS: ReadonlySet<string> = new Set(["land", "abandon", "restore", "repin"])
 
 /**
  * `--json` (bare or `--json=<path>`) prints a structured document, not the

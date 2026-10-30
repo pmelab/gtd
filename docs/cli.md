@@ -17,6 +17,7 @@ Start and stop:
   start [name] [args...]    Start a workflow or door; bare, list them
   abandon                   Stop the process, keeping its changes
   restore                   Bring back the last abandoned process
+  repin                     Pin the process to the live gtd and workflow
 
 Inspect:
   summary                   Print the prompt for the closing message
@@ -120,12 +121,13 @@ driving a loop is a driver's job, not a bundled command (see
 included (see [Error envelope](#error-envelope) below). Any other, truly unknown
 subcommand is likewise a usage error exiting 2 without touching the repository;
 its message names the nearest command when it looks like a typo of one. The
-state commands (`land`, `start`, `abandon`, `restore`, `next`, `validate`,
-`summary`, `ui`, `judge`, `judge answer`, `history list`, `history show`,
-`history fetch`) must run from the **repository root** — gtd derives the
-workflow, pending changes, and process history relative to cwd, so they refuse
-with a clear error from a subdirectory; `lsp`, `check`, `uncheck` and `strays`
-are standalone and run from anywhere (see each command's own help entry).
+state commands (`land`, `start`, `abandon`, `restore`, `repin`, `next`,
+`validate`, `summary`, `ui`, `judge`, `judge answer`, `history list`,
+`history show`, `history fetch`) must run from the **repository root** — gtd
+derives the workflow, pending changes, and process history relative to cwd, so
+they refuse with a clear error from a subdirectory; `lsp`, `check`, `uncheck`
+and `strays` are standalone and run from anywhere (see each command's own help
+entry).
 
 `guide` is described on its own above: it installs knowledge into the calling
 agent's context — including where to get a workflow, since gtd ships none — and
@@ -200,7 +202,7 @@ currently `1`: `gtd next --json` (every beat kind), `gtd land --json`,
 carries none.
 
 The script document is what every other command that prints a script prints
-under `--json` — `gtd start <name>`, `gtd abandon`, `gtd restore`,
+under `--json` — `gtd start <name>`, `gtd abandon`, `gtd restore`, `gtd repin`,
 `gtd validate` and `gtd history fetch`:
 
 ```json
@@ -274,14 +276,23 @@ that differ from the pinned ones:
 gtd: notice: the live config differs from the pinned one (lib/flow.ts); `gtd repin` to switch
 ```
 
-These never run on the pin: `ui`, `lsp`, `guide`, `bundle`, `help`, `version`
-and the `history` commands. `gtd version` (and `-V`) adds the pin's version:
-`<version> (this process is pinned to gtd <version>)`. `--verbose` narrates the
-hand-over as `launcher: running the pin <path> (gtd <version>)`.
+These never run on the pin: `ui`, `lsp`, `guide`, `bundle`, `repin`, `help`,
+`version` and the `history` commands. `gtd version` (and `-V`) adds the pin's
+version: `<version> (this process is pinned to gtd <version>)`. `--verbose`
+narrates the hand-over as `launcher: running the pin <path> (gtd <version>)`.
 
 `--live`, accepted before any command, runs the `gtd` on `PATH` instead of the
 pin. It replays the process under the live engine and config, so it may misread
 the process.
+
+`gtd repin` switches the process to the live engine and config for good — the
+way out when its workflow needs a fix mid-process. Its script runs the pin beat
+again and lands it as `gtd(check): pin → <step>` with a `Gtd-Pin: add` trailer;
+the process rests where it was, on the new pin. It refuses, writing nothing,
+when the live workflow does not replay the process. Its script bundles into a
+temporary file first, so a failing `gtd bundle` leaves the old pin in place; if
+the commit itself fails, `git checkout HEAD -- .gtd/process.gtdpin` puts the old
+pin back.
 
 The pin's first line is plain text, `gtdpin <format> gtd <version>`, followed by
 one gzipped ES module. The format is 1. A pin in another format, or a file there
@@ -412,6 +423,26 @@ Usage: gtd restore [options]
 Bring back the process the last `gtd abandon` stopped: the printed script resets
 HEAD to that process's last commit. Refuses on a dirty working tree, when
 nothing was abandoned, or when commits made since would be lost.
+
+Options:
+  --json[=<path>]     Print { schema, script }, or with --json=script the script
+                      alone
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd repin`
+
+```
+Usage: gtd repin [options]
+
+Switch the process underway to the live engine and workflow, the way out when
+the workflow needs a fix mid-process: the printed script runs the pin beat
+again, writing `gtd bundle`'s output to .gtd/process.gtdpin and committing that
+file alone. Always runs on the gtd on PATH, never on the pin. Refuses when no
+process is underway, when the next beat is a pin or unpin beat already, or when
+the live workflow does not replay the process.
+
+  s=$(gtd repin --json=script) && sh -c "$s"
 
 Options:
   --json[=<path>]     Print { schema, script }, or with --json=script the script
