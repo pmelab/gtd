@@ -21,6 +21,7 @@ import {
 import {
   ConfigDiscovery,
   ConfigService,
+  EngineCore,
   LEGACY_RC_FILES,
   legacyRcDirs,
   WORKFLOW_MODULE,
@@ -167,6 +168,11 @@ const makeInMemoryConfigDiscovery = (
   })
 }
 
+/** The in-memory counterpart to the shipped `gtd.core.mjs`: an ES module that needs nothing but Node. */
+const IN_MEMORY_ENGINE = `#!/usr/bin/env node
+import "node:process"
+`
+
 /** One scripted `bash` command's canned behavior, keyed by the RENDERED command string a scenario's `Given` step declares. */
 export type ScriptedCommand =
   | {
@@ -264,6 +270,7 @@ export function testLayers(
     }),
     ConfigService.Live,
     makeInMemoryConfigDiscovery(repo, root),
+    Layer.succeed(EngineCore, { source: Effect.succeed(IN_MEMORY_ENGINE) }),
     Narrator.layer(opts.narrate ?? (() => {}), opts.verbose ?? true),
     // Drivers and tools are unit-tested in their own folders; a call reaching
     // one of these is a test gap, not silence. A test opts into one via `tools`.

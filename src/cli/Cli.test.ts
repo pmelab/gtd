@@ -1537,7 +1537,7 @@ describe("runCli — stdout stays byte-empty on every failing surface", () => {
     repo.writeFile(".gtd/TODO.md", "## Open Questions\n\n###\n\nno question text.\n")
     const stdoutCalls: string[] = []
     const io: CliIo = {
-      stdout: (chunk) => stdoutCalls.push(chunk),
+      stdout: (chunk) => stdoutCalls.push(String(chunk)),
       stderr: () => {},
       exit: () => {},
       layers: () => testLayers(repo),

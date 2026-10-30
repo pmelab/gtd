@@ -44,8 +44,8 @@ histories written by an older or newer gtd.
 ## Follows package SemVer
 
 - **CLI** — every command (`next`, `land`, `start`, `abandon`, `restore`,
-  `validate`, `check`, `uncheck`, `guide`, `summary`, `base`, `strays`,
-  `history list`, `history show`, `history metrics`, `history judges`,
+  `validate`, `check`, `uncheck`, `guide`, `bundle`, `summary`, `base`,
+  `strays`, `history list`, `history show`, `history metrics`, `history judges`,
   `history fetch`, `version`, `help`, `ui`, `lsp`, `judge`, `judge answer`,
   `judge run`), option and argument in [CLI reference](docs/cli.md) — the bare
   `gtd start --json` and `gtd history list --json` arrays (bare arrays with no
@@ -103,6 +103,8 @@ Anything not listed above, e.g.:
 - **UI** — `gtd ui`, the Claude Code mod, and the example drivers in
   [Driver protocol](docs/driver.md).
 - **LSP features** — everything `gtd lsp` offers an editor.
+- **Pin content** — the module `gtd bundle` prints after its header line; only
+  the header's pin format says how to run it.
 
 ## Not gtd's to promise
 

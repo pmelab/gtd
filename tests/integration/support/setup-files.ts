@@ -1,6 +1,7 @@
 export const SETUP_FILES: readonly string[] = [
   "./tests/integration/support/world.ts",
   "./tests/integration/support/hooks.ts",
+  "./tests/integration/support/steps/bundle.steps.ts",
   "./tests/integration/support/steps/common.steps.ts",
   "./tests/integration/support/steps/config.steps.ts",
   "./tests/integration/support/steps/formatting.steps.ts",

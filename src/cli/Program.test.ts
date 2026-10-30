@@ -1712,6 +1712,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     check: { kind: "check", mode: "qa", file: ".gtd/TODO.md" },
     uncheck: { kind: "uncheck", file: ".gtd/REVIEW.md" },
     guide: { kind: "guide" },
+    bundle: { kind: "bundle" },
     summary: { kind: "summary" },
     base: { kind: "base" },
     judge: { kind: "judge" },
@@ -1732,11 +1733,12 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
 
-  it("derives exactly the sixteen non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the seventeen non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
       [
         "abandon",
         "base",
+        "bundle",
         "start",
         "land",
         "next",
@@ -1761,7 +1763,10 @@ describe("runCommand — refuses in a repository with no commits", () => {
       const repo = new InMemRepo()
       const before = repo.commitHistory().length
       const written: string[] = []
-      const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
+      const out = {
+        write: (chunk: string | Uint8Array) => written.push(String(chunk)),
+        flush: () => {},
+      }
 
       const exit = await Effect.runPromiseExit(
         runCommand(commandFor[kind], { kind: "off" }, out).pipe(Effect.provide(testLayers(repo))),
@@ -1780,7 +1785,10 @@ describe("runCommand — refuses in a repository with no commits", () => {
   it("a repository with a commit passes the guard and dispatches normally", async () => {
     const repo = seedIdle()
     const written: string[] = []
-    const out = { write: (chunk: string) => written.push(chunk), flush: () => {} }
+    const out = {
+      write: (chunk: string | Uint8Array) => written.push(String(chunk)),
+      flush: () => {},
+    }
 
     const exit = await Effect.runPromiseExit(
       runCommand({ kind: "next" }, { kind: "off" }, out).pipe(Effect.provide(testLayers(repo))),

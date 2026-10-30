@@ -567,7 +567,7 @@ export class GtdWorld extends QuickPickleWorld {
    * dir so a bare `gtd` invoked by name resolves to this build, not a stray
    * global install. `liveEnvOverrides` layers on last, highest precedence.
    */
-  private spawnEnv(): NodeJS.ProcessEnv {
+  spawnEnv(): NodeJS.ProcessEnv {
     const pathEnv = this.pathShimDir
       ? { PATH: `${this.pathShimDir}:${process.env["PATH"] ?? ""}` }
       : {}
@@ -734,6 +734,40 @@ export class GtdWorld extends QuickPickleWorld {
     } catch (err: unknown) {
       this.lastResult = execFailureResult(err)
     }
+  }
+
+  /** What the last `runGtdBundle` printed: a pin is binary, so `lastResult.stdout` cannot hold it. */
+  pin: Uint8Array = new Uint8Array()
+
+  /** `gtd bundle`, keeping stdout's bytes in `pin`. */
+  async runGtdBundle(): Promise<void> {
+    if (this.repo !== undefined) {
+      const { io, result } = makeCapturingCliIo(this.repo, this.envVars)
+      await Effect.runPromise(runCli(["node", "gtd.js", "bundle"], io))
+      const { stdoutBytes, ...rest } = result()
+      this.lastResult = rest
+      this.pin = stdoutBytes
+      return
+    }
+    const run = await execFile(process.execPath, [this.gtdBin, "bundle"], {
+      cwd: this.repoDir,
+      env: this.spawnEnv(),
+      encoding: "buffer",
+      maxBuffer: Infinity,
+      timeout: 30_000,
+    }).then(
+      (done) => ({ exitCode: 0, ...done }),
+      (err: { code?: unknown; stdout: Buffer; stderr: Buffer }) => ({
+        exitCode: typeof err.code === "number" ? err.code : 1,
+        ...err,
+      }),
+    )
+    this.lastResult = {
+      exitCode: run.exitCode,
+      stdout: run.stdout.toString("latin1"),
+      stderr: run.stderr.toString(),
+    }
+    this.pin = run.stdout
   }
 
   /** `@live` only — runs `command` under `sh -c` in the repo, so a scenario can spell out a real pipe between gtd invocations. */

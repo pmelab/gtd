@@ -22,6 +22,12 @@ const findPackageJson = (fromUrl: string): string => {
   throw new Error(`package.json not found by walking up from ${fromUrl}`)
 }
 
-export const GTD_VERSION: string = (
-  _require(findPackageJson(import.meta.url)) as { version: string }
-).version
+/** The global a pin's workflow registers itself under, ahead of the engine in the same file. */
+export const PIN_KEY = Symbol.for("@pmelab/gtd/pin")
+
+// Inside a pin, `import.meta.url` is the pin's own file, in the user's
+// repository: the pin registered the version it was built by before this runs.
+const pinned = (globalThis as { [PIN_KEY]?: { readonly version: string } })[PIN_KEY]?.version
+
+export const GTD_VERSION: string =
+  pinned ?? (_require(findPackageJson(import.meta.url)) as { version: string }).version
