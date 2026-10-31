@@ -642,7 +642,8 @@ flow has ended, an unpin beat removing it — the commit that closes the process
 Both are ordinary `script` beats a driver runs unattended; see
 [Pin and unpin beats](https://github.com/pmelab/gtd/blob/main/docs/driver.md#pin-and-unpin-beats).
 Histories with pin commits are history format 2 or later, which an older gtd
-refuses.
+refuses. The beats rest at `gtd:pin` and `gtd:unpin`; a workflow step may not
+take a name starting with `gtd:`.
 
 While a process is pinned, the `gtd` on your `PATH` hands every command over to
 the pin, so editing the workflow or upgrading gtd mid-process changes nothing;
@@ -654,8 +655,8 @@ and run `gtd repin`: its script commits a fresh pin from the live engine and
 config, and the process continues on it. Where the edited workflow no longer
 replays the process, the repin continues from the divergence: the commits it
 cannot replay stay as files, and the process rests at the step the edited
-workflow reached (history format 3). A pin in a format your gtd does not know is
-refused: upgrade gtd. See
+workflow reached (history format 3 or later). A pin in a format your gtd does
+not know is refused: upgrade gtd. See
 [Pinned processes](https://github.com/pmelab/gtd/blob/main/docs/cli.md#pinned-processes).
 
 ## License

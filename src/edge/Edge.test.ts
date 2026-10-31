@@ -185,7 +185,7 @@ describe("currentRun", () => {
     expect(run.episode.base).toBe(boundary)
     expect(run.episode.commits.map((c) => c.message.split("\n")[0])).toEqual([
       "gtd(human): idle → building",
-      "gtd(check): pin → building",
+      "gtd(check): gtd:pin → building",
       "gtd(agent): building → checking",
     ])
   })
@@ -205,7 +205,7 @@ describe("currentRun", () => {
     await land(repo, { "a.txt": "a\n" })
     await land(repo, { "b.txt": "b\n" })
     const closing = await land(repo, { "c.txt": "c\n" })
-    expect(repo.lastCommitSubject()).toBe("gtd(check): unpin → idle")
+    expect(repo.lastCommitSubject()).toBe("gtd(check): gtd:unpin → idle")
     const next = await land(repo, { "d.txt": "d\n" })
     const run = await provide(currentRun, repo)
     expect(run.startParentHash).toBe(closing)
@@ -217,7 +217,7 @@ describe("currentRun", () => {
     const before = headOf(repo)
     const opening = await enter(repo, "side")
     expect(repo.lastCommitMessage(opening)).toBe(
-      `gtd(human): fixing\n\nGtd-Workflow: side\nGtd-Var: base=\nGtd-Var: reviewer=nobody\nGtd-Format: 3`,
+      `gtd(human): fixing\n\nGtd-Workflow: side\nGtd-Var: base=\nGtd-Var: reviewer=nobody\nGtd-Format: 4`,
     )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
@@ -250,7 +250,7 @@ export const again = workflow(async () => {
     const before = headOf(repo)
     const opening = await enter(repo, "again")
     expect(repo.lastCommitMessage(opening)).toBe(
-      `gtd(human): idle\n\nGtd-Workflow: again\nGtd-Format: 3`,
+      `gtd(human): idle\n\nGtd-Workflow: again\nGtd-Format: 4`,
     )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
@@ -262,6 +262,29 @@ export const again = workflow(async () => {
       { state: "idle", hash: opening, actor: "human" },
       { state: "fixing", hash: fixed, actor: "human" },
     ])
+  })
+
+  it("a format 3 pin commit naming the default's initial step bounds nothing either", async () => {
+    const repo = repoWith(`import { agent, human, workflow } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle", { message: "idle-message" })
+}
+
+export const again = workflow(async () => {
+  await human("idle", { message: "idle-message" })
+  await agent("fixing", "fix-prompt")
+})
+`)
+    const before = headOf(repo)
+    repo.seedCommit("gtd(human): idle\n\nGtd-Workflow: again\nGtd-Format: 3")
+    const opening = headOf(repo)
+    repo.writeFile(".gtd/process.gtdpin", "gtdpin 1 gtd in-memory\n")
+    repo.seedCommit("gtd(check): pin → idle\n\nGtd-Pin: add\nGtd-Format: 3")
+    const run = await provide(currentRun, repo)
+    expect(run.workflow).toBe("again")
+    expect(run.startHash).toBe(opening)
+    expect(run.startParentHash).toBe(before)
   })
 
   it("collects every process commit's Gtd-Cost, attributing a model-less one to UNATTRIBUTED_MODEL", async () => {
@@ -395,7 +418,7 @@ export const again = workflow(async () => {
     it("is undefined at a pin commit, which is no turn", async () => {
       const repo = repoWith(LINEAR)
       await land(repo, { "a.txt": "a\n" })
-      expect(repo.lastCommitSubject()).toBe("gtd(check): pin → building")
+      expect(repo.lastCommitSubject()).toBe("gtd(check): gtd:pin → building")
       expect((await provide(currentRun, repo)).headTurn).toBeUndefined()
     })
 
@@ -403,7 +426,7 @@ export const again = workflow(async () => {
       const repo = repoWith(LINEAR)
       await land(repo, { "a.txt": "a\n" })
       await land(repo)
-      expect(repo.lastCommitMessage()).toBe("gtd(agent): building\n\nGtd-Format: 3")
+      expect(repo.lastCommitMessage()).toBe("gtd(agent): building\n\nGtd-Format: 4")
       const run = await provide(currentRun, repo)
       expect(run.headTurn).toEqual({ state: "building", actor: "agent", empty: true, step: false })
     })
@@ -544,7 +567,7 @@ describe("summaryRun", () => {
     expect(summary.trace).toEqual([
       { state: "building", hash: building, actor: "human" },
       { state: "checking", hash: checking, actor: "agent" },
-      { state: "unpin", hash: headOf(repo, `${closing}~1`), actor: "agent" },
+      { state: "gtd:unpin", hash: headOf(repo, `${closing}~1`), actor: "agent" },
       { state: "idle", hash: closing, actor: "check" },
     ])
   })
@@ -831,7 +854,7 @@ export const review = workflow(async () => {
   it("is the base the resting step names", async () => {
     const repo = repoWith(LOOP)
     const first = await land(repo, { "a.txt": "a\n" })
-    expect(repo.lastCommitSubject()).toBe("gtd(check): pin → checkpoint")
+    expect(repo.lastCommitSubject()).toBe("gtd(check): gtd:pin → checkpoint")
     expect(reviewBaseFor(await provide(currentRest, repo))).toBe(first)
     await land(repo, { "b.txt": "b\n" })
     expect(reviewBaseFor(await provide(currentRest, repo))).toBe(first)
@@ -1306,7 +1329,7 @@ describe("finishing landings keep history", () => {
     await land(repo, { "b.txt": "b\n" })
     repo.writeFile("c.txt", "c\n")
     const landing = await landingOf(repo)
-    expect(landing.to).toBe("unpin")
+    expect(landing.to).toBe("gtd:unpin")
     expect(landing.keepHistory).toBeUndefined()
     expect(landing.spec.version).toBeUndefined()
   })
@@ -1522,13 +1545,16 @@ describe("historyTrail", () => {
       tip,
     ])
     expect(trail.steps[2]).toMatchObject({
-      subject: "gtd(agent): checking → unpin",
+      subject: "gtd(agent): checking → gtd:unpin",
       actor: "agent",
       from: "checking",
-      to: "unpin",
+      to: "gtd:unpin",
       verdicts: [],
     })
-    expect(trail.steps[3]).toMatchObject({ subject: "gtd(check): unpin → idle", actor: "check" })
+    expect(trail.steps[3]).toMatchObject({
+      subject: "gtd(check): gtd:unpin → idle",
+      actor: "check",
+    })
     expect(trail.steps[0]).toMatchObject({ actor: "human", to: "building" })
   })
 

@@ -287,11 +287,12 @@ the process.
 
 `gtd repin` switches the process to the live engine and config for good — the
 way out when its workflow needs a fix mid-process. Its script runs the pin beat
-again and lands it as `gtd(check): pin → <step>` with a `Gtd-Pin: add` trailer;
-the process rests where it was, on the new pin. When the live workflow no longer
-replays the process, the repin continues from the divergence: its commit carries
-a `Gtd-Anchor` naming the last commit the live workflow replays and names the
-step it reached there, or `unpin` when the live flow ends there (see
+again and lands it as `gtd(check): gtd:pin → <step>` with a `Gtd-Pin: add`
+trailer; the process rests where it was, on the new pin. When the live workflow
+no longer replays the process, the repin continues from the divergence: its
+commit carries a `Gtd-Anchor` naming the last commit the live workflow replays
+and names the step it reached there, or `gtd:unpin` when the live flow ends
+there (see
 [Episodes, replay and divergence](configuration.md#episodes-replay-and-divergence)).
 Its script bundles into a temporary file first, so a failing `gtd bundle` leaves
 the old pin in place; if the commit itself fails,

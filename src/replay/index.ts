@@ -17,6 +17,7 @@ export {
   type CommitSpec,
   type JudgeVerdict,
   type PinChange,
+  LEGACY_PIN_STATES,
   PIN_STATES,
 } from "./Trailers.js"
 export { accessShapeFault } from "./Access.js"

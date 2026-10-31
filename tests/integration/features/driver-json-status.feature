@@ -667,7 +667,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     When I run gtd land
     Then it succeeds
     And the commit count increased by 3
-    And the last commit subject is "gtd(check): checking → unpin"
+    And the last commit subject is "gtd(check): checking → gtd:unpin"
     When I run the unpin beat
     Then the commit count increased by 4
-    And the last commit subject is "gtd(check): unpin → idle"
+    And the last commit subject is "gtd(check): gtd:unpin → idle"
