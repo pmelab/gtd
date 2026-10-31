@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs"
+import ts from "typescript"
 import { defineConfig } from "vite-plus"
 import { TASKS, VITEST_TASKS } from "./scripts/test-states.ts"
 
@@ -15,7 +17,16 @@ const input = [
 const check = { input, untrackedEnv: ["TMPDIR", "TERM"], output: [] }
 const flagged = { ...check, env: ["GTD_FLAG_*"] }
 
+// Spike phase 3: the oxc configs, read in place so the standalone tools keep working.
+const json = (path: string) => {
+  const text = readFileSync(new URL(path, import.meta.url), "utf8")
+  const { $schema: _, ...rest } = ts.parseConfigFileTextToJson(path, text).config
+  return rest
+}
+
 export default defineConfig({
+  fmt: json("./.oxfmtrc.json"),
+  lint: json("./.oxlintrc.json"),
   run: {
     tasks: {
       build: {
