@@ -50,6 +50,7 @@ export {
   type Judgment,
   type KeptTip,
   type Mark,
+  type DeclaredMode,
   type ModeName,
   type OpenQuestion,
   type RunOptions,

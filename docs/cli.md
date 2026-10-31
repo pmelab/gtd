@@ -710,10 +710,11 @@ Options:
 ```
 Usage: gtd check <mode> <file> [options]
 
-Run the steering format <mode> (qa, review or findings) over <file> and print
-each finding on a line of its own; exits 1 when there are any, or when <file>
-does not exist. An unknown <mode> is a usage error (exit 2). Reads no workflow
-and runs from any directory — emitted validation scripts call it.
+Run the steering format <mode> (qa, review or findings, or the declared format
+--spec describes) over <file> and print each finding on a line of its own; exits
+1 when there are any, or when <file> does not exist. An unknown <mode> is a
+usage error (exit 2). Reads no workflow and runs from any directory — emitted
+validation scripts call it.
 
 Options:
   --open-questions    Instead of <mode>'s findings, list the unanswered
@@ -722,6 +723,9 @@ Options:
                       <file>; exits 1 when any are open. Alone, lists the open
                       code-comment threads in the files the current process
                       changed
+  --spec=<json>       Check against the declared format this spec describes,
+                      named <mode>, instead of a built-in one; validation
+                      scripts pass it for a step whose mode is a declared format
   -v, --verbose       Narrate on stderr what gtd resolved
 ```
 

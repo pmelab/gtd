@@ -1,12 +1,18 @@
 import { Effect, Path } from "effect"
 import { Host, type HostOps } from "../platform/index.js"
 import {
+  declaredValidateCommand,
   isSeededValidateCommand,
   knownModes,
   type StateMode,
   type WorkflowDefinition,
 } from "../workflow/index.js"
-import { steeringFormatFor, type SteeringFinding, type SteeringFormat } from "../steering/index.js"
+import {
+  formatFromSpec,
+  steeringFormatFor,
+  type SteeringFinding,
+  type SteeringFormat,
+} from "../steering/internal.js"
 import { buildModeContradictionCheck, modeContradictionSkipNotice } from "./ModeContradiction.js"
 import {
   binaryGuard,
@@ -101,12 +107,26 @@ const capabilitiesFor = (
  * The `"unknown"` arm carries the whole refusal message, naming what IS known
  * when `def` is given — this is the one place that message is built, so it
  * can never drift from what actually resolved.
+ *
+ * `spec` is a declared format's: it alone decides, validating through
+ * `gtd check --spec` with no `format:` half.
  */
 export const resolveMode = (
   def: Pick<WorkflowDefinition, "modes"> | undefined,
   state: string,
   mode: StateMode,
+  spec?: string,
 ): ModeResolution => {
+  if (spec !== undefined) {
+    const format = formatFromSpec(spec)
+    return {
+      kind: "resolved",
+      mode,
+      format,
+      validate: { kind: "command", command: declaredValidateCommand(mode, spec) },
+      capabilities: { format, liveValidate: format.validate },
+    }
+  }
   const declared = def?.modes?.[mode]
   const format = steeringFormatFor(mode)
   if (declared === undefined && format === undefined) {

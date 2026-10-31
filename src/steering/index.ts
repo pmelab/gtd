@@ -24,6 +24,18 @@ export type { InlineNode } from "./Inline.js"
 
 export { freeFormFormat } from "./freeform.js"
 
+export {
+  listFormat,
+  sectionFormat,
+  type ListFormat,
+  type ListFormatSpec,
+  type ListItem,
+  type ListMarker,
+  type Section,
+  type SectionFormat,
+  type SectionFormatSpec,
+} from "./Declared.js"
+
 export type {
   BlockListItem,
   SteeringAction,

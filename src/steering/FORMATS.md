@@ -22,6 +22,9 @@ read them.
   `# Dropped as noise` heading being the noise; each holds exactly one
   `- [ ] fix` box. A ticked box fixes the finding; text below the box is the
   human's guidance, valid only under a ticked one.
+- **Declared formats**: a workflow's own `listFormat`/`sectionFormat`. Their
+  rules are not this contract: they apply to declared formats only, never to the
+  formats above.
 - **Free-form**: any markdown, for a file with no mode or an unknown one. Only
   its threads are validated.
 - **Threads**, shared by all of them: a footnote whose definition is a list of
