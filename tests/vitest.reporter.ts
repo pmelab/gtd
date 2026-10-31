@@ -1,4 +1,4 @@
-import type { Reporter } from "vitest/reporters"
+import type { Reporter } from "vitest/node"
 
 type TestCase = Parameters<NonNullable<Reporter["onTestCaseResult"]>>[0]
 type RunEnd = Parameters<NonNullable<Reporter["onTestRunEnd"]>>

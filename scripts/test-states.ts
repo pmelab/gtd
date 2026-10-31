@@ -62,30 +62,20 @@ export function planStates(registry: readonly FlagDeclaration[], env: Env): read
 // toward "distinct": a random temp path keeps two states apart.
 export function failureSignature(stdout: string, tasks: readonly string[]): string {
   const byTask = new Map<string, string[]>()
-  // Remaining npm `> ` script-echo lines per task, opened by turbo's cache line. Position-based so
-  // a task's own `> ` output after the echoes survives.
-  const echoes = new Map<string, number>()
   for (const raw of stdout.split("\n")) {
     const line = raw
       // oxlint-disable-next-line no-control-regex
       .replace(/\x1b\[[0-9;]*[A-Za-z]/g, "")
       .replace(/\r$/, "")
-    const task = tasks.find((t) => line.startsWith(`${t}: `))
-    if (task === undefined) continue
-    const body = line.slice(task.length + 2)
+    // `vp run --log labeled` prefixes `[<package>#<task>] `.
+    const m = /^\[(?:[^\]#]*#)?([^\]]+)\] ?(.*)$/.exec(line)
+    if (m === null || !tasks.includes(m[1]!)) continue
+    const [, task, body] = m as unknown as [string, string, string]
     // A block's presence is evidence the task failed, even when all its lines are boilerplate.
     if (!byTask.has(task)) byTask.set(task, [])
-    if (/^\s*cache (miss, executing|bypass, force executing|hit, replaying logs) /.test(body)) {
-      echoes.set(task, 2)
-      continue
-    }
-    if (body.trim() === "") continue
-    if (/^> /.test(body) && (echoes.get(task) ?? 0) > 0) {
-      echoes.set(task, echoes.get(task)! - 1)
-      continue
-    }
-    echoes.set(task, 0)
-    const norm = line
+    // vp's own `$ <command> [cache status]` echo, once per `&&` part.
+    if (/^\$ /.test(body) || body.trim() === "") continue
+    const norm = `${task}: ${body}`
       .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?/g, "<ts>")
       .replace(/\d{1,2}:\d{2}:\d{2}/g, "<time>")
       .replace(/\b[0-9a-f]{16}\b/gi, "<hex>")
@@ -166,46 +156,36 @@ export function flagValue(args: readonly string[], flag: string): string | undef
   return undefined
 }
 
-export const turboArgv = (tasks: readonly string[], args: readonly string[]): string[] => [
+// `vp run` takes one task: each task set the runner plans is an aggregate in vite.config.ts.
+export const gateFor = (tasks: readonly string[]): string =>
+  tasks === TASKS ? "gate" : tasks === VITEST_TASKS ? "gate:tests" : tasks.join(",")
+
+// vp options must precede the task name; anything after it reaches the task's command.
+export const vpArgv = (tasks: readonly string[], args: readonly string[]): string[] => [
   "run",
-  ...tasks,
-  // turbo 2.10.9 rejects a flag twice, so a user's value replaces the default.
-  ...(flagValue(args, "--output-logs") === undefined ? ["--output-logs=errors-only"] : []),
-  // Turbo's default `auto` drops the "<task>: " prefix in GitHub Actions, which failureSignature needs.
-  ...(flagValue(args, "--log-prefix") === undefined ? ["--log-prefix=task"] : []),
-  // Defaults precede args so a `--` in args cannot hand them to the tasks.
-  ...args,
+  ...(flagValue(args, "--log") === undefined ? ["--log", "labeled"] : []),
+  ...args.filter((a) => a !== "--full"),
+  gateFor(tasks),
 ]
 
-// hash-only and none print no failure log, so signatures would merge distinct failures.
-const LOG_VALUES_THAT_COLLAPSE = [undefined, "errors-only", "new-only"]
+export const runOptions = (args: readonly string[]): Required<RunOptions> => ({
+  full: args.includes("--full"),
+  collapse: !args.includes("--full") && (flagValue(args, "--log") ?? "labeled") === "labeled",
+})
 
-export const runOptions = (args: readonly string[]): Required<RunOptions> => {
-  const outputLogs = flagValue(args, "--output-logs")
-  return {
-    full: outputLogs === "full",
-    collapse:
-      (flagValue(args, "--log-prefix") ?? "task") === "task" &&
-      LOG_VALUES_THAT_COLLAPSE.includes(outputLogs),
-  }
-}
-
-// args must be turbo options: a bare word would run as an extra task, and
-// --dry-run/--graph exit 0 without running anything.
-export const spawnTurbo = (
+export const spawnVp = (
   tasks: readonly string[],
   env: Env,
   args: readonly string[] = [],
 ): TurboRun => {
-  const result = spawnSync("turbo", turboArgv(tasks, args), {
-    // stdout is buffered, so an interrupted run loses the current state's log; stderr stays live
-    // so turbo's error banner is never buffered.
+  const result = spawnSync("vp", vpArgv(tasks, args), {
+    // stdout is buffered, so an interrupted run loses the current state's log; stderr stays live.
     stdio: ["inherit", "pipe", "inherit"],
     env: env as NodeJS.ProcessEnv,
     encoding: "utf8",
-    // The 1 MiB default kills turbo on a long failure log (ENOBUFS), which would read as FAIL.
+    // The 1 MiB default kills vp on a long failure log (ENOBUFS), which would read as FAIL.
     maxBuffer: 256 * 1024 * 1024,
   })
-  if (result.error) console.error(`test-states: cannot run turbo: ${result.error.message}`)
+  if (result.error) console.error(`test-states: cannot run vp: ${result.error.message}`)
   return { code: result.status, stdout: result.stdout ?? "" }
 }

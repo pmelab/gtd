@@ -1,5 +1,5 @@
 import { spawnSync } from "node:child_process"
-import { chmodSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
+import { chmodSync, mkdtempSync, readFileSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -10,11 +10,12 @@ import {
   VITEST_TASKS,
   failureSignature,
   flagValue,
+  gateFor,
   runOptions,
   planStates,
   runStates,
-  spawnTurbo,
-  turboArgv,
+  spawnVp,
+  vpArgv,
   type RunTasks,
   type TurboRun,
   type TestState,
@@ -116,52 +117,51 @@ describe("planStates and resolveFlags agree on the variable name", () => {
   })
 })
 
-describe("spawnTurbo", () => {
-  it("returns code null and reports when turbo cannot be spawned", () => {
+describe("spawnVp", () => {
+  it("returns code null and reports when vp cannot be spawned", () => {
     const errors: unknown[] = []
     const original = console.error
     console.error = (...a: unknown[]) => errors.push(a[0])
     try {
-      expect(spawnTurbo([], { PATH: "/nonexistent" })).toEqual({ code: null, stdout: "" })
+      expect(spawnVp([], { PATH: "/nonexistent" })).toEqual({ code: null, stdout: "" })
     } finally {
       console.error = original
     }
-    expect(String(errors[0])).toContain("cannot run turbo")
+    expect(String(errors[0])).toContain("cannot run vp")
   })
 })
 
-describe("spawnTurbo against a shim turbo", () => {
-  it("delivers forwarded args after the task names", () => {
-    const dir = mkdtempSync(join(tmpdir(), "turbo-shim-"))
-    const out = join(dir, "argv")
-    writeFileSync(join(dir, "turbo"), `#!/bin/sh\nprintf '%s\\n' "$@" > "${out}"\n`)
-    chmodSync(join(dir, "turbo"), 0o755)
-    expect(spawnTurbo(["a", "b"], { PATH: dir }, ["--force"]).code).toBe(0)
+describe("spawnVp against a shim vp", () => {
+  const shim = (body: string) => {
+    const dir = mkdtempSync(join(tmpdir(), "vp-shim-"))
+    writeFileSync(join(dir, "vp"), `#!/bin/sh\n${body}\n`)
+    chmodSync(join(dir, "vp"), 0o755)
+    return dir
+  }
+
+  it("delivers forwarded args before the aggregate task name", () => {
+    const out = join(mkdtempSync(join(tmpdir(), "vp-argv-")), "argv")
+    const dir = shim(`printf '%s\\n' "$@" > "${out}"`)
+    expect(spawnVp(TASKS, { PATH: dir }, ["--no-cache"]).code).toBe(0)
     expect(readFileSync(out, "utf8").trim().split("\n")).toEqual([
       "run",
-      "a",
-      "b",
-      "--output-logs=errors-only",
-      "--log-prefix=task",
-      "--force",
+      "--log",
+      "labeled",
+      "--no-cache",
+      "gate",
     ])
   })
 
   it("captures stdout and the exit code", () => {
-    const dir = mkdtempSync(join(tmpdir(), "turbo-shim-"))
-    writeFileSync(join(dir, "turbo"), "#!/bin/sh\necho hello\nexit 3\n")
-    chmodSync(join(dir, "turbo"), 0o755)
-    expect(spawnTurbo(["a"], { PATH: dir })).toEqual({ code: 3, stdout: "hello\n" })
+    expect(spawnVp(["a"], { PATH: shim("echo hello\nexit 3") })).toEqual({
+      code: 3,
+      stdout: "hello\n",
+    })
   })
 
-  it("captures 2 MiB of stdout without killing turbo", () => {
-    const dir = mkdtempSync(join(tmpdir(), "turbo-shim-"))
-    writeFileSync(
-      join(dir, "turbo"),
-      "#!/bin/sh\ni=0\nwhile [ $i -lt 2048 ]; do printf '%01024d' 0; i=$((i+1)); done\n",
-    )
-    chmodSync(join(dir, "turbo"), 0o755)
-    const r = spawnTurbo(["a"], { PATH: dir })
+  it("captures 2 MiB of stdout without killing vp", () => {
+    const dir = shim("i=0\nwhile [ $i -lt 2048 ]; do printf '%01024d' 0; i=$((i+1)); done")
+    const r = spawnVp(["a"], { PATH: dir })
     expect(r.code).toBe(0)
     expect(r.stdout).toHaveLength(2 * 1024 * 1024)
   })
@@ -169,85 +169,73 @@ describe("spawnTurbo against a shim turbo", () => {
 
 describe("flagValue", () => {
   it.each([
-    [["--output-logs=full"], "--output-logs", "full"],
-    [["--output-logs", "new-only"], "--output-logs", "new-only"],
-    [["--log-prefix=none"], "--log-prefix", "none"],
-    [["--log-prefix", "none"], "--log-prefix", "none"],
-    [["--force"], "--output-logs", undefined],
-    [["--output-logs"], "--output-logs", ""],
-    [["--", "--output-logs=full"], "--output-logs", undefined],
+    [["--log=grouped"], "--log", "grouped"],
+    [["--log", "grouped"], "--log", "grouped"],
+    [["--no-cache"], "--log", undefined],
+    [["--log"], "--log", ""],
+    [["--", "--log=grouped"], "--log", undefined],
   ])("%j reads %s as %j", (args, flag, expected) => expect(flagValue(args, flag)).toBe(expected))
 })
 
 describe("runOptions", () => {
   it.each([
     [[], { full: false, collapse: true }],
-    [["--output-logs", "full"], { full: true, collapse: false }],
-    [["--output-logs=new-only"], { full: false, collapse: true }],
-    [["--output-logs=errors-only"], { full: false, collapse: true }],
-    [["--output-logs=hash-only"], { full: false, collapse: false }],
-    [["--output-logs=none"], { full: false, collapse: false }],
-    [["--log-prefix=task"], { full: false, collapse: true }],
-    [["--log-prefix=none"], { full: false, collapse: false }],
-    [["--log-prefix", "none"], { full: false, collapse: false }],
+    [["--full"], { full: true, collapse: false }],
+    [["--log", "labeled"], { full: false, collapse: true }],
+    [["--log=grouped"], { full: false, collapse: false }],
+    [["--log", "interleaved"], { full: false, collapse: false }],
   ])("%j gives %j", (args, expected) => expect(runOptions(args)).toEqual(expected))
 })
 
-describe("turboArgv", () => {
-  const O = "--output-logs=errors-only"
-  const P = "--log-prefix=task"
-  it.each([
-    [["a", "b"], ["--force"], ["run", "a", "b", O, P, "--force"]],
-    [["a"], ["--output-logs=full"], ["run", "a", P, "--output-logs=full"]],
-    [["a"], ["--output-logs", "new-only"], ["run", "a", P, "--output-logs", "new-only"]],
-    [["a"], ["--log-prefix", "none"], ["run", "a", O, "--log-prefix", "none"]],
-    [["a"], ["--", "x"], ["run", "a", O, P, "--", "x"]],
-    [["a"], ["--", "--log-prefix=none"], ["run", "a", O, P, "--", "--log-prefix=none"]],
-  ])("%j with %j", (tasks, args, expected) => expect(turboArgv(tasks, args)).toEqual(expected))
+describe("gateFor", () => {
+  it("names the aggregate task for each planned task set", () => {
+    expect(gateFor(TASKS)).toBe("gate")
+    expect(gateFor(VITEST_TASKS)).toBe("gate:tests")
+  })
 })
 
-describe("failureSignature against real turbo", () => {
-  const realRun = (script: string) => {
-    const dir = mkdtempSync(join(tmpdir(), "turbo-real-"))
-    writeFileSync(
-      join(dir, "package.json"),
-      JSON.stringify({
-        name: "scratch",
-        private: true,
-        packageManager: "npm@10.0.0",
-        scripts: { boom: script },
-      }),
+describe("vpArgv", () => {
+  it.each([
+    [["--no-cache"], ["run", "--log", "labeled", "--no-cache", "gate"]],
+    [["--log=grouped"], ["run", "--log=grouped", "gate"]],
+    [["--full"], ["run", "--log", "labeled", "gate"]],
+  ])("%j", (args, expected) => expect(vpArgv(TASKS, args)).toEqual(expected))
+})
+
+describe("failureSignature against real vp", () => {
+  const realRun = (command: string) => {
+    const dir = mkdtempSync(join(tmpdir(), "vp-real-"))
+    symlinkSync(
+      fileURLToPath(new URL("../../node_modules", import.meta.url)),
+      join(dir, "node_modules"),
     )
+    writeFileSync(join(dir, "package.json"), JSON.stringify({ name: "scratch", private: true }))
     writeFileSync(
-      join(dir, "turbo.json"),
-      JSON.stringify({
-        $schema: "https://turbo.build/schema.json",
-        tasks: { boom: { cache: false } },
-      }),
+      join(dir, "vite.config.ts"),
+      `export default { run: { tasks: { boom: { command: ${JSON.stringify(command)}, cache: false } } } }\n`,
     )
-    writeFileSync(join(dir, "package-lock.json"), JSON.stringify({ lockfileVersion: 3 }))
-    const turbo = fileURLToPath(new URL("../../node_modules/.bin/turbo", import.meta.url))
+    const vp = fileURLToPath(new URL("../../node_modules/.bin/vp", import.meta.url))
     return () =>
-      spawnSync(turbo, turboArgv(["boom"], []), {
+      spawnSync(vp, ["run", "--log", "labeled", "boom"], {
         cwd: dir,
         encoding: "utf8",
-        env: { ...process.env, TURBO_TELEMETRY_DISABLED: "1", GITHUB_ACTIONS: "true" },
+        env: { ...process.env, GITHUB_ACTIONS: "true" },
       }).stdout
   }
 
   it("is non-empty and stable across two runs of a failing task", () => {
-    const run = realRun("echo boom-line; exit 1")
+    const run = realRun("sh -c 'echo boom-line; exit 1'")
     const a = failureSignature(run(), ["boom"])
     expect(a).toContain("boom-line")
     expect(failureSignature(run(), ["boom"])).toBe(a)
   })
 
-  it("is empty when the task prints nothing and only turbo's own lines remain", () => {
-    expect(failureSignature(realRun("exit 1")(), ["boom"])).toBe("")
+  it("is empty when the task prints nothing and only vp's own lines remain", () => {
+    expect(failureSignature(realRun("sh -c 'exit 1'")(), ["boom"])).toBe("")
   })
 
-  it("keeps a task-printed `> ` line", () => {
-    expect(failureSignature(realRun('echo "> quoted"; exit 1')(), ["boom"])).toContain("> quoted")
+  it("keeps a task-printed `$ ` line only when it is not vp's echo", () => {
+    expect(failureSignature(realRun("sh -c 'echo quoted; exit 1'")(), ["boom"])).toContain("quoted")
   })
 })
 
@@ -256,97 +244,93 @@ describe("failureSignature", () => {
 
   it("is equal for outputs differing only in noise", () => {
     const a =
-      "test:unit: \x1b[31mFAIL\x1b[0m foo took 12ms at 10:01:02 on 2026-10-18T10:01:02.123Z hash 0123456789abcdef\n"
+      "[p#test:unit] \x1b[31mFAIL\x1b[0m foo took 12ms at 10:01:02 on 2026-10-18T10:01:02.123Z hash 0123456789abcdef\n"
     const b =
-      "test:unit: FAIL foo took 3.4 s at 11:59:59 on 2026-10-19T01:00:00Z hash fedcba9876543210\n"
+      "[p#test:unit] FAIL foo took 3.4 s at 11:59:59 on 2026-10-19T01:00:00Z hash fedcba9876543210\n"
     expect(failureSignature(a, tasks)).toBe(failureSignature(b, tasks))
     expect(failureSignature(a, tasks)).not.toBe("")
   })
 
   it("is equal for outputs differing only in a 16-char hash", () => {
-    expect(failureSignature("lint: id 0123456789ABCDEF\n", tasks)).toBe(
-      failureSignature("lint: id fedcba9876543210\n", tasks),
+    expect(failureSignature("[p#lint] id 0123456789ABCDEF\n", tasks)).toBe(
+      failureSignature("[p#lint] id fedcba9876543210\n", tasks),
     )
   })
 
   it("differs for 40-char shas", () => {
-    expect(failureSignature(`lint: at ${"a".repeat(40)}\n`, tasks)).not.toBe(
-      failureSignature(`lint: at ${"b".repeat(40)}\n`, tasks),
+    expect(failureSignature(`[p#lint] at ${"a".repeat(40)}\n`, tasks)).not.toBe(
+      failureSignature(`[p#lint] at ${"b".repeat(40)}\n`, tasks),
     )
   })
 
   it("differs for 12-char abbreviated shas", () => {
-    expect(failureSignature("lint: at aaaaaaaaaaaa\n", tasks)).not.toBe(
-      failureSignature("lint: at bbbbbbbbbbbb\n", tasks),
+    expect(failureSignature("[p#lint] at aaaaaaaaaaaa\n", tasks)).not.toBe(
+      failureSignature("[p#lint] at bbbbbbbbbbbb\n", tasks),
     )
   })
 
   it("differs when assertion text differs", () => {
-    expect(failureSignature("test:unit: expected 1 to be 2\n", tasks)).not.toBe(
-      failureSignature("test:unit: expected 1 to be 3\n", tasks),
+    expect(failureSignature("[p#test:unit] expected 1 to be 2\n", tasks)).not.toBe(
+      failureSignature("[p#test:unit] expected 1 to be 3\n", tasks),
     )
   })
 
-  it("ignores turbo's summary lines", () => {
-    const body = "test:unit: boom\n"
-    expect(failureSignature(`${body} Tasks: 10 successful, 11 total\n`, tasks)).toBe(
-      failureSignature(`${body} Tasks: 4 successful, 5 total\n`, tasks),
+  it("ignores vp's summary lines", () => {
+    const body = "[p#test:unit] boom\n"
+    expect(failureSignature(`${body}vp run: 0/10 cache hit (0%), 9/10 successful.\n`, tasks)).toBe(
+      failureSignature(`${body}vp run: 3/10 cache hit (30%), 9/10 successful.\n`, tasks),
     )
   })
 
   it("is order-insensitive across interleaved tasks", () => {
-    const a = "test:unit: a1\nlint: b1\ntest:unit: a2\nlint: b2\n"
-    const b = "lint: b1\nlint: b2\ntest:unit: a1\ntest:unit: a2\n"
+    const a = "[p#test:unit] a1\n[p#lint] b1\n[p#test:unit] a2\n[p#lint] b2\n"
+    const b = "[p#lint] b1\n[p#lint] b2\n[p#test:unit] a1\n[p#test:unit] a2\n"
     expect(failureSignature(a, tasks)).toBe(failureSignature(b, tasks))
   })
 
   it("keeps line order within a task", () => {
-    expect(failureSignature("lint: a\nlint: b\n", tasks)).not.toBe(
-      failureSignature("lint: b\nlint: a\n", tasks),
+    expect(failureSignature("[p#lint] a\n[p#lint] b\n", tasks)).not.toBe(
+      failureSignature("[p#lint] b\n[p#lint] a\n", tasks),
     )
   })
 
-  const head = (hash: string, cache = "cache miss, executing") =>
-    `lint: ${cache} ${hash}\nlint: \nlint: > boom\nlint: > exit 1\nlint: \n`
+  const head = (cache: string) => `[p#lint] $ oxlint . ${cache}\n[p#lint] \n`
 
-  it.each(["cache miss, executing", "cache bypass, force executing", "cache hit, replaying logs"])(
-    "is empty for a boilerplate-only block (%s)",
-    (cache) => {
-      expect(failureSignature(head("0123456789abcdef", cache), tasks)).toBe("")
-    },
-  )
-
-  it("keeps a task-printed `> ` line after the two echo lines", () => {
-    const out = `lint: cache miss, executing 0123456789abcdef\nlint: > a\nlint: > b\nlint: > quoted\n`
-    expect(failureSignature(out, tasks)).toContain("> quoted")
-  })
-
-  it("keeps a task-printed `> ` line after a real line", () => {
-    const out = `lint: cache miss, executing 0123456789abcdef\nlint: > a\nlint: real\nlint: > quoted\n`
-    expect(failureSignature(out, tasks)).toContain("> quoted")
+  it.each([
+    "○ cache miss: 'src/a.ts' modified, executing",
+    "○ cache miss: no previous cache entry found, executing",
+    "◉ cache hit, replaying",
+    "⊘ cache disabled",
+  ])("is empty for a boilerplate-only block (%s)", (cache) => {
+    expect(failureSignature(head(cache), tasks)).toBe("")
   })
 
   it("distinguishes an extra silently failing task", () => {
-    const a = head("0123456789abcdef") + "lint: real error\n"
-    const b =
-      a + "test:unit: cache miss, executing fedcba9876543210\ntest:unit: > x\ntest:unit: > y\n"
+    const a = head("◉ cache hit, replaying") + "[p#lint] real error\n"
+    const b = a + "[p#test:unit] $ vitest run --project unit\n"
     expect(failureSignature(a, tasks)).not.toBe(failureSignature(b, tasks))
   })
 
-  it("keeps one real diagnostic, equal across states with differing hashes", () => {
-    const a = failureSignature(head("0123456789abcdef") + "lint: real error\n", tasks)
-    const b = failureSignature(head("fedcba9876543210") + "lint: real error\n", tasks)
+  it("keeps one real diagnostic, equal across states with differing cache reasons", () => {
+    const a = failureSignature(
+      head("○ cache miss: 'a' modified, executing") + "[p#lint] real error\n",
+      tasks,
+    )
+    const b = failureSignature(
+      head("○ cache miss: env 'GTD_FLAG_X' changed, executing") + "[p#lint] real error\n",
+      tasks,
+    )
     expect(a).toContain("real error")
     expect(a).toBe(b)
   })
 
   it("is empty with no task-prefixed line", () => {
-    expect(failureSignature("some banner\nTasks: 1 total\nother: x\n", tasks)).toBe("")
+    expect(failureSignature("some banner\n---\n[p#other] x\n", tasks)).toBe("")
   })
 })
 
 describe("runStates", () => {
-  const fail = (text: string): TurboRun => ({ code: 1, stdout: `test:unit: ${text}\n` })
+  const fail = (text: string): TurboRun => ({ code: 1, stdout: `[p#test:unit] ${text}\n` })
   const run3 = (runs: readonly TurboRun[]) => {
     const lines: string[] = []
     const code = runStates(
@@ -375,8 +359,8 @@ describe("runStates", () => {
 
   it("logs one pass line per state, never stdout, and returns 0", () => {
     const { lines, code } = run3([
-      { code: 0, stdout: "test:unit: noisy pass\n" },
-      { code: 0, stdout: "test:unit: noisy pass\n" },
+      { code: 0, stdout: "[p#test:unit] noisy pass\n" },
+      { code: 0, stdout: "[p#test:unit] noisy pass\n" },
     ])
     expect(code).toBe(0)
     expect(lines).toEqual(["test-states: defaults — pass", "test-states: alpha on — pass"])
@@ -385,7 +369,7 @@ describe("runStates", () => {
   it("with full logs, prints pass stdout and never collapses a repeated failure", () => {
     const lines: string[] = []
     const runs = [
-      { code: 0, stdout: "test:unit: noisy pass\n" },
+      { code: 0, stdout: "[p#test:unit] noisy pass\n" },
       fail("same boom"),
       fail("same boom"),
     ]
@@ -402,7 +386,7 @@ describe("runStates", () => {
   it("with collapse off, prints identical failures in full and passes only a label", () => {
     const lines: string[] = []
     const runs = [
-      { code: 0, stdout: "test:unit: noisy pass\n" },
+      { code: 0, stdout: "[p#test:unit] noisy pass\n" },
       fail("same boom"),
       fail("same boom"),
     ]
@@ -422,7 +406,7 @@ describe("runStates", () => {
       {
         code: 1,
         stdout:
-          "test:unit: FAIL my test\ntest:unit: AssertionError: nope\ntest:unit:   at x.ts:1\n",
+          "[p#test:unit] FAIL my test\n[p#test:unit] AssertionError: nope\n[p#test:unit]   at x.ts:1\n",
       },
       { code: 0, stdout: "" },
     ])
