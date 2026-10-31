@@ -800,6 +800,40 @@ export const AFencedCodeBlockScrollsInternallyRatherThanWideningThePage: Story =
   },
 }
 
+const LONG_PATH = "src/some/deeply/nested/directory/withAVeryLongFileNameThatHasNoBreaks.test.ts"
+
+/** Prose has no scroll region of its own: an unbroken path must wrap, not widen the page. */
+export const AnUnbrokenPathInProseWrapsRatherThanWideningThePage: Story = {
+  args: {
+    node: questionNode({
+      title: `Move ${LONG_PATH}?`,
+      body: [
+        {
+          title: `See ${LONG_PATH} for details.`,
+          anchor: { kind: "paragraph", line: 0 },
+          block: { kind: "paragraph" },
+        },
+      ],
+      children: [
+        {
+          title: `Keep ${LONG_PATH}`,
+          checked: false,
+          anchor: { kind: "option", questionIndex: 0, index: 0 },
+        },
+      ],
+    }),
+  },
+  play: async ({ canvasElement }) => {
+    await viewport(390, 844)
+    const screen = within(canvasElement).getByTestId("question-screen")
+    await expect(screen).toHaveTextContent(LONG_PATH)
+    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
+    for (const el of screen.querySelectorAll("*")) {
+      expect(el.getBoundingClientRect().right).toBeLessThanOrEqual(390)
+    }
+  },
+}
+
 /**
  * The chosen option is marked by its ROW — surface fill and an accent
  * boundary — not by the radio dot alone, which is a ~6px cue on a phone. The
