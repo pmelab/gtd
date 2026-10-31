@@ -102,6 +102,11 @@ body {
   background: var(--color-page);
   color: var(--color-text);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  /* Paths, URLs and identifiers have no break opportunity and would widen
+     the page on a phone. `anywhere`, not `break-word`: only `anywhere` also
+     shrinks min-content, so flex items and buttons can narrow too. Diff and
+     code blocks are `white-space: pre` and keep scrolling instead. */
+  overflow-wrap: anywhere;
 }
 
 /*
