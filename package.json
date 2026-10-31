@@ -119,8 +119,8 @@
     "@semantic-release/git": "^10.0.1",
     "@semantic-release/github": "^12.0.8",
     "@semantic-release/npm": "^12.0.0",
-    "@storybook/addon-vitest": "^10.6.0",
-    "@storybook/react-vite": "^10.6.0",
+    "@storybook/addon-vitest": "^10.6.5",
+    "@storybook/react-vite": "^10.6.5",
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/typescript-checker": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
@@ -134,9 +134,9 @@
     "@types/react": "^19.2.7",
     "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^5.2.0",
-    "@vitest/browser": "^4.1.12",
-    "@vitest/browser-playwright": "^4.1.12",
-    "@vitest/coverage-v8": "^4.1.12",
+    "@vitest/browser": "5.0.5",
+    "@vitest/browser-playwright": "5.0.5",
+    "@vitest/coverage-v8": "5.0.5",
     "dependency-cruiser": "^18.3.1",
     "fallow": "3.25.0",
     "fast-check": "^4.8.0",
@@ -151,12 +151,13 @@
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "semantic-release": "^25.0.5",
-    "storybook": "^10.6.0",
+    "storybook": "^10.6.5",
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.3.3",
     "tsdown": "^0.22.8",
     "turbo": "^2.10.9",
-    "vitest": "^4.1.12",
+    "vite-plus": "1.4.0",
+    "vitest": "5.0.5",
     "yaml": "^2.8.2",
     "zustand": "^5.0.15"
   },
@@ -190,5 +191,10 @@
     "rolldown": "^1.1.5",
     "vscode-languageserver": "^10.1.0",
     "vscode-languageserver-textdocument": "^1.0.13"
+  },
+  "overrides": {
+    "storybook": {
+      "vite-plus": "$vite-plus"
+    }
   }
 }
