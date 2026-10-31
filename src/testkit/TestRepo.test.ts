@@ -61,7 +61,7 @@ describe("testRepo", () => {
     expect(repo.subjects()).toEqual([
       "chore: initial commit",
       "gtd(agent): plan → build",
-      "gtd(check): pin → build",
+      "gtd(check): gtd:pin → build",
       "gtd(agent): build → check",
       "gtd(check): check → sign-off",
     ])

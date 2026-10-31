@@ -166,6 +166,11 @@ marker a `keep` step lands, see [Step options](#step-options)), `Gtd-Approved:`
 `step`, the git `user.name` and `user.email`). Every commit gtd writes also
 carries `Gtd-Format:` (see [History format](#history-format)).
 
+A step name starting with `gtd:` is reserved for gtd's own beats, such as
+`gtd:pin` and `gtd:unpin` (see
+[Pin and unpin beats](driver.md#pin-and-unpin-beats)); replay fails the process
+when the flow reaches one.
+
 ### Step options
 
 Every step takes an options object; all keys are optional.
@@ -698,10 +703,13 @@ retains for `gtd restore` — is one versioned **history format**, recorded as a
 trailer predates it and is format 1. Format 2 adds the pin and unpin commits
 (`Gtd-Pin: add` / `Gtd-Pin: remove`, see
 [Pin and unpin beats](driver.md#pin-and-unpin-beats)): replay steps over them,
-so a gtd that reads only format 1 would misread them as turns. The current
-format is 3, which adds a repin's `Gtd-Anchor` (see
+so a gtd that reads only format 1 would misread them as turns. Format 3 adds a
+repin's `Gtd-Anchor` (see
 [Episodes, replay and divergence](#episodes-replay-and-divergence)): a gtd that
-reads only format 2 would replay the commits it sets aside. The retained tip is
+reads only format 2 would replay the commits it sets aside. The current format
+is 4, which renames the pin beats from `pin` and `unpin` to `gtd:pin` and
+`gtd:unpin` in commit subjects: a gtd that reads only format 3 would read them
+as steps. Commits in formats 2 and 3 keep their old names. The retained tip is
 versioned by that same trailer on the commit it points at.
 
 The format changes only when one of those encodings does, independently of gtd's

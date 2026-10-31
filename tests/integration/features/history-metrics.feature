@@ -46,7 +46,7 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
 
       ## a missing test
       """
-    And gtd lands "gtd(agent): build.quality.correctness.reviewing → unpin" with "--cost 0.1 --model reviewer"
+    And gtd lands "gtd(agent): build.quality.correctness.reviewing → gtd:unpin" with "--cost 0.1 --model reviewer"
     And I run the unpin beat
 
   @inmem
@@ -112,7 +112,7 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
       """
       export const g = 7
       """
-    And gtd lands "gtd(agent): build.quality.correctness.reviewing → unpin"
+    And gtd lands "gtd(agent): build.quality.correctness.reviewing → gtd:unpin"
     And I run the unpin beat
     When I run gtd with args "history metrics main --json=total.processes"
     Then it succeeds
@@ -156,7 +156,7 @@ Feature: gtd history metrics — how kept processes went, read from refs/gtd/his
       """
     And gtd lands "gtd(check): start-gate.check → start-gate.recheck"
     And the file ".gtd/FEEDBACK.md" is deleted
-    And gtd lands "gtd(check): start-gate.recheck → unpin"
+    And gtd lands "gtd(check): start-gate.recheck → gtd:unpin"
     And I run the unpin beat
     When I run gtd with args "history metrics main"
     Then it succeeds

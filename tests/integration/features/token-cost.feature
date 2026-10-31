@@ -66,7 +66,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       """
     When I run gtd land with "--cost=1450"
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → unpin"
+    And the last commit subject is "gtd(agent): building → gtd:unpin"
     And the last commit body contains "Gtd-Cost: 1450"
 
   Scenario: gtd next --json shows the running process cost, accumulated across turns
@@ -169,7 +169,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       """
     When I run gtd land with "--cost=250"
     Then it succeeds
-    And the last commit subject is "gtd(agent): finishing → unpin"
+    And the last commit subject is "gtd(agent): finishing → gtd:unpin"
     And the last commit body contains "Gtd-Cost: 250"
     When I run the unpin beat
     And I run gtd next with "--json"
@@ -333,7 +333,7 @@ Feature: Token-cost tracking — gtd land --cost/--model persists per-turn cost,
       """
     When I run gtd land with "--cost=250" and "--model=opus"
     Then it succeeds
-    And the last commit subject is "gtd(agent): finishing → unpin"
+    And the last commit subject is "gtd(agent): finishing → gtd:unpin"
     And the last commit body contains "Gtd-Cost: 250 opus"
     When I run the unpin beat
     When I run gtd with args "summary"

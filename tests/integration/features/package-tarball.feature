@@ -106,10 +106,10 @@ Feature: the packed package — gtd installed from its own tarball
       chore: install @pmelab/gtd
       chore: add gtd.config.ts
       gtd(human): idle → working
-      gtd(check): pin → working
+      gtd(check): gtd:pin → working
       gtd(agent): working → checking
-      gtd(check): checking → unpin
-      gtd(check): unpin → idle
+      gtd(check): checking → gtd:unpin
+      gtd(check): gtd:unpin → idle
       """
 
   # gtd imports a shipped subpath once a config requires it: here only as the
@@ -153,8 +153,8 @@ Feature: the packed package — gtd installed from its own tarball
       gtd(agent): elsewhere → review
 
       Gtd-Step: elsewhere#1
-      Gtd-Format: 4
+      Gtd-Format: 5
       """
     When I run gtd next
     Then the exit code is 1
-    And stderr contains "is written in history format 4, but this gtd reads formats 1 to 3"
+    And stderr contains "is written in history format 5, but this gtd reads formats 1 to 4"

@@ -42,6 +42,7 @@ import {
   treeFromRecord,
   type EpisodeCommit,
   type JudgeVerdict,
+  LEGACY_PIN_STATES,
   type PinChange,
   PIN_STATES,
   type ReachedStep,
@@ -336,8 +337,14 @@ const subjectIsBoundary = (def: WorkflowDefinition, subject: string): boolean =>
   const parsed = parseCommitMessage(subject).parsed
   if (parsed === undefined || !ACTORS.has(parsed.actor)) return true
   if (parsed.actor === "human" && parsed.from === undefined) return false
-  // A pin commit's subject can name the first step; it bounds nothing.
-  if (parsed.actor === "check" && parsed.from === PIN_STATES.add) return false
+  // A pin commit's subject can name the first step; it bounds nothing. The
+  // subject alone carries no format, so either spelling counts.
+  if (
+    parsed.actor === "check" &&
+    (parsed.from === PIN_STATES.add || parsed.from === LEGACY_PIN_STATES.add)
+  ) {
+    return false
+  }
   return parsed.to === def.initial
 }
 

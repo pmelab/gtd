@@ -1226,7 +1226,7 @@ describe("pin commits", () => {
   const pinned = () =>
     new History()
       .land("human", "idle", 1, "build", { "NOTE.md": "n" })
-      .raw("gtd(check): pin → build\n\nGtd-Pin: add", { [PIN]: "gtdpin 1 gtd 1\n" })
+      .raw("gtd(check): gtd:pin → build\n\nGtd-Pin: add", { [PIN]: "gtdpin 1 gtd 1\n" })
 
   it("are never a turn: the next step answers from the commit after the pin", async () => {
     const flow = async () => {
@@ -1268,15 +1268,15 @@ describe("pin commits", () => {
       await agent("build", "b")
     }
     const h = pinned()
-      .land("agent", "build", 1, "unpin", { "a.ts": "a" })
-      .raw("gtd(check): unpin → idle\n\nGtd-Pin: remove", { [PIN]: null })
+      .land("agent", "build", 1, "gtd:unpin", { "a.ts": "a" })
+      .raw("gtd(check): gtd:unpin → idle\n\nGtd-Pin: remove", { [PIN]: null })
     expect((await replayOf(flow, h)).kind).toBe("ended")
   })
 })
 
 describe("replay: a repin's anchor", () => {
   const anchorTo = (to: string, at: number): string =>
-    formatCommitMessage({ actor: "check", from: "pin", to, pin: "add", anchor: hashOf(at) })
+    formatCommitMessage({ actor: "check", from: "gtd:pin", to, pin: "add", anchor: hashOf(at) })
 
   // The old flow went idle → build → old; this one goes idle → build → check.
   const anchoredHistory = (): History =>
@@ -1345,9 +1345,29 @@ describe("replay: a repin's anchor", () => {
     const h = new History()
       .land("human", "idle", 1, "build", { "a.txt": "a" })
       .land("agent", "build", 1, "old")
-      .raw(anchorTo("unpin", 1))
+      .raw(anchorTo("gtd:unpin", 1))
     const outcome = await replayOf(async () => void (await human("idle")), h)
     expect(outcome.kind).toBe("ended")
+  })
+
+  it("closes the process when a format 3 anchor names the unpin by its old name", async () => {
+    const h = new History()
+      .land("human", "idle", 1, "build", { "a.txt": "a" })
+      .land("agent", "build", 1, "old")
+      .raw(`gtd(check): pin → unpin\n\nGtd-Pin: add\nGtd-Anchor: ${hashOf(1)}\nGtd-Format: 3`)
+    const outcome = await replayOf(async () => void (await human("idle")), h)
+    expect(outcome.kind).toBe("ended")
+  })
+
+  it("reads a format 4 anchor naming unpin as a step", async () => {
+    const outcome = await replayOf(
+      async () => void (await human("idle")),
+      new History()
+        .land("human", "idle", 1, "build", { "a.txt": "a" })
+        .land("agent", "build", 1, "old")
+        .raw(anchorTo("unpin", 1)),
+    )
+    expect(outcome).toMatchObject({ kind: "divergence", reached: undefined })
   })
 
   it("fails when it names no commit replay reads", async () => {

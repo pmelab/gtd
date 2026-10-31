@@ -70,7 +70,7 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): finishing → unpin"
+    And the last commit subject is "gtd(agent): finishing → gtd:unpin"
     And I run the unpin beat
 
     When I run gtd next with "--json"
@@ -116,7 +116,7 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → unpin"
+    And the last commit subject is "gtd(agent): building → gtd:unpin"
     And I run the unpin beat
 
     Given the git index has settled
@@ -170,7 +170,7 @@ Feature: gtd summary — prints the closing-message prompt, writing nothing
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → unpin"
+    And the last commit subject is "gtd(agent): building → gtd:unpin"
     And I run the unpin beat
 
     When I run gtd with args "summary"

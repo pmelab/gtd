@@ -3,7 +3,7 @@ Feature: gtd repin — switch a running process to the live engine and workflow
   A pinned process ignores edits to its workflow until `gtd repin` brings the
   pin beat back: its script writes `gtd bundle`'s output, from the live engine
   and config, to `.gtd/process.gtdpin`, and commits that file alone as
-  `gtd(check): pin → <step>` with a `Gtd-Pin: add` trailer. Replay steps over
+  `gtd(check): gtd:pin → <step>` with a `Gtd-Pin: add` trailer. Replay steps over
   it like any pin commit, so the process rests where it was, on the new pin.
 
   When the live workflow no longer replays the process, the repin continues
@@ -46,7 +46,7 @@ Feature: gtd repin — switch a running process to the live engine and workflow
       """
     And I run gtd with args "repin"
     Then it succeeds
-    And the last commit subject is "gtd(check): pin → building"
+    And the last commit subject is "gtd(check): gtd:pin → building"
     And the last commit body contains "Gtd-Pin: add"
     And the git status contains "gtd.config.ts"
     When I run gtd next
@@ -90,7 +90,7 @@ Feature: gtd repin — switch a running process to the live engine and workflow
       export const b = 1
       """
     And I run gtd land
-    Then the last commit subject is "gtd(agent): checking → unpin"
+    Then the last commit subject is "gtd(agent): checking → gtd:unpin"
     When I run gtd with args "repin"
     Then the exit code is 1
     And stderr contains "gtd repin: the flow has ended"
@@ -101,7 +101,7 @@ Feature: gtd repin — switch a running process to the live engine and workflow
     And I run the pin beat
     And I run gtd with args "repin"
     Then it succeeds
-    And the last commit subject is "gtd(check): pin → building"
+    And the last commit subject is "gtd(check): gtd:pin → building"
     And the last commit body does not contain "Gtd-Anchor"
 
   @inmem
@@ -129,7 +129,7 @@ Feature: gtd repin — switch a running process to the live engine and workflow
     And stderr contains "run `gtd repin` to continue under it from there, or `gtd abandon` to start over"
     When I run gtd with args "repin"
     Then it succeeds
-    And the last commit subject is "gtd(check): pin → constructing"
+    And the last commit subject is "gtd(check): gtd:pin → constructing"
     And the last commit body contains "Gtd-Anchor: "
     And the process rests at "constructing"
     And "src/a.ts" exists
@@ -183,7 +183,7 @@ Feature: gtd repin — switch a running process to the live engine and workflow
       """
     And I run gtd with args "repin"
     Then it succeeds
-    And the last commit subject is "gtd(check): pin → assess"
+    And the last commit subject is "gtd(check): gtd:pin → assess"
     And the last commit body contains "Gtd-Anchor: "
     And the process rests at "assess"
     And "src/a.ts" exists
@@ -227,7 +227,7 @@ Feature: gtd repin — switch a running process to the live engine and workflow
       """
     And I run gtd with args "repin"
     Then it succeeds
-    And the last commit subject is "gtd(check): pin → gate"
+    And the last commit subject is "gtd(check): gtd:pin → gate"
     And the process rests at "gate"
     And the file "src/a.ts" contains "a = 2"
     When I run gtd next
@@ -253,13 +253,13 @@ Feature: gtd repin — switch a running process to the live engine and workflow
       """
     And I run gtd with args "repin"
     Then it succeeds
-    And the last commit subject is "gtd(check): pin → unpin"
+    And the last commit subject is "gtd(check): gtd:pin → gtd:unpin"
     And the last commit body contains "Gtd-Anchor: "
     When I run gtd next with "--json"
-    Then stdout contains "\"state\":\"unpin\""
+    Then stdout contains "\"state\":\"gtd:unpin\""
     When I run the unpin beat
     Then it succeeds
-    And the last commit subject is "gtd(check): unpin → idle"
+    And the last commit subject is "gtd(check): gtd:unpin → idle"
 
   @inmem
   Scenario: a second repin on top of an anchor
@@ -294,7 +294,7 @@ Feature: gtd repin — switch a running process to the live engine and workflow
       """
     And I run gtd with args "repin"
     Then it succeeds
-    And the last commit subject is "gtd(check): pin → verifying"
+    And the last commit subject is "gtd(check): gtd:pin → verifying"
     And the last commit body contains "Gtd-Anchor: "
     And the process rests at "verifying"
     When a file "src/b.ts" with:
@@ -303,7 +303,7 @@ Feature: gtd repin — switch a running process to the live engine and workflow
       """
     And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): verifying → unpin"
+    And the last commit subject is "gtd(agent): verifying → gtd:unpin"
 
   @inmem
   Scenario: a repin never continues at the default workflow's first step
@@ -321,7 +321,7 @@ Feature: gtd repin — switch a running process to the live engine and workflow
     And I run gtd with args "repin"
     Then the exit code is 1
     And stderr contains "the default workflow's first step"
-    And the last commit subject is "gtd(check): pin → building"
+    And the last commit subject is "gtd(check): gtd:pin → building"
 
   @inmem
   Scenario: without a pin, a divergence still points at gtd abandon alone

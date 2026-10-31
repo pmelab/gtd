@@ -562,10 +562,13 @@ the **pin beat**, and its last beat, once the flow has ended, is the **unpin
 beat**. Both are ordinary `script` beats at actor `check`, never a human gate,
 so a loop runs them unattended:
 
-| beat  | `state` | `pin`      | script                                                |
-| ----- | ------- | ---------- | ----------------------------------------------------- |
-| pin   | `pin`   | `"add"`    | writes `gtd bundle`'s output to `.gtd/process.gtdpin` |
-| unpin | `unpin` | `"remove"` | `rm -f -- '.gtd/process.gtdpin'`                      |
+| beat  | `state`     | `pin`      | script                                                |
+| ----- | ----------- | ---------- | ----------------------------------------------------- |
+| pin   | `gtd:pin`   | `"add"`    | writes `gtd bundle`'s output to `.gtd/process.gtdpin` |
+| unpin | `gtd:unpin` | `"remove"` | `rm -f -- '.gtd/process.gtdpin'`                      |
+
+The `gtd:` prefix is reserved for gtd's own beats: no workflow step can take a
+name starting with it.
 
 `pin` is the mark: a driver that wants to may write or delete
 `.gtd/process.gtdpin` its own way instead of running the script. A driver that
@@ -573,15 +576,16 @@ ignores it runs the script like any other — the minimal driver below needs no
 change. Either way it then lands:
 
 - The pin's landing commits `.gtd/process.gtdpin` alone, as
-  `gtd(check): pin → <step>` with a `Gtd-Pin: add` trailer; any other pending
-  edit stays pending. Landing before the file exists is refused (exit `1`).
-- The turn that ends the flow lands as `gtd(<actor>): <step> → unpin`, and
-  `gtd land --json` reports `state: "unpin"` and `idle: false` for it: the
+  `gtd(check): gtd:pin → <step>` with a `Gtd-Pin: add` trailer; any other
+  pending edit stays pending. Landing before the file exists is refused (exit
+  `1`).
+- The turn that ends the flow lands as `gtd(<actor>): <step> → gtd:unpin`, and
+  `gtd land --json` reports `state: "gtd:unpin"` and `idle: false` for it: the
   process is not over yet.
 - The unpin's landing is the commit that closes the process —
-  `gtd(check): unpin → <first step>` with a `Gtd-Pin: remove` trailer — and the
-  one that writes `refs/gtd/history/<entry>`. Landing it while the file is still
-  there is refused.
+  `gtd(check): gtd:unpin → <first step>` with a `Gtd-Pin: remove` trailer — and
+  the one that writes `refs/gtd/history/<entry>`. Landing it while the file is
+  still there is refused.
 
 Pin and unpin commits are no turns: replay steps over them, flow code never sees
 `.gtd/process.gtdpin`, and `gtd strays` never reports it. A squash of the whole
