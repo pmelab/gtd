@@ -70,6 +70,7 @@ import { formatCommitMessage, PIN_STATES } from "../replay/index.js"
 import { planStart, planStep as planStepPure, type JudgeVerdict } from "../step/index.js"
 import {
   BUILT_IN_MODE_NAMES,
+  formatFromSpec,
   steeringFormatFor,
   openThreads,
   parseCodeThreads,
@@ -169,6 +170,8 @@ export type Command =
       readonly file?: string
       readonly openQuestions?: boolean
       readonly openThreads?: boolean
+      /** A declared format's spec: `mode` names it, and no built-in is looked up. */
+      readonly spec?: string
     }
   | { readonly kind: "uncheck"; readonly file: string }
   | { readonly kind: "guide" }
@@ -903,8 +906,9 @@ const selfValidateCommand = (
   state: string,
   mode: StateMode,
   file: string,
+  spec: string | undefined,
 ): string => {
-  const resolved = resolveMode(def, state, mode)
+  const resolved = resolveMode(def, state, mode, spec)
   const validate = resolved.kind === "resolved" ? resolved.validate : undefined
   const command = validate?.kind === "command" ? validate.command : seededValidateCommand(mode)
   return commandForFile(command, file)
@@ -934,7 +938,7 @@ const resolveValidateScript = (
     const mode = rest.stepDef.mode
     if (file === undefined || mode === undefined) return undefined
 
-    const resolved = resolveMode(rest.def, rest.state, mode)
+    const resolved = resolveMode(rest.def, rest.state, mode, rest.stepDef.modeSpec)
     if (resolved.kind === "unknown") {
       return yield* Effect.fail(new Error(resolved.message))
     }
@@ -976,7 +980,13 @@ const runNextCommand = (
       yield* writeSelection(out, fields, json.path)
     } else {
       const validateCommand = emitsValidatablePrompt(rendered)
-        ? selfValidateCommand(rest.def, rest.state, rendered.mode!, rendered.file!)
+        ? selfValidateCommand(
+            rest.def,
+            rest.state,
+            rendered.mode!,
+            rendered.file!,
+            rest.stepDef.modeSpec,
+          )
         : undefined
       if (DEMAND_BRIEFING[fields.kind].suppressHeader) {
         // A prompt's stdout is the agent's input, so its header goes to stderr;
@@ -1019,9 +1029,10 @@ const runCheckCommand = (
   file: string,
   openQuestions: boolean,
   openThreadsFlag: boolean,
+  spec: string | undefined,
 ): Effect.Effect<void, Error, Workspace> =>
   Effect.gen(function* () {
-    const format = steeringFormatFor(mode)
+    const format = spec !== undefined ? yield* declaredFormat(spec) : steeringFormatFor(mode)
     if (format === undefined) {
       return yield* Effect.fail(
         new GtdUsageError(
@@ -1069,6 +1080,13 @@ const runCheckCommand = (
           errors.join("\n"),
       ),
     )
+  })
+
+const declaredFormat = (spec: string): Effect.Effect<SteeringFormat, GtdUsageError> =>
+  Effect.try({
+    try: () => formatFromSpec(spec),
+    catch: (error) =>
+      new GtdUsageError(`gtd check: --spec is not a declared format: ${(error as Error).message}`),
   })
 
 const existingFile = (file: string): Effect.Effect<string, Error, Workspace> =>
@@ -1384,6 +1402,7 @@ const dispatchVoidCommand = (
         command.file,
         command.openQuestions ?? false,
         command.openThreads ?? false,
+        command.spec,
       )
     case "uncheck":
       return runUncheckCommand(command.file)

@@ -219,6 +219,11 @@ LSP outlines/offers actions over; a mode is that format plus the specific
 `format:`/`validate:` commands one repository plugs in for it. Overriding a
 built-in mode's `validate:` changes who validates, not what the file is.
 
+**Declared format**: A steering format a workflow declares in code with
+`listFormat`/`sectionFormat` and passes as a step's `mode` directly. Its rules
+bind only declared formats, never the built-in ones. _Avoid_: custom mode, list
+schema
+
 **Thread**: A footnote whose definition holds an alternating `H:`/`A:` exchange.
 _Avoid_: conversation, comment chain
 

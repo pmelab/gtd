@@ -23,7 +23,11 @@ export {
   SETTING_NAME_RULE,
 } from "./vars.js"
 export { resolveScopeAccess, resolveScopeSkills } from "./skills.js"
-export { seededValidateCommand, isSeededValidateCommand } from "./SteeringFormats.js"
+export {
+  declaredValidateCommand,
+  seededValidateCommand,
+  isSeededValidateCommand,
+} from "./SteeringFormats.js"
 export {
   type ChangeStatus,
   type PendingChange,

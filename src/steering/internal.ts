@@ -9,3 +9,4 @@ export {
   unansweredQuestions,
   viewOf,
 } from "./registry.js"
+export { formatFromSpec } from "./Declared.js"

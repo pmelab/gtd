@@ -179,7 +179,7 @@ Every step takes an options object; all keys are optional.
 | ------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `label`       | all                  | Display name shown by `gtd next` and viewers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 | `file`        | all                  | The step's steering file, a repository path under `.gtd/`.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
-| `mode`        | all, requires `file` | The steering file's mode: `qa`, `review`, `findings`, or a name declared in `config.modes`. An unknown name fails the process once it rests at the step; a `mode` without a `file` fails it when replay reaches the step.                                                                                                                                                                                                                                                                                     |
+| `mode`        | all, requires `file` | The steering file's mode: `qa`, `review`, `findings`, a name declared in `config.modes`, or a [declared format](#declared-formats). An unknown name fails the process once it rests at the step; a `mode` without a `file` fails it when replay reaches the step.                                                                                                                                                                                                                                             |
 | `message`     | `human`, `judge`     | The text shown to the person at this rest.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                                                                                                                                                                                                                                                                                                                                                                                     |
@@ -865,6 +865,75 @@ Quote it (`"$GTD_FILE"`) so a path with spaces stays one argument. The
 findings, and exits zero only when there are none. A step names a mode with
 `{ file, mode }`. A mode with neither command still registers its name: a step
 may use it, and the file is neither formatted nor validated.
+
+#### Declared formats
+
+A workflow can declare a list or section format in code instead of a shell
+command, and pass it as a step's `mode`:
+
+```ts
+import { agent } from "@pmelab/gtd/flows"
+import { listFormat, sectionFormat } from "@pmelab/gtd/steering"
+
+export const criteria = listFormat({
+  name: "criteria",
+  section: { title: "Acceptance criteria", level: 2 },
+  item: { id: /^AC-\d+$/, separator: ":", example: "AC-1" },
+  ids: { unique: true },
+})
+
+export const notes = sectionFormat({ name: "notes", level: 2, title: "unique" })
+
+await agent("plan", `Write the plan. ${criteria.instructions}`, {
+  file: ".gtd/PLAN.md",
+  mode: criteria,
+})
+```
+
+`listFormat` options:
+
+| Option     | Default    | Meaning                                                                                                                                                                                                                                                                                                                     |
+| ---------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `name`     | required   | The mode name: lowercase letters, digits and `-`. It may not be a mode the workflow already knows (`qa`, `review`, `findings`, a `config.modes` entry).                                                                                                                                                                     |
+| `section`  | none       | `{ title, level, required? }`: the list lives under this heading, up to the next heading of the same or a higher level. A string `title` matches case-insensitively; a RegExp needs `example`, the text `instructions` and `sample` show. `required` defaults to `true`. Without `section`, the whole document is the list. |
+| `item`     | none       | `{ id, separator, example }`: every item starts with an ID matching `id`, then `separator`, then its text. `example` is an ID `id` matches.                                                                                                                                                                                 |
+| `markers`  | `["-"]`    | Allowed markers among `-`, `*`, `+`, `1.` (`1.` stands for any numbered item).                                                                                                                                                                                                                                              |
+| `wrap`     | `"join"`   | `"join"`: a continuation line indented under its item joins it. `"forbid"`: one line per item.                                                                                                                                                                                                                              |
+| `checkbox` | `"forbid"` | `"forbid"`, `"strip"` (read `[ ]`/`[x]` into `checked`) or `"require"`.                                                                                                                                                                                                                                                     |
+| `ids`      | none       | `{ unique: true }`: two items may not share an ID.                                                                                                                                                                                                                                                                          |
+
+`sectionFormat({ name, level, title? })` reads every heading at `level` as a
+section; deeper headings belong to a section's body. `title: "unique"` refuses
+two sections with the same title (case-insensitive).
+
+A declaration that contradicts itself (a bad `name`, an `example` its pattern
+does not match) throws when the workflow loads. Each declared format has:
+
+- `parse(text)`: `{ items, problems }` for a list — each item
+  `{ line, text, id?, checked? }`, `line` 0-based — or `{ sections, problems }`
+  for sections, each `{ line, title, body }`
+- `validate(text)`: the problems plus the [footnote and thread](#modes) checks
+  every format runs, as findings `formatFinding` prints `file:line: message`
+- `instructions`: the format in prose, for a prompt
+- `sample`: a minimal document that validates
+
+A list format reports: a marker it does not allow; mixed markers in one list; a
+continuation line not indented under its item, or any continuation under
+`wrap: "forbid"`; a list item inside a code fence, which is never read as an
+item; a code fence that is never closed; a duplicate ID or an item without one;
+the section heading at the wrong level, repeated, or missing; text between
+items; a nested list; a checkbox where forbidden or missing where required; and
+an empty item. A section format reports a heading above the section level after
+the first section, an untitled or repeated section, and an unclosed fence. These
+rules apply only to declared formats; the built-in `qa`, `review` and `findings`
+formats are unchanged.
+
+After the turn, a step whose `mode` is a declared format validates its file the
+way a [built-in one](#built-in-steering-formats-are-ordinary-modes) does: the
+validation script runs `gtd check <name> "$GTD_FILE" --spec '<json>'`, whose
+spec carries the whole declaration, so it loads no workflow. Each problem goes
+back to the agent as `file:line: message`. A declared format has no `format:`
+command.
 
 #### Built-in steering formats are ordinary modes
 

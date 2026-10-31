@@ -8,6 +8,12 @@ import type { WorkflowBuild } from "./factory.js"
 /** A steering-file mode: a built-in format's name or a `config.modes` entry. */
 export type ModeName = "qa" | "review" | "findings" | (string & {})
 
+/** A format declared with `listFormat`/`sectionFormat` from `@pmelab/gtd/steering`, used as a step's mode. */
+export interface DeclaredMode {
+  readonly name: string
+  readonly spec: string
+}
+
 interface SteeringCommon {
   /** Display name for drivers and viewers. */
   readonly label?: string | undefined
@@ -24,8 +30,8 @@ type SteeringFile =
     }
   | {
       readonly file: string
-      /** The steering file's mode — a built-in name or a `modes:` entry. Requires `file`. */
-      readonly mode: ModeName
+      /** The steering file's mode — a built-in name, a `modes:` entry, or a declared format. Requires `file`. */
+      readonly mode: ModeName | DeclaredMode
     }
 
 /** A steering-file declaration shared by the steps that rest on one. `mode` requires `file`. */

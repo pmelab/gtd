@@ -32,6 +32,7 @@ import {
 import {
   BUILT_IN_MODE_NAMES,
   formatFinding,
+  formatFromSpec,
   steeringFormatFor,
   type SteeringFormat,
 } from "../steering/internal.js"
@@ -538,13 +539,14 @@ const recognizeModeContradictionCheck = (
 
 const GTD_CHECK_RE = /^gtd check (\S+) (.+)$/
 
-/** `gtd check <mode> <file>` — a non-empty findings array fails the script, mirroring a real invocation's non-zero exit under `set -e`. */
+/** `gtd check <mode> <file> [--spec <json>]` — a non-empty findings array fails the script, mirroring a real invocation's non-zero exit under `set -e`. */
 const recognizeGtdCheck = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
   const match = GTD_CHECK_RE.exec(block)
   if (!match) return undefined
   const mode = match[1]!
-  const [file] = extractQuotedTokens(match[2]!)
-  const format = steeringFormatFor(mode)
+  const [file, spec] = extractQuotedTokens(match[2]!)
+  const declared = / --spec '/.test(match[2]!)
+  const format = declared && spec !== undefined ? formatFromSpec(spec) : steeringFormatFor(mode)
   if (format === undefined || file === undefined) {
     const known = BUILT_IN_MODE_NAMES.join(", ")
     return { kind: "failed", error: `gtd check: unknown mode "${mode}" — known modes: ${known}` }

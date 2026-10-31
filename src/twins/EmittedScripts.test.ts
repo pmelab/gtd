@@ -16,6 +16,8 @@ import {
 import { Effect } from "effect"
 import { ScriptSurface } from "../emit/index.js"
 import { GitService } from "../platform/index.js"
+import { listFormat } from "../steering/index.js"
+import { declaredValidateCommand } from "../workflow/index.js"
 import { gitTiers, type GitTier, type ScriptedCommand } from "./index.js"
 
 // Every case runs through real `sh` — with this build's `gtd` on PATH — and
@@ -156,6 +158,23 @@ for (const makeTier of gitTiers) {
           new RegExp(
             `^gtd check: ${FILE} is not valid under mode "qa" \\(1 finding\\(s\\)\\):\\n${FILE}:3:1: `,
           ),
+        )
+      })
+
+      it("checks a declared format from the spec on its command line", () => {
+        const ids = listFormat({
+          name: "ids",
+          item: { id: /^A-\d+$/, separator: ":", example: "A-1" },
+          ids: { unique: true },
+        })
+        const check = declaredValidateCommand("ids", ids.spec).replace('"$GTD_FILE"', `'${FILE}'`)
+        t.seed.writeFile(FILE, "- A-1: it's\n")
+        expect(run(script(check))).toEqual({ ok: true, status: 0, output: "" })
+        t.seed.writeFile(FILE, "- A-1: a\n- A-1: b\n")
+        const result = run(script(check))
+        expect(result).toMatchObject({ ok: false, status: 1 })
+        expect(result.output).toBe(
+          `gtd check: ${FILE} is not valid under mode "ids" (1 finding(s)):\n${FILE}:2: duplicate ID A-1 — first on line 1\n`,
         )
       })
     })
