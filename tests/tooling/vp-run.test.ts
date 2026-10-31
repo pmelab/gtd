@@ -50,6 +50,7 @@ describe("vite.config.ts run tasks", () => {
         { auto: true },
         "!dist/**",
         "!src/ui/client.generated.html",
+        "!node_modules/.vite/**",
       ])
     }
   })

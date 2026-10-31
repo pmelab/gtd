@@ -5,7 +5,13 @@ import { TASKS, VITEST_TASKS } from "./scripts/test-states.ts"
 // what auto-tracking cannot see (env, build outputs) is declared.
 // Auto-tracking records directory listings and ignores .gitignore: without
 // these, build's own writes invalidate every task that walks the tree.
-const input = [{ auto: true }, "!dist/**", "!src/ui/client.generated.html"]
+const input = [
+  { auto: true },
+  "!dist/**",
+  "!src/ui/client.generated.html",
+  // Vitest's results cache and vp's own task cache: rewritten by every run.
+  "!node_modules/.vite/**",
+]
 const check = { input, untrackedEnv: ["TMPDIR", "TERM"], output: [] }
 const flagged = { ...check, env: ["GTD_FLAG_*"] }
 
