@@ -75,7 +75,7 @@ const gtdBinary = {
 // src/ui/client.generated.html (gitignored), which the `gtd` config imports
 // through the ".html" text loader. pack builds array entries in PARALLEL
 // (see tsdown's `buildWithConfigs`), so this ordering is not self-enforcing —
-// `build` below runs `vp pack --filter web`, the inline step, then
+// scripts/build.mjs runs `vp pack --filter web`, the inline step, then
 // `gtd` and `core` together, then `entrypoints`, using each config's `name` to
 // select it.
 const pack: PackUserConfig[] = [
@@ -153,8 +153,7 @@ export default defineConfig({
   run: {
     tasks: {
       build: {
-        command:
-          "vp pack --filter web && npx @tailwindcss/cli -i src/web/styles.css -o dist/web/main.css --minify && node scripts/inline-web-client.mjs && vp pack --filter gtd --filter core && vp pack --filter entrypoints && node scripts/assert-no-test-doubles.mjs",
+        command: "node scripts/build.mjs",
         cache: {
           input,
           output: ["dist/**", "src/ui/client.generated.html"],

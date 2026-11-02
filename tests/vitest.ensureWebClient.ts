@@ -2,7 +2,7 @@ import { execSync } from "node:child_process"
 import { existsSync } from "node:fs"
 import { resolve } from "node:path"
 import { type Plugin } from "vitest/config"
-import viteConfig from "../vite.config.ts"
+import { WEB_CLIENT_STEPS } from "../scripts/build.mjs"
 
 const REPO_ROOT = resolve(import.meta.dirname, "..")
 const GENERATED_HTML = resolve(REPO_ROOT, "src/ui/client.generated.html")
@@ -10,14 +10,8 @@ const GENERATED_HTML = resolve(REPO_ROOT, "src/ui/client.generated.html")
 export const isGeneratedClientImport = (source: string): boolean =>
   source.endsWith("/client.generated.html")
 
-/** The `build` task's own steps up to and including the inline script, so the fallback cannot drift from the real build. */
-export const fallbackBuildCommand = (): string => {
-  const build = (viteConfig.run!.tasks!["build"] as { command: string }).command
-  const steps = build.split(" && ")
-  return steps
-    .slice(0, steps.findIndex((step) => step.includes("inline-web-client")) + 1)
-    .join(" && ")
-}
+/** The real build's own steps up to and including the inline script, so the fallback cannot drift from it. */
+export const fallbackBuildCommand = (): string => WEB_CLIENT_STEPS.join(" && ")
 
 /**
  * `src/ui/Server.ts` imports `./client.generated.html` — gitignored, produced
