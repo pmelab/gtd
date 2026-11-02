@@ -70,8 +70,30 @@ export interface Approval {
 
 export type PinChange = PinMark
 
+/** Step names a workflow may not take: gtd's own beats live under it. */
+export const ENGINE_PREFIX = "gtd:"
+
 /** What a pin and an unpin beat rest at, and their commits name — neither is a step of the workflow. */
-export const PIN_STATES: Readonly<Record<PinChange, string>> = { add: "pin", remove: "unpin" }
+export const PIN_STATES: Readonly<Record<PinChange, string>> = {
+  add: `${ENGINE_PREFIX}pin`,
+  remove: `${ENGINE_PREFIX}unpin`,
+}
+
+/** The names formats 2 and 3 gave the pin beats, before `gtd:` reserved them. */
+export const LEGACY_PIN_STATES: Readonly<Record<PinChange, string>> = {
+  add: "pin",
+  remove: "unpin",
+}
+
+const SCOPED_PIN_FORMAT = 4
+
+/** The name a commit in `format` gives a pin beat; format 1 has none. */
+export const pinStateIn = (format: number, change: PinChange): string | undefined =>
+  format >= SCOPED_PIN_FORMAT
+    ? PIN_STATES[change]
+    : format >= 2
+      ? LEGACY_PIN_STATES[change]
+      : undefined
 
 export interface CommitMessage {
   readonly subject: string

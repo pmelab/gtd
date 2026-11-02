@@ -29,10 +29,14 @@ import {
   type CommitMessage,
   type JudgeVerdict,
   type StepId,
-  PIN_STATES,
+  ENGINE_PREFIX,
+  pinStateIn,
 } from "./Trailers.js"
 
-const UNPIN_STATE = PIN_STATES.remove
+const namesUnpin = (commit: ParsedCommit): boolean => {
+  const unpin = pinStateIn(commit.parsed.format, "remove")
+  return unpin !== undefined && commit.parsed.parsed?.to === unpin
+}
 
 export interface EpisodeCommit {
   readonly hash: string
@@ -402,7 +406,7 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
       position = commit
       const to = commit.parsed.parsed?.to
       expectedNext =
-        to === undefined || to === UNPIN_STATE ? undefined : { name: to, hash: commit.hash }
+        to === undefined || namesUnpin(commit) ? undefined : { name: to, hash: commit.hash }
       anchorPending = expectedNext !== undefined
     }
   }
@@ -672,7 +676,7 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
   // A turn that ends a pinned process names the unpin, which is no step.
   const expectNextOf = (commit: ParsedCommit): void => {
     const to = commit.parsed.parsed?.to
-    if (to !== undefined && to !== UNPIN_STATE) expectedNext = { name: to, hash: commit.hash }
+    if (to !== undefined && !namesUnpin(commit)) expectedNext = { name: to, hash: commit.hash }
   }
 
   const noteKept = (step: ReachedStep, commit: ParsedCommit): void => {
@@ -719,8 +723,8 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
 
   // gtd.config.ts is loaded without a type check.
   const requestFault = (request: Exclude<StepRequest, { kind: "restart" }>): string | undefined => {
-    if (Object.values(PIN_STATES).includes(scoped(request.name))) {
-      return `gtd: step "${scoped(request.name)}": the name is reserved for the pin and unpin beats — rename the step`
+    if (scoped(request.name).startsWith(ENGINE_PREFIX)) {
+      return `gtd: step "${scoped(request.name)}": the "${ENGINE_PREFIX}" prefix is reserved for gtd's own beats — rename the step`
     }
     if (request.kind === "run" && typeof request.body !== "string") {
       return `gtd: step "${scoped(request.name)}": a run() body is a shell script string — decide in flow code, then render the script (see checkScript and friends)`

@@ -62,9 +62,9 @@ Feature: a workflow factory's build carries skills, access, steering and summary
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → unpin"
+    And the last commit subject is "gtd(agent): building → gtd:unpin"
     And I run the unpin beat
-    And the last commit subject is "gtd(check): unpin → idle"
+    And the last commit subject is "gtd(check): gtd:unpin → idle"
     When I run gtd with args "summary"
     Then it succeeds
     And stdout contains "Built summary for"

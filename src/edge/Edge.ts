@@ -42,6 +42,7 @@ import {
   treeFromRecord,
   type EpisodeCommit,
   type JudgeVerdict,
+  LEGACY_PIN_STATES,
   type PinChange,
   PIN_STATES,
   type ReachedStep,
@@ -336,8 +337,14 @@ const subjectIsBoundary = (def: WorkflowDefinition, subject: string): boolean =>
   const parsed = parseCommitMessage(subject).parsed
   if (parsed === undefined || !ACTORS.has(parsed.actor)) return true
   if (parsed.actor === "human" && parsed.from === undefined) return false
-  // A pin commit's subject can name the first step; it bounds nothing.
-  if (parsed.actor === "check" && parsed.from === PIN_STATES.add) return false
+  // A pin commit's subject can name the first step; it bounds nothing. The
+  // subject alone carries no format, so either spelling counts.
+  if (
+    parsed.actor === "check" &&
+    (parsed.from === PIN_STATES.add || parsed.from === LEGACY_PIN_STATES.add)
+  ) {
+    return false
+  }
   return parsed.to === def.initial
 }
 
@@ -698,7 +705,7 @@ const DEFAULT_JUDGE_MESSAGE =
 const optional = <K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } =>
   (value === undefined ? {} : { [key]: value }) as { [P in K]?: V }
 
-type StepCommon = Pick<StepDef, "actor" | "label" | "file" | "mode">
+type StepCommon = Pick<StepDef, "actor" | "label" | "file" | "mode" | "modeSpec">
 
 const commonOf = (step: ReachedStep): StepCommon => {
   const options = step.request.options
@@ -706,7 +713,9 @@ const commonOf = (step: ReachedStep): StepCommon => {
     actor: step.actor,
     ...optional("label", options.label),
     ...optional("file", options.file),
-    ...optional("mode", options.mode),
+    ...(typeof options.mode === "object"
+      ? { mode: options.mode.name, modeSpec: options.mode.spec }
+      : optional("mode", options.mode)),
   }
 }
 
@@ -825,6 +834,23 @@ const hintsOf = (def: StepDef): RestHints => ({
   ...optional("skills", def.skills),
   ...optional("access", def.access),
 })
+
+/** A step's mode is a name the workflow knows, or a declared format named apart from all of them. */
+const modeFaultOf = (
+  def: WorkflowDefinition,
+  stepName: string,
+  stepDef: StepDef,
+): string | undefined => {
+  if (stepDef.mode === undefined) return undefined
+  const known = def.modes[stepDef.mode] !== undefined
+  if (stepDef.modeSpec !== undefined)
+    return known
+      ? `gtd: config: step "${stepName}": declared format "${stepDef.mode}" has the name of a mode this workflow already knows — rename the format`
+      : undefined
+  return known
+    ? undefined
+    : `gtd: config: step "${stepName}": mode "${stepDef.mode}" is not a mode this workflow knows (${knownModes(def).join(", ")})`
+}
 
 const normalizeStatus = (raw: string): ChangeStatus => (raw === "A" ? "A" : raw === "D" ? "D" : "M")
 
@@ -990,13 +1016,8 @@ export const restAt = (
     const { reached, step } = resting
     const { stepDef, state, memory } = restFacts(pin, step, reached.trace, run)
     yield* (yield* Narrator).narrate(`rest resolved: ${state} (awaits ${stepDef.actor})`)
-    if (stepDef.mode !== undefined && def.modes[stepDef.mode] === undefined) {
-      return yield* Effect.fail(
-        new Error(
-          `gtd: config: step "${step.name}": mode "${stepDef.mode}" is not a mode this workflow knows (${knownModes(def).join(", ")})`,
-        ),
-      )
-    }
+    const modeFault = modeFaultOf(def, step.name, stepDef)
+    if (modeFault !== undefined) return yield* Effect.fail(new Error(modeFault))
     const changes =
       ref === undefined
         ? (yield* pendingChanges(git, stepDef.approve === true)).map((e) => ({

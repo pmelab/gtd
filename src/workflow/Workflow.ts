@@ -32,6 +32,8 @@ export interface StepDef {
   readonly label?: string
   readonly file?: string
   readonly mode?: StateMode
+  /** A declared format's spec, when `mode` names one rather than a built-in or `modes:` entry. */
+  readonly modeSpec?: string
   readonly model?: string
   readonly system?: string
   readonly judge?: string

@@ -165,10 +165,10 @@ Feature: hand-over — a pinned process runs on its pin
       checked
       """
     And I run gtd land
-    Then the last commit subject is "gtd(agent): checking → unpin"
+    Then the last commit subject is "gtd(agent): checking → gtd:unpin"
     When I run the unpin beat
     Then it succeeds
-    And the last commit subject is "gtd(check): unpin → idle"
+    And the last commit subject is "gtd(check): gtd:unpin → idle"
 
   @live
   Scenario: a pin in a format this gtd does not know is refused

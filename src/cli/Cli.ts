@@ -326,6 +326,16 @@ const FLAGS: readonly FlagRow[] = [
     help: "Instead of <mode>'s findings, list the open threads in <file>; exits 1 when any are open. Alone, lists the open code-comment threads in the files the current process changed",
   },
   {
+    name: "--spec",
+    arity: 1,
+    repeatable: false,
+    scope: (kind) => kind === "check",
+    decode: ([raw]) => Result.succeed(raw ?? ""),
+    scopeError: "gtd: --spec is only valid for `gtd check`",
+    valueHint: "<json>",
+    help: "Check against the declared format this spec describes, named <mode>, instead of a built-in one; validation scripts pass it for a step whose mode is a declared format",
+  },
+  {
     name: "--verbose",
     arity: 0,
     repeatable: false,
@@ -587,7 +597,7 @@ The fixed answerer reads --answers and leaves out the questions it does not cove
     arity: { names: ["mode", "file"] },
     group: "Driver plumbing",
     summary: "Check a steering file's format",
-    details: `Run the steering format <mode> (qa, review or findings) over <file> and print each finding on a line of its own; exits 1 when there are any, or when <file> does not exist. An unknown <mode> is a usage error (exit 2). Reads no workflow and runs from any directory — emitted validation scripts call it.`,
+    details: `Run the steering format <mode> (qa, review or findings, or the declared format --spec describes) over <file> and print each finding on a line of its own; exits 1 when there are any, or when <file> does not exist. An unknown <mode> is a usage error (exit 2). Reads no workflow and runs from any directory — emitted validation scripts call it.`,
   },
   {
     token: "uncheck",
@@ -1124,6 +1134,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--threshold"?: Readonly<Record<string, string>>
     readonly "--open-questions"?: boolean
     readonly "--open-threads"?: boolean
+    readonly "--spec"?: string
     readonly "--host"?: string
     readonly "--self-signed"?: boolean
     readonly "--dev"?: boolean
@@ -1199,6 +1210,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
           ? { openQuestions: bag["--open-questions"] }
           : {}),
         ...(bag["--open-threads"] !== undefined ? { openThreads: bag["--open-threads"] } : {}),
+        ...(bag["--spec"] !== undefined ? { spec: bag["--spec"] } : {}),
       },
       json,
       verbose,

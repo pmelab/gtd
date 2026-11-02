@@ -184,7 +184,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # own `validate` field, run ahead of `gtd land`), not a gtd guarantee.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): drafting → unpin"
+    And the last commit subject is "gtd(agent): drafting → gtd:unpin"
 
   @inmem
   Scenario: a valid custom-mode steering file passes the gate and the turn is captured
@@ -222,7 +222,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): drafting → unpin"
+    And the last commit subject is "gtd(agent): drafting → gtd:unpin"
 
   @inmem
   Scenario: gtd land no longer runs the mode's format command at all — a broken formatter can't block the commit any more
@@ -264,7 +264,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     # ahead of the commit — the step lands.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): drafting → unpin"
+    And the last commit subject is "gtd(agent): drafting → gtd:unpin"
 
   @inmem
   Scenario: a modes: entry named after a built-in overrides only the half it declares
@@ -525,7 +525,7 @@ Feature: Pluggable steering-file modes — a mode is a format command plus a val
     Then it fails
     And stderr contains "1 open question(s)"
     And stderr contains "not answered"
-    And the last commit subject is "gtd(check): pin → answering"
+    And the last commit subject is "gtd(check): gtd:pin → answering"
 
   @inmem
   Scenario: a validate: that shells out to `gtd check qa` returns each finding as an opaque message with the column riding inside the text, not a structured position

@@ -126,9 +126,9 @@ Feature: gtd base — prints the review anchor hash, writing nothing
     # closing commit, and HEAD rests at the initial state again.
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(human): deciding → unpin"
+    And the last commit subject is "gtd(human): deciding → gtd:unpin"
     And I run the unpin beat
-    And the last commit subject is "gtd(check): unpin → idle"
+    And the last commit subject is "gtd(check): gtd:unpin → idle"
 
     When I run gtd with args "base"
     Then it fails

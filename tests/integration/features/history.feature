@@ -28,13 +28,13 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): building → unpin"
+    And the last commit subject is "gtd(agent): building → gtd:unpin"
     And the last commit body does not contain "Gtd-Branch"
     When I run the unpin beat
-    Then the last commit subject is "gtd(check): unpin → idle"
+    Then the last commit subject is "gtd(check): gtd:unpin → idle"
     And the last commit body contains "Gtd-Branch: main"
     And the last commit body contains "Gtd-Version: "
-    And the last commit body contains "Gtd-Format: 3"
+    And the last commit body contains "Gtd-Format: 4"
     Given I mark the current commit as "tip"
     Then the history ref of "entry" points at "tip"
 
@@ -63,7 +63,7 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
       export const a = 1
       """
-    And gtd lands "gtd(agent): building → unpin"
+    And gtd lands "gtd(agent): building → gtd:unpin"
     And I run the unpin beat
     And I mark the current commit as "first-tip"
     And a file "NOTE.md" with:
@@ -77,7 +77,7 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
       export const b = 2
       """
-    And gtd lands "gtd(agent): building → unpin"
+    And gtd lands "gtd(agent): building → gtd:unpin"
     And I run the unpin beat
     And I mark the current commit as "second-tip"
     Then the history ref of "first" points at "first-tip"
@@ -118,7 +118,7 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
       export const a = 1
       """
-    And gtd lands "gtd(agent): building → unpin"
+    And gtd lands "gtd(agent): building → gtd:unpin"
     And I run the unpin beat
     When I run in the shell:
       """
@@ -128,11 +128,11 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
     And I run gtd with args "history show feat/thing"
     Then it succeeds
     And stdout contains "gtd(human): idle → building"
-    And stdout contains "gtd(agent): building → unpin"
+    And stdout contains "gtd(agent): building → gtd:unpin"
     And stdout contains "ended (return)"
     When I run gtd with args "history show" followed by the first 7 characters of the hash of "entry"
     Then it succeeds
-    And stdout contains "gtd(agent): building → unpin"
+    And stdout contains "gtd(agent): building → gtd:unpin"
 
   @inmem
   Scenario: a config file edited since the ref's tip refuses the replay
@@ -146,7 +146,7 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
       export const a = 1
       """
-    And gtd lands "gtd(agent): building → unpin"
+    And gtd lands "gtd(agent): building → gtd:unpin"
     And I run the unpin beat
     And the file "gtd.config.ts" ends with:
       """
@@ -170,7 +170,7 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
       export const a = 1
       """
-    And gtd lands "gtd(agent): building → unpin"
+    And gtd lands "gtd(agent): building → gtd:unpin"
     And I run the unpin beat
     When I run in the shell:
       """
@@ -180,7 +180,7 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
     And I run gtd with args "history show main"
     Then it succeeds
-    And stdout contains "gtd(agent): building → unpin"
+    And stdout contains "gtd(agent): building → gtd:unpin"
     And stderr contains "0.0.1"
     And stderr contains the gtd version under test
     When I run gtd with args "history show main --json"
@@ -207,7 +207,7 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
       export const a = 1
       """
-    And gtd lands "gtd(agent): building → unpin"
+    And gtd lands "gtd(agent): building → gtd:unpin"
     And I run the unpin beat
     When I run in the shell:
       """
@@ -228,5 +228,5 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
     When I run gtd with args "history show feat/thing"
     Then it succeeds
     And stdout contains "gtd(human): idle → building"
-    And stdout contains "gtd(agent): building → unpin"
+    And stdout contains "gtd(agent): building → gtd:unpin"
     And stdout contains "ended (return)"

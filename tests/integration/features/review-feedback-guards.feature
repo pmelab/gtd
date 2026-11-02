@@ -32,7 +32,7 @@ Feature: requireProgress — deleting the feedback file without addressing it is
     When I run gtd land
     Then it fails
     And stderr contains "without addressing its instructions"
-    And the last commit subject is "gtd(check): pin → drafting"
+    And the last commit subject is "gtd(check): gtd:pin → drafting"
 
   Scenario: a NOTHING ACTIONABLE sentinel is the one exemption
     Given a file ".gtd/FEEDBACK.md" with:

@@ -45,7 +45,7 @@ describe("restDescription", () => {
         "  last commits:",
         "    chore: initial commit",
         "    gtd(agent): plan → sign-off",
-        "    gtd(check): pin → sign-off",
+        "    gtd(check): gtd:pin → sign-off",
         '  actors never used: "repair" (scenario), "ready" (Background)',
       ].join("\n"),
     )

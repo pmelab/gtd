@@ -102,7 +102,7 @@ Feature: an inline flow end to end — qualified names, process boundaries, read
       export const fix = 2
       """
     And gtd lands "gtd(agent): fix → check"
-    And gtd lands "gtd(check): check → unpin"
+    And gtd lands "gtd(check): check → gtd:unpin"
     And I run the unpin beat
     # Process 2: had the count pooled across the boundary, its first red run
     # would already be over the cap.

@@ -287,11 +287,12 @@ the process.
 
 `gtd repin` switches the process to the live engine and config for good — the
 way out when its workflow needs a fix mid-process. Its script runs the pin beat
-again and lands it as `gtd(check): pin → <step>` with a `Gtd-Pin: add` trailer;
-the process rests where it was, on the new pin. When the live workflow no longer
-replays the process, the repin continues from the divergence: its commit carries
-a `Gtd-Anchor` naming the last commit the live workflow replays and names the
-step it reached there, or `unpin` when the live flow ends there (see
+again and lands it as `gtd(check): gtd:pin → <step>` with a `Gtd-Pin: add`
+trailer; the process rests where it was, on the new pin. When the live workflow
+no longer replays the process, the repin continues from the divergence: its
+commit carries a `Gtd-Anchor` naming the last commit the live workflow replays
+and names the step it reached there, or `gtd:unpin` when the live flow ends
+there (see
 [Episodes, replay and divergence](configuration.md#episodes-replay-and-divergence)).
 Its script bundles into a temporary file first, so a failing `gtd bundle` leaves
 the old pin in place; if the commit itself fails,
@@ -710,10 +711,11 @@ Options:
 ```
 Usage: gtd check <mode> <file> [options]
 
-Run the steering format <mode> (qa, review or findings) over <file> and print
-each finding on a line of its own; exits 1 when there are any, or when <file>
-does not exist. An unknown <mode> is a usage error (exit 2). Reads no workflow
-and runs from any directory — emitted validation scripts call it.
+Run the steering format <mode> (qa, review or findings, or the declared format
+--spec describes) over <file> and print each finding on a line of its own; exits
+1 when there are any, or when <file> does not exist. An unknown <mode> is a
+usage error (exit 2). Reads no workflow and runs from any directory — emitted
+validation scripts call it.
 
 Options:
   --open-questions    Instead of <mode>'s findings, list the unanswered
@@ -722,6 +724,9 @@ Options:
                       <file>; exits 1 when any are open. Alone, lists the open
                       code-comment threads in the files the current process
                       changed
+  --spec=<json>       Check against the declared format this spec describes,
+                      named <mode>, instead of a built-in one; validation
+                      scripts pass it for a step whose mode is a declared format
   -v, --verbose       Narrate on stderr what gtd resolved
 ```
 

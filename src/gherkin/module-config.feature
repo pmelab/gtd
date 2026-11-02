@@ -20,6 +20,6 @@ Feature: a scenario runs a workflow module from disk
     And the commit subjects end with:
       """
       gtd(agent): plan → sign-off
-      gtd(check): pin → sign-off
+      gtd(check): gtd:pin → sign-off
       """
 

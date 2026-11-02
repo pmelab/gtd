@@ -73,7 +73,7 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
 
       - a missing test (p=0.85) — not noise, we need that test
       """
-    And gtd lands "gtd(human): build.review → unpin"
+    And gtd lands "gtd(human): build.review → gtd:unpin"
     And I run the unpin beat
 
   @inmem
@@ -167,7 +167,7 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
       """
     And gtd lands "gtd(agent): build.fix → build.health.check"
     And the file ".gtd/FEEDBACK.md" is deleted
-    And gtd lands "gtd(check): build.health.check → unpin"
+    And gtd lands "gtd(check): build.health.check → gtd:unpin"
     And I run the unpin beat
     When I run gtd with args "history judges"
     Then it succeeds
@@ -222,7 +222,7 @@ Feature: gtd history judges — how often the kept processes' judge verdicts wer
 
       - AC-1: it works on an empty list
       """
-    And gtd lands "gtd(human): design.gate → unpin"
+    And gtd lands "gtd(human): design.gate → gtd:unpin"
     And I run the unpin beat
     When I run gtd with args "history judges"
     Then it succeeds

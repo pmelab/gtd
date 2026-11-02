@@ -79,9 +79,9 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     And I execute the printed check script
     And I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(check): applying → unpin"
+    And the last commit subject is "gtd(check): applying → gtd:unpin"
     And I run the unpin beat
-    And the last commit subject is "gtd(check): unpin → idle"
+    And the last commit subject is "gtd(check): gtd:unpin → idle"
     And ".gtd/REQUIREMENTS.md" does not exist
     And "src/feature.ts" exists
 
@@ -129,9 +129,9 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
       """
     When I run gtd land
     Then it succeeds
-    And the last commit subject is "gtd(agent): working → unpin"
+    And the last commit subject is "gtd(agent): working → gtd:unpin"
     And I run the unpin beat
-    And the last commit subject is "gtd(check): unpin → idle"
+    And the last commit subject is "gtd(check): gtd:unpin → idle"
     And "NOTE.md" exists
     When I run gtd next with "--json"
     Then it succeeds

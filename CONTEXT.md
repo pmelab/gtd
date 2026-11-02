@@ -38,15 +38,16 @@ instead of itself, in the same Node process — unless the command is one the pi
 does not run or `--live` asks for this gtd. _Avoid_: delegation, proxy, shim
 
 **Pin beat**: A process's first beat after it starts — a `script` beat at actor
-`check`, marked `pin: "add"`, whose script writes `gtd bundle`'s output to
-`.gtd/process.gtdpin`; its landing commits that file alone, with a `Gtd-Pin`
-trailer. Never a turn. `gtd repin` runs it again mid-process, from the live
-engine and config, with an [anchor](#anchor) when the live workflow diverges.
-_Avoid_: snapshot, freeze, frozen engine
+`check` resting at `gtd:pin`, marked `pin: "add"`, whose script writes
+`gtd bundle`'s output to `.gtd/process.gtdpin`; its landing commits that file
+alone, with a `Gtd-Pin` trailer. Never a turn. `gtd repin` runs it again
+mid-process, from the live engine and config, with an [anchor](#anchor) when the
+live workflow diverges. _Avoid_: snapshot, freeze, frozen engine
 
 **Unpin beat**: A process's last beat, once its flow has ended — a `script` beat
-marked `pin: "remove"` that deletes `.gtd/process.gtdpin`; its landing is the
-commit that closes the process. Never a turn. _Avoid_: thaw, unfreeze
+resting at `gtd:unpin`, marked `pin: "remove"` that deletes
+`.gtd/process.gtdpin`; its landing is the commit that closes the process. Never
+a turn. _Avoid_: thaw, unfreeze
 
 **Config export**: `gtd.config.ts`'s reserved `config` export, built with
 `defineConfig` — the repository settings a workflow does not own: modes, `ui`,
@@ -64,7 +65,8 @@ _Avoid_: machine, state table, graph
 **Step**: One named position a process can rest at, reached by awaiting
 `agent()`, `human()`, `run()` or `judge()`. Its name is the `<to>` of the commit
 subject that lands it and, up to its last dot, its
-[memory scope](#memory-scope). _Avoid_: state, node, phase
+[memory scope](#memory-scope). A name starting with `gtd:` is reserved for gtd's
+own beats. _Avoid_: state, node, phase
 
 **Workflow module**: A TypeScript module in which every export passed through
 `workflow()` and every [workflow factory](#workflow-factory) (bar `default` and
@@ -216,6 +218,11 @@ identifies (`qa`'s open-questions checkboxes, `review`'s hunk pointers,
 LSP outlines/offers actions over; a mode is that format plus the specific
 `format:`/`validate:` commands one repository plugs in for it. Overriding a
 built-in mode's `validate:` changes who validates, not what the file is.
+
+**Declared format**: A steering format a workflow declares in code with
+`listFormat`/`sectionFormat` and passes as a step's `mode` directly. Its rules
+bind only declared formats, never the built-in ones. _Avoid_: custom mode, list
+schema
 
 **Thread**: A footnote whose definition holds an alternating `H:`/`A:` exchange.
 _Avoid_: conversation, comment chain

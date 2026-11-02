@@ -19,6 +19,7 @@ import {
   type AgentOptions,
   type HumanOptions,
   type Judgment,
+  type DeclaredMode,
   type ModeName,
   type RunOptions,
   type Settings,
@@ -315,6 +316,6 @@ describe("mode", () => {
     expectTypeOf<"qa">().toMatchTypeOf<ModeName>()
     expectTypeOf<string>().toMatchTypeOf<ModeName>()
     expectTypeOf<ModeName>().toMatchTypeOf<string>()
-    expectTypeOf<SteeringOptions["mode"]>().toEqualTypeOf<ModeName | undefined>()
+    expectTypeOf<SteeringOptions["mode"]>().toEqualTypeOf<ModeName | DeclaredMode | undefined>()
   })
 })

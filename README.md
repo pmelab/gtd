@@ -610,14 +610,14 @@ approvals as `approvals` (`[]` when none), and `gtd history show` prints each as
 gtd is one package, `@pmelab/gtd`, and every entrypoint shares its version and
 [SemVer promise](https://github.com/pmelab/gtd/blob/main/COMPATIBILITY.md).
 
-| Import                        | What it is                                                                                                                                                                                                                         |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@pmelab/gtd/flows`           | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, `workflow()`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                                                     |
-| `@pmelab/gtd/wire`            | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                                                                       |
-| `@pmelab/gtd/steering`        | The steering-file formats (`qa`, `review`, `findings`), the review-note readers, and `sections`, `threads` and `openQuestions` as plain functions.                                                                                 |
-| `@pmelab/gtd/workflow-kit`    | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails. See [Workflow kit](https://github.com/pmelab/gtd/blob/main/docs/workflow-kit.md).                            |
-| `@pmelab/gtd/testkit`         | Runs any workflow against the real engine in an in-memory repository, under any test runner, plus a flow-context harness for rendering prompts. See [Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md). |
-| `@pmelab/gtd/testkit/gherkin` | The testkit as quickpickle steps for vitest. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                                                                                         |
+| Import                        | What it is                                                                                                                                                                                                                                                                                                               |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@pmelab/gtd/flows`           | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, `workflow()`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                                                                                                                                           |
+| `@pmelab/gtd/wire`            | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                                                                                                                                                             |
+| `@pmelab/gtd/steering`        | The steering-file formats (`qa`, `review`, `findings`), `listFormat`/`sectionFormat` to [declare a format](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#declared-formats) a step's `mode` validates against, the review-note readers, and `sections`, `threads` and `openQuestions` as plain functions. |
+| `@pmelab/gtd/workflow-kit`    | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails. See [Workflow kit](https://github.com/pmelab/gtd/blob/main/docs/workflow-kit.md).                                                                                                                  |
+| `@pmelab/gtd/testkit`         | Runs any workflow against the real engine in an in-memory repository, under any test runner, plus a flow-context harness for rendering prompts. See [Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md).                                                                                       |
+| `@pmelab/gtd/testkit/gherkin` | The testkit as quickpickle steps for vitest. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                                                                                                                                                                               |
 
 Types come from the TypeScript sources the package ships. Configs never need an
 install for any of these but the testkit's: gtd resolves a `gtd.config.ts`'s
@@ -642,7 +642,8 @@ flow has ended, an unpin beat removing it — the commit that closes the process
 Both are ordinary `script` beats a driver runs unattended; see
 [Pin and unpin beats](https://github.com/pmelab/gtd/blob/main/docs/driver.md#pin-and-unpin-beats).
 Histories with pin commits are history format 2 or later, which an older gtd
-refuses.
+refuses. The beats rest at `gtd:pin` and `gtd:unpin`; a workflow step may not
+take a name starting with `gtd:`.
 
 While a process is pinned, the `gtd` on your `PATH` hands every command over to
 the pin, so editing the workflow or upgrading gtd mid-process changes nothing;
@@ -654,8 +655,8 @@ and run `gtd repin`: its script commits a fresh pin from the live engine and
 config, and the process continues on it. Where the edited workflow no longer
 replays the process, the repin continues from the divergence: the commits it
 cannot replay stay as files, and the process rests at the step the edited
-workflow reached (history format 3). A pin in a format your gtd does not know is
-refused: upgrade gtd. See
+workflow reached (history format 3 or later). A pin in a format your gtd does
+not know is refused: upgrade gtd. See
 [Pinned processes](https://github.com/pmelab/gtd/blob/main/docs/cli.md#pinned-processes).
 
 ## License

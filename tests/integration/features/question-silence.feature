@@ -46,9 +46,9 @@ Feature: the return-lap stop is the human's silence, not a round cap
     When I run gtd land
     Then it succeeds
     # Back at the first step, the process ends: it lands at the unpin.
-    And the last commit subject is "gtd(human): answering → unpin"
+    And the last commit subject is "gtd(human): answering → gtd:unpin"
     When I run the unpin beat
-    Then the last commit subject is "gtd(check): unpin → drafting"
+    Then the last commit subject is "gtd(check): gtd:unpin → drafting"
 
   Scenario: editing the qa file itself with the question left unticked is still refused
     Given a file ".gtd/TODO.md" with:
@@ -66,4 +66,4 @@ Feature: the return-lap stop is the human's silence, not a round cap
     Then it fails
     And stderr contains "answer-completeness"
     And stderr contains "1 open question(s)"
-    And the last commit subject is "gtd(check): pin → answering"
+    And the last commit subject is "gtd(check): gtd:pin → answering"

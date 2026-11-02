@@ -186,7 +186,7 @@ Feature: gtd land — the one landing verb, actorless
     And stdout does not contain "git commit"
 
   @inmem
-  Scenario: gtd land --json reports settled:false, state:unpin for the green gtd start fix probe, without landing it; idle:true follows the unpin beat
+  Scenario: gtd land --json reports settled:false, state:gtd:unpin for the green gtd start fix probe, without landing it; idle:true follows the unpin beat
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -209,7 +209,7 @@ Feature: gtd land — the one landing verb, actorless
     Then the exit code is 0
     And stdout contains "\"settled\":false"
     And stdout contains "\"idle\":false"
-    And stdout contains "\"state\":\"unpin\""
+    And stdout contains "\"state\":\"gtd:unpin\""
     And the commit count is unchanged
     When I run gtd land
     And I run the unpin beat
