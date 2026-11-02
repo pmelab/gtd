@@ -27,10 +27,11 @@ const json = (path: string) => {
   return rest
 }
 
-// Type-aware: claude/ and .storybook/ sit outside every tsconfig, as for tsc.
+// Type-aware: claude/ and .storybook/ sit outside every tsconfig, as for tsc;
+// gtd.config.ts imports a workflow checkout only the maintainer's machine has.
 const lintConfig = ({ ignorePatterns, ...rest }: { ignorePatterns: string[] }) => ({
   ...rest,
-  ignorePatterns: [...ignorePatterns, "claude", ".storybook"],
+  ignorePatterns: [...ignorePatterns, "claude", ".storybook", "gtd.config.ts"],
   options: { typeAware: true, typeCheck: true },
 })
 
