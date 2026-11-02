@@ -7,7 +7,7 @@ import {
   feature as shippedFeature,
   review as shippedReview,
   fix as shippedFix,
-  rollout as shippedRollout,
+  isolate as shippedIsolate,
   cleanup as shippedCleanup,
 } from "/Users/pmelab/.local/share/gtd/workflows/dist/default.mjs"
 
@@ -17,8 +17,8 @@ const qualityReviews = "correctness, ponytail-review, test-audit, conventions, s
 export const feature = shippedFeature({ qualityReviews })
 export const review = shippedReview({ qualityReviews })
 export const fix = shippedFix({ qualityReviews })
-export const rollout = shippedRollout()
-export const cleanup = shippedCleanup()
+export const isolate = shippedIsolate({ qualityReviews })
+export const cleanup = shippedCleanup({ qualityReviews })
 export default feature
 
 const format = 'npx vp fmt --no-error-on-unmatched-pattern "$GTD_FILE"'
