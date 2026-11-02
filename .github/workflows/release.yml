@@ -95,7 +95,7 @@ jobs:
         env:
           VERSION: ${{ inputs.backfill }}
       - run: npm install -g npm@^11.21.0
-      - run: npm ci && npm run build
+      - run: npm ci && npx vp run build
       - run: |
           # each step is skipped once done, so a failed run can be re-run
           if [ -z "$(npm view "@pmelab/gtd@$VERSION" version)" ]; then

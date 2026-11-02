@@ -43,24 +43,24 @@ export const RendersHeadingListCodeParagraphAndLinkStructureNeverARawTextarea: S
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const heading = canvas.getByText("A heading")
-    expect(heading.tagName).toBe("H2")
+    await expect(heading.tagName).toBe("H2")
     await expect(canvas.getByText("Top item")).toBeInTheDocument()
     const code = canvas.getByText((_, element) => element?.tagName === "CODE")
-    expect(code.textContent).toBe("const x = 1")
+    await expect(code.textContent).toBe("const x = 1")
     // Requirement 1: no fence lines painted inside the code block.
-    expect(code.textContent).not.toContain("```")
+    await expect(code.textContent).not.toContain("```")
     // Requirement 1: no '>' marker painted inside the blockquote.
     const quote = canvas.getByText("Quoted line one. Quoted line two.")
-    expect(quote.textContent).not.toContain(">")
+    await expect(quote.textContent).not.toContain(">")
     await expect(canvas.getByText("A trailing paragraph.")).toBeInTheDocument()
     // A markdown link renders as a real anchor, never the literal
     // `[docs](https://example.com/x)` source.
     const link = canvas.getByText("docs")
-    expect(link.tagName).toBe("A")
-    expect(link.getAttribute("href")).toBe("https://example.com/x")
-    expect(canvas.queryByText(/\[docs\]/)).not.toBeInTheDocument()
+    await expect(link.tagName).toBe("A")
+    await expect(link.getAttribute("href")).toBe("https://example.com/x")
+    await expect(canvas.queryByText(/\[docs\]/)).not.toBeInTheDocument()
     // Never a raw whole-file textarea in the read-only view.
-    expect(canvas.queryByRole("textbox")).not.toBeInTheDocument()
+    await expect(canvas.queryByRole("textbox")).not.toBeInTheDocument()
   },
 }
 
@@ -82,9 +82,9 @@ export const RawHtmlInPoseRendersAsInertTextNeverParsedHtml: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const paragraph = canvas.getByTestId("note-target-0")
-    expect(paragraph).toHaveTextContent("before <script>window.__xss = true</script> after")
-    expect(paragraph.querySelector("script")).toBeNull()
-    expect((window as unknown as { __xss?: boolean }).__xss).toBeUndefined()
+    await expect(paragraph).toHaveTextContent("before <script>window.__xss = true</script> after")
+    await expect(paragraph.querySelector("script")).toBeNull()
+    await expect((window as unknown as { __xss?: boolean }).__xss).toBeUndefined()
   },
 }
 
@@ -104,11 +104,11 @@ export const RemoteImageInAFullBlockRendersALazyReferrerlessImg: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const img = canvas.getByAltText("a diagram")
-    expect(img.tagName).toBe("IMG")
-    expect(img).toHaveAttribute("src", "https://example.com/pic.png")
-    expect(img).toHaveAttribute("loading", "lazy")
-    expect(img).toHaveAttribute("decoding", "async")
-    expect(img).toHaveAttribute("referrerpolicy", "no-referrer")
+    await expect(img.tagName).toBe("IMG")
+    await expect(img).toHaveAttribute("src", "https://example.com/pic.png")
+    await expect(img).toHaveAttribute("loading", "lazy")
+    await expect(img).toHaveAttribute("decoding", "async")
+    await expect(img).toHaveAttribute("referrerpolicy", "no-referrer")
   },
 }
 
@@ -200,8 +200,8 @@ export const EmptyDocumentRendersABareTextfield: Story = {
     const canvas = within(canvasElement)
     await expect(canvas.getByTestId("freeform-empty-textarea")).toBeInTheDocument()
     await expect(canvas.getByTestId("freeform-empty-save")).toBeInTheDocument()
-    expect(canvas.queryByText("+ Add content")).not.toBeInTheDocument()
-    expect(canvas.queryByTestId("note-gesture-hint")).not.toBeInTheDocument()
+    await expect(canvas.queryByText("+ Add content")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("note-gesture-hint")).not.toBeInTheDocument()
   },
 }
 
@@ -432,7 +432,7 @@ export const PlanDoneDisabledWhileAWriteIsPending: StoryObj<typeof FreeForm> = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("plan-done")).toBeInTheDocument())
-    expect(canvas.getByTestId("plan-done")).not.toBeDisabled()
+    await expect(canvas.getByTestId("plan-done")).not.toBeDisabled()
 
     await fireEvent.doubleClick(canvas.getByTestId("note-target-0"))
     await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
@@ -442,8 +442,8 @@ export const PlanDoneDisabledWhileAWriteIsPending: StoryObj<typeof FreeForm> = {
     await waitFor(() => expect(canvas.getByTestId("plan-done")).toBeDisabled())
 
     await fireEvent.click(canvas.getByTestId("plan-done"))
-    expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
-    expect(canvas.getByTestId("done-call-count")).toHaveTextContent("0")
+    await expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("done-call-count")).toHaveTextContent("0")
 
     await fireEvent.click(canvas.getByTestId("settle-write"))
     await waitFor(() => expect(canvas.getByTestId("plan-done")).not.toBeDisabled())

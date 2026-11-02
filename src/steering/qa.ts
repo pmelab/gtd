@@ -822,7 +822,7 @@ const replaceOptionTextEdit = (
  * Collapses a typed answer to the single-line shape a list-item label must
  * be. A raw textarea value's interior newlines would break `.gtd/`'s oxfmt
  * fixed point the moment they are spliced onto a `- [x] ` line, and every
- * steering file — server-written ones included — is covered by `format:check`.
+ * steering file — server-written ones included — is covered by the `check` task.
  */
 /**
  * Empty normalizes to `FREE_TEXT_PLACEHOLDER`, never `""`: an empty label

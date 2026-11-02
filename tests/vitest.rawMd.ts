@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import { type Plugin } from "vitest/config"
 
-// Mirrors tsdown.config.ts's `loader: { ".md": "text", ".yaml": "text",
+// Mirrors vite.config.ts's pack `loader: { ".md": "text", ".yaml": "text",
 // ".html": "text" }` — every one of those extensions must resolve identically
 // in the vitest world (unit + e2e tests) as in the built bundle.
 export const rawMd = (): Plugin => ({

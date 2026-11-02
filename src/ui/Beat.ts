@@ -224,14 +224,15 @@ const okResult = (
   meta: { readonly repo: string; readonly branch: string; readonly rest: string },
   fields: ParsedBeatFields & { readonly kind: StepKind; readonly actor: string },
 ): Step => {
+  const state = typeof fields.state === "string" ? fields.state : ""
   const filePath = typeof fields.file === "string" ? fields.file : undefined
   return {
     status: "ok",
     path: worktree.path,
     repo: meta.repo,
     branch: meta.branch,
-    label: typeof fields.label === "string" ? fields.label : String(fields.state ?? ""),
-    state: String(fields.state ?? ""),
+    label: typeof fields.label === "string" ? fields.label : state,
+    state,
     kind: fields.kind,
     actor: fields.actor,
     idle: Boolean(fields.idle),

@@ -210,10 +210,10 @@ export const OptionRadioRowMeetsThe44pxFloor: Story = {
     const canvas = within(canvasElement)
     const input = canvas.getByTestId("option-radio-0")
     const label = input.closest("label")
-    expect(label).not.toBeNull()
+    await expect(label).not.toBeNull()
     const rect = label!.getBoundingClientRect()
-    expect(rect.height).toBeGreaterThanOrEqual(44)
-    expect(rect.width).toBeGreaterThanOrEqual(44)
+    await expect(rect.height).toBeGreaterThanOrEqual(44)
+    await expect(rect.width).toBeGreaterThanOrEqual(44)
   },
 }
 
@@ -226,7 +226,7 @@ export const TypingThenTappingSaveCommitsOnceWithCheckedAndTextTogether: StoryOb
       const canvas = within(canvasElement)
       await answerFreeText(canvas, "the third way, typed")
       await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
-      expect(readCommitCalls(canvas)[0]?.opts).toEqual({
+      await expect(readCommitCalls(canvas)[0]?.opts).toEqual({
         checked: true,
         text: "the third way, typed",
       })
@@ -252,16 +252,16 @@ export const TypingWithoutTappingSaveFiresNoWriteEverNotAfterAnyElapsedTimeNorOn
     // A real wait past the OLD 800ms debounce window — proves no timer fires
     // a write, not just that none has fired yet.
     await new Promise((resolve) => setTimeout(resolve, 900))
-    expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
+    await expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
     // A genuine focus transition, not a bare `fireEvent.blur` — this runs
     // against a real browser (vitest-browser), so only an element that was
     // actually focused first emits a real blur when focus moves away.
     ;(canvas.getByTestId("note-sheet-save") as HTMLButtonElement).focus()
-    expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
+    await expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
     // Dismissing throws the text away: the sheet is the draft, and closing
     // it is what "left unsaved" now means.
     await fireEvent.click(canvas.getByTestId("note-sheet-dismiss"))
-    expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
+    await expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
   },
 }
 
@@ -304,7 +304,7 @@ export const TypingThenUnmountingWithoutSavingFiresNoWrite: StoryObj<typeof Ques
     await fireEvent.change(field, { target: { value: "typed then torn down" } })
     await fireEvent.click(canvas.getByTestId("unmount"))
     await waitFor(() => expect(canvas.queryByTestId("question-screen")).not.toBeInTheDocument())
-    expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
+    await expect(canvas.getByTestId("commit-calls")).toHaveTextContent("[]")
   },
 }
 
@@ -350,7 +350,7 @@ export const DeletingAPreviouslyWrittenAnswerAndSavingErasesIt: StoryObj<typeof 
     await fireEvent.change(textarea, { target: { value: "" } })
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
-    expect(readCommitCalls(canvas)[0]?.opts).toEqual({ checked: false, text: "" })
+    await expect(readCommitCalls(canvas)[0]?.opts).toEqual({ checked: false, text: "" })
   },
 }
 
@@ -534,7 +534,7 @@ export const ARejectedStaleTokenWriteShowsTheNamedReasonOnScreen: StoryObj<typeo
         "The file's content changed underneath you",
       ),
     )
-    expect(canvas.getByTestId("save-indicator-message")).not.toHaveTextContent("reload")
+    await expect(canvas.getByTestId("save-indicator-message")).not.toHaveTextContent("reload")
   },
 }
 
@@ -563,7 +563,7 @@ export const DismissingARefusalNeverThenReportsSaved: StoryObj<typeof Question> 
         "The file's content changed underneath you",
       ),
     )
-    expect(canvas.getByTestId("save-indicator-message")).not.toHaveTextContent("reload")
+    await expect(canvas.getByTestId("save-indicator-message")).not.toHaveTextContent("reload")
     await fireEvent.click(canvas.getByTestId("save-indicator-dismiss"))
     // The banner (the SAME live region) must disappear entirely, not fall
     // through to `saveStatus`'s own "Saved" branch — `SaveIndicator` renders
@@ -640,7 +640,7 @@ export const ARefusedFreeTextWriteRetriesRatherThanSilentlySkipping: StoryObj<ty
         "The file's content changed underneath you",
       ),
     )
-    expect(canvas.getByTestId("save-indicator-message")).not.toHaveTextContent("reload")
+    await expect(canvas.getByTestId("save-indicator-message")).not.toHaveTextContent("reload")
     await waitFor(() => expect(readCommitCalls(canvas)).toHaveLength(1))
 
     // Retype the SAME text and tap Save again — must fire a second write.
@@ -741,8 +741,10 @@ export const AQuestionBodyWithAParagraphAndAFencedCodeBlockRendersBothAboveTheOp
     const status = canvas.getByTestId("question-status")
     const body = canvas.getByTestId("prose-paragraphs")
     const firstOption = canvas.getByTestId("option-0")
-    expect(status.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-    expect(
+    await expect(
+      status.compareDocumentPosition(body) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
+    await expect(
       body.compareDocumentPosition(firstOption) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
   },
@@ -786,17 +788,17 @@ export const AFencedCodeBlockScrollsInternallyRatherThanWideningThePage: Story =
     // The fenced block renders inside a scrollable `pre` — `CodeBlock`'s own
     // `overflow-x-auto`.
     const pre = body.querySelector("pre")
-    expect(pre).not.toBeNull()
-    expect(pre?.className).toContain("overflow-x-auto")
+    await expect(pre).not.toBeNull()
+    await expect(pre?.className).toContain("overflow-x-auto")
     // The line has no whitespace to wrap on and is far wider than 390px, so
     // the `pre`'s OWN scroll region genuinely overflows its box — this is
     // the positive control proving the line really is long enough to widen
     // something if nothing clipped it.
-    expect(pre!.scrollWidth).toBeGreaterThan(pre!.clientWidth)
+    await expect(pre!.scrollWidth).toBeGreaterThan(pre!.clientWidth)
     // What must NOT grow: the document itself. If the fenced block reflowed
     // its ancestors instead of scrolling internally, the whole page would
     // widen past the 390px viewport.
-    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
+    await expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
   },
 }
 
@@ -827,9 +829,9 @@ export const AnUnbrokenPathInProseWrapsRatherThanWideningThePage: Story = {
     await viewport(390, 844)
     const screen = within(canvasElement).getByTestId("question-screen")
     await expect(screen).toHaveTextContent(LONG_PATH)
-    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
+    await expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
     for (const el of screen.querySelectorAll("*")) {
-      expect(el.getBoundingClientRect().right).toBeLessThanOrEqual(390)
+      await expect(el.getBoundingClientRect().right).toBeLessThanOrEqual(390)
     }
   },
 }
@@ -851,10 +853,10 @@ export const SelectingAnOptionMarksItsWholeRowNotJustTheRadio: Story = {
     await fireEvent.click(canvas.getByTestId("option-radio-0"))
     // `waitFor`: both properties cross over a 150ms transition, so the frame
     // right after the click still holds the resting values.
-    await waitFor(() => {
+    await waitFor(async () => {
       const selected = getComputedStyle(row)
-      expect(selected.borderColor).not.toBe(restingBorder)
-      expect(selected.backgroundColor).not.toBe(restingBackground)
+      await expect(selected.borderColor).not.toBe(restingBorder)
+      await expect(selected.backgroundColor).not.toBe(restingBackground)
     })
   },
 }
@@ -869,12 +871,12 @@ export const AnswerStatusReadsAsALabelledStateNotAColour: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const status = canvas.getByTestId("question-status")
-    expect(status).toHaveTextContent("Not answered yet")
+    await expect(status).toHaveTextContent("Not answered yet")
     const unansweredColor = getComputedStyle(status).color
 
     await fireEvent.click(canvas.getByTestId("option-radio-0"))
-    expect(status).toHaveTextContent("✓ Answered")
-    expect(getComputedStyle(status).color).not.toBe(unansweredColor)
+    await expect(status).toHaveTextContent("✓ Answered")
+    await expect(getComputedStyle(status).color).not.toBe(unansweredColor)
   },
 }
 
@@ -891,12 +893,12 @@ export const SelectingTheFreeTextSlotOpensAFocusedAnswerSheet: Story = {
     await fireEvent.click(canvas.getByTestId("option-radio-2"))
 
     const field = canvas.getByTestId("note-sheet-textarea")
-    expect(document.activeElement).toBe(field)
+    await expect(document.activeElement).toBe(field)
     await expect(canvas.getByTestId("note-sheet")).toHaveTextContent("Your answer")
     const style = getComputedStyle(field)
-    expect(style.fontSize).toBe("16px")
-    expect(parseFloat(style.borderTopWidth)).toBeGreaterThan(0)
-    expect(style.backgroundColor).not.toBe("rgba(0, 0, 0, 0)")
+    await expect(style.fontSize).toBe("16px")
+    await expect(parseFloat(style.borderTopWidth)).toBeGreaterThan(0)
+    await expect(style.backgroundColor).not.toBe("rgba(0, 0, 0, 0)")
   },
 }
 
@@ -964,7 +966,7 @@ export const AnOptionsImpactsRenderInlineUnderItsOwnRadioNoInteractionRequired: 
     await expect(optionB).toHaveTextContent("Leaves a config key nobody removes")
     await expect(optionB).not.toHaveTextContent("Rollback is one edit, not a revert")
     // Read-only: no note-attach seam on an impact block.
-    expect(canvas.queryByTestId("note-target-0")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("note-target-0")).not.toBeInTheDocument()
   },
 }
 
@@ -1017,7 +1019,7 @@ export const FiveOptionsWithImpactsRendersAllOfThemRatherThanHidingAny: Story = 
       await expect(impact).toBeVisible()
     }
     const scrollContainer = canvas.getByTestId("scroll-container")
-    expect(scrollContainer.scrollHeight).toBeGreaterThan(scrollContainer.clientHeight)
+    await expect(scrollContainer.scrollHeight).toBeGreaterThan(scrollContainer.clientHeight)
   },
 }
 

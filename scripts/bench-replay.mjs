@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// A one-off, hand-run measurement — not a test, not a turbo task (see
+// A one-off, hand-run measurement — not a test, not a gate task (see
 // Package 1's Design). It builds a throwaway repository whose git history
 // mimics a real gtd process (a long chain of `gtd(actor): from → to` step
 // commits ahead of a run of ordinary backdrop commits), then times `gtd next
@@ -29,7 +29,7 @@ const GTD_BIN = join(REPO_ROOT, "dist", "gtd.bundle.mjs")
 /** Fail loudly up front — before a single row is printed — rather than let every measured `gtd` invocation crash on a missing module and look like a fast, zero-call refusal. */
 function requireBuiltGtd() {
   if (!existsSync(GTD_BIN)) {
-    throw new Error(`bench-replay: ${GTD_BIN} does not exist — run \`npm run build\` first`)
+    throw new Error(`bench-replay: ${GTD_BIN} does not exist — run \`npx vp run build\` first`)
   }
 }
 

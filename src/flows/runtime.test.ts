@@ -146,7 +146,7 @@ describe("kept()", () => {
 })
 
 /** A context that records every step request and resolves it with `reply`. */
-const recording = (reply: unknown = undefined) => {
+const recording = (reply?: unknown) => {
   const requests: StepRequest[] = []
   installContext({
     step: async (request: StepRequest) => {

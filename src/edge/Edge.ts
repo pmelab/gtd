@@ -238,7 +238,7 @@ const historyFormatFault = (history: History, location: EpisodeLocation): string
 const runOf = (
   history: History,
   location: EpisodeLocation,
-  closingHash: string | undefined = undefined,
+  closingHash?: string,
 ): Effect.Effect<ProcessRun, Error> => {
   const fault = historyFormatFault(history, location)
   return fault === undefined

@@ -115,8 +115,8 @@ export const OneLineRowMeetsThe44pxFloor: Story = {
     const canvas = within(canvasElement)
     const row = canvas.getByTestId("card-alpha")
     const rect = row.getBoundingClientRect()
-    expect(rect.height).toBeGreaterThanOrEqual(44)
-    expect(rect.width).toBeGreaterThanOrEqual(44)
+    await expect(rect.height).toBeGreaterThanOrEqual(44)
+    await expect(rect.width).toBeGreaterThanOrEqual(44)
   },
 }
 
@@ -127,10 +127,10 @@ export const RowPressedStateDiffersFromRest: Story = {
     const canvas = within(canvasElement)
     const row = canvas.getByTestId("card-alpha")
     const restColor = getComputedStyle(row).backgroundColor
-    await withRealMousePress(row, () => {
+    await withRealMousePress(row, async () => {
       const pressedColor = getComputedStyle(row).backgroundColor
-      expect(pressedColor).not.toBe(restColor)
-      expect(pressedColor).toBe(token("surface"))
+      await expect(pressedColor).not.toBe(restColor)
+      await expect(pressedColor).toBe(token("surface"))
     })
   },
 }
@@ -149,8 +149,8 @@ export const CardWithoutAccentPropIsUnchanged: Story = {
     // string: the accent treatment is a left rule plus the surface
     // background, and a plain card carries neither.
     const style = getComputedStyle(card)
-    expect(style.borderLeftWidth).toBe("0px")
-    expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0)")
+    await expect(style.borderLeftWidth).toBe("0px")
+    await expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0)")
   },
 }
 
@@ -165,10 +165,10 @@ export const CardWithAccentPropRendersTheAccentTreatment: Story = {
     const canvas = within(canvasElement)
     const card = canvas.getByTestId("accent-card")
     const style = getComputedStyle(card)
-    expect(style.borderLeftWidth).toBe("4px")
+    await expect(style.borderLeftWidth).toBe("4px")
     // `--color-surface`, the SAME rgb `RowPressedStateDiffersFromRest` above
     // pins as the pressed-state background — here it's the RESTING background.
-    expect(style.backgroundColor).toBe(token("surface"))
+    await expect(style.backgroundColor).toBe(token("surface"))
   },
 }
 
@@ -195,7 +195,7 @@ export const BackFromFirstItemReturnsToListWithoutLosingScroll: Story = {
     const restoredList = canvas.getByTestId("shell-list")
     await expect(restoredList).toBeInTheDocument()
     await new Promise((resolve) => requestAnimationFrame(resolve))
-    expect(restoredList.scrollTop).toBe(500)
+    await expect(restoredList.scrollTop).toBe(500)
   },
 }
 
@@ -212,13 +212,13 @@ export const RendersCorrectlyAt390pxWide: Story = {
     await viewport(390, 844)
     const canvas = within(canvasElement)
     const list = canvas.getByTestId("shell-list")
-    expect(list.scrollWidth).toBeLessThanOrEqual(390)
-    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
+    await expect(list.scrollWidth).toBeLessThanOrEqual(390)
+    await expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
 
     await fireEvent.click(canvas.getByTestId(`card-${LONG_DETAIL_ITEM}`))
     const detail = canvas.getByTestId("deck-item-detail")
     await expect(detail).toHaveTextContent(LONG_DETAIL)
-    expect(detail.scrollWidth).toBeLessThanOrEqual(390)
-    expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
+    await expect(detail.scrollWidth).toBeLessThanOrEqual(390)
+    await expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(390)
   },
 }

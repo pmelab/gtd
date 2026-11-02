@@ -116,7 +116,7 @@ const inMemory = (): Tier => {
           fetch: async (_url, init) => {
             received = {
               headers: Object.fromEntries(new Headers(init?.headers).entries()),
-              body: String(init?.body),
+              body: typeof init?.body === "string" ? init.body : "",
             }
             return new Response(body, { status })
           },

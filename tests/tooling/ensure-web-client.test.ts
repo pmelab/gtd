@@ -17,7 +17,7 @@ describe("ensureWebClient's fallback build", () => {
   it("runs every build step up to and including the inline script, Tailwind included", () => {
     const command = fallbackBuildCommand()
 
-    expect(command).toContain("tsdown --filter web")
+    expect(command).toContain("vp pack --filter web")
     expect(command).toContain("@tailwindcss/cli")
     expect(command.endsWith("node scripts/inline-web-client.mjs")).toBe(true)
   })

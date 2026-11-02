@@ -21,7 +21,7 @@ export const rollout = shippedRollout()
 export const cleanup = shippedCleanup()
 export default feature
 
-const format = 'npx oxfmt --no-error-on-unmatched-pattern --write "$GTD_FILE"'
+const format = 'npx vp fmt --no-error-on-unmatched-pattern "$GTD_FILE"'
 
 // `satisfies` rather than `defineConfig`: a type import is erased, so a gtd
 // older than `defineConfig` can still load this file while it drives this repo.

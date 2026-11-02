@@ -261,7 +261,7 @@ export const createWriteStore = (): StoreApi<InternalState> =>
           const settled =
             run === undefined
               ? (() => {
-                  // `tsdown.config.ts`'s `web` entry defines
+                  // `vite.config.ts`'s `web` pack entry defines
                   // `process.env.NODE_ENV` as the literal `"production"`, so
                   // the bundler's own dead-code elimination drops this
                   // branch entirely from the shipped browser build — this is

@@ -104,7 +104,7 @@ export const AlreadyAnsweredSectionRendersBelowOpenQuestions: Story = {
     const canvas = within(canvasElement)
     const openHeading = canvas.getByText("Open Questions")
     const answeredHeading = canvas.getByText("Already answered")
-    expect(
+    await expect(
       openHeading.compareDocumentPosition(answeredHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
   },
@@ -129,10 +129,10 @@ export const OpenQuestionCardRendersTheAccentTreatmentAnsweredDoesNot: Story = {
     const canvas = within(canvasElement)
     const openCard = getComputedStyle(canvas.getByTestId("question-card-0"))
     const answeredCard = getComputedStyle(canvas.getByTestId("question-card-1"))
-    expect(openCard.borderLeftWidth).toBe("4px")
-    expect(openCard.backgroundColor).toBe(token("surface"))
-    expect(answeredCard.borderLeftWidth).not.toBe("4px")
-    expect(canvas.getByTestId("question-card-1").tagName).toBe("BUTTON")
+    await expect(openCard.borderLeftWidth).toBe("4px")
+    await expect(openCard.backgroundColor).toBe(token("surface"))
+    await expect(answeredCard.borderLeftWidth).not.toBe("4px")
+    await expect(canvas.getByTestId("question-card-1").tagName).toBe("BUTTON")
   },
 }
 
@@ -198,15 +198,17 @@ export const OpenQuestionRendersAboveProseAnsweredBelowTrailingParagraphInOrder:
     const trailing = canvas.getByText("A trailing paragraph after both sections.")
 
     // Open question section above the prose.
-    expect(
+    await expect(
       openHeading.compareDocumentPosition(prose) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
     // Answered section below the prose.
-    expect(
+    await expect(
       prose.compareDocumentPosition(answeredHeading) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
     // The trailing paragraph stays after the preceding prose, not hoisted before it.
-    expect(prose.compareDocumentPosition(trailing) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+    await expect(
+      prose.compareDocumentPosition(trailing) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy()
   },
 }
 
@@ -514,14 +516,14 @@ export const ProseOnlyFileRendersParagraphsAndNoQuestionList: Story = {
     // unreachable by keyboard and silent to a screen reader.
     await expect(canvas.getByTestId("note-gesture-hint")).toHaveTextContent("Double-tap")
     const target = canvas.getByTestId("note-target-0")
-    expect(target).toHaveAttribute("role", "button")
-    expect(target).toHaveAttribute("tabindex", "0")
-    expect(target).toHaveAccessibleName("Add a note to this block")
+    await expect(target).toHaveAttribute("role", "button")
+    await expect(target).toHaveAttribute("tabindex", "0")
+    await expect(target).toHaveAccessibleName("Add a note to this block")
     // The target IS the block, so it covers the paragraph's own box rather
     // than sitting beside it as a strip of its own.
     const paragraph = canvas.getByText("First paragraph of the plan.")
-    expect(target.contains(paragraph)).toBe(true)
-    expect(target.getBoundingClientRect().height).toBeGreaterThanOrEqual(
+    await expect(target.contains(paragraph)).toBe(true)
+    await expect(target.getBoundingClientRect().height).toBeGreaterThanOrEqual(
       paragraph.getBoundingClientRect().height,
     )
     await expect(canvas.getByTestId("note-target-1")).toBeInTheDocument()
@@ -567,11 +569,11 @@ export const PlanRendersEveryBlockKindWithStructureIntact: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const heading = canvas.getByText("A heading")
-    expect(heading.tagName).toBe("H3")
+    await expect(heading.tagName).toBe("H3")
     await expect(canvas.getByText("Top item")).toBeInTheDocument()
     await expect(canvas.getByText("Nested item")).toBeInTheDocument()
     const code = canvas.getByText((_, element) => element?.tagName === "CODE")
-    expect(code.textContent).toBe("  const x = 1\nconst y = 2")
+    await expect(code.textContent).toBe("  const x = 1\nconst y = 2")
     await expect(canvas.getByText("Paragraph after the questions section.")).toBeInTheDocument()
   },
 }
@@ -740,7 +742,7 @@ export const AQuestionBodyParagraphsNoteSeamOpensSavesAndRendersInline: Story = 
     // green even if the body rendered after the options).
     const body = canvas.getByTestId("prose-paragraphs")
     const firstOption = canvas.getByTestId("option-0")
-    expect(
+    await expect(
       body.compareDocumentPosition(firstOption) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
     await fireEvent.doubleClick(canvas.getByTestId("note-target-0"))
@@ -866,7 +868,7 @@ export const RealContainerRendersHeadUnresolvedWithNoRetry: StoryObj<typeof Plan
     await waitFor(() =>
       expect(canvas.getByText(/Can't read this repository's current commit/)).toBeInTheDocument(),
     )
-    expect(canvas.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument()
+    await expect(canvas.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument()
   },
 }
 
@@ -893,7 +895,7 @@ export const RealContainerRendersFileVanishedByName: StoryObj<typeof Plan> = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByText(/no longer being served/)).toBeInTheDocument())
-    expect(canvas.queryByText("Could not load the plan.")).not.toBeInTheDocument()
+    await expect(canvas.queryByText("Could not load the plan.")).not.toBeInTheDocument()
   },
 }
 
@@ -974,7 +976,9 @@ export const RealContainerRecoversInPlaceFromAStaleShaRefusal: StoryObj<typeof P
                 },
               }
             }
-            expect((input as { expectedHeadSha: string }).expectedHeadSha).toBe("def456")
+            // Resolvers run synchronously: a failed write is how this asserts.
+            const { expectedHeadSha } = input as { expectedHeadSha: string }
+            if (expectedHeadSha !== "def456") throw new Error(`retried on ${expectedHeadSha}`)
             return { ok: true }
           },
         }}
@@ -994,7 +998,7 @@ export const RealContainerRecoversInPlaceFromAStaleShaRefusal: StoryObj<typeof P
     // The silent retry must never surface the refusal banner — a "Saved"
     // status label (Task 3's own affordance) is fine, since the write DID
     // eventually land; only the refusal sentence itself must never show.
-    expect(canvas.queryByText(/committed a change underneath you/)).not.toBeInTheDocument()
+    await expect(canvas.queryByText(/committed a change underneath you/)).not.toBeInTheDocument()
   },
 }
 
@@ -1068,8 +1072,8 @@ export const SaveIndicatorIsVisuallyDistinctFromTheSavedDot: StoryObj<typeof Pla
     )
     const expandedBox = getComputedStyle(canvas.getByTestId("save-indicator-expanded"))
 
-    expect(expandedBox.backgroundColor).not.toBe(savedColor)
-    expect(expandedBox.borderRadius).not.toBe(savedShape)
+    await expect(expandedBox.backgroundColor).not.toBe(savedColor)
+    await expect(expandedBox.borderRadius).not.toBe(savedShape)
   },
 }
 
@@ -1133,20 +1137,20 @@ export const TheSavingThenSavedAnnouncementCarriesNoVisibleText: StoryObj<typeof
     // style, not the class name string, so a rename to an equivalent utility
     // still passes while actually dropping the hiding behaviour still fails.
     const savingLabelStyle = getComputedStyle(canvas.getByTestId("save-indicator-label"))
-    expect(savingLabelStyle.position).toBe("absolute")
-    expect(savingLabelStyle.width).toBe("1px")
-    expect(savingLabelStyle.height).toBe("1px")
-    expect(canvas.getByTestId("save-indicator-dot")).toHaveTextContent("")
+    await expect(savingLabelStyle.position).toBe("absolute")
+    await expect(savingLabelStyle.width).toBe("1px")
+    await expect(savingLabelStyle.height).toBe("1px")
+    await expect(canvas.getByTestId("save-indicator-dot")).toHaveTextContent("")
 
     await fireEvent.click(canvas.getByTestId("settle-write"))
     await waitFor(() =>
       expect(canvas.getByTestId("save-indicator-label")).toHaveTextContent("Saved"),
     )
     const savedLabelStyle = getComputedStyle(canvas.getByTestId("save-indicator-label"))
-    expect(savedLabelStyle.position).toBe("absolute")
-    expect(savedLabelStyle.width).toBe("1px")
-    expect(savedLabelStyle.height).toBe("1px")
-    expect(canvas.getByTestId("save-indicator-dot")).toHaveTextContent("")
+    await expect(savedLabelStyle.position).toBe("absolute")
+    await expect(savedLabelStyle.width).toBe("1px")
+    await expect(savedLabelStyle.height).toBe("1px")
+    await expect(canvas.getByTestId("save-indicator-dot")).toHaveTextContent("")
   },
 }
 
@@ -1233,11 +1237,11 @@ export const ShowingOrHidingTheSaveIndicatorShiftsNoOtherElement: StoryObj<typeo
     await waitFor(() =>
       expect(canvas.getByTestId("save-indicator-label")).toHaveTextContent("Saving…"),
     )
-    expect(rectOf()).toEqual(before)
+    await expect(rectOf()).toEqual(before)
 
     await fireEvent.click(canvas.getByTestId("settle-write"))
     await waitFor(() => expect(canvas.getByTestId("save-indicator-expanded")).toBeInTheDocument())
-    expect(rectOf()).toEqual(before)
+    await expect(rectOf()).toEqual(before)
 
     // "Collapsed" (package 02 Task 4's own vocabulary) is the real 5000ms
     // auto-collapse down to the failed marker — never `Dismiss`, which
@@ -1248,7 +1252,7 @@ export const ShowingOrHidingTheSaveIndicatorShiftsNoOtherElement: StoryObj<typeo
     await waitFor(() => expect(canvas.getByTestId("save-indicator-marker")).toBeInTheDocument(), {
       timeout: 6_000,
     })
-    expect(rectOf()).toEqual(before)
+    await expect(rectOf()).toEqual(before)
 
     // Tapping the marker re-expands (Task 4's own re-expand affordance),
     // since `Dismiss` only ever renders in the expanded state — a fifth
@@ -1258,7 +1262,7 @@ export const ShowingOrHidingTheSaveIndicatorShiftsNoOtherElement: StoryObj<typeo
     await waitFor(() => expect(canvas.getByTestId("save-indicator-dismiss")).toBeInTheDocument())
     await fireEvent.click(canvas.getByTestId("save-indicator-dismiss"))
     await waitFor(() => expect(canvas.queryByTestId("save-indicator")).not.toBeInTheDocument())
-    expect(rectOf()).toEqual(before)
+    await expect(rectOf()).toEqual(before)
   },
 }
 
@@ -1366,9 +1370,9 @@ export const TheThreeSaveStatesAreVisuallyDistinctOnComputedStyle: StoryObj<type
     )
     const failedColor = getComputedStyle(canvas.getByTestId("save-indicator-dot")).backgroundColor
 
-    expect(savingColor).not.toBe(savedColor)
-    expect(savedColor).not.toBe(failedColor)
-    expect(savingColor).not.toBe(failedColor)
+    await expect(savingColor).not.toBe(savedColor)
+    await expect(savedColor).not.toBe(failedColor)
+    await expect(savingColor).not.toBe(failedColor)
   },
 }
 
@@ -1444,10 +1448,10 @@ export const SavingUnderReducedMotionStaysDistinctFromSaved: StoryObj<typeof Pla
       )
       const savedOutline = getComputedStyle(canvas.getByTestId("save-indicator-dot")).outlineStyle
 
-      expect(savingAnimation).toBe("none")
-      expect(savingOutline).not.toBe("none")
-      expect(savedOutline).toBe("none")
-      expect(savingOutline).not.toBe(savedOutline)
+      await expect(savingAnimation).toBe("none")
+      await expect(savingOutline).not.toBe("none")
+      await expect(savedOutline).toBe("none")
+      await expect(savingOutline).not.toBe(savedOutline)
     } finally {
       await setReducedMotion(false)
     }
@@ -1587,15 +1591,15 @@ export const PlanDoneDisabledWhileAWriteIsPending: StoryObj<typeof Plan> = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("plan-done")).toBeInTheDocument())
-    expect(canvas.getByTestId("plan-done")).not.toBeDisabled()
+    await expect(canvas.getByTestId("plan-done")).not.toBeDisabled()
 
     await openNoteSeamAndType(canvas, "worth flagging")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
     await waitFor(() => expect(canvas.getByTestId("plan-done")).toBeDisabled())
 
     await fireEvent.click(canvas.getByTestId("plan-done"))
-    expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
-    expect(canvas.getByTestId("done-call-count")).toHaveTextContent("0")
+    await expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("done-call-count")).toHaveTextContent("0")
 
     await fireEvent.click(canvas.getByTestId("settle-write"))
     await waitFor(() => expect(canvas.getByTestId("plan-done")).not.toBeDisabled())
@@ -1701,11 +1705,11 @@ export const RealContainerTapsPlanDoneFromTheListRendersHandedBackPanel: StoryOb
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("plan-done")).toBeInTheDocument())
-    expect(canvas.queryByTestId("save-indicator")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("save-indicator")).not.toBeInTheDocument()
     await fireEvent.click(canvas.getByTestId("plan-done"))
     await waitFor(() => expect(canvas.getByTestId("handed-back-panel")).toBeInTheDocument())
     await expect(canvas.getByTestId("done-calls")).toHaveTextContent(JSON.stringify({}))
-    expect(canvas.getByTestId("write-or-set-calls")).toHaveTextContent("[]")
+    await expect(canvas.getByTestId("write-or-set-calls")).toHaveTextContent("[]")
     // A Done tap shows the spinner, then settles to "Saved" for its own
     // 1500ms linger, past the moment the screen hands off — no longer
     // asserted absent, per package 01 Task 5.
@@ -1753,7 +1757,7 @@ export const RealContainerRefusedPlanDoneShowsRefusalBannerNotHandedBack: StoryO
     await waitFor(() =>
       expect(canvas.getByText(/committed a change underneath you/)).toBeInTheDocument(),
     )
-    expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
     await expect(canvas.getByTestId("plan-screen")).toBeInTheDocument()
   },
 }
@@ -2131,7 +2135,7 @@ export const RealContainerRefusedDoneFromTheDeckShowsRefusalBannerNotHandedBack:
     await waitFor(() =>
       expect(canvas.getByText(/committed a change underneath you/)).toBeInTheDocument(),
     )
-    expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
   },
 }
 
@@ -2462,14 +2466,14 @@ export const ADetailedPlanAtRealisticLength: Story = {
     // a single unwrapped word or an over-wide code block turns the whole
     // page into a horizontal scroller.
     const list = canvas.getByTestId("card-list")
-    expect(list.scrollWidth).toBeLessThanOrEqual(list.clientWidth)
+    await expect(list.scrollWidth).toBeLessThanOrEqual(list.clientWidth)
 
     // The long question title wraps rather than being clipped to one line:
     // more than one line-box tall, and no wider than the row it sits in.
     const longCard = canvas.getByTestId("question-card-0")
     const title = longCard.getBoundingClientRect()
-    expect(title.height).toBeGreaterThan(60)
-    expect(title.width).toBeLessThanOrEqual(390)
+    await expect(title.height).toBeGreaterThan(60)
+    await expect(title.width).toBeLessThanOrEqual(390)
   },
 }
 
@@ -2535,11 +2539,11 @@ export const MarkdownStructureIsColouredByRole: Story = {
     // Five roles, five distinct colours — a regression that collapses two of
     // them (a heading losing its hue, a link rendering as body text) drops
     // the set size.
-    expect(new Set(colors).size).toBe(5)
+    await expect(new Set(colors).size).toBe(5)
 
     // Depth is the thing that separates the two headings, so it is asserted
     // on its own rather than left to the set above.
-    expect(getComputedStyle(section).color).not.toBe(getComputedStyle(subsection).color)
+    await expect(getComputedStyle(section).color).not.toBe(getComputedStyle(subsection).color)
   },
 }
 
@@ -2625,21 +2629,21 @@ export const ABlockWithANoteCarriesAColouredBadge: Story = {
     const canvas = within(canvasElement)
 
     const badge = canvas.getByTestId("note-badge-0")
-    expect(canvas.queryByTestId("note-badge-1")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("note-badge-1")).not.toBeInTheDocument()
 
     // Coloured, and not merely the body text colour — the badge is the one
     // cue that survives skimming past the block.
     const badgeColor = getComputedStyle(badge).color
-    expect(badgeColor).toBe(token("warning"))
-    expect(badgeColor).not.toBe(getComputedStyle(canvas.getByTestId("note-target-1")).color)
+    await expect(badgeColor).toBe(token("warning"))
+    await expect(badgeColor).not.toBe(getComputedStyle(canvas.getByTestId("note-target-1")).color)
 
     // Overlaid ON the block it belongs to, inside its box — never floating
     // in the gap between blocks, where it would read as belonging to either.
     const block = canvas.getByTestId("note-target-0").getBoundingClientRect()
     const mark = badge.getBoundingClientRect()
-    expect(mark.top).toBeGreaterThanOrEqual(block.top)
-    expect(mark.bottom).toBeLessThanOrEqual(block.bottom)
-    expect(mark.right).toBeLessThanOrEqual(block.right)
+    await expect(mark.top).toBeGreaterThanOrEqual(block.top)
+    await expect(mark.bottom).toBeLessThanOrEqual(block.bottom)
+    await expect(mark.right).toBeLessThanOrEqual(block.right)
 
     // It marks the block; it does not replace the note's own text.
     await expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent("the remark itself")
@@ -2709,25 +2713,25 @@ export const TapsAnAnswerThenSavesANoteWithoutWaitingWritesInOrder: StoryObj<typ
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await openFirstQuestionCard(canvas)
-    fireEvent.click(canvas.getByTestId("option-radio-0"))
+    await fireEvent.click(canvas.getByTestId("option-radio-0"))
     // Single-item deck: `Back` at index 0 exits straight to the list —
     // fired with no `await` on the option tap's own write above.
-    fireEvent.click(canvas.getByTestId("deck-prev"))
+    await fireEvent.click(canvas.getByTestId("deck-prev"))
 
     await openNoteSeamAndType(canvas, "worth flagging")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
 
-    await waitFor(() => {
+    await waitFor(async () => {
       const calls = JSON.parse(canvas.getByTestId("mixed-write-calls").textContent ?? "[]") as {
         readonly kind: string
       }[]
-      expect(calls).toHaveLength(2)
+      await expect(calls).toHaveLength(2)
     })
     const calls = JSON.parse(canvas.getByTestId("mixed-write-calls").textContent ?? "[]") as {
       readonly kind: string
     }[]
-    expect(calls[0]?.kind).toBe("setValue")
-    expect(calls[1]?.kind).toBe("writeNote")
+    await expect(calls[0]?.kind).toBe("setValue")
+    await expect(calls[1]?.kind).toBe("writeNote")
   },
 }
 
@@ -2776,8 +2780,8 @@ export const ARefusedFirstWriteStillLetsTheSecondQueuedWriteRunAndReportItsOwnOu
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await openFirstQuestionCard(canvas)
-    fireEvent.click(canvas.getByTestId("option-radio-0"))
-    fireEvent.click(canvas.getByTestId("deck-prev"))
+    await fireEvent.click(canvas.getByTestId("option-radio-0"))
+    await fireEvent.click(canvas.getByTestId("deck-prev"))
 
     await openNoteSeamAndType(canvas, "worth flagging")
     await fireEvent.click(canvas.getByTestId("note-sheet-save"))
@@ -2790,6 +2794,6 @@ export const ARefusedFirstWriteStillLetsTheSecondQueuedWriteRunAndReportItsOwnOu
     const calls = JSON.parse(canvas.getByTestId("mixed-write-calls").textContent ?? "[]") as {
       readonly kind: string
     }[]
-    expect(calls.map((call) => call.kind)).toEqual(["setValue", "writeNote"])
+    await expect(calls.map((call) => call.kind)).toEqual(["setValue", "writeNote"])
   },
 }

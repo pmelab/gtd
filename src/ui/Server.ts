@@ -274,9 +274,9 @@ const readDevTemplate = (fs: FileSystem.FileSystem, root: string): Effect.Effect
     )
 
 /**
- * Rebuilds the browser bundle via the same tsdown config `npm run build` uses,
+ * Rebuilds the browser bundle via the same pack config `npx vp run build` uses,
  * with the gtd package's OWN directory as cwd — the invoking directory has no
- * `tsdown.config.ts` to select against. Called exactly ONCE, ahead of
+ * `vite.config.ts` to select against. Called exactly ONCE, ahead of
  * `listen`: the server lives for one step, so a mid-step rebuild would have
  * nothing left to reflect, and a build per unauthenticated request was
  * subprocess amplification for free.
@@ -288,7 +288,7 @@ const rebuildDevClientScript = (
 ): Effect.Effect<string, UiError> =>
   Effect.gen(function* () {
     const outcome = yield* runner
-      .bash(`cd ${JSON.stringify(root)} && npx tsdown --filter web`)
+      .bash(`cd ${JSON.stringify(root)} && npx vp pack --filter web`)
       .pipe(
         Effect.mapError(
           (e) => new UiError(`gtd ui --dev: could not rebuild the client: ${e.message}`),
@@ -313,7 +313,7 @@ const rebuildDevClientScript = (
 
 /**
  * `--dev`'s CSS sibling of `rebuildDevClientScript` — the packaged build's
- * own `npm run build` runs the Tailwind CLI as a step separate from tsdown
+ * own `npx vp run build` runs the Tailwind CLI as a step separate from tsdown
  * (see package.json), so `--dev` shells out to that same CLI rather than
  * teaching tsdown about CSS at all.
  */

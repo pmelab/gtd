@@ -32,9 +32,9 @@ const nextStatusLine = (next: BeatDocument["next"]): string =>
 
 /** Builds `{[key]: value}` for each entry whose value isn't `undefined` — the shared "omit absent optional fields" shape the header uses. */
 const definedFields = (
-  entries: readonly (readonly [string, unknown])[],
-): Record<string, unknown> => {
-  const result: Record<string, unknown> = {}
+  entries: readonly (readonly [string, string | undefined])[],
+): Record<string, string> => {
+  const result: Record<string, string> = {}
   for (const [key, value] of entries) if (value !== undefined) result[key] = value
   return result
 }

@@ -744,7 +744,7 @@ describe("resolveClientHtml", () => {
     const html = await Effect.runPromise(
       resolveClientHtml(true, runner, devFs) as Effect.Effect<string, UiError>,
     )
-    expect(bashCalls.some((c) => c.includes("tsdown"))).toBe(true)
+    expect(bashCalls.some((c) => c.includes("vp pack"))).toBe(true)
     expect(readCalls.some((p) => p.endsWith("index.html"))).toBe(true)
     expect(readCalls.some((p) => p.endsWith("main.js"))).toBe(true)
     expect(html).toContain("console.log('dev build')")
@@ -2257,7 +2257,7 @@ describe("runUiCommand", () => {
     const second = await fakeReqRes()
     expect(first.body[0]).toContain("console.log('dev build')")
     expect(second.body[0]).toContain("console.log('dev build')")
-    expect(bashCalls.filter((c) => c.includes("tsdown"))).toHaveLength(1)
+    expect(bashCalls.filter((c) => c.includes("vp pack"))).toHaveLength(1)
 
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
@@ -2560,7 +2560,7 @@ const startRealServer = async (
   // 15s (300 × 50ms), not `waitForWrites`'s 1s budget above — this poll waits
   // on a REAL bind behind a REAL `openssl`-generated cert (`generateSelfSignedCert`
   // shells out above), which this suite's own full `npm test` (build/lint/
-  // test:e2e:live/test:e2e:inmem all racing `test:unit` via turbo) can starve
+  // test:e2e:live/test:e2e:inmem all racing `test:unit` in parallel) can starve
   // of CPU for real seconds at a time — the same fact
   // `tests/integration/support/world.ts`'s own `UI_BOUND_URL_POLL_ATTEMPTS`
   // documents for the identical class of spawn.

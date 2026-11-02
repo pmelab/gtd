@@ -1,6 +1,4 @@
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import {
@@ -19,26 +17,16 @@ import {
 const QA_FORMAT = steeringFormatFor("qa")!
 const REVIEW_FORMAT = steeringFormatFor("review")!
 
-/**
- * Formats `content` with the repo's real `oxfmt` binary, under the repo's
- * own `.oxfmtrc.json` (`*.md` override: printWidth 80, proseWrap always) —
- * measured behaviour, not assumed. Each call gets its own scratch directory
- * so parallel tests never share a file.
- */
-const formatWithOxfmt = (content: string): string => {
-  const dir = mkdtempSync(join(tmpdir(), "gtd-footnote-oxfmt-"))
-  try {
-    writeFileSync(join(dir, ".oxfmtrc.json"), readFileSync(join(process.cwd(), ".oxfmtrc.json")))
-    const file = join(dir, "sample.md")
-    writeFileSync(file, content)
-    execFileSync(join(process.cwd(), "node_modules", ".bin", "oxfmt"), ["--write", file], {
-      cwd: dir,
-    })
-    return readFileSync(file, "utf8")
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-}
+/** Formats `content` with the repo's own `vp fmt` config, measured rather than assumed. */
+const formatWithOxfmt = (content: string): string =>
+  execFileSync(
+    join(process.cwd(), "node_modules", ".bin", "vp"),
+    ["fmt", "--stdin-filepath=sample.md"],
+    {
+      input: content,
+      encoding: "utf8",
+    },
+  )
 
 const nodesOf = (nodes: readonly SteeringViewNode[]): readonly SteeringViewNode[] =>
   nodes.flatMap((n) => [n, ...nodesOf(n.children ?? []), ...nodesOf(n.body ?? [])])

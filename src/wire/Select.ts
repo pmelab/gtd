@@ -18,7 +18,7 @@ const toSelection = (value: unknown): Selection => {
   if (typeof value === "object") {
     return { kind: "value", text: JSON.stringify(value) }
   }
-  return { kind: "value", text: String(value) }
+  return { kind: "value", text: String(value as string | number | boolean | bigint | undefined) }
 }
 
 /** A segment that resolves to no key at all (missing from an object, out-of-range or non-numeric against an array) — distinct from a present key holding `undefined`. */

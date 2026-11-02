@@ -215,7 +215,7 @@ first on `PATH`, so agent beats and scripts run that same version; a global
 version whose workflow changed can strand a process already underway, as with
 any gtd upgrade: finish or ship it before updating.
 
-To try a checkout instead, build it (`npm run build`) and load the repository
+To try a checkout instead, build it (`npx vp run build`) and load the repository
 for one session: `claude --plugin-dir /path/to/gtd`. A checkout without a build
 falls back to the `gtd` on your `PATH`.
 

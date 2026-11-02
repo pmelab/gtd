@@ -376,6 +376,9 @@ describe("documentLinksFor", () => {
   })
 })
 
+const messageOf = (d: Diagnostic): string =>
+  typeof d.message === "string" ? d.message : d.message.value
+
 describe("diagnosticsFor open threads", () => {
   const doc = [
     "## Open Questions",
@@ -474,7 +477,7 @@ describe("diagnosticsFor", () => {
       "",
     ].join("\n")
     const diagnostics = diagnosticsFor(QA_FORMAT, content)
-    const ordering = diagnostics.find((d) => String(d.message).includes("must come last"))
+    const ordering = diagnostics.find((d) => messageOf(d).includes("must come last"))
     expect(ordering?.range).toEqual({
       start: { line: 6, character: 0 },
       end: { line: 6, character: "## Notes".length },
@@ -491,7 +494,7 @@ describe("diagnosticsFor", () => {
       "",
     ].join("\n")
     const diagnostics = diagnosticsFor(REVIEW_FORMAT, content)
-    const headerFinding = diagnostics.find((d) => String(d.message).includes("# Review: <hash>"))
+    const headerFinding = diagnostics.find((d) => messageOf(d).includes("# Review: <hash>"))
     expect(headerFinding?.range).toEqual({
       start: { line: 0, character: 0 },
       end: { line: 0, character: "<!-- base: abc1234def5678901234567890123456789abcd -->".length },
@@ -509,7 +512,7 @@ describe("diagnosticsFor", () => {
     ].join("\n")
     const lines = content.split("\n")
     const diagnostics = diagnosticsFor(REVIEW_FORMAT, content)
-    const baseFinding = diagnostics.find((d) => String(d.message).includes("base: <hash>"))
+    const baseFinding = diagnostics.find((d) => messageOf(d).includes("base: <hash>"))
     expect(baseFinding?.range).toEqual({
       start: { line: 0, character: 0 },
       end: { line: lines.length - 1, character: lines[lines.length - 1]!.length },
@@ -931,6 +934,12 @@ const fakeConnection = () => {
       handlers[name] = handler
       return disposable
     }
+  // Held apart from `connection` so tests assert on the spies, not on unbound methods.
+  const window = {
+    showInformationMessage: vi.fn(),
+    showErrorMessage: vi.fn(),
+    showDocument: vi.fn(async () => true),
+  }
   const connection = {
     onInitialize: register("onInitialize"),
     onDocumentSymbol: register("onDocumentSymbol"),
@@ -940,11 +949,7 @@ const fakeConnection = () => {
     onExecuteCommand: register("onExecuteCommand"),
     sendDiagnostics: vi.fn(),
     console: { warn: vi.fn() },
-    window: {
-      showInformationMessage: vi.fn(),
-      showErrorMessage: vi.fn(),
-      showDocument: vi.fn(async () => true),
-    },
+    window,
     listen: vi.fn(),
     onExit: register("onExit"),
     onDidOpenTextDocument: register("onDidOpenTextDocument"),
@@ -954,7 +959,7 @@ const fakeConnection = () => {
     onWillSaveTextDocumentWaitUntil: register("onWillSaveTextDocumentWaitUntil"),
     onDidSaveTextDocument: register("onDidSaveTextDocument"),
   } as unknown as SteeringConnection
-  return { connection, handlers }
+  return { connection, handlers, window }
 }
 
 /** A minimal fake `SteeringDocuments` — `fire.open`/`fire.change` invoke whatever handler `bindSteeringServer` registered, simulating an editor's open/edit lifecycle with no real `TextDocument`. */
@@ -1022,14 +1027,14 @@ describe("bindSteeringServer", () => {
 
   it("returns null for an unknown executeCommand outcome, without touching connection.window", async () => {
     const service = fakeService()
-    const { connection, handlers } = fakeConnection()
+    const { connection, handlers, window } = fakeConnection()
     const { documents } = fakeDocuments()
     bindSteeringServer(connection, documents, service)
 
     const result = await handlers["onExecuteCommand"]!({ command: "unknown", arguments: [] })
     expect(result).toBeNull()
-    expect(connection.window.showInformationMessage).not.toHaveBeenCalled()
-    expect(connection.window.showDocument).not.toHaveBeenCalled()
+    expect(window.showInformationMessage).not.toHaveBeenCalled()
+    expect(window.showDocument).not.toHaveBeenCalled()
   })
 
   it("an 'inform' outcome calls showInformationMessage", async () => {
@@ -1038,13 +1043,13 @@ describe("bindSteeringServer", () => {
         async (): Promise<ExecuteCommandOutcome> => ({ kind: "inform", message: "no file here" }),
       ),
     })
-    const { connection, handlers } = fakeConnection()
+    const { connection, handlers, window } = fakeConnection()
     const { documents } = fakeDocuments()
     bindSteeringServer(connection, documents, service)
 
     await handlers["onExecuteCommand"]!({ command: "gtd.openSteeringFile", arguments: [] })
-    expect(connection.window.showInformationMessage).toHaveBeenCalledWith("no file here")
-    expect(connection.window.showDocument).not.toHaveBeenCalled()
+    expect(window.showInformationMessage).toHaveBeenCalledWith("no file here")
+    expect(window.showDocument).not.toHaveBeenCalled()
   })
 
   it("a 'show' outcome calls showDocument", async () => {
@@ -1053,12 +1058,12 @@ describe("bindSteeringServer", () => {
         async (): Promise<ExecuteCommandOutcome> => ({ kind: "show", uri: "file:///repo/TODO.md" }),
       ),
     })
-    const { connection, handlers } = fakeConnection()
+    const { connection, handlers, window } = fakeConnection()
     const { documents } = fakeDocuments()
     bindSteeringServer(connection, documents, service)
 
     await handlers["onExecuteCommand"]!({ command: "gtd.openSteeringFile", arguments: [] })
-    expect(connection.window.showDocument).toHaveBeenCalledWith({ uri: "file:///repo/TODO.md" })
+    expect(window.showDocument).toHaveBeenCalledWith({ uri: "file:///repo/TODO.md" })
   })
 
   it("a 'show' outcome carrying a selection passes it and takeFocus:true to showDocument", async () => {
@@ -1071,12 +1076,12 @@ describe("bindSteeringServer", () => {
         }),
       ),
     })
-    const { connection, handlers } = fakeConnection()
+    const { connection, handlers, window } = fakeConnection()
     const { documents } = fakeDocuments()
     bindSteeringServer(connection, documents, service)
 
     await handlers["onExecuteCommand"]!({ command: "gtd.revealPosition", arguments: [] })
-    expect(connection.window.showDocument).toHaveBeenCalledWith({
+    expect(window.showDocument).toHaveBeenCalledWith({
       uri: "file:///repo/TODO.md",
       selection: { start: { line: 3, character: 7 }, end: { line: 3, character: 7 } },
       takeFocus: true,
@@ -1089,12 +1094,12 @@ describe("bindSteeringServer", () => {
         async (): Promise<ExecuteCommandOutcome> => ({ kind: "error", message: "boom" }),
       ),
     })
-    const { connection, handlers } = fakeConnection()
+    const { connection, handlers, window } = fakeConnection()
     const { documents } = fakeDocuments()
     bindSteeringServer(connection, documents, service)
 
     await handlers["onExecuteCommand"]!({ command: "gtd.openSteeringFile", arguments: [] })
-    expect(connection.window.showErrorMessage).toHaveBeenCalledWith("boom")
+    expect(window.showErrorMessage).toHaveBeenCalledWith("boom")
   })
 
   it("delegates initialize/documentSymbol/codeAction/definition to the service", async () => {

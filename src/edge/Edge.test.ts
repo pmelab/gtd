@@ -757,7 +757,7 @@ describe("restAt", () => {
         `--model=${model}`,
       )
       expect(exitCode).toBe(0)
-      await applied(repo, (JSON.parse(stdout) as { readonly script: string }).script)
+      applied(repo, (JSON.parse(stdout) as { readonly script: string }).script)
       await takePinBeat(repo, "add")
     }
     const { cost } = await provide(currentRest, repo)

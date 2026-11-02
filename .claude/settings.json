@@ -1,33 +1,30 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npm run lint)",
-      "Bash(npm run typecheck)",
-      "Bash(npm run format:check)",
-      "Bash(npm run test:unit)",
+      "Bash(npx vp run check)",
+      "Bash(npx vp run test:unit)",
       "Bash(npm run test:e2e)",
       "Bash(npm test)",
       "Bash(npx tsc --noEmit)",
       "Bash(npx vitest run --project unit *)",
       "Bash(npx vitest run --project e2e *)",
-      "Bash(npm run typecheck *)",
-      "Bash(npm run lint *)",
-      "Bash(npm run test:unit *)",
+      "Bash(npx vp run check *)",
+      "Bash(npx vp run test:unit *)",
       "Bash(npx vitest run *)",
       "Bash(npx fallow health *)",
       "Bash(npx fallow --summary *)",
       "Bash(npx fallow --quiet *)",
       "Bash(npx fallow)",
       "Bash(npx fallow --summary)",
-      "Bash(npx oxlint .)",
-      "Bash(npx oxfmt --check .)",
-      "Bash(npx oxfmt --check *)",
+      "Bash(npx vp check)",
+      "Bash(npx vp fmt --check)",
+      "Bash(npx vp fmt --check *)",
       "Bash(gtd next*)",
       "Bash(gtd status*)",
       "Bash(gtd validate*)",
       "Bash(gtd visualize --json*)",
       "Bash(gtd version*)",
-      "Bash(npm run build)",
+      "Bash(npx vp run build)",
       "mcp__github__actions_list"
     ],
     "deny": ["Bash(npm run test:mutation)", "Bash(npx stryker run)", "Bash(stryker run)"]
@@ -49,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx oxfmt --no-error-on-unmatched-pattern --write \"$CLAUDE_TOOL_INPUT_FILE_PATH\""
+            "command": "npx vp fmt --no-error-on-unmatched-pattern \"$CLAUDE_TOOL_INPUT_FILE_PATH\""
           }
         ]
       }

@@ -234,7 +234,7 @@ describe("shellQuote", () => {
   })
 
   // 500 samples through 500 bash spawns starved the 30s test timeout whenever
-  // the suite ran under turbo's parallel task load. The property is unchanged;
+  // the suite ran under `npm test`'s parallel task load. The property is unchanged;
   // all samples now round-trip through a SINGLE bash, NUL-delimited on the way
   // back out (NUL is filtered from the inputs, so it can't collide).
   it("round-trips arbitrary strings — including newlines and non-ASCII — through a real bash printf", () => {

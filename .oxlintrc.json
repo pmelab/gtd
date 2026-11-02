@@ -60,7 +60,7 @@
     {
       // `.stories.tsx` files are exactly as test-only as `.test.ts` — never
       // part of `src/main.ts`'s production import graph (Storybook-only,
-      // excluded from `npm run build`) — so `src/web/testing/**` helpers
+      // excluded from `npx vp run build`) — so `src/web/testing/**` helpers
       // built for them need the same carve-out `src/testkit/**` gets.
       "files": ["**/*.stories.tsx"],
       "rules": {
@@ -74,5 +74,5 @@
       }
     }
   ],
-  "ignorePatterns": ["dist", "node_modules", "scripts", ".stryker-tmp", "reports"]
+  "ignorePatterns": ["dist", "node_modules", ".stryker-tmp", "reports"]
 }

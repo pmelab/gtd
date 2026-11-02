@@ -29,7 +29,10 @@
     // The Claude Code mod: Claude Code loads it by the path hooks/hooks.json names.
     "claude/hooks/register.tsx",
     // Run by .releaserc.json's prepareCmd, which no package.json script names.
-    "scripts/sync-plugin-version.mjs"
+    "scripts/sync-plugin-version.mjs",
+    // Run by vite.config.ts's run tasks, which fallow does not read.
+    "scripts/assert-no-test-doubles.mjs",
+    "scripts/generate-shell-corpus.ts"
   ],
   "duplicates": {
     // Hide pair-only clones; focus on widespread copy-paste worth refactoring.
@@ -55,8 +58,8 @@
   // react/react-dom/@tanstack/react-query/@trpc/client/@trpc/react-query are imported from
   // production `src/web/**` source but deliberately stay `devDependencies`, never
   // `dependencies` — they're inlined into `src/ui/client.generated.html` at BUILD time
-  // (`tsdown.config.ts`'s `web` bundle) and never required unbundled at runtime.
-  // `tests/tooling/turbo.test.ts`'s own "keeps browser-only web-client packages out of
+  // (`vite.config.ts`'s `web` pack entry) and never required unbundled at runtime.
+  // `tests/tooling/vp-run.test.ts`'s own "keeps browser-only web-client packages out of
   // dependencies" test pins this the other way from fallow's own default heuristic.
   "ignoreDependencies": [
     // The mod API Claude Code provides to a loaded mod; no package to install.
@@ -79,7 +82,9 @@
     "@radix-ui/colors",
     // Imported by src/gherkin/index.ts, which only the vitest `workflows`
     // project loads — never the bundle (production-never-imports-testkit).
-    "quickpickle"
+    "quickpickle",
+    // Run by vite.config.ts's `build` task via npx.
+    "@tailwindcss/cli"
   ],
   "health": {
     "thresholdOverrides": [

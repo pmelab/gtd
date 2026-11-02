@@ -131,11 +131,11 @@ export const BothChunkControlsMeetThe44pxFloor: Story = {
     await viewport(390, 844)
     const canvas = within(canvasElement)
     const openRect = canvas.getByTestId("chunk-open-0").getBoundingClientRect()
-    expect(openRect.width).toBeGreaterThanOrEqual(44)
-    expect(openRect.height).toBeGreaterThanOrEqual(44)
+    await expect(openRect.width).toBeGreaterThanOrEqual(44)
+    await expect(openRect.height).toBeGreaterThanOrEqual(44)
     const noteRect = canvas.getByTestId("chunk-note-0").getBoundingClientRect()
-    expect(noteRect.width).toBeGreaterThanOrEqual(44)
-    expect(noteRect.height).toBeGreaterThanOrEqual(44)
+    await expect(noteRect.width).toBeGreaterThanOrEqual(44)
+    await expect(noteRect.height).toBeGreaterThanOrEqual(44)
   },
 }
 
@@ -146,8 +146,8 @@ export const ChunkCheckAllMeetsThe44pxFloor: Story = {
     await viewport(390, 844)
     const canvas = within(canvasElement)
     const rect = canvas.getByTestId("chunk-check-all-label-0").getBoundingClientRect()
-    expect(rect.width).toBeGreaterThanOrEqual(44)
-    expect(rect.height).toBeGreaterThanOrEqual(44)
+    await expect(rect.width).toBeGreaterThanOrEqual(44)
+    await expect(rect.height).toBeGreaterThanOrEqual(44)
   },
 }
 
@@ -166,9 +166,9 @@ export const ChunkOpenPressedStateDiffersFromRest: Story = {
     const canvas = within(canvasElement)
     const open = canvas.getByTestId("chunk-open-0")
     const openRest = getComputedStyle(open).backgroundColor
-    await withRealMousePress(open, () => {
-      expect(getComputedStyle(open).backgroundColor).not.toBe(openRest)
-      expect(getComputedStyle(open).backgroundColor).toBe(token("surface"))
+    await withRealMousePress(open, async () => {
+      await expect(getComputedStyle(open).backgroundColor).not.toBe(openRest)
+      await expect(getComputedStyle(open).backgroundColor).toBe(token("surface"))
     })
   },
 }
@@ -180,9 +180,9 @@ export const ChunkNotePressedStateDiffersFromRest: Story = {
     const canvas = within(canvasElement)
     const note = canvas.getByTestId("chunk-note-0")
     const noteRest = getComputedStyle(note).backgroundColor
-    await withRealMousePress(note, () => {
-      expect(getComputedStyle(note).backgroundColor).not.toBe(noteRest)
-      expect(getComputedStyle(note).backgroundColor).toBe(token("border"))
+    await withRealMousePress(note, async () => {
+      await expect(getComputedStyle(note).backgroundColor).not.toBe(noteRest)
+      await expect(getComputedStyle(note).backgroundColor).toBe(token("border"))
     })
   },
 }
@@ -212,7 +212,7 @@ export const ChunkOpenButtonDisabledWhenNoHunks: Story = {
     // `Button`'s ghost variant: rest text is `--color-text` (#f0f0f0), disabled
     // text is `--color-disabled` (#5a5a5e) — the computed style, not just the
     // `disabled` DOM attribute, is what actually proves it's visually distinct.
-    expect(getComputedStyle(button).color).toBe(token("disabled"))
+    await expect(getComputedStyle(button).color).toBe(token("disabled"))
   },
 }
 
@@ -291,22 +291,22 @@ export const AChunkDescriptionsHeadingAndFencedCodeBlockRenderNowhereOnTheChunks
     // The bold word inside that same row is a real element, not literal
     // `**heading**` asterisks.
     const strong = card.querySelector("strong")
-    expect(strong).not.toBeNull()
-    expect(strong).toHaveTextContent("heading")
+    await expect(strong).not.toBeNull()
+    await expect(strong).toHaveTextContent("heading")
 
     await fireEvent.click(canvas.getByTestId("chunk-open-3"))
 
     // The hunk deck renders none of `body` — even for a chunk carrying a
     // heading and a fenced code block, `chunk.body` is dropped entirely, not
     // collapsed or shown on the first hunk only.
-    expect(canvas.queryByTestId("prose-paragraphs")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("prose-paragraphs")).not.toBeInTheDocument()
 
     // `Deck` is the hunk screen's only flex child now — no `shrink-0
     // overflow-auto border-b` sibling above it reserving vertical space, so
     // the whole `hunk-deck` box is exactly the one `deck` element.
     const hunkDeck = canvas.getByTestId("hunk-deck")
-    expect(hunkDeck.children).toHaveLength(1)
-    expect(hunkDeck.firstElementChild).toBe(canvas.getByTestId("deck"))
+    await expect(hunkDeck.children).toHaveLength(1)
+    await expect(hunkDeck.firstElementChild).toBe(canvas.getByTestId("deck"))
 
     // The measured payoff: `deck`'s own box is the FULL `hunk-deck` box, not
     // a fraction of it reduced by a reserved header above it — a regression
@@ -314,11 +314,11 @@ export const AChunkDescriptionsHeadingAndFencedCodeBlockRenderNowhereOnTheChunks
     // height below `hunk-deck`'s without shrinking `hunk-deck` itself.
     const hunkDeckRect = hunkDeck.getBoundingClientRect()
     const deckRect = canvas.getByTestId("deck").getBoundingClientRect()
-    expect(deckRect.height).toBe(hunkDeckRect.height)
+    await expect(deckRect.height).toBe(hunkDeckRect.height)
     // The positive control: `hunk-deck` itself genuinely fills most of the
     // 844px viewport column (`App.tsx`'s own shell), so the assertion above
     // is pinning something worth reclaiming, not two empty boxes agreeing.
-    expect(hunkDeckRect.height).toBeGreaterThan(700)
+    await expect(hunkDeckRect.height).toBeGreaterThan(700)
   },
 }
 
@@ -352,7 +352,7 @@ export const ChunkRowImageCollapsesToAltTextNoRemoteFetch: Story = {
     const canvas = within(canvasElement)
     const card = canvas.getByTestId("chunk-card-0")
     await expect(card).toHaveTextContent("See a diagram here.")
-    expect(card.querySelector("img")).toBeNull()
+    await expect(card.querySelector("img")).toBeNull()
   },
 }
 
@@ -602,7 +602,7 @@ export const BackFromAChunksDeckRestoresScrollPosition: Story = {
     await fireEvent.click(canvas.getByTestId("deck-prev"))
     await expect(canvas.getByTestId("review-screen")).toBeInTheDocument()
     await new Promise((resolve) => requestAnimationFrame(resolve))
-    expect(canvas.getByTestId("review-scroll-container").scrollTop).toBe(500)
+    await expect(canvas.getByTestId("review-scroll-container").scrollTop).toBe(500)
   },
 }
 
@@ -954,7 +954,7 @@ export const RealContainerRendersHeadUnresolvedWithNoRetry: StoryObj<typeof Revi
     await waitFor(() =>
       expect(canvas.getByText(/Can't read this repository's current commit/)).toBeInTheDocument(),
     )
-    expect(canvas.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument()
+    await expect(canvas.queryByRole("button", { name: /try again/i })).not.toBeInTheDocument()
   },
 }
 
@@ -981,7 +981,7 @@ export const RealContainerRendersFileVanishedByName: StoryObj<typeof Review> = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByText(/no longer being served/)).toBeInTheDocument())
-    expect(canvas.queryByText("Could not load the review.")).not.toBeInTheDocument()
+    await expect(canvas.queryByText("Could not load the review.")).not.toBeInTheDocument()
   },
 }
 
@@ -997,7 +997,8 @@ export const RealContainerFetchesTheCurrentHunksDiffLive: StoryObj<typeof Review
           view: SAMPLE_REVIEW_VIEW,
         }),
         diff: (input) => {
-          expect(input).toEqual({ path: "./src/calc.ts", line: 1 })
+          const { path, line } = input as { path: string; line: number }
+          if (path !== "./src/calc.ts" || line !== 1) throw new Error(`diff(${path}, ${line})`)
           return {
             kind: "hunk",
             diff: { path: "./src/calc.ts", hunks: [] },
@@ -1116,7 +1117,9 @@ export const RealContainerRecoversInPlaceFromAStaleShaRefusal: StoryObj<typeof R
                 },
               }
             }
-            expect((input as { expectedHeadSha: string }).expectedHeadSha).toBe("def456")
+            // Resolvers run synchronously: a failed write is how this asserts.
+            const { expectedHeadSha } = input as { expectedHeadSha: string }
+            if (expectedHeadSha !== "def456") throw new Error(`retried on ${expectedHeadSha}`)
             return { ok: true }
           },
         }}
@@ -1138,7 +1141,7 @@ export const RealContainerRecoversInPlaceFromAStaleShaRefusal: StoryObj<typeof R
     // The silent retry must never surface the refusal banner — see
     // `Plan.stories.tsx#RealContainerRecoversInPlaceFromAStaleShaRefusal`'s
     // identical doc comment for why a "Saved" status label is fine here.
-    expect(canvas.queryByText(/committed a change underneath you/)).not.toBeInTheDocument()
+    await expect(canvas.queryByText(/committed a change underneath you/)).not.toBeInTheDocument()
   },
 }
 
@@ -1694,10 +1697,10 @@ export const ChunkListHeaderCountsApprovedChunks: Story = {
   play: async ({ canvasElement }) => {
     await viewport(390, 844)
     const canvas = within(canvasElement)
-    expect(canvas.getByTestId("review-progress")).toHaveTextContent("1 / 2 chunks approved")
+    await expect(canvas.getByTestId("review-progress")).toHaveTextContent("1 / 2 chunks approved")
 
     await fireEvent.click(canvas.getByTestId("chunk-check-all-1"))
-    expect(canvas.getByTestId("review-progress")).toHaveTextContent("2 / 2 chunks approved")
+    await expect(canvas.getByTestId("review-progress")).toHaveTextContent("2 / 2 chunks approved")
   },
 }
 
@@ -1724,7 +1727,7 @@ export const AChunksNoteReplacesItsNoteControlAndReopensForEditing: Story = {
 
     const note = canvas.getByTestId("chunk-note-0")
     await expect(note).toHaveTextContent("The retry loop needs a ceiling.")
-    expect(note.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
+    await expect(note.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
 
     // Tapping the note reopens the sheet on that same text, ready to edit.
     await fireEvent.click(note)
@@ -1843,14 +1846,14 @@ export const ReviewDoneDisabledWhileAWriteIsPending: StoryObj<typeof Review> = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("review-done")).toBeInTheDocument())
-    expect(canvas.getByTestId("review-done")).not.toBeDisabled()
+    await expect(canvas.getByTestId("review-done")).not.toBeDisabled()
 
     await fireEvent.click(canvas.getByTestId("chunk-check-all-0"))
     await waitFor(() => expect(canvas.getByTestId("review-done")).toBeDisabled())
 
     await fireEvent.click(canvas.getByTestId("review-done"))
-    expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
-    expect(canvas.getByTestId("done-call-count")).toHaveTextContent("0")
+    await expect(canvas.queryByTestId("handed-back-panel")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("done-call-count")).toHaveTextContent("0")
 
     await fireEvent.click(canvas.getByTestId("settle-write"))
     await waitFor(() => expect(canvas.getByTestId("review-done")).not.toBeDisabled())
@@ -1898,7 +1901,7 @@ export const DeckDoneDisabledWhileAWriteIssuedFromTheListIsPending: StoryObj<typ
     await fireEvent.click(canvas.getByTestId("chunk-open-0"))
 
     await waitFor(() => expect(canvas.getByTestId("deck-done")).toBeInTheDocument())
-    expect(canvas.getByTestId("deck-done")).toBeDisabled()
+    await expect(canvas.getByTestId("deck-done")).toBeDisabled()
 
     await fireEvent.click(canvas.getByTestId("settle-write"))
     await waitFor(() => expect(canvas.getByTestId("deck-done")).not.toBeDisabled())
@@ -1936,13 +1939,13 @@ export const ReviewDoneDisablesImmediatelyOnTapBeforeTheResponseLands: StoryObj<
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("review-done")).toBeInTheDocument())
-    expect(canvas.getByTestId("review-done")).not.toBeDisabled()
+    await expect(canvas.getByTestId("review-done")).not.toBeDisabled()
 
     await fireEvent.click(canvas.getByTestId("review-done"))
     // No `waitFor`/`await` for the mutation itself — `done`'s own promise
     // never resolves, so a disable that depended on its response would still
     // read `false` here.
-    expect(canvas.getByTestId("review-done")).toBeDisabled()
+    await expect(canvas.getByTestId("review-done")).toBeDisabled()
   },
 }
 
@@ -2017,14 +2020,14 @@ export const TwoQuickHunkTicksSerializeThroughTheWriteStore: StoryObj<typeof Rev
     // auto-advances the deck to hunk B in the SAME synchronous event-handler
     // flush, so the second `fireEvent.click` below lands on hunk B's own
     // (now-mounted) checkbox before hunk A's `setValue` call has resolved.
-    fireEvent.click(canvas.getByTestId("hunk-tick"))
-    fireEvent.click(canvas.getByTestId("hunk-tick"))
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
 
-    await waitFor(() => {
+    await waitFor(async () => {
       const calls = JSON.parse(
         canvas.getByTestId("set-value-calls").textContent ?? "[]",
       ) as readonly { readonly anchor: { readonly index: number } }[]
-      expect(calls).toHaveLength(2)
+      await expect(calls).toHaveLength(2)
     })
 
     const calls = JSON.parse(
@@ -2035,13 +2038,13 @@ export const TwoQuickHunkTicksSerializeThroughTheWriteStore: StoryObj<typeof Rev
     }[]
     // Order: hunk A (index 0) first, hunk B (index 1) second — never
     // collapsed, never reordered.
-    expect(calls[0]?.anchor.index).toBe(0)
-    expect(calls[1]?.anchor.index).toBe(1)
+    await expect(calls[0]?.anchor.index).toBe(0)
+    await expect(calls[1]?.anchor.index).toBe(1)
     // The second call's token is the FIRST call's own post-format hash
     // ("deadbeef-1"), read inside the queued thunk at dequeue time — not
     // "deadbeef", the query cache's value at the time both taps fired.
-    expect(calls[0]?.expectedContentHash).toBe("deadbeef")
-    expect(calls[1]?.expectedContentHash).toBe("deadbeef-1")
+    await expect(calls[0]?.expectedContentHash).toBe("deadbeef")
+    await expect(calls[1]?.expectedContentHash).toBe("deadbeef-1")
   },
 }
 
@@ -2137,9 +2140,9 @@ export const ABurstOfThreeRefusalsShowsTheLatestPlusACountOfTheOthers: StoryObj<
     // hunk and auto-advances the deck to the next one in the same
     // synchronous flush, so all three land on three different hunks' own
     // checkboxes before any of their writes has settled.
-    fireEvent.click(canvas.getByTestId("hunk-tick"))
-    fireEvent.click(canvas.getByTestId("hunk-tick"))
-    fireEvent.click(canvas.getByTestId("hunk-tick"))
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
 
     await waitFor(() =>
       expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
@@ -2165,7 +2168,7 @@ export const ABurstOfThreeRefusalsShowsTheLatestPlusACountOfTheOthers: StoryObj<
         "and 1 other write didn't land",
       ),
     )
-    expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
+    await expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
       "The file's content changed underneath you",
     )
   },
@@ -2216,8 +2219,8 @@ export const DismissClearsEveryFailedTargetAtOnce: StoryObj<typeof Review> = {
     // Two taps, no `await` between them — hunk A (index 0) then hunk B
     // (index 1) both refuse; the indicator currently shows B's own sentence
     // plus "…and 1 other write didn't land".
-    fireEvent.click(canvas.getByTestId("hunk-tick"))
-    fireEvent.click(canvas.getByTestId("hunk-tick"))
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
+    await fireEvent.click(canvas.getByTestId("hunk-tick"))
     await waitFor(() =>
       expect(canvas.getByTestId("save-indicator-message")).toHaveTextContent(
         "and 1 other write didn't land",
@@ -2283,7 +2286,7 @@ export const RefusingAChunkCheckAllFilesExactlyOneDotNotOnePerHunk: StoryObj<typ
     )
     // The suffix exists ONLY when `otherFailedCount > 0` — its absence here
     // is the assertion that one refused write is exactly one dot, not three.
-    expect(canvas.getByTestId("save-indicator-message")).not.toHaveTextContent("other write")
+    await expect(canvas.getByTestId("save-indicator-message")).not.toHaveTextContent("other write")
 
     await fireEvent.click(canvas.getByTestId("save-indicator-dismiss"))
     await waitFor(() => expect(canvas.getByTestId("chunk-check-all-0")).not.toBeChecked())
@@ -2426,9 +2429,9 @@ export const TheFullRefusalLifecycleEndsOnALaterSuccessNotDismiss: StoryObj<type
     // same hunk for the second tick.
     await fireEvent.click(canvas.getByTestId("chunk-open-0"))
     await fireEvent.click(canvas.getByTestId("hunk-tick"))
-    await waitFor(() => {
-      expect(canvas.queryByTestId("save-indicator-marker")).not.toBeInTheDocument()
-      expect(canvas.queryByTestId("save-indicator-expanded")).not.toBeInTheDocument()
+    await waitFor(async () => {
+      await expect(canvas.queryByTestId("save-indicator-marker")).not.toBeInTheDocument()
+      await expect(canvas.queryByTestId("save-indicator-expanded")).not.toBeInTheDocument()
     })
   },
 }
@@ -2474,7 +2477,7 @@ export const TwoScreensMountedSideBySideShareNoStore: StoryObj<typeof Review> = 
     const screenB = within(canvas.getByTestId("screen-b"))
 
     await waitFor(() => expect(screenA.getByTestId("chunk-check-all-0")).toBeInTheDocument())
-    expect(screenB.getByTestId("review-done")).not.toBeDisabled()
+    await expect(screenB.getByTestId("review-done")).not.toBeDisabled()
 
     // A's own write never settles — this is `busy` staying true in A for
     // the rest of the story.
@@ -2483,7 +2486,7 @@ export const TwoScreensMountedSideBySideShareNoStore: StoryObj<typeof Review> = 
 
     // B's own `review-done` must stay enabled the whole time — a shared
     // store would disable it the instant A's own write was issued.
-    expect(screenB.getByTestId("review-done")).not.toBeDisabled()
+    await expect(screenB.getByTestId("review-done")).not.toBeDisabled()
   },
 }
 

@@ -75,21 +75,19 @@ decided by the tiers in [COMPATIBILITY.md](COMPATIBILITY.md).
 
 ### Task graph and caching
 
-`npm test` is a runner that wraps `turbo run` once per release-flag state — the
+`npm test` is a runner that wraps `vp run` once per release-flag state — the
 runner pins every release flag explicitly (`GTD_FLAG_<NAME>=1`/`0`; the
 in-memory tier picks it up from the ambient env, explicit test env wins): a base
 state at registry defaults, then each release flag flipped alone, so each
 release flag adds a full vitest pass to every gate and CI. It is not a serial
-`&&` chain — each check is a task with its own `inputs`, so it's cached (skipped
-when its inputs are unchanged since the last green run) and run in parallel with
+`&&` chain — each check is a task in `vite.config.ts`, cached (skipped when the
+files it read are unchanged since the last green run) and run in parallel with
 the others. Two rules a future change must not break: adding a check means
-adding all three of a `package.json` script, a `turbo.json` task with an
-explicit `inputs` array, and that task's name in the runner's `TASKS` list — a
-task missing any of the three fails `tests/tooling/turbo.test.ts`. And
-under-declared `inputs` cache a stale green: the canonical example is `docs/**`
-in `test:unit` and both e2e tasks' `inputs`, because
-`tests/integration/features/driver-doc.feature` runs `docs/driver.md` as
-executable code — omitting it would let a broken doc pass on a cached result.
+adding both a `vite.config.ts` task and its name in the runner's `TASKS` list —
+a task missing either fails `tests/tooling/vp-run.test.ts`. And inputs are
+tracked by watching what a task reads, which misses reads by macOS system
+binaries (`/usr/bin/git`): a task whose result depends on repository files read
+only through git must declare them in its `input`, or it caches a stale green.
 
 Those release flags are gtd's own registry's (empty today). A workflow's own
 release flag — a `flag_<name>` setting it declares, pinned from
@@ -115,16 +113,16 @@ not worth publishing there, the test wanting it is testing the wrong thing.
 ### `.gtd/` is formatted, not ignored
 
 `.gtd/` carries no `.prettierignore` entry — every file under it, steering files
-included, is oxfmt-formatted and covered by `format:check` like the rest of the
-repository. A committed steering file that is not an oxfmt fixed point reds
+included, is oxfmt-formatted and covered by the `check` task like the rest of
+the repository. A committed steering file that is not an oxfmt fixed point reds
 every gate that runs the test suite: `start-gate`, `review-gate`, and
 `fix-precheck` alike.
 
 Two mechanisms keep files there conforming, and neither is new code: husky →
-lint-staged runs `oxfmt --write` over staged files during the step commit, and a
-step that declares a `mode` carries its own `format:`/`validate:` pair, run by
-the DRIVER (via `gtd next --json`'s `validate` field, or `gtd validate`) ahead
-of `gtd land` — never emitted into the landing script.
+`vp staged` runs `vp fmt` over staged files during the step commit, and a step
+that declares a `mode` carries its own `format:`/`validate:` pair, run by the
+DRIVER (via `gtd next --json`'s `validate` field, or `gtd validate`) ahead of
+`gtd land` — never emitted into the landing script.
 
 ## Manual testing
 
