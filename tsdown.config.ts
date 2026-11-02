@@ -40,7 +40,7 @@ const gtdBinary = {
 // src/ui/client.generated.html (gitignored), which the `gtd` config imports
 // through the ".html" text loader. tsdown builds array entries in PARALLEL
 // (see its `buildWithConfigs`), so this ordering is not self-enforcing —
-// `npm run build`'s script runs `tsdown --filter web`, the inline step, then
+// `vp run build` (vite.config.ts) runs `tsdown --filter web`, the inline step, then
 // `gtd` and `core` together, then `entrypoints`, using each config's `name` to
 // select it.
 export default defineConfig([

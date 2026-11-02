@@ -26,12 +26,12 @@ export interface TestState {
   readonly env: Env
 }
 
-export interface TurboRun {
+export interface VpRun {
   readonly code: number | null
   readonly stdout: string
 }
 
-export type RunTasks = (tasks: readonly string[], env: Env) => TurboRun
+export type RunTasks = (tasks: readonly string[], env: Env) => VpRun
 
 export function planStates(registry: readonly FlagDeclaration[], env: Env): readonly TestState[] {
   // Every release flag is pinned explicitly: a default-on flag's shipped path must be tested,
@@ -177,7 +177,7 @@ export const spawnVp = (
   tasks: readonly string[],
   env: Env,
   args: readonly string[] = [],
-): TurboRun => {
+): VpRun => {
   const result = spawnSync("vp", vpArgv(tasks, args), {
     // stdout is buffered, so an interrupted run loses the current state's log; stderr stays live.
     stdio: ["inherit", "pipe", "inherit"],

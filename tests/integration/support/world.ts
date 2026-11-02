@@ -64,7 +64,7 @@ const GIT_GATE_TIMEOUT_MS = 10_000
 // process this heavy CI/dev load can starve of CPU for seconds at a time.
 // 5 real seconds (the previous 100 × 50ms budget) was measured too tight
 // under this suite's own full `npm test` (`test:unit` + both `test:e2e:*`
-// tasks all racing via turbo) — not a functional bug in `gtd ui`, every one
+// tasks all racing in parallel) — not a functional bug in `gtd ui`, every one
 // of these scenarios passes in isolation.
 const UI_BOUND_URL_POLL_ATTEMPTS = 600
 const UI_BOUND_URL_POLL_INTERVAL_MS = 50

@@ -16,13 +16,6 @@ jobs:
       - name: Install dependencies
         run: npm install
 
-      # After install: installing can recreate node_modules. Experimental upstream.
-      - uses: actions/cache@v4
-        with:
-          path: node_modules/.vite/task-cache
-          key: vp-task-${{ runner.os }}-${{ github.sha }}
-          restore-keys: vp-task-${{ runner.os }}-
-
       - name: Lockfile is unchanged by install
         run: git diff --exit-code package-lock.json
 

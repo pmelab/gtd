@@ -17,7 +17,7 @@ import {
   spawnVp,
   vpArgv,
   type RunTasks,
-  type TurboRun,
+  type VpRun,
   type TestState,
 } from "../../scripts/test-states.ts"
 
@@ -34,7 +34,7 @@ const stateOf = (label: string): TestState => ({
   env: {},
 })
 
-const stub = (runs: readonly (number | null | TurboRun)[]) => {
+const stub = (runs: readonly (number | null | VpRun)[]) => {
   const calls: {
     tasks: readonly string[]
     env: Readonly<Record<string, string | undefined>>
@@ -330,8 +330,8 @@ describe("failureSignature", () => {
 })
 
 describe("runStates", () => {
-  const fail = (text: string): TurboRun => ({ code: 1, stdout: `[p#test:unit] ${text}\n` })
-  const run3 = (runs: readonly TurboRun[]) => {
+  const fail = (text: string): VpRun => ({ code: 1, stdout: `[p#test:unit] ${text}\n` })
+  const run3 = (runs: readonly VpRun[]) => {
     const lines: string[] = []
     const code = runStates(
       ["defaults", "alpha on", "beta on"]

@@ -39,7 +39,7 @@ look at what it does.
 ## Build
 
 ```bash
-npm run build                 # after every source change
+npx vp run build                 # after every source change
 export PATH="$PWD/bin:$PATH"  # this checkout's gtd, first on PATH
 command -v gtd                # must print this checkout's bin/gtd
 ```

@@ -8,7 +8,7 @@ import {
 
 /**
  * The pure core of the inline step — exported so `tests/tooling/` can drive
- * it with fake inputs instead of shelling out to a real `npm run build`.
+ * it with fake inputs instead of shelling out to a real `npx vp run build`.
  * `distWebAssetNames` is every file actually found under `dist/web/` at
  * inline time; `cssRaw` is `undefined` when `dist/web/main.css` doesn't
  * exist at all (a missing-file read and an empty-file read are both
@@ -61,7 +61,7 @@ export const buildGeneratedHtml = (template, script, cssRaw, distWebAssetNames) 
   return html
 }
 
-// Runs between the two tsdown builds in `npm run build` (see package.json):
+// Runs between the two tsdown builds in `vp run build` (see vite.config.ts):
 // the browser build already produced dist/web/main.js by the time this
 // runs, and the Tailwind CLI step right after it has produced
 // dist/web/main.css. Folds both into one self-contained HTML file, which the

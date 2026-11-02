@@ -274,7 +274,7 @@ const readDevTemplate = (fs: FileSystem.FileSystem, root: string): Effect.Effect
     )
 
 /**
- * Rebuilds the browser bundle via the same tsdown config `npm run build` uses,
+ * Rebuilds the browser bundle via the same tsdown config `npx vp run build` uses,
  * with the gtd package's OWN directory as cwd — the invoking directory has no
  * `tsdown.config.ts` to select against. Called exactly ONCE, ahead of
  * `listen`: the server lives for one step, so a mid-step rebuild would have
@@ -313,7 +313,7 @@ const rebuildDevClientScript = (
 
 /**
  * `--dev`'s CSS sibling of `rebuildDevClientScript` — the packaged build's
- * own `npm run build` runs the Tailwind CLI as a step separate from tsdown
+ * own `npx vp run build` runs the Tailwind CLI as a step separate from tsdown
  * (see package.json), so `--dev` shells out to that same CLI rather than
  * teaching tsdown about CSS at all.
  */

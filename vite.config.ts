@@ -3,8 +3,8 @@ import ts from "typescript"
 import { defineConfig } from "vite-plus"
 import { TASKS, VITEST_TASKS } from "./scripts/test-states.ts"
 
-// Spike: turbo.json's tasks as Vite Task tasks. Inputs are auto-tracked; only
-// what auto-tracking cannot see (env, build outputs) is declared.
+// Inputs are auto-tracked; only what auto-tracking cannot see (env, build
+// outputs) is declared.
 // Auto-tracking records directory listings and ignores .gitignore: without
 // these, build's own writes invalidate every task that walks the tree.
 const input = [
@@ -17,7 +17,7 @@ const input = [
 const check = { input, untrackedEnv: ["TMPDIR", "TERM"], output: [] }
 const flagged = { ...check, env: ["GTD_FLAG_*"] }
 
-// Spike phase 3: the oxc configs, read in place so the standalone tools keep working.
+// The oxc configs, read in place so the standalone tools keep working.
 const json = (path: string) => {
   const text = readFileSync(new URL(path, import.meta.url), "utf8")
   const { $schema: _, ...rest } = ts.parseConfigFileTextToJson(path, text).config
