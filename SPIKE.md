@@ -64,14 +64,13 @@ What broke, and the fixes:
   temp dir with a copied `.oxfmtrc.json`, so it gets defaults. Any child oxfmt
   started under `vp test`/`vp <cmd>` behaves the same. `vp run` tasks do NOT see
   `VP_VERSION`.
-- **Stryker vitest-runner smoke: NOT RUN.** It is blocked by this repo's
-  `.claude/settings.json` deny rule (`Bash(npx stryker run)`) and the auto-mode
-  classifier. To run it by hand: create `vitest.smoke.config.ts`
-  (`plugins: [rawMd()]`, `test.include: ["src/wire/Demand.test.ts"]`) and
-  `stryker.smoke.json` (`testRunner: vitest`, `mutate: ["src/wire/Demand.ts"]`,
-  `vitest.configFile` pointing at the smoke config), then run
-  `npx stryker run stryker.smoke.json`. `@stryker-mutator/vitest-runner@9.6.1`
-  peers `vitest >=2.0.0`.
+- **Stryker vitest-runner smoke: works.** `@stryker-mutator/vitest-runner@9.6.1`
+  on vitest 5.0.5, mutating only `src/wire/Demand.ts` against
+  `src/wire/Demand.test.ts` (a throwaway config with just `rawMd()`, no
+  checker): 55 mutants, 1 killed, 53 survived, 1 no coverage, **0 errors**,
+  3.8s. The low score is expected: that one test file barely touches the mutated
+  code. This shows the runner and per-test coverage work. It is not a
+  mutation-score comparison. The full `npm run test:mutation` was not run.
 
 ## Phase 2: turbo → `vp run`
 
@@ -213,9 +212,8 @@ them.
 
 1. **Vitest 5 (S, about ½ day):** bump vitest/@vitest/* to 5.0.5 and storybook
    to 10.6.5; add the storybook `overrides`; fix the `vitest/node` import;
-   regenerate the lockfile cleanly. Optional: run the stryker smoke above.
-   Independent of vite-plus, except the override is needed only once vite-plus
-   is installed.
+   regenerate the lockfile cleanly. Independent of vite-plus, except the
+   override is needed only once vite-plus is installed.
 2. **`vp run` (M, 1–2 days):** about 90% done on this branch. Still to do:
    - the AGENTS.md "Task graph and caching" section;
    - `docs/development.md`;
