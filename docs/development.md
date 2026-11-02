@@ -3,7 +3,7 @@
 ```bash
 npm install
 npm run dev          # run from source, no build (node dev/run.mjs)
-npx vp run build     # tsdown → dist/gtd.bundle.mjs, dist/gtd.core.mjs (minified, no ui or lsp) and the subpath entries
+npx vp run build     # vp pack → dist/gtd.bundle.mjs, dist/gtd.core.mjs (minified, no ui or lsp) and the subpath entries
 npm test             # the whole gate, via vp run — cached and parallel
 npm test -- --no-cache          # bypass the cache; vp run options after -- reach every run
 npx vp run test:unit            # one task, cached (add --no-cache before the task name to bypass)

@@ -33,7 +33,7 @@ export const ensureWebClient = (): Plugin => {
       if (ensured || !isGeneratedClientImport(source)) return null
       ensured = true
       if (!existsSync(GENERATED_HTML)) {
-        // npm-script names (`tsdown`) resolve only with the local bin on PATH.
+        // npm-script names (`vp`) resolve only with the local bin on PATH.
         execSync(fallbackBuildCommand(), {
           cwd: REPO_ROOT,
           stdio: "inherit",

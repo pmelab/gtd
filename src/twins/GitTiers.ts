@@ -14,7 +14,7 @@ import { tmpdir } from "node:os"
 import { execFileSync, execSync, spawnSync } from "node:child_process"
 // Imported directly (not just from *.test.ts) — a leak of this module into
 // the shipped CLI bundle would try to inline `vitest` and fail the build
-// loudly (`deps.alwaysBundle` in `tsdown.config.ts`), a guard alongside the
+// loudly (`deps.alwaysBundle` in `vite.config.ts`), a guard alongside the
 // `TEST_DOUBLE_SENTINEL` check.
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { Effect, Exit, Option } from "effect"

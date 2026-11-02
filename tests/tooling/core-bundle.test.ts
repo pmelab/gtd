@@ -1,12 +1,12 @@
 import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
-import { build } from "tsdown"
+import { build, type PackUserConfig } from "vite-plus/pack"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import tsdownConfigs from "../../tsdown.config.js"
+import viteConfig from "../../vite.config.ts"
 
 const root = resolve(import.meta.dirname, "../..")
-const configs = Array.isArray(tsdownConfigs) ? tsdownConfigs : [tsdownConfigs]
+const configs = viteConfig.pack as PackUserConfig[]
 const core = configs.find((config) => config.name === "core")!
 
 let units: readonly string[]

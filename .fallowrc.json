@@ -58,7 +58,7 @@
   // react/react-dom/@tanstack/react-query/@trpc/client/@trpc/react-query are imported from
   // production `src/web/**` source but deliberately stay `devDependencies`, never
   // `dependencies` — they're inlined into `src/ui/client.generated.html` at BUILD time
-  // (`tsdown.config.ts`'s `web` bundle) and never required unbundled at runtime.
+  // (`vite.config.ts`'s `web` pack entry) and never required unbundled at runtime.
   // `tests/tooling/vp-run.test.ts`'s own "keeps browser-only web-client packages out of
   // dependencies" test pins this the other way from fallow's own default heuristic.
   "ignoreDependencies": [

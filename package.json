@@ -83,7 +83,7 @@
   "scripts": {
     "prepare": "husky",
     "dev": "node dev/run.mjs",
-    "watch": "tsdown --watch",
+    "watch": "vp pack --watch",
     "bench:replay": "node scripts/bench-replay.mjs",
     "test": "jiti scripts/test-states.main.ts",
     "test:watch": "vitest",
@@ -137,7 +137,6 @@
     "storybook": "^10.6.5",
     "tailwind-merge": "^3.7.0",
     "tailwindcss": "^4.3.3",
-    "tsdown": "^0.22.8",
     "vite-plus": "1.4.0",
     "vitest": "5.0.5",
     "yaml": "^2.8.2",

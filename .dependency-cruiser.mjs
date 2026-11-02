@@ -34,7 +34,7 @@ const productionExcluded =
   "(\\.test\\.tsx?|\\.fixture\\.ts|\\.steps\\.ts|\\.stories\\.tsx?)$|^tests/"
 
 const compositionRoots = [
-  // CLI entrypoint bundled as dist/gtd.bundle.mjs (tsdown.config.ts).
+  // CLI entrypoint bundled as dist/gtd.bundle.mjs (vite.config.ts `pack`).
   "^src/main\\.ts$",
   // Wires the drivers and tools behind gtd's subcommands into the CLI.
   "^src/program\\.ts$",
