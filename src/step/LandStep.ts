@@ -16,7 +16,7 @@ export type GitWrite =
 /** A landed step's trailing report, rendered by `GitScript.ts` into a `printf` line. */
 export type Outcome =
   | { readonly kind: "transition"; readonly from: StateName; readonly to: StateName }
-  | { readonly kind: "commit"; readonly subject: StateName | string }
+  | { readonly kind: "commit"; readonly subject: string }
   | { readonly kind: "note"; readonly text: string }
 
 /**

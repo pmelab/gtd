@@ -665,7 +665,7 @@ const currentJsonField = (world: GtdWorld, field: string): string | undefined =>
           : undefined,
       JSON.parse(world.lastResult.stdout) as unknown,
     )
-  return value === undefined ? undefined : String(value)
+  return value === undefined ? undefined : typeof value === "string" ? value : JSON.stringify(value)
 }
 
 Then(

@@ -24,9 +24,16 @@ const json = (path: string) => {
   return rest
 }
 
+// Type-aware: claude/ and .storybook/ sit outside every tsconfig, as for tsc.
+const lintConfig = ({ ignorePatterns, ...rest }: { ignorePatterns: string[] }) => ({
+  ...rest,
+  ignorePatterns: [...ignorePatterns, "claude", ".storybook"],
+  options: { typeAware: true, typeCheck: true },
+})
+
 export default defineConfig({
   fmt: json("./.oxfmtrc.json"),
-  lint: json("./.oxlintrc.json"),
+  lint: lintConfig(json("./.oxlintrc.json")),
   run: {
     tasks: {
       build: {

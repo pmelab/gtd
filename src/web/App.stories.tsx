@@ -93,8 +93,8 @@ export const StepWithNoSteeringFileRendersAMessage: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("app-unrenderable")).toBeInTheDocument())
-    expect(canvas.queryByTestId("plan-screen")).not.toBeInTheDocument()
-    expect(canvas.queryByTestId("review-screen")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("plan-screen")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("review-screen")).not.toBeInTheDocument()
   },
 }
 
@@ -190,8 +190,8 @@ export const StepQueryInFlightShowsALoadingSkeleton: Story = {
   ],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(canvas.getByTestId("app-loading")).toBeInTheDocument()
-    expect(canvasElement.textContent?.length).toBeGreaterThan(0)
+    await expect(canvas.getByTestId("app-loading")).toBeInTheDocument()
+    await expect(canvasElement.textContent?.length).toBeGreaterThan(0)
     await waitFor(() => expect(canvas.getByTestId("plan-screen")).toBeInTheDocument())
   },
 }
@@ -227,8 +227,8 @@ export const NoModeOpensDirectlyOnTheFreeFormScreen: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("freeform-screen")).toBeInTheDocument())
-    expect(canvas.queryByTestId("plan-screen")).not.toBeInTheDocument()
-    expect(canvas.queryByTestId("review-screen")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("plan-screen")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("review-screen")).not.toBeInTheDocument()
   },
 }
 
@@ -258,7 +258,7 @@ export const FindingsModeOpensDirectlyOnTheFindingsScreen: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("findings-screen")).toBeInTheDocument())
-    expect(canvas.queryByTestId("freeform-screen")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("freeform-screen")).not.toBeInTheDocument()
   },
 }
 
@@ -309,7 +309,7 @@ export const UnregisteredModeOpensDirectlyOnTheFreeFormScreen: Story = {
  */
 export const TheBuiltInRegistryStillHasExactlyTheModesAppDispatchesByName: Story = {
   render: () => <></>,
-  play: () => {
-    expect(BUILT_IN_MODE_NAMES).toEqual(["qa", "review", "findings"])
+  play: async () => {
+    await expect(BUILT_IN_MODE_NAMES).toEqual(["qa", "review", "findings"])
   },
 }

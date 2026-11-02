@@ -370,7 +370,9 @@ describe("replay", () => {
     })
 
     it("is reported when history continues past the end of the flow", async () => {
-      const short = async () => void (await human("only"))
+      const short = async () => {
+        await human("only")
+      }
       const h = new History().land("human", "only", 1, "only").land("human", "only", 2, "only")
       expect((await replayOf(short, h)).kind).toBe("divergence")
     })
@@ -606,7 +608,9 @@ describe("replay", () => {
   })
 
   it("ends the episode on return and on restart", async () => {
-    const returning = async () => void (await human("only"))
+    const returning = async () => {
+      await human("only")
+    }
     const h = new History().land("human", "only", 1, "only")
     expect(await replayOf(returning, h)).toMatchObject({ kind: "ended", via: "return" })
 
@@ -1337,7 +1341,9 @@ describe("replay: a repin's anchor", () => {
   })
 
   it("diverges when the flow ends where it names a step", async () => {
-    const outcome = await replayOf(async () => void (await human("idle")), anchoredHistory())
+    const outcome = await replayOf(async () => {
+      await human("idle")
+    }, anchoredHistory())
     expect(outcome).toMatchObject({ kind: "divergence", at: hashOf(3), reached: undefined })
   })
 
@@ -1346,13 +1352,17 @@ describe("replay: a repin's anchor", () => {
       .land("human", "idle", 1, "build", { "a.txt": "a" })
       .land("agent", "build", 1, "old")
       .raw(anchorTo("unpin", 1))
-    const outcome = await replayOf(async () => void (await human("idle")), h)
+    const outcome = await replayOf(async () => {
+      await human("idle")
+    }, h)
     expect(outcome.kind).toBe("ended")
   })
 
   it("fails when it names no commit replay reads", async () => {
     const h = anchoredHistory().raw(anchorTo("build", 2))
-    const outcome = await replayOf(async () => void (await human("idle")), h)
+    const outcome = await replayOf(async () => {
+      await human("idle")
+    }, h)
     expect(outcome.kind === "failed" && outcome.message).toContain(
       "which is no commit replay reads",
     )

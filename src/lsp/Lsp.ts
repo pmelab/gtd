@@ -508,7 +508,7 @@ export const bindSteeringServer = (
   })
 
   const publishDiagnostics = async (uri: string, content: string): Promise<void> => {
-    connection.sendDiagnostics({ uri, diagnostics: await service.diagnostics(uri, content) })
+    await connection.sendDiagnostics({ uri, diagnostics: await service.diagnostics(uri, content) })
   }
 
   documents.onDidOpen((change) => {

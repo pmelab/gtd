@@ -161,8 +161,8 @@ export const NoteAffordanceMeetsThe44pxFloorInItsDefaultState: StoryObj<typeof T
     const canvas = within(canvasElement)
     const button = canvas.getByTestId("hunk-note-affordance")
     const rect = button.getBoundingClientRect()
-    expect(rect.height).toBeGreaterThanOrEqual(44)
-    expect(rect.width).toBeGreaterThanOrEqual(44)
+    await expect(rect.height).toBeGreaterThanOrEqual(44)
+    await expect(rect.width).toBeGreaterThanOrEqual(44)
   },
 }
 
@@ -174,10 +174,10 @@ export const HunkTickRowMeetsThe44pxFloor: StoryObj<typeof TickableHunk> = {
     const canvas = within(canvasElement)
     const input = canvas.getByTestId("hunk-tick")
     const label = input.closest("label")
-    expect(label).not.toBeNull()
+    await expect(label).not.toBeNull()
     const rect = label!.getBoundingClientRect()
-    expect(rect.height).toBeGreaterThanOrEqual(44)
-    expect(rect.width).toBeGreaterThanOrEqual(44)
+    await expect(rect.height).toBeGreaterThanOrEqual(44)
+    await expect(rect.width).toBeGreaterThanOrEqual(44)
   },
 }
 
@@ -200,8 +200,8 @@ export const NoteAffordanceUsesTheGhostVariantAtRest: StoryObj<typeof TickableHu
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const button = canvas.getByTestId("hunk-note-affordance") as HTMLButtonElement
-    expect(button.className).toMatch(/\bactive:bg-surface\b/)
-    expect(getComputedStyle(button).backgroundColor).toBe("rgba(0, 0, 0, 0)")
+    await expect(button.className).toMatch(/\bactive:bg-surface\b/)
+    await expect(getComputedStyle(button).backgroundColor).toBe("rgba(0, 0, 0, 0)")
   },
 }
 
@@ -276,10 +276,10 @@ export const DescriptionRendersBetweenTitleAndDiff: Story = {
     await expect(description).toHaveTextContent("adds the retry loop")
     // Between title and diff: title's DOM position precedes the
     // description's, which in turn precedes the diff's.
-    expect(
+    await expect(
       title.compareDocumentPosition(description) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
-    expect(
+    await expect(
       description.compareDocumentPosition(diff) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
   },
@@ -322,15 +322,15 @@ export const DescriptionInlineMarkdownRendersAsRealElements: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const description = canvas.getByTestId("hunk-description")
-    expect(description.querySelector("strong")).toHaveTextContent("bold")
-    expect(description.querySelector("code")).toHaveTextContent("code")
-    expect(description.querySelector("s")).toHaveTextContent("strike")
+    await expect(description.querySelector("strong")).toHaveTextContent("bold")
+    await expect(description.querySelector("code")).toHaveTextContent("code")
+    await expect(description.querySelector("s")).toHaveTextContent("strike")
     const link = description.querySelector("a")
-    expect(link).toHaveTextContent("link")
-    expect(link).toHaveAttribute("href", "https://example.com")
-    expect(description.textContent).not.toContain("**")
-    expect(description.textContent).not.toContain("~~")
-    expect(description.textContent).not.toContain("`")
+    await expect(link).toHaveTextContent("link")
+    await expect(link).toHaveAttribute("href", "https://example.com")
+    await expect(description.textContent).not.toContain("**")
+    await expect(description.textContent).not.toContain("~~")
+    await expect(description.textContent).not.toContain("`")
   },
 }
 
@@ -450,11 +450,11 @@ export const KeywordTokensAreVisiblyColoredDifferentlyFromPlainText: Story = {
     const line = canvas.getByTestId("diff-line-1")
     const keywordSpan = within(line).getByText("const")
     const plainSpan = within(line).getByText("value", { exact: false })
-    expect(keywordSpan.getAttribute("data-token-kind")).toBe("kw")
+    await expect(keywordSpan.getAttribute("data-token-kind")).toBe("kw")
     const keywordColor = getComputedStyle(keywordSpan).color
     const plainColor = getComputedStyle(plainSpan).color
-    expect(keywordColor).not.toBe("")
-    expect(keywordColor).not.toBe(plainColor)
+    await expect(keywordColor).not.toBe("")
+    await expect(keywordColor).not.toBe(plainColor)
   },
 }
 
@@ -488,13 +488,13 @@ export const AddedRemovedAndContextLinesHaveVisiblyDifferentBackgrounds: Story =
     const contextLine = canvas.getByTestId("diff-line-1")
     const delLine = canvas.getByTestId("diff-line-2")
     const addLine = canvas.getByTestId("diff-line-3")
-    expect(contextLine).toHaveAttribute("data-kind", "context")
-    expect(delLine).toHaveAttribute("data-kind", "del")
-    expect(addLine).toHaveAttribute("data-kind", "add")
+    await expect(contextLine).toHaveAttribute("data-kind", "context")
+    await expect(delLine).toHaveAttribute("data-kind", "del")
+    await expect(addLine).toHaveAttribute("data-kind", "add")
     const contextColor = getComputedStyle(contextLine).backgroundColor
     const delColor = getComputedStyle(delLine).backgroundColor
     const addColor = getComputedStyle(addLine).backgroundColor
-    expect(new Set([contextColor, delColor, addColor]).size).toBe(3)
+    await expect(new Set([contextColor, delColor, addColor]).size).toBe(3)
   },
 }
 
@@ -526,9 +526,9 @@ export const NoNewlineMarkerRendersVerbatimNotAsContext: Story = {
     const canvas = within(canvasElement)
     // Line 0 is the hunk's own `@@` header (T1); the marker is the third body line.
     const markerLine = canvas.getByTestId("diff-line-3")
-    expect(markerLine).toHaveAttribute("data-kind", "marker")
-    expect(markerLine).not.toHaveAttribute("data-kind", "context")
-    expect(markerLine).toHaveTextContent("\\ No newline at end of file")
+    await expect(markerLine).toHaveAttribute("data-kind", "marker")
+    await expect(markerLine).not.toHaveAttribute("data-kind", "context")
+    await expect(markerLine).toHaveTextContent("\\ No newline at end of file")
   },
 }
 
@@ -570,11 +570,11 @@ export const MarkupInADiffLineRendersAsInertTextNeverParsedHtml: Story = {
     // Line 0 is the hunk's own `@@` header (T1); the added line is line 1.
     const line = canvas.getByTestId("diff-line-1")
     // The raw markup survives in the rendered TEXT content...
-    expect(line).toHaveTextContent(`const s = "<script>window.__xss = true</script>"`)
+    await expect(line).toHaveTextContent(`const s = "<script>window.__xss = true</script>"`)
     // ...but was never actually parsed into a real <script> element, and
     // never executed either.
-    expect(line.querySelector("script")).toBeNull()
-    expect((window as unknown as { __xss?: boolean }).__xss).toBeUndefined()
+    await expect(line.querySelector("script")).toBeNull()
+    await expect((window as unknown as { __xss?: boolean }).__xss).toBeUndefined()
   },
 }
 
@@ -620,12 +620,12 @@ export const LineBackgroundsSpanTheFullScrollWidthNotJustTheViewport: Story = {
     // lines are 1-3.
     const addLine = canvas.getByTestId("diff-line-2")
     const scroller = addLine.closest("[class*='overflow-x-auto']")
-    expect(scroller).not.toBeNull()
+    await expect(scroller).not.toBeNull()
     // The fixture really does overflow — otherwise this story would pass
     // against a viewport wide enough to hide the bug.
-    expect(scroller!.scrollWidth).toBeGreaterThan(scroller!.clientWidth)
+    await expect(scroller!.scrollWidth).toBeGreaterThan(scroller!.clientWidth)
     for (const id of ["diff-line-0", "diff-line-1", "diff-line-2", "diff-line-3"]) {
-      expect(canvas.getByTestId(id).getBoundingClientRect().width).toBeGreaterThanOrEqual(
+      await expect(canvas.getByTestId(id).getBoundingClientRect().width).toBeGreaterThanOrEqual(
         scroller!.scrollWidth - 1,
       )
     }
@@ -645,12 +645,12 @@ export const ApproveRowMarksItsCheckedStateBeyondTheTickBox: StoryObj<typeof Tic
     await viewport(390, 844)
     const canvas = within(canvasElement)
     const row = canvas.getByTestId("hunk-approve-row")
-    expect(row).toHaveTextContent("Approve this hunk")
+    await expect(row).toHaveTextContent("Approve this hunk")
     const restingBorder = getComputedStyle(row).borderColor
-    expect(row.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
+    await expect(row.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
 
     await fireEvent.click(canvas.getByTestId("hunk-tick"))
-    expect(row).toHaveTextContent("Approved")
+    await expect(row).toHaveTextContent("Approved")
     // `waitFor`: the boundary colour crosses over a 150ms transition, so the
     // frame right after the click still holds the resting value.
     await waitFor(() => expect(getComputedStyle(row).borderColor).not.toBe(restingBorder))
@@ -683,7 +683,7 @@ export const AHunksNoteTakesTheNoteControlsPlace: Story = {
     await expect(affordance).toHaveTextContent("This drops the old value without migrating it.")
     await expect(affordance).not.toHaveTextContent("Edit note")
     // Still a real tap target, and still the thing that opens the sheet.
-    expect(affordance.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
+    await expect(affordance.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
   },
 }
 
@@ -885,11 +885,11 @@ export const DimmedContextBandRendersInTheShippedTheme: Story = {
     const inRangeRow = canvas.getByTestId("diff-line-4")
     const dimmedOpacity = Number(getComputedStyle(dimmedRow.querySelector("span")!).opacity)
     const inRangeOpacity = Number(getComputedStyle(inRangeRow.querySelector("span")!).opacity)
-    expect(dimmedOpacity).toBeLessThan(1)
-    expect(inRangeOpacity).toBe(1)
+    await expect(dimmedOpacity).toBeLessThan(1)
+    await expect(inRangeOpacity).toBe(1)
     // Backgrounds stay identical — both rows are `add` kind (T3: opacity on
     // the foreground only, never a new background).
-    expect(getComputedStyle(dimmedRow).backgroundColor).toBe(
+    await expect(getComputedStyle(dimmedRow).backgroundColor).toBe(
       getComputedStyle(inRangeRow).backgroundColor,
     )
     // Spec feedback: opacity alone (a ~1.4:1 difference at the shipped
@@ -901,10 +901,10 @@ export const DimmedContextBandRendersInTheShippedTheme: Story = {
     // classed.
     const dimmedBorder = getComputedStyle(dimmedRow).borderLeftColor
     const inRangeBorder = getComputedStyle(inRangeRow).borderLeftColor
-    expect(getComputedStyle(dimmedRow).borderLeftWidth).toBe("2px")
-    expect(dimmedBorder).not.toBe("rgba(0, 0, 0, 0)")
-    expect(inRangeBorder).toBe("rgba(0, 0, 0, 0)")
-    expect(dimmedBorder).not.toBe(inRangeBorder)
+    await expect(getComputedStyle(dimmedRow).borderLeftWidth).toBe("2px")
+    await expect(dimmedBorder).not.toBe("rgba(0, 0, 0, 0)")
+    await expect(inRangeBorder).toBe("rgba(0, 0, 0, 0)")
+    await expect(dimmedBorder).not.toBe(inRangeBorder)
   },
 }
 
@@ -941,8 +941,8 @@ export const A900LineRangeRendersAll900RowsWithNoTruncationMarker: Story = {
     await expect(canvas.getByTestId("diff-line-900")).not.toHaveAttribute("data-dimmed")
     await expect(canvas.queryByTestId("diff-line-901")).not.toBeInTheDocument()
     // No truncation affordance of any kind — the spec forbids one outright.
-    expect(canvas.queryByText(/show more/i)).not.toBeInTheDocument()
-    expect(canvas.queryByText(/\.\.\./)).not.toBeInTheDocument()
+    await expect(canvas.queryByText(/show more/i)).not.toBeInTheDocument()
+    await expect(canvas.queryByText(/\.\.\./)).not.toBeInTheDocument()
   },
 }
 

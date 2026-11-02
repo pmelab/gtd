@@ -60,18 +60,18 @@ export const AdvancingThroughItems: Story = {
     // only) would still pass a mutant that stacks every item via
     // `items.map(renderItem)`; the negative half is what actually pins it.
     await expect(canvas.getByText("one")).toBeInTheDocument()
-    expect(canvas.queryByText("two")).not.toBeInTheDocument()
-    expect(canvas.queryByText("three")).not.toBeInTheDocument()
+    await expect(canvas.queryByText("two")).not.toBeInTheDocument()
+    await expect(canvas.queryByText("three")).not.toBeInTheDocument()
 
     await fireEvent.click(canvas.getByTestId("deck-next"))
     await expect(canvas.getByText("two")).toBeInTheDocument()
-    expect(canvas.queryByText("one")).not.toBeInTheDocument()
-    expect(canvas.queryByText("three")).not.toBeInTheDocument()
+    await expect(canvas.queryByText("one")).not.toBeInTheDocument()
+    await expect(canvas.queryByText("three")).not.toBeInTheDocument()
 
     await fireEvent.click(canvas.getByTestId("deck-next"))
     await expect(canvas.getByText("three")).toBeInTheDocument()
-    expect(canvas.queryByText("one")).not.toBeInTheDocument()
-    expect(canvas.queryByText("two")).not.toBeInTheDocument()
+    await expect(canvas.queryByText("one")).not.toBeInTheDocument()
+    await expect(canvas.queryByText("two")).not.toBeInTheDocument()
     await expect(canvas.getByTestId("deck-progress")).toHaveTextContent("3 / 3")
   },
 }
@@ -131,19 +131,19 @@ export const ControlsRenderBelowContentNeverOverlaying: Story = {
     const content = canvas.getByTestId("deck-content")
     const controls = canvas.getByTestId("deck-next")
     // Controls are a later sibling in flow, not absolutely positioned over content.
-    expect(
+    await expect(
       content.compareDocumentPosition(controls) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy()
     const contentRect = content.getBoundingClientRect()
     const controlsRect = (controls.parentElement ?? controls).getBoundingClientRect()
-    expect(controlsRect.top).toBeGreaterThanOrEqual(contentRect.bottom)
+    await expect(controlsRect.top).toBeGreaterThanOrEqual(contentRect.bottom)
 
     // The bar lies entirely inside the 390x844 viewport, and the document
     // itself never page-scrolls to reach it.
     const barRect = (controls.parentElement ?? controls).getBoundingClientRect()
-    expect(barRect.top).toBeGreaterThanOrEqual(0)
-    expect(barRect.bottom).toBeLessThanOrEqual(844)
-    expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(844)
+    await expect(barRect.top).toBeGreaterThanOrEqual(0)
+    await expect(barRect.bottom).toBeLessThanOrEqual(844)
+    await expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(844)
   },
 }
 
@@ -164,8 +164,8 @@ export const BackAndNextMeetThe44pxFloor: Story = {
     const canvas = within(canvasElement)
     for (const testId of ["deck-prev", "deck-next"]) {
       const rect = canvas.getByTestId(testId).getBoundingClientRect()
-      expect(rect.height).toBeGreaterThanOrEqual(44)
-      expect(rect.width).toBeGreaterThanOrEqual(44)
+      await expect(rect.height).toBeGreaterThanOrEqual(44)
+      await expect(rect.width).toBeGreaterThanOrEqual(44)
     }
   },
 }
@@ -187,18 +187,18 @@ export const BackAndNextPressedStatesDifferFromRest: Story = {
 
     const prev = canvas.getByTestId("deck-prev")
     const prevRest = getComputedStyle(prev).backgroundColor
-    await withRealMousePress(prev, () => {
+    await withRealMousePress(prev, async () => {
       const pressed = getComputedStyle(prev).backgroundColor
-      expect(pressed).not.toBe(prevRest)
-      expect(pressed).toBe(token("border")) // secondary's active:bg-border
+      await expect(pressed).not.toBe(prevRest)
+      await expect(pressed).toBe(token("border")) // secondary's active:bg-border
     })
 
     const next = canvas.getByTestId("deck-next")
     const nextRest = getComputedStyle(next).backgroundColor
-    await withRealMousePress(next, () => {
+    await withRealMousePress(next, async () => {
       const pressed = getComputedStyle(next).backgroundColor
-      expect(pressed).not.toBe(nextRest)
-      expect(pressed).toBe(token("accent-pressed")) // primary's active:bg-accent-pressed
+      await expect(pressed).not.toBe(nextRest)
+      await expect(pressed).toBe(token("accent-pressed")) // primary's active:bg-accent-pressed
     })
   },
 }
@@ -228,10 +228,10 @@ export const ControlBarStaysReachableAtAShortKeyboardOpenViewport: Story = {
     const controls = canvas.getByTestId("deck-next")
     const contentRect = content.getBoundingClientRect()
     const barRect = (controls.parentElement ?? controls).getBoundingClientRect()
-    expect(barRect.top).toBeGreaterThanOrEqual(contentRect.bottom)
-    expect(barRect.top).toBeGreaterThanOrEqual(0)
-    expect(barRect.bottom).toBeLessThanOrEqual(500)
-    expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(500)
+    await expect(barRect.top).toBeGreaterThanOrEqual(contentRect.bottom)
+    await expect(barRect.top).toBeGreaterThanOrEqual(0)
+    await expect(barRect.bottom).toBeLessThanOrEqual(500)
+    await expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(500)
   },
 }
 
@@ -264,13 +264,13 @@ export const ControlBarStaysPutWhileLongContentScrolls: Story = {
     // if `overflow-auto`/`min-h-0` were dropped from `deck-content` (the
     // exact regression Task 4 exists to prevent), since the bar's rect would
     // trivially stay unchanged for a container that never scrolls at all.
-    expect(content.scrollTop).toBeGreaterThan(0)
+    await expect(content.scrollTop).toBeGreaterThan(0)
 
     const barRectAfter = bar.getBoundingClientRect()
-    expect(barRectAfter.top).toBe(barRectBefore.top)
-    expect(barRectAfter.bottom).toBe(barRectBefore.bottom)
-    expect(barRectAfter.bottom).toBeLessThanOrEqual(844)
-    expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(844)
+    await expect(barRectAfter.top).toBe(barRectBefore.top)
+    await expect(barRectAfter.bottom).toBe(barRectBefore.bottom)
+    await expect(barRectAfter.bottom).toBeLessThanOrEqual(844)
+    await expect(document.documentElement.scrollHeight).toBeLessThanOrEqual(844)
   },
 }
 
@@ -289,9 +289,9 @@ export const NoOnDoneRendersOneControlRowAndNoSecondDoneButton: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(canvas.getAllByTestId("deck-controls")).toHaveLength(1)
+    await expect(canvas.getAllByTestId("deck-controls")).toHaveLength(1)
     await expect(canvas.getByTestId("deck-next")).toHaveTextContent("Done")
-    expect(canvas.queryByTestId("deck-done")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("deck-done")).not.toBeInTheDocument()
   },
 }
 
@@ -319,7 +319,7 @@ export const OnDoneAddsASeparateButtonAndRevertsTheAdvanceLabel: Story = {
 
     await fireEvent.click(canvas.getByTestId("deck-next"))
     await expect(args.onExit).toHaveBeenCalledTimes(1)
-    expect(args.onDone).not.toHaveBeenCalled()
+    await expect(args.onDone).not.toHaveBeenCalled()
   },
 }
 
@@ -336,6 +336,6 @@ export const TappingDoneCallsOnDoneNotOnExit: Story = {
     const canvas = within(canvasElement)
     await fireEvent.click(canvas.getByTestId("deck-done"))
     await expect(args.onDone).toHaveBeenCalledTimes(1)
-    expect(args.onExit).not.toHaveBeenCalled()
+    await expect(args.onExit).not.toHaveBeenCalled()
   },
 }

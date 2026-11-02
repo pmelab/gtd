@@ -202,6 +202,15 @@ them.
     `claude/hooks/register.tsx`, 1 in `claude/hooks/ship.ts`, 1 in
     `.storybook/preview.tsx` (`TS2882`);
   - **0 TS errors in `src`/`tests`/`scripts`**, which matches tsc.
+- **Now clean.** `claude/` and `.storybook/` are in the vp `lint` block's
+  `ignorePatterns` only, so plain `oxlint .` still covers them. The 347
+  type-aware findings are fixed:
+  - 319 were un-awaited `storybook/test` `expect`/`fireEvent` calls. Those
+    return promises, so an assertion inside a play function could fail without
+    failing the story. Sync callbacks became async. Two mock tRPC resolvers have
+    to stay synchronous, so their check is now an explicit `throw`.
+  - The other 28 were one-line fixes.
+  - Result: `vp check` **passes**, 388 files, 0.71s; `npm test` green, 140s.
 - `@effect/language-service`: it is a `tsconfig` plugin, and plugins run only in
   tsserver. `tsc --noEmit` does not run it either (`typescript` is not patched),
   and tsgolint has no plugin support. So neither tool enforces it.
@@ -223,16 +232,11 @@ them.
      `src/emit/GitScript.test.ts`, `tests/integration/support/world.ts`,
      `scripts/bench-replay.mjs`, `vitest.config.ts`);
    - the `.gitignore` `.turbo/` entry;
-   - a decision on fail-fast and the macOS git caveat, or upstream issues for
-     both;
-   - measure the CI cache restore.
-3. **Upstream issues to file (S):**
-   - git/SIP tracking on macOS (vite-plus/vite-task);
-   - storybook's `vite-plus` peer range (storybook);
-   - oxfmt switching config discovery on an inherited `VP_VERSION` in a
-     directory that has no `vite.config.ts` (oxc).
-4. **Consolidation (L, optional):**
-   - triage the 421 type-aware findings, or disable those rules;
+   - drop the CI cache step (decided: no CI cache for now). Fail-fast and the
+     macOS git caveat are accepted. No upstream issues for now.
+3. **Consolidation (M):**
+   - replace the `typecheck` task with `vp check` (type-aware findings are
+     already fixed on this branch);
    - move `format:check`/`lint`/lint-staged to `vp fmt`/`vp lint`/`vp staged`
      and drop the separate oxfmt/oxlint pins;
    - make `steering-oxfmt.test.ts` strip `VP_VERSION`;
