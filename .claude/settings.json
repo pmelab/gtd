@@ -1,17 +1,14 @@
 {
   "permissions": {
     "allow": [
-      "Bash(npx vp run lint)",
-      "Bash(npx vp run typecheck)",
-      "Bash(npx vp run format:check)",
+      "Bash(npx vp run check)",
       "Bash(npx vp run test:unit)",
       "Bash(npm run test:e2e)",
       "Bash(npm test)",
       "Bash(npx tsc --noEmit)",
       "Bash(npx vitest run --project unit *)",
       "Bash(npx vitest run --project e2e *)",
-      "Bash(npx vp run typecheck *)",
-      "Bash(npx vp run lint *)",
+      "Bash(npx vp run check *)",
       "Bash(npx vp run test:unit *)",
       "Bash(npx vitest run *)",
       "Bash(npx fallow health *)",
@@ -19,9 +16,9 @@
       "Bash(npx fallow --quiet *)",
       "Bash(npx fallow)",
       "Bash(npx fallow --summary)",
-      "Bash(npx oxlint .)",
-      "Bash(npx oxfmt --check .)",
-      "Bash(npx oxfmt --check *)",
+      "Bash(npx vp check)",
+      "Bash(npx vp fmt --check)",
+      "Bash(npx vp fmt --check *)",
       "Bash(gtd next*)",
       "Bash(gtd status*)",
       "Bash(gtd validate*)",
@@ -49,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "npx oxfmt --no-error-on-unmatched-pattern --write \"$CLAUDE_TOOL_INPUT_FILE_PATH\""
+            "command": "npx vp fmt --no-error-on-unmatched-pattern \"$CLAUDE_TOOL_INPUT_FILE_PATH\""
           }
         ]
       }

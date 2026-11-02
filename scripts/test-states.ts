@@ -2,9 +2,7 @@ import { spawnSync } from "node:child_process"
 import { type FlagDeclaration } from "../src/flags/index.ts"
 
 export const TASKS = [
-  "format:check",
-  "typecheck",
-  "lint",
+  "check",
   "lint:sh",
   "lint:boundaries",
   "test:unit",
@@ -36,7 +34,9 @@ export type RunTasks = (tasks: readonly string[], env: Env) => VpRun
 export function planStates(registry: readonly FlagDeclaration[], env: Env): readonly TestState[] {
   // Every release flag is pinned explicitly: a default-on flag's shipped path must be tested,
   // and an inherited GTD_FLAG_* must never leak.
-  const inherited = Object.fromEntries(Object.entries(env).filter(([k]) => !/^GTD_FLAG_/.test(k)))
+  const inherited = Object.fromEntries(
+    Object.entries(env).filter(([k]) => !k.startsWith("GTD_FLAG_")),
+  )
   const releases = registry.filter((f) => f.kind === "release")
   const pinned = (flipped?: string): Env => ({
     ...inherited,
@@ -74,7 +74,7 @@ export function failureSignature(stdout: string, tasks: readonly string[]): stri
     // A block's presence is evidence the task failed, even when all its lines are boilerplate.
     if (!byTask.has(task)) byTask.set(task, [])
     // vp's own `$ <command> [cache status]` echo, once per `&&` part.
-    if (/^\$ /.test(body) || body.trim() === "") continue
+    if (body.startsWith("$ ") || body.trim() === "") continue
     const norm = `${task}: ${body}`
       .replace(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:?\d{2})?/g, "<ts>")
       .replace(/\d{1,2}:\d{2}:\d{2}/g, "<time>")

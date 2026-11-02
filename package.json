@@ -89,13 +89,10 @@
     "test:watch": "vitest",
     "test:changed": "vitest run --project unit --project e2e-inmem --project workflows --changed HEAD",
     "test:e2e": "vp run test:e2e:inmem && vp run test:e2e:live",
-    "format": "oxfmt --write .",
+    "format": "vp fmt",
     "test:mutation": "stryker run",
     "storybook": "storybook dev --host 0.0.0.0",
     "coverage": "vitest run --project unit --coverage"
-  },
-  "lint-staged": {
-    "*": "oxfmt --no-error-on-unmatched-pattern --write"
   },
   "devDependencies": {
     "@commitlint/cli": "^21.2.3",
@@ -129,7 +126,6 @@
     "fast-check": "^4.8.0",
     "husky": "^9.1.7",
     "jiti": "^2.7.0",
-    "lint-staged": "^17.0.8",
     "oxfmt": "0.59.0",
     "oxlint": "1.74.0",
     "playwright": "^1.62.1",

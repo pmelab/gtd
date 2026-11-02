@@ -74,5 +74,5 @@
       }
     }
   ],
-  "ignorePatterns": ["dist", "node_modules", "scripts", ".stryker-tmp", "reports"]
+  "ignorePatterns": ["dist", "node_modules", ".stryker-tmp", "reports"]
 }

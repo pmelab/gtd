@@ -17,7 +17,9 @@ const input = [
 const check = { input, untrackedEnv: ["TMPDIR", "TERM"], output: [] }
 const flagged = { ...check, env: ["GTD_FLAG_*"] }
 
-// The oxc configs, read in place so the standalone tools keep working.
+// The oxc configs, read in place so the standalone tools keep working. vp runs
+// the oxfmt/oxlint package.json pins: oxfmt 0.74 (vp's own) panics on an empty
+// footnote definition, which tests/tooling/steering-oxfmt.test.ts catches.
 const json = (path: string) => {
   const text = readFileSync(new URL(path, import.meta.url), "utf8")
   const { $schema: _, ...rest } = ts.parseConfigFileTextToJson(path, text).config
@@ -33,6 +35,7 @@ const lintConfig = ({ ignorePatterns, ...rest }: { ignorePatterns: string[] }) =
 
 export default defineConfig({
   fmt: json("./.oxfmtrc.json"),
+  staged: { "*": "vp fmt --no-error-on-unmatched-pattern" },
   lint: lintConfig(json("./.oxlintrc.json")),
   run: {
     tasks: {
@@ -44,12 +47,8 @@ export default defineConfig({
           output: ["dist/**", "src/ui/client.generated.html"],
         },
       },
-      "format:check": { command: "oxfmt --check .", cache: check },
-      typecheck: {
-        command: "tsc --noEmit && tsc --noEmit -p src/web/tsconfig.json",
-        cache: check,
-      },
-      lint: { command: "oxlint .", cache: check },
+      // Format, lint and type check, the last against each file's own tsconfig.
+      check: { command: "vp check", cache: check },
       "lint:sh": {
         command:
           // `&&` parts run without a shell: the glob needs one.

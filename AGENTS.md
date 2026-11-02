@@ -113,16 +113,16 @@ not worth publishing there, the test wanting it is testing the wrong thing.
 ### `.gtd/` is formatted, not ignored
 
 `.gtd/` carries no `.prettierignore` entry — every file under it, steering files
-included, is oxfmt-formatted and covered by `format:check` like the rest of the
-repository. A committed steering file that is not an oxfmt fixed point reds
+included, is oxfmt-formatted and covered by the `check` task like the rest of
+the repository. A committed steering file that is not an oxfmt fixed point reds
 every gate that runs the test suite: `start-gate`, `review-gate`, and
 `fix-precheck` alike.
 
 Two mechanisms keep files there conforming, and neither is new code: husky →
-lint-staged runs `oxfmt --write` over staged files during the step commit, and a
-step that declares a `mode` carries its own `format:`/`validate:` pair, run by
-the DRIVER (via `gtd next --json`'s `validate` field, or `gtd validate`) ahead
-of `gtd land` — never emitted into the landing script.
+`vp staged` runs `vp fmt` over staged files during the step commit, and a step
+that declares a `mode` carries its own `format:`/`validate:` pair, run by the
+DRIVER (via `gtd next --json`'s `validate` field, or `gtd validate`) ahead of
+`gtd land` — never emitted into the landing script.
 
 ## Manual testing
 

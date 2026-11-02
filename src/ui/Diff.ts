@@ -170,7 +170,7 @@ export interface DiffDeps {
  * The diff runs base-against-WORKING-TREE, never `base..HEAD`: the review
  * prompt puts the range in working-tree coordinates, and `base..HEAD` drifts
  * the moment anything is uncommitted on top of HEAD (a stray save, or
- * lint-staged's `oxfmt --write` during the very step commit that captures the
+ * `vp staged`'s `vp fmt` during the very step commit that captures the
  * review), shifting line numbers under a pointer with no banner. The accepted
  * cost is the narrower window: an edit made AFTER the review was written can
  * still shift the screen silently.

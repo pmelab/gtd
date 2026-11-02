@@ -11,8 +11,7 @@ npx vp run test:workflows       # each workflow's .feature files, in memory
 npx vp run test:e2e:live        # builds first (dependsOn), then @live
 npm run test:changed # local pre-flight: only unit/@inmem tests git says changed
 npm run test:mutation # StrykerJS mutation testing (manual only, ~10 min)
-npx vp run typecheck
-npx vp run lint
+npx vp run check     # format, lint and type check
 npx vp run build && npm run bench:replay # git-history replay timing (manual only, not gated; ~90s + a 50k-commit fixture build)
 ```
 
@@ -36,10 +35,8 @@ always shown in full, never collapsed. `--log labeled` is always passed; a
 collapses.
 
 A pre-commit hook is installed automatically via the `prepare` script when you
-run `npm install` on a fresh clone — it runs
-[lint-staged](https://github.com/lint-staged/lint-staged) with
-[oxfmt](https://oxc.rs/docs/guide/usage/formatter.html), mirroring the
-`format:check` step enforced in CI.
+run `npm install` on a fresh clone — it runs `vp staged`, which formats staged
+files with `vp fmt`, mirroring the `check` task enforced in CI.
 
 Releases are automatic: push releasable Conventional Commits (`fix:`, `feat:`,
 or breaking changes — see [Commit messages](./commits.md)) to `main` and
