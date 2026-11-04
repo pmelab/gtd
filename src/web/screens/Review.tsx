@@ -1,5 +1,6 @@
 import { useRef, useState, type RefObject } from "react"
 import type {
+  BlockListItem,
   SteeringAnchor,
   SteeringView,
   SteeringViewNode,
@@ -22,6 +23,7 @@ import { useScrollRestoration } from "../useScrollRestoration.js"
 import { cellKey, latestOverlayValue, useWriteStore, WriteStoreProvider } from "../writeStore.js"
 import { Hunk, type HunkProps } from "./Hunk.js"
 import { Inline } from "./InlineRun.js"
+import { ProseBlocks } from "./ProseBlock.js"
 
 /** A write guarded by the store's own compare-and-swap retry — see `writeStore.ts#SaveArgs.write`'s own doc comment. */
 type TokenGuardedWrite = (tokens: CasTokens) => Promise<unknown>
@@ -418,9 +420,11 @@ const isPlainNote = (chunk: SteeringViewNode): boolean =>
 const ChunkSummary = ({
   chunk,
   chunkIndex,
+  withDetail = true,
 }: {
   readonly chunk: SteeringViewNode
   readonly chunkIndex: number
+  readonly withDetail?: boolean
 }) => (
   <>
     {chunk.status !== undefined && (
@@ -435,12 +439,110 @@ const ChunkSummary = ({
       </div>
     )}
     <div className="font-semibold">{chunk.title}</div>
-    {chunk.detail !== undefined && chunk.detail.length > 0 && (
+    {withDetail && chunk.detail !== undefined && chunk.detail.length > 0 && (
       <div className="text-small text-muted">
         <Inline inline={chunk.detailInline} fallback={chunk.detail} />
       </div>
     )}
   </>
+)
+
+/** A list item as the node its own note reads and writes through: a `paragraph` anchor at its line. */
+const itemNodeOf = (item: BlockListItem & { readonly line: number }): SteeringViewNode => ({
+  title: item.text,
+  anchor: { kind: "paragraph", line: item.line },
+  ...(item.note === undefined ? {} : { note: item.note }),
+  ...(item.thread === undefined ? {} : { thread: item.thread }),
+})
+
+/** One list item with its own note: the quality lap's summary is reopened line by line. */
+// fallow-ignore-next-line complexity
+const NotableItem = ({
+  item,
+  id,
+  state,
+}: {
+  readonly item: BlockListItem
+  readonly id: string
+  readonly state: ReviewState
+}) => {
+  const node = item.line === undefined ? undefined : itemNodeOf({ ...item, line: item.line })
+  const thread = node === undefined ? undefined : state.threadOf(node)
+  const noted = node !== undefined && state.hasNoteText(node)
+  return (
+    <li data-testid={`note-item-${id}`} className="py-1">
+      <div className="flex items-start gap-2">
+        <div className="min-w-0 flex-1 py-2">
+          <Inline inline={item.inline} fallback={item.text} />
+        </div>
+        {node !== undefined && !noted && (
+          <Button
+            variant="ghost"
+            data-testid={`note-item-note-${id}`}
+            aria-label={`Note on ${item.text}`}
+            onClick={() => state.openNoteSheet(node)}
+            className="text-small"
+          >
+            Note
+          </Button>
+        )}
+      </div>
+      {node !== undefined && noted && (
+        <Button
+          variant="ghost"
+          data-testid={`note-item-note-${id}`}
+          onClick={() => state.openNoteSheet(node)}
+          className="w-full rounded border border-divider px-2 py-1 text-left text-small font-normal text-muted"
+        >
+          {thread !== undefined ? (
+            <Thread thread={thread} testId={`note-item-thread-${id}`} />
+          ) : (
+            state.noteTextOf(node)
+          )}
+        </Button>
+      )}
+      {item.items !== undefined && <NotableList items={item.items} id={id} state={state} />}
+    </li>
+  )
+}
+
+const NotableList = ({
+  items,
+  id,
+  state,
+}: {
+  readonly items: readonly BlockListItem[]
+  readonly id: string
+  readonly state: ReviewState
+}) => (
+  <ul className="m-0 list-outside list-disc pl-5 marker:text-link">
+    {items.map((item, i) => (
+      <NotableItem key={i} item={item} id={`${id}-${i}`} state={state} />
+    ))}
+  </ul>
+)
+
+/** A plain note's prose as blocks, every list item taking a note of its own. */
+const PlainNoteBody = ({
+  chunk,
+  chunkIndex,
+  state,
+}: {
+  readonly chunk: SteeringViewNode
+  readonly chunkIndex: number
+  readonly state: ReviewState
+}) => (
+  <div data-testid={`chunk-plain-note-body-${chunkIndex}`} className="-mx-3 text-small">
+    {(chunk.body ?? []).map((node, i) =>
+      node.block?.kind === "list" ? (
+        <div key={i} className="px-3">
+          <NotableList items={node.block.items ?? []} id={`${chunkIndex}-${i}`} state={state} />
+        </div>
+      ) : (
+        <ProseBlocks key={i} nodes={[node]} noteOverrides={{}} onOpenNote={() => {}} readOnly />
+      ),
+    )}
+  </div>
 )
 
 /** A finding's done mark, a walkthrough chunk's tick-all box, nothing for a plain note. */
@@ -503,8 +605,15 @@ const ChunkRow = ({
       <div className="flex items-start gap-2">
         <ChunkMark chunk={chunk} chunkIndex={chunkIndex} state={state} />
         {isPlainNote(chunk) ? (
-          <div data-testid={`chunk-plain-note-${chunkIndex}`} className="flex-1 py-1">
-            <ChunkSummary chunk={chunk} chunkIndex={chunkIndex} />
+          <div data-testid={`chunk-plain-note-${chunkIndex}`} className="min-w-0 flex-1 py-1">
+            <ChunkSummary
+              chunk={chunk}
+              chunkIndex={chunkIndex}
+              withDetail={chunk.body === undefined || chunk.body.length === 0}
+            />
+            {chunk.body !== undefined && chunk.body.length > 0 && (
+              <PlainNoteBody chunk={chunk} chunkIndex={chunkIndex} state={state} />
+            )}
           </div>
         ) : (
           <Button

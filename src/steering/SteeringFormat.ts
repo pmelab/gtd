@@ -89,6 +89,11 @@ export interface BlockListItem {
   readonly items?: readonly BlockListItem[]
   /** `text`'s own inline structure — the shared renderer walks this instead of `text` when present. Populated at every nesting depth. */
   readonly inline?: readonly InlineNode[]
+  /** The item's own 0-based source line: a `paragraph` anchor at it notes this item alone. */
+  readonly line?: number
+  /** The note or thread whose marker sits on `line`, as on a view node. */
+  readonly note?: string
+  readonly thread?: SteeringViewThread
 }
 
 export interface SteeringViewThread {

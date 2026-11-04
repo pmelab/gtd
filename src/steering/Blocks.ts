@@ -128,21 +128,28 @@ const nodeInline = (
   return title.length > 0 ? [{ kind: "text", value: title }] : []
 }
 
+type NoteAt = ReturnType<typeof noteLookup>
+
 /** One list item as a `BlockListItem`, recursing into a nested `list` child (there is at most one, CommonMark's own shape) as its own `items`. */
-const blockListItemOf = (content: string, item: ListItem): BlockListItem => {
+const blockListItemOf = (content: string, item: ListItem, noteAt: NoteAt): BlockListItem => {
   const nested = item.children.filter((c): c is List => c.type === "list")
-  const items = nested.flatMap((list) => blockListItemsOf(content, list.children))
+  const items = nested.flatMap((list) => blockListItemsOf(content, list.children, noteAt))
+  const line = item.position === undefined ? undefined : toLspPosition(item.position.start).line
   return {
     text: listItemText(content, item),
     inline: listItemInline(content, item),
     ...(item.checked === true || item.checked === false ? { checked: item.checked } : {}),
     ...(items.length > 0 ? { items } : {}),
+    ...(line === undefined ? {} : { line, ...noteAt(line) }),
   }
 }
 
 /** Every item of a `list` node's own `children`, as `BlockListItem`s, in document order. */
-const blockListItemsOf = (content: string, items: readonly ListItem[]): readonly BlockListItem[] =>
-  items.map((item) => blockListItemOf(content, item))
+const blockListItemsOf = (
+  content: string,
+  items: readonly ListItem[],
+  noteAt: NoteAt,
+): readonly BlockListItem[] => items.map((item) => blockListItemOf(content, item, noteAt))
 
 /** The `title` an empty fenced code block (a `` ``` ``/`` ``` `` pair with nothing between them) falls back to — its real body is `""`, and every node still carries a non-empty title. */
 const EMPTY_CODE_BLOCK_TITLE = "(empty code block)"
@@ -184,6 +191,7 @@ const blockTitle = (content: string, node: RootContent, options?: BlockWalkOptio
 const blockOf = (
   content: string,
   node: RootContent,
+  noteAt: NoteAt,
   options?: BlockWalkOptions,
 ): SteeringViewNode["block"] | undefined => {
   switch (node.type) {
@@ -197,7 +205,7 @@ const blockOf = (
       return {
         kind: "list",
         ordered: node.ordered === true,
-        items: blockListItemsOf(content, visibleListItems(node, options)),
+        items: blockListItemsOf(content, visibleListItems(node, options), noteAt),
       }
     case "code":
       return {
@@ -285,7 +293,7 @@ export const blockNodesOfRun = (
   const noteAt = noteLookup(content, options?.footnotes)
   return visibleNodes(content, nodes, options).map((node) => {
     const startLine = toLspPosition(node.position!.start).line
-    const block = blockOf(content, node, options)
+    const block = blockOf(content, node, noteAt, options)
     return {
       title: blockTitle(content, node, options),
       anchor: { kind: "paragraph" as const, line: startLine },

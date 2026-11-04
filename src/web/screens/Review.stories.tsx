@@ -3,10 +3,10 @@ import { viewport } from "../testing/browserContext.js"
 import { useRef, useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
 import { token } from "../testing/palette.js"
-import { steeringFormatFor } from "../../steering/index.js"
+import { applySteeringEdits, steeringFormatFor } from "../../steering/index.js"
 import type { SteeringAnchor, SteeringView } from "../../steering/index.js"
 
-/** The real `review` format's own `view` — used only by the image-collapsing regression story below, which must exercise the actual server-side projection rather than a hand-built fixture. */
+/** The real `review` format, for stories that must exercise the actual server-side projection rather than a hand-built fixture. */
 const reviewFormat = steeringFormatFor("review")!
 import { TrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { withRealMousePress } from "../testing/realMousePress.js"
@@ -2541,5 +2541,74 @@ export const AThreadWaitingOnTheAgentShowsNoBadge: Story = {
     const canvas = within(canvasElement)
     await expect(canvas.getByTestId("chunk-thread-0")).toBeInTheDocument()
     await expect(canvas.queryByTestId("chunk-thread-0-waiting")).not.toBeInTheDocument()
+  },
+}
+
+const QUALITY_LAP_REVIEW = `# Review: abc1234
+
+<!-- base: abc1234def5678901234567890123456789abcd -->
+
+## Quality lap
+
+What the quality lenses found, and what became of it.
+
+Fixed automatically:
+
+- Rounds wrong (abc1234, lens correctness)
+- Missing test (def5678, lens tests)
+`
+
+/** The quality lap's summary lists its findings, and a note on one lands on that line alone. */
+const qualityLap = (() => {
+  let content = QUALITY_LAP_REVIEW
+  const Story = () => (
+    <TrpcTestProvider
+      resolvers={{
+        readSteeringFile: () => ({
+          ok: true,
+          content,
+          headSha: "abc123",
+          contentHash: `hash-${content.length}`,
+          view: reviewFormat.view(content),
+        }),
+        writeNote: (input) => {
+          const { anchor, text } = input as { anchor: SteeringAnchor; text: string }
+          const result = reviewFormat.annotate(content, anchor, text)
+          if (result.ok) content = applySteeringEdits(content, result.edits)
+          return { ok: true, contentHash: `hash-${content.length}` }
+        },
+      }}
+    >
+      <Review {...REAL_REVIEW_ARGS} />
+    </TrpcTestProvider>
+  )
+  return { Story, read: () => content }
+})()
+
+export const TheQualityLapSummaryTakesANoteOnEachItem: StoryObj<typeof Review> = {
+  render: qualityLap.Story,
+  args: REAL_REVIEW_ARGS,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("note-item-0-2-1")).toBeInTheDocument())
+    const items = within(canvas.getByTestId("chunk-plain-note-body-0")).getAllByRole("listitem")
+    await expect(items.map((li) => li.textContent)).toEqual([
+      "Rounds wrong (abc1234, lens correctness)Note",
+      "Missing test (def5678, lens tests)Note",
+    ])
+    await fireEvent.click(canvas.getByTestId("note-item-note-0-2-1"))
+    await fireEvent.change(canvas.getByTestId("note-sheet-textarea"), {
+      target: { value: "Reopen this." },
+    })
+    await fireEvent.click(canvas.getByTestId("note-sheet-save"))
+    await waitFor(() =>
+      expect(qualityLap.read()).toMatch(/- Missing test \(def5678, lens tests\)\[\^\w+\]\n/),
+    )
+    await expect(qualityLap.read()).toContain("- Rounds wrong (abc1234, lens correctness)\n")
+    await expect(reviewFormat.validate(qualityLap.read())).toEqual([])
+    await waitFor(() =>
+      expect(canvas.getByTestId("note-item-thread-0-2-1")).toHaveTextContent("Reopen this."),
+    )
+    await expect(canvas.queryByTestId("note-item-thread-0-2-0")).not.toBeInTheDocument()
   },
 }

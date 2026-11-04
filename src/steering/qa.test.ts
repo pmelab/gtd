@@ -1172,7 +1172,7 @@ describe("qa.view — block nodes (package 02, T1/T2)", () => {
     expect(topItem?.text).not.toContain("Nested")
     expect(topItem?.text).not.toContain("-")
     expect(topItem?.items).toEqual([
-      { text: "Nested", inline: [{ kind: "text", value: "Nested" }] },
+      { text: "Nested", inline: [{ kind: "text", value: "Nested" }], line: 2 },
     ])
   })
 
@@ -1180,8 +1180,8 @@ describe("qa.view — block nodes (package 02, T1/T2)", () => {
     const content = ["- [ ] Not done", "- [x] Done", ""].join("\n")
     const view = qa.view(content)
     expect(view.nodes[0]?.block?.items).toEqual([
-      { text: "Not done", checked: false, inline: [{ kind: "text", value: "Not done" }] },
-      { text: "Done", checked: true, inline: [{ kind: "text", value: "Done" }] },
+      { text: "Not done", checked: false, inline: [{ kind: "text", value: "Not done" }], line: 0 },
+      { text: "Done", checked: true, inline: [{ kind: "text", value: "Done" }], line: 1 },
     ])
   })
 

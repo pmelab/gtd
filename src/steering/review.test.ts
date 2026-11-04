@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { FOOTNOTE_ACTION_TITLE, steeringFormatFor, viewOf } from "./internal.js"
+import { applySteeringEdits, FOOTNOTE_ACTION_TITLE, steeringFormatFor, viewOf } from "./internal.js"
 import { parseReviewDoc, unansweredNotes } from "./review.js"
 import { getParseCount } from "./internal.js"
 
@@ -1368,6 +1368,31 @@ describe("review.annotate", () => {
       "a real note",
     )
     expect(result.ok).toBe(true)
+  })
+
+  it("a paragraph anchor on one item of a chunk's list notes that item alone", () => {
+    const summary = [
+      "# Review: abc1234",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Quality lap",
+      "",
+      "Fixed automatically:",
+      "",
+      "- Rounds wrong (lens correctness)",
+      "- Missing test (lens tests)",
+      "",
+    ].join("\n")
+    const before = review.view(summary).nodes[0]!.body![1]!.block!.items!
+    expect(before.map((item) => item.line)).toEqual([7, 8])
+    const result = review.annotate(summary, { kind: "paragraph", line: 8 }, "reopen it")
+    if (!result.ok) throw new Error(result.reason)
+    const after = applySteeringEdits(summary, result.edits)
+    expect(review.validate(after)).toEqual([])
+    const items = review.view(after).nodes[0]!.body![1]!.block!.items!
+    expect(items[0]).not.toHaveProperty("thread")
+    expect(items[0]).not.toHaveProperty("note")
+    expect(items[1]!.thread?.entries).toEqual([{ author: "me", text: "reopen it" }])
   })
 
   it("accepts a paragraph anchor in a prose-only document", () => {
