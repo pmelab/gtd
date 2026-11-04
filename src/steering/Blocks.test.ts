@@ -35,7 +35,9 @@ describe("blockRunInline — spec-feedback regression: a nested list item's own 
     const nodes = blockNodesOf(content, tree)
     const topItem = nodes[0]?.block?.items?.[0]
     expect(topItem?.inline).toEqual([{ kind: "text", value: "outer" }])
-    expect(topItem?.items).toEqual([{ text: "inner", inline: [{ kind: "text", value: "inner" }] }])
+    expect(topItem?.items).toEqual([
+      { text: "inner", inline: [{ kind: "text", value: "inner" }], line: 1 },
+    ])
   })
 })
 

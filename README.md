@@ -440,13 +440,15 @@ disk until you run `gtd` again, from anywhere, to pick it up. A description
 renders inline markdown — bold, code, strikethrough, links, and images — instead
 of literal asterisks and backticks. A note you add from the phone starts a
 thread: a footnote holding a `H:`/`A:` conversation. Threads show as a
-conversation under their block, question, chunk, or hunk, and one the agent
-answered last carries a "waiting on you" badge. Tap it to reply — your reply is
-added as a new `H:` entry; while the agent has yet to answer, reopening it edits
-your last entry instead. Tap an already-answered question to leave a note on it;
-the agent may overturn the answer. A `findings` file lists its findings, each
-with a fix checkbox and, once ticked, an optional line of guidance; Done stays
-disabled while the file holds anything its gate would refuse. See
+conversation under their block, question, chunk, or hunk — or, in a review chunk
+with no file pointers, under each line of its lists, so a summary's entries take
+a note apiece — and one the agent answered last carries a "waiting on you"
+badge. Tap it to reply — your reply is added as a new `H:` entry; while the
+agent has yet to answer, reopening it edits your last entry instead. Tap an
+already-answered question to leave a note on it; the agent may overturn the
+answer. A `findings` file lists its findings, each with a fix checkbox and, once
+ticked, an optional line of guidance; Done stays disabled while the file holds
+anything its gate would refuse. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 
