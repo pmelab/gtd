@@ -131,7 +131,12 @@ export interface GitTier {
 const noopNarratorLayer = Narrator.layer(() => {}, false)
 
 const gitExecIn = (dir: string, ...args: string[]): string =>
-  execSync(`git ${args.join(" ")}`, { cwd: dir, encoding: "utf8", stdio: "pipe" }).trim()
+  execSync(`git ${args.join(" ")}`, {
+    cwd: dir,
+    encoding: "utf8",
+    stdio: "pipe",
+    maxBuffer: 1 << 28,
+  }).trim()
 
 const makeLiveTier = (initialCommit = true): GitTier => {
   // realpath'd once here so `t.root` matches `git rev-parse --show-toplevel`'s
@@ -150,6 +155,7 @@ const makeLiveTier = (initialCommit = true): GitTier => {
       cwd: root,
       env: commitEnv(),
       stdio: "pipe",
+      maxBuffer: 1 << 28,
     })
   gitExec("init")
   gitExec(`config user.email "test@test.com"`)
@@ -432,6 +438,7 @@ export const CONTRACT_COVERED_OPERATIONS: ReadonlySet<keyof GitOperations> = new
   "subjectHistory",
   "readFileAtRef",
   "changedPaths",
+  "untrackedPaths",
   "stagedPaths",
   "diffPaths",
   "authorIdent",
@@ -1096,6 +1103,24 @@ export const runGitServiceContract = (makeTier: () => GitTier): void => {
 
     it("returns [] on a clean tree", async () => {
       expect(await runGit(t, (g) => g.changedPaths())).toEqual([])
+    })
+
+    it("classifies an untracked set far past the argument limit, against an older base", async () => {
+      const long = "d".repeat(200)
+      const paths = Array.from({ length: 4000 }, (_, i) => `${long}/${long}/${long}/f${i}.txt`)
+      t.seed.commit("chore: seed", { "kept.txt": "seed" })
+      const seed = t.observe.resolveRef("HEAD")
+      t.seed.commit(
+        "chore: files",
+        Object.fromEntries(paths.map((p, i) => [p, i % 2 === 0 ? "same" : "old"])),
+      )
+      const head = t.observe.resolveRef("HEAD")
+      t.seed.mixedReset(seed)
+      paths.forEach((p, i) => t.seed.writeFile(p, i % 2 === 0 ? "same" : "new"))
+      const changed = await runGit(t, (g) => g.changedPaths(head))
+      expect(changed.length).toBe(2000)
+      expect(changed.every((c) => c.status === "M")).toBe(true)
+      expect((await runGit(t, (g) => g.untrackedPaths())).length).toBe(4000)
     })
 
     it("ignores an edit staged and then reverted in the worktree", async () => {

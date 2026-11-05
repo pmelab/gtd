@@ -298,6 +298,11 @@ export class InMemRepo {
     return diffTrees(baseTree, worktreeTree)
   }
 
+  /** Worktree paths the index does not carry. */
+  untrackedPaths(): string[] {
+    return [...this.worktree.keys()].filter((k) => !this.index.has(k))
+  }
+
   /** The index vs HEAD — the port's `stagedPaths`. */
   stagedPaths(): Array<{ path: string; status: string }> {
     return diffTrees(this.treeAt(undefined), this.index)
