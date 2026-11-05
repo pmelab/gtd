@@ -615,6 +615,8 @@ Options:
                       tailscale serve
   --self-signed       Bind directly with a throwaway self-signed certificate
                       instead of the configured ui.cert/ui.key
+  --http              Serve plain HTTP for a local TLS-terminating proxy; needs
+                      a loopback --host
   --dev               Serve local development sources instead of the packaged
                       build
   -v, --verbose       Narrate on stderr what gtd resolved

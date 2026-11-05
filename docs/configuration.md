@@ -1092,7 +1092,9 @@ roots/discovery setting, because there is no fleet to discover:
   whenever serve isn't available — it never refuses.
 - **`cert`** / **`key`** (strings, optional) — paths to an existing certificate
   and private key, used as-is. `--self-signed` always overrides these with a
-  freshly generated throwaway pair, even when both are configured.
+  freshly generated throwaway pair, even when both are configured. `--http`
+  ignores both: it serves plain HTTP on a loopback bind for a local
+  TLS-terminating proxy.
 - **`format`** (string, optional) — a shell command run after every write
   `gtd ui` makes to the steering file, before the phone's request resolves, with
   `$GTD_FILE` set to the written file's absolute path. Absent means no command
@@ -1101,8 +1103,8 @@ roots/discovery setting, because there is no fleet to discover:
   refuses it — the phone is told which command ran and what it exited with, and
   the bytes it already wrote stay on disk either way.
 
-Flags (`--host`, `--port`, `--self-signed`) always override the matching `ui`
-value; see `docs/cli.md`'s `ui` row for the full flag list.
+Flags (`--host`, `--port`, `--self-signed`, `--http`) always override the
+matching `ui` value; see `docs/cli.md`'s `ui` row for the full flag list.
 
 ### Skills
 
