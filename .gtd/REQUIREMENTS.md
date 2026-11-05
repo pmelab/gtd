@@ -8,7 +8,7 @@ Fixing E2BIG alone makes `gtd next`/`gtd land` work again — but the landing
 script's `git add -A` then commits every one of those files (12,448 files, 222
 MB in the report). The fork: stop the human, warn them, or stay silent.
 
-- [ ] Refuse above a threshold, with a clear message
+- [x] Refuse above a threshold, with a clear message
   - `gtd next`/`gtd land` fail with "N untracked files; add a .gitignore?"
     naming the count and the largest untracked directories
   - nothing gets committed until the human ignores or deletes the tree
@@ -27,7 +27,7 @@ MB in the report). The fork: stop the human, warn them, or stay silent.
 Only matters if the answer above keeps a threshold. Decides whether a project
 can raise it and what number ships.
 
-- [ ] Fixed at 1,000 untracked files
+- [x] Fixed at 1,000 untracked files
   - catches `node_modules` early; a big scaffold step (generated fixtures,
     vendored code) trips it
 - [ ] Fixed at 10,000 untracked files
