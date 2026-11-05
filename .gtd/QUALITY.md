@@ -2,8 +2,6 @@
 
 ## "A pick never clears" keeps the free-form tick outside the format contract's round-trip test
 
-_From lens spec-challenge. The judge called it design (p=0.72)._
-
 Spec decision (REQUIREMENTS Concern 3): a free-form pick "only moves, never
 clears". Built as `freeFormApply` refusing `checked: false` with
 `anchor-not-found` (`src/steering/freeform.ts`).
@@ -32,5 +30,3 @@ Resolve it one of two ways:
   `true`.
 - **Keep the refusal in the format.** Add a dedicated reason for it and a
   free-form contract case pinning the pick-one write's byte-exact round trip.
-
-- [x] fix
