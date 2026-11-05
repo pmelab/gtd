@@ -87,3 +87,22 @@ first task item.
 - [ ] ./README.md#436-455 — `gtd ui` paragraph now mentions tickable task-list
       boxes, pick-one per list, and that a ticked box can't be cleared from the
       phone. The rest is reflow.
+
+## Quality lap
+
+What the quality lenses found, and what became of it. Write a note under a line
+to reopen it.
+
+Fixed automatically:
+
+- Free-form tick refuses a whole list when one task box is not on its item's
+  marker line (5c6f175, lens correctness)
+- Phone-side tick wiring has no test that fails without it (5c6f175, lens
+  correctness)
+- No `@inmem` cucumber scenario for the new phone-side tick feature (5c6f175,
+  lens conventions)
+
+Fixed at the finding gate:
+
+- "A pick never clears" keeps the free-form tick outside the format contract's
+  round-trip test (af1dc4a, lens spec-challenge)
