@@ -16,7 +16,7 @@ the user, or make them spell it out.
 - [ ] Refuse with a usage error naming `--host 127.0.0.1`
   - matches the sketch literally ("`--host 127.0.0.1`/`::1`")
   - one more flag to type; nothing ever binds by surprise
-- [ ] Default the bind to `127.0.0.1`
+- [x] Default the bind to `127.0.0.1`
   - `gtd ui --http --port N` just works
   - `--http` silently changes where gtd ui listens, not just the protocol
 - [ ] _your answer_
