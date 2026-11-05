@@ -8,6 +8,7 @@ export interface UiRequest {
     readonly host?: string
     readonly port?: number
     readonly selfSigned: boolean
+    readonly http?: boolean
     readonly dev: boolean
   }
   readonly config: UiSettings | undefined

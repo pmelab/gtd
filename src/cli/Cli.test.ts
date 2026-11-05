@@ -32,6 +32,7 @@ const FLAG_NAMES = [
   "--port",
   "--host",
   "--self-signed",
+  "--http",
   "--dev",
   "--cost",
   "--model",

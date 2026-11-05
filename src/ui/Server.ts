@@ -50,6 +50,7 @@ export interface UiCommandOptions {
   readonly host?: string
   readonly port?: number
   readonly selfSigned: boolean
+  readonly http?: boolean
   readonly dev: boolean
 }
 
@@ -616,6 +617,34 @@ const teardownServe = (servePort: number): Effect.Effect<void, never, UiShell | 
     host.serveRecords.delete(servePort)
   })
 
+const isLoopbackHost = (host: string): boolean =>
+  host === "localhost" ||
+  (isIP(host) === 6 && new URL(`http://[${host}]`).hostname === "[::1]") ||
+  (isIP(host) === 4 && host.startsWith("127."))
+
+const httpBind = (
+  options: UiCommandOptions,
+  explicitHost: string | undefined,
+  explicitPort: number | undefined,
+  uiListener: Context.Service.Shape<typeof UiListener>,
+  handler: UiHandler,
+): Effect.Effect<{ readonly bound: BoundServer; readonly url: string }, UiError> =>
+  Effect.gen(function* () {
+    const bindHost = explicitHost ?? "127.0.0.1"
+    if (!isLoopbackHost(bindHost)) {
+      return yield* Effect.fail(
+        new UiUsageError(`gtd ui: --http needs a loopback bind host, got ${bindHost}`, [
+          "use 127.0.0.0/8, ::1 or localhost, so only a local proxy can reach it",
+        ]),
+      )
+    }
+    const bound = yield* uiListener.listen({ host: bindHost, port: explicitPort ?? 0, handler })
+    return {
+      bound,
+      url: `http://${isIP(bindHost) === 6 ? `[${bindHost}]` : bindHost}:${bound.port}/`,
+    }
+  })
+
 /**
  * An explicit `--host`/`ui.host` or `--self-signed` skips serve entirely;
  * otherwise the candidate walk runs first, printing the LAST candidate's
@@ -657,6 +686,11 @@ const resolveListener = (args: {
         })
         return { bound, url: `https://${displayHost}:${bound.port}/` }
       })
+
+    if (options.http === true) {
+      const bound = yield* httpBind(options, explicitHost, explicitPort, uiListener, handler)
+      return { bound: bound.bound, url: bound.url, teardown: Effect.void }
+    }
 
     if (explicitHost !== undefined || options.selfSigned) {
       const { bound, url } = yield* directBind()
