@@ -33,4 +33,4 @@ Resolve it one of two ways:
 - **Keep the refusal in the format.** Add a dedicated reason for it and a
   free-form contract case pinning the pick-one write's byte-exact round trip.
 
-- [ ] fix
+- [x] fix
