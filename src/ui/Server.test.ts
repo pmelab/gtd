@@ -1662,30 +1662,33 @@ describe("runUiCommand", () => {
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
 
-  it.each(["127.0.0.2", "::1", "localhost"])("--http accepts loopback host %s", async (host) => {
-    initGitRepo(tmpDir)
-    installFakeGtd(tmpDir, renderablePromptJson)
-    const { out, written } = fakeOut()
-    const fakeUiListener = Layer.succeed(UiListener, {
-      listen: () => Effect.succeed({ port: 4443, close: () => {} }),
-    })
-    const fiber = Effect.runFork(
-      runUiCommand(
-        { selfSigned: false, http: true, dev: false, host },
-        undefined,
-        out,
-        tmpDir,
-      ).pipe(
-        Effect.provide(fakeUiListener),
-        Effect.provide(noShell),
-        Effect.provide(liveUiHost),
-        Effect.provide(NodeServices.layer),
-      ),
-    )
-    await waitForWrites(written, 1)
-    expect(written[0]).toBe(`http://${host}:4443/\n`)
-    await Effect.runPromise(Fiber.interrupt(fiber))
-  })
+  it.each(["127.0.0.2", "::1", "0:0:0:0:0:0:0:1", "localhost"])(
+    "--http accepts loopback host %s",
+    async (host) => {
+      initGitRepo(tmpDir)
+      installFakeGtd(tmpDir, renderablePromptJson)
+      const { out, written } = fakeOut()
+      const fakeUiListener = Layer.succeed(UiListener, {
+        listen: () => Effect.succeed({ port: 4443, close: () => {} }),
+      })
+      const fiber = Effect.runFork(
+        runUiCommand(
+          { selfSigned: false, http: true, dev: false, host },
+          undefined,
+          out,
+          tmpDir,
+        ).pipe(
+          Effect.provide(fakeUiListener),
+          Effect.provide(noShell),
+          Effect.provide(liveUiHost),
+          Effect.provide(NodeServices.layer),
+        ),
+      )
+      await waitForWrites(written, 1)
+      expect(written[0]).toBe(`http://${host.includes(":") ? "[" + host + "]" : host}:4443/\n`)
+      await Effect.runPromise(Fiber.interrupt(fiber))
+    },
+  )
 
   it.each(["0.0.0.0", "::", "100.64.0.5", "192.168.1.10", "example.com"])(
     "--http refuses non-loopback host %s with a usage error before listening",
@@ -1714,25 +1717,6 @@ describe("runUiCommand", () => {
       expect(listened).toBe(false)
     },
   )
-
-  it("--http with --self-signed is a usage error", async () => {
-    initGitRepo(tmpDir)
-    installFakeGtd(tmpDir, renderablePromptJson)
-    const { out } = fakeOut()
-    const fakeUiListener = Layer.succeed(UiListener, {
-      listen: () => Effect.succeed({ port: 1, close: () => {} }),
-    })
-    const err = await Effect.runPromise(
-      runUiCommand({ selfSigned: true, http: true, dev: false }, undefined, out, tmpDir).pipe(
-        Effect.provide(fakeUiListener),
-        Effect.provide(noShell),
-        Effect.provide(liveUiHost),
-        Effect.provide(NodeServices.layer),
-        Effect.flip,
-      ),
-    )
-    expect(err.name).toBe("UiUsageError")
-  })
 
   it("--self-signed skips the serve attempt entirely, even with no --host given — no `tailscale serve` invocation at all", async () => {
     initGitRepo(tmpDir)

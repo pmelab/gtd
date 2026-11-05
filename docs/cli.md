@@ -609,14 +609,14 @@ instead of refusing.
 
 Options:
   --port=<n>          The tailscale serve port (default: the first free of 8443,
-                      10000, 443), or with --host the port to bind (default: any
-                      free one)
+                      10000, 443), or with --host or --http the port to bind
+                      (default: any free one)
   --host=<addr>       Bind this address directly instead of publishing through
                       tailscale serve
   --self-signed       Bind directly with a throwaway self-signed certificate
                       instead of the configured ui.cert/ui.key
-  --http              Serve plain HTTP for a local TLS-terminating proxy; needs
-                      a loopback --host
+  --http              Serve plain HTTP for a local TLS-terminating proxy; binds
+                      127.0.0.1 unless a loopback --host is given
   --dev               Serve local development sources instead of the packaged
                       build
   -v, --verbose       Narrate on stderr what gtd resolved

@@ -543,3 +543,20 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   # a spawned `@live` subprocess can inject neither, and would additionally
   # depend on the runner's own machine genuinely carrying a Tailscale CGNAT
   # interface to bind at all.
+
+  @inmem
+  Scenario: gtd ui --http refuses a non-loopback host
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "Sketch the change in .gtd/TODO.md.", file: ".gtd/TODO.md" })
+        await agent("planning", "Plan the sketch.")
+      }
+      """
+    When I run gtd with args "ui --http --host 0.0.0.0"
+    Then it fails
+    And the exit code is 2
+    And stderr contains "loopback"

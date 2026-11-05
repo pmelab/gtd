@@ -184,7 +184,7 @@ const FLAGS: readonly FlagRow[] = [
     },
     scopeError: "gtd: --port is only valid for `gtd ui`",
     valueHint: "<n>",
-    help: "The tailscale serve port (default: the first free of 8443, 10000, 443), or with --host the port to bind (default: any free one)",
+    help: "The tailscale serve port (default: the first free of 8443, 10000, 443), or with --host or --http the port to bind (default: any free one)",
   },
   {
     name: "--host",
@@ -217,7 +217,7 @@ const FLAGS: readonly FlagRow[] = [
     decode: () => Result.succeed(true),
     scopeError: "gtd: --http is only valid for `gtd ui`",
     valueHint: "",
-    help: "Serve plain HTTP for a local TLS-terminating proxy; needs a loopback --host",
+    help: "Serve plain HTTP for a local TLS-terminating proxy; binds 127.0.0.1 unless a loopback --host is given",
   },
   {
     name: "--dev",

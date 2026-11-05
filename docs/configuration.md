@@ -1080,16 +1080,17 @@ roots/discovery setting, because there is no fleet to discover:
 
 - **`port`** (integer, optional) — with neither this key nor `host` given, the
   port `gtd ui` publishes through `tailscale serve`, walking 8443, then 10000,
-  then 443 until one publishes. When `host` (or `--host`) opts out of serve,
-  this is the bind port instead — with neither this key nor `--port` given, the
-  OS picks a free one. `0` (like `--port 0`) means the same auto-pick as leaving
-  it unset entirely.
+  then 443 until one publishes. When `host` (or `--host`, or `--http`) opts out
+  of serve, this is the bind port instead — with neither this key nor `--port`
+  given, the OS picks a free one. `0` (like `--port 0`) means the same auto-pick
+  as leaving it unset entirely.
 - **`host`** (string, optional) — opts out of the default `tailscale serve`
   front door and binds this address directly instead, showing it in the printed
   URL — the same effect as `--host`. With neither this key nor `--host` given,
   `gtd ui` publishes through `tailscale serve` and falls back to binding a
   Tailscale interface (a CGNAT `100.64.0.0/10` address, auto-detected) directly
-  whenever serve isn't available — it never refuses.
+  whenever serve isn't available — it never refuses. With `--http`, serve is
+  skipped too: no host binds `127.0.0.1`, and a non-loopback host is refused.
 - **`cert`** / **`key`** (strings, optional) — paths to an existing certificate
   and private key, used as-is. `--self-signed` always overrides these with a
   freshly generated throwaway pair, even when both are configured. `--http`

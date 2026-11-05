@@ -618,7 +618,9 @@ const teardownServe = (servePort: number): Effect.Effect<void, never, UiShell | 
   })
 
 const isLoopbackHost = (host: string): boolean =>
-  host === "localhost" || host === "::1" || (isIP(host) === 4 && host.startsWith("127."))
+  host === "localhost" ||
+  (isIP(host) === 6 && new URL(`http://[${host}]`).hostname === "[::1]") ||
+  (isIP(host) === 4 && host.startsWith("127."))
 
 const httpBind = (
   options: UiCommandOptions,
@@ -628,11 +630,6 @@ const httpBind = (
   handler: UiHandler,
 ): Effect.Effect<{ readonly bound: BoundServer; readonly url: string }, UiError> =>
   Effect.gen(function* () {
-    if (options.selfSigned) {
-      return yield* Effect.fail(
-        new UiUsageError("gtd ui: --http and --self-signed cannot be combined"),
-      )
-    }
     const bindHost = explicitHost ?? "127.0.0.1"
     if (!isLoopbackHost(bindHost)) {
       return yield* Effect.fail(
@@ -642,7 +639,10 @@ const httpBind = (
       )
     }
     const bound = yield* uiListener.listen({ host: bindHost, port: explicitPort ?? 0, handler })
-    return { bound, url: `http://${bindHost}:${bound.port}/` }
+    return {
+      bound,
+      url: `http://${isIP(bindHost) === 6 ? `[${bindHost}]` : bindHost}:${bound.port}/`,
+    }
   })
 
 /**
