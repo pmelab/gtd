@@ -72,8 +72,6 @@ the user, or make them spell it out.
   `127.0.0.1`" if the human picks the default.)
 - AC-7: `--http` combined with `--self-signed` fails with a usage error (exit
   2).
-- AC-8: `--http` on any command other than `gtd ui` fails with a usage error
-  saying it is only valid for `gtd ui`.
 - AC-9: `gtd ui --help` lists `--http` with a one-line description saying it
   serves plain HTTP for a local TLS-terminating proxy and needs a loopback
   `--host`.
@@ -129,7 +127,7 @@ the user, or make them spell it out.
   exit code 2. The loopback and flag-combination refusals must use it.
 - Flag scope errors: the flag table in `src/cli/Cli.ts` rejects a `ui`-scoped
   flag on other commands with "only valid for `gtd ui`". `--http` must be
-  declared through it.
+  declared through it, so it fails as a usage error on every non-`ui` command.
 - Pinned help docs: `docs/cli.md`'s command blocks are tested equal to rendered
   help; adding the flag must regenerate that block.
 - Startup refusal ordering: `runUiCommand` refuses an unrenderable rest before
