@@ -42,3 +42,23 @@ test would fail.
 
 Fix direction: add a contract case where ignored paths are absent from
 `untrackedPaths`. Then give the twin ignore support, or mark the gap explicitly.
+
+## New code was inserted between existing doc comments and the functions they describe
+
+Two inserts in `src/platform/Git.ts` split a JSDoc from its function:
+
+- `ARGV_CHUNK` and `chunked` sit between the `blobsAtRef` doc comment ("An
+  unresolvable `ref` … yields an empty map") and `blobsAtRef` itself. The
+  comment now sits above `chunked`.
+- `untrackedPaths` is added to `GitReaderOperations` after the `stagedPaths` doc
+  comment ("that `changedPaths` misses when the worktree reverted a staged
+  edit"). That comment now documents `untrackedPaths`, and `stagedPaths` has
+  none.
+
+Failure scenario: a reader or hover tooltip shows the staged-path description on
+`untrackedPaths` and the ref-blob description on `chunked`. This is wrong
+documentation that the repo's comment policy says to delete, not leave.
+
+Fix direction: put `untrackedPaths` (with its own one-line doc) before the
+`stagedPaths` docblock, and move `ARGV_CHUNK`/`chunked` above the `blobsAtRef`
+docblock.
