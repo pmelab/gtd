@@ -234,7 +234,7 @@ describe("freeFormFormat.annotate", () => {
     const attach = (content: string, text: string): string => {
       const r = freeFormFormat.annotate(content, anchor, text)
       if (!r.ok) throw new Error("refused")
-      return applyEdits(content, r.edits)
+      return applyEditsExact(content, r.edits)
     }
     const created = attach("Paragraph one.\n", "first")
     expect(created).toMatch(/\[\^na\w+\]:\n    - H: first\n/)
@@ -307,5 +307,55 @@ describe("freeFormFormat — thread outline", () => {
     expect(freeFormFormat.outline(doc).map((n) => [n.name, n.detail])).toEqual([
       ["[^a]", "waiting on you"],
     ])
+  })
+})
+
+describe("freeFormFormat — task tick", () => {
+  const tick = (content: string, line: number): string => {
+    const r = freeFormFormat.apply(content, { kind: "paragraph", line }, { checked: true })
+    if (!r.ok) throw new Error(r.reason)
+    return applyEditsExact(content, r.edits)
+  }
+
+  it("ticks one box, leaving every other line byte-identical", () => {
+    const doc = "Tick exactly one event:\n\n- [ ] APPROVE\n- [ ] REJECT\n- [ ] CANCEL\n"
+    expect(tick(doc, 2)).toBe(doc.replace("- [ ] APPROVE", "- [x] APPROVE"))
+  })
+
+  it("moves the pick within one list only, leaving nested and other lists alone", () => {
+    const doc = "- [x] a\n  - [x] n1\n  - [ ] n2\n- [ ] b\n\n1. [x] other\n2. [ ] other2\n"
+    expect(tick(doc, 2)).toBe(
+      "- [x] a\n  - [ ] n1\n  - [x] n2\n- [ ] b\n\n1. [x] other\n2. [ ] other2\n",
+    )
+    expect(tick(doc, 3)).toBe(
+      "- [ ] a\n  - [x] n1\n  - [ ] n2\n- [x] b\n\n1. [x] other\n2. [ ] other2\n",
+    )
+  })
+
+  it("ticks a box that sits on the line after a bare marker", () => {
+    const doc = "-\n  [ ] a\n-\n  [x] b\n"
+    expect(tick(doc, 0)).toBe("-\n  [x] a\n-\n  [ ] b\n")
+  })
+
+  it("ticks an ordered item and keeps CRLF; a ticked box is a no-op; a fenced box refuses", () => {
+    expect(tick("1. [ ] a\r\n2. [ ] b\r\n", 1)).toBe("1. [ ] a\r\n2. [x] b\r\n")
+    const done = "- [x] a\n- [ ] b\n"
+    expect(tick(done, 0)).toBe(done)
+    expect(
+      freeFormFormat.apply("```\n- [ ] a\n```\n", { kind: "paragraph", line: 1 }, { checked: true })
+        .ok,
+    ).toBe(false)
+  })
+
+  it("refuses to clear a box, whatever the anchor, and a tick round-trips byte-exact", () => {
+    const doc = "- [x] a\n- [ ] b\n"
+    expect(freeFormFormat.apply(doc, { kind: "paragraph", line: 0 }, { checked: false })).toEqual({
+      ok: false,
+      reason: "pick-never-clears",
+    })
+    const moved = tick(doc, 1)
+    expect(moved).toBe("- [ ] a\n- [x] b\n")
+    const back = freeFormFormat.apply(moved, { kind: "paragraph", line: 0 }, { checked: true })
+    expect(back.ok && applyEditsExact(moved, back.edits)).toBe(doc)
   })
 })

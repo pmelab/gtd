@@ -433,22 +433,24 @@ commit. Its guide is
 Prefer a phone or another device over your editor? `gtd ui` opens the file whose
 turn it is as a small web app, over Tailscale — including a step that names no
 format, or one nothing recognizes, which still opens as plain markdown structure
-instead of refusing to start: read, plus a note on any block. It also binds on
-an idle worktree — nothing pending yet — opening `.gtd/TODO.md` free-form with a
-bare textfield so you can sketch from your phone; the sketch stays un-triaged on
-disk until you run `gtd` again, from anywhere, to pick it up. A description
-renders inline markdown — bold, code, strikethrough, links, and images — instead
-of literal asterisks and backticks. A note you add from the phone starts a
-thread: a footnote holding a `H:`/`A:` conversation. Threads show as a
-conversation under their block, question, chunk, or hunk — or, in a review chunk
-with no file pointers, under each line of its lists, so a summary's entries take
-a note apiece — and one the agent answered last carries a "waiting on you"
-badge. Tap it to reply — your reply is added as a new `H:` entry; while the
-agent has yet to answer, reopening it edits your last entry instead. Tap an
-already-answered question to leave a note on it; the agent may overturn the
-answer. A `findings` file lists its findings, each with a fix checkbox and, once
-ticked, an optional line of guidance; Done stays disabled while the file holds
-anything its gate would refuse. See
+instead of refusing to start: read, plus a note on any block and tickable
+task-list boxes (each list is pick-one: ticking a box unticks its siblings, and
+a ticked box can't be cleared from the phone). It also binds on an idle worktree
+— nothing pending yet — opening `.gtd/TODO.md` free-form with a bare textfield
+so you can sketch from your phone; the sketch stays un-triaged on disk until you
+run `gtd` again, from anywhere, to pick it up. A description renders inline
+markdown — bold, code, strikethrough, links, and images — instead of literal
+asterisks and backticks. A note you add from the phone starts a thread: a
+footnote holding a `H:`/`A:` conversation. Threads show as a conversation under
+their block, question, chunk, or hunk — or, in a review chunk with no file
+pointers, under each line of its lists, so a summary's entries take a note
+apiece — and one the agent answered last carries a "waiting on you" badge. Tap
+it to reply — your reply is added as a new `H:` entry; while the agent has yet
+to answer, reopening it edits your last entry instead. Tap an already-answered
+question to leave a note on it; the agent may overturn the answer. A `findings`
+file lists its findings, each with a fix checkbox and, once ticked, an optional
+line of guidance; Done stays disabled while the file holds anything its gate
+would refuse. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 
