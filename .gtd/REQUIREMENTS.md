@@ -62,9 +62,12 @@ Boxes inside a code fence are not list items and stay plain text.
   has a ticked box rewrites the new one to `- [x]` and every previously ticked
   sibling in that same list to `- [ ]`, in one write; the screen shows only the
   new box ticked.
-- AC-8: Ticking a box in a nested list leaves the ticks of its parent list and
-  of every other list in the file unchanged, and ticking a box in a parent list
-  leaves the ticks in its nested lists unchanged.
+- AC-8: Pick-one groups are per list: in a file whose parent list, nested list
+  and a second top-level list each hold one ticked box, tapping an unticked box
+  in the nested list leaves the file with three ticks — the parent's, the second
+  list's, and the newly tapped one; tapping an unticked parent box likewise ends
+  with three ticks — the new parent box, the nested list's, and the second
+  list's.
 
 ## Impact
 
