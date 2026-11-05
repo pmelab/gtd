@@ -10,7 +10,7 @@ import { messageForReadRefusal, SaveIndicator, useSaveIndicatorProps } from "../
 import { readRefusalFrom, trpc } from "../api.js"
 import type { CasTokens } from "../staleRetry.js"
 import { cellKey, useWriteStore, WriteStoreProvider } from "../writeStore.js"
-import { ProseBlocks } from "./ProseBlock.js"
+import { ProseBlocks, TickContext } from "./ProseBlock.js"
 
 /** A write guarded by the store's own compare-and-swap retry — see `writeStore.ts#SaveArgs.write`'s own doc comment. */
 type TokenGuardedWrite = (tokens: CasTokens) => Promise<unknown>
@@ -104,6 +104,7 @@ export interface FreeFormViewProps {
   readonly mode: string | undefined
   readonly onSave?: (line: number, text: string) => TokenGuardedWrite
   readonly onDone?: () => Promise<unknown>
+  readonly onTick?: (line: number) => TokenGuardedWrite
   readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => TokenGuardedWrite
   /** Package 03 Task 1's single `busy` boolean, threaded from the store's own pending count. */
   readonly busy?: boolean | undefined
@@ -118,6 +119,7 @@ export const FreeFormView = ({
   mode,
   onSave,
   onDone,
+  onTick,
   onSaveNote,
   busy,
 }: FreeFormViewProps) => {
@@ -157,6 +159,20 @@ export const FreeFormView = ({
     }).catch(() => {})
   }
 
+  const tickWiring = {
+    pick: (groupLine: number): number | undefined => {
+      const v = overlay[cellKey(filePath, { kind: "paragraph", line: groupLine }, "tick")]?.value
+      return typeof v === "number" ? v : undefined
+    },
+    onTick: (groupLine: number, line: number): void => {
+      save({
+        cell: cellKey(filePath, { kind: "paragraph", line: groupLine }, "tick"),
+        optimistic: line,
+        write: onTick === undefined ? undefined : onTick(line),
+      }).catch(() => {})
+    },
+  }
+
   const runDone = (): void => {
     if (onDone === undefined) return
     save({ cell: cellKey(filePath, undefined, "done"), optimistic: true, mutate: onDone }).catch(
@@ -176,11 +192,13 @@ export const FreeFormView = ({
           {view.nodes.length === 0 ? (
             <EmptyDocumentCapture onSave={saveEmpty} />
           ) : (
-            <ProseBlocks
-              nodes={view.nodes}
-              noteOverrides={noteOverrides}
-              onOpenNote={(n) => setNoteSheetAnchor(n.anchor)}
-            />
+            <TickContext.Provider value={onTick === undefined ? undefined : tickWiring}>
+              <ProseBlocks
+                nodes={view.nodes}
+                noteOverrides={noteOverrides}
+                onOpenNote={(n) => setNoteSheetAnchor(n.anchor)}
+              />
+            </TickContext.Provider>
           )}
         </div>
         {onDone !== undefined && <FreeFormDoneRow onDone={runDone} busy={busy} />}
@@ -233,6 +251,18 @@ const useFreeFormMutations = (
       })
     }
 
+  const onTick =
+    (line: number) =>
+    (cas: CasTokens): Promise<unknown> => {
+      const anchor: SteeringAnchor = { kind: "paragraph", line }
+      return setValue
+        .mutateAsync({ filePath, ...cas, mode, anchor, checked: true })
+        .then((result) => {
+          onWriteSuccess(result.formatNotice)
+          return result
+        })
+    }
+
   const onSaveNote =
     (anchor: SteeringAnchor, text: string) =>
     (cas: CasTokens): Promise<unknown> =>
@@ -243,7 +273,7 @@ const useFreeFormMutations = (
 
   const onDone = (): Promise<unknown> => done.mutateAsync({})
 
-  return { onSave, onSaveNote, onDone, isDone: done.isSuccess }
+  return { onSave, onTick, onSaveNote, onDone, isDone: done.isSuccess }
 }
 
 /** `FreeForm`'s own inner render, a child of its `WriteStoreProvider`. */
@@ -261,7 +291,7 @@ const FreeFormInner = ({
   const indicatorProps = useSaveIndicatorProps()
   const pending = useWriteStore((s) => s.pendingCount)
   const [formatNotice, setFormatNotice] = useState<FormatNotice | undefined>(undefined)
-  const { onSave, onSaveNote, onDone, isDone } = useFreeFormMutations(
+  const { onSave, onTick, onSaveNote, onDone, isDone } = useFreeFormMutations(
     filePath,
     mode,
     setFormatNotice,
@@ -282,6 +312,7 @@ const FreeFormInner = ({
           mode={mode}
           onSave={onSave}
           onDone={onDone}
+          onTick={onTick}
           onSaveNote={onSaveNote}
           busy={pending > 0}
         />
