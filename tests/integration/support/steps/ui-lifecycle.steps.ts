@@ -315,6 +315,18 @@ When(
 )
 
 When(
+  "I tick the box on line {int} of {string} via a spawned gtd ui",
+  async (world: GtdWorld, line: number, filePath: string) => {
+    await world.spawnGtdUiAndSetValue(
+      filePath,
+      undefined,
+      { kind: "paragraph", line },
+      { checked: true },
+    )
+  },
+)
+
+When(
   "I attempt to edit paragraph {int} of {string} with the text {string} using a stale token via a spawned gtd ui",
   async (world: GtdWorld, line: number, filePath: string, text: string) => {
     await world.spawnGtdUiAndSetValueWithStaleHash(

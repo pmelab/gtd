@@ -316,6 +316,35 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the file ".gtd/TODO.md" contains "Appended paragraph."
 
   @inmem
+  Scenario: ticking a box in a mode-less steering file moves the pick on disk and leaves every other byte alone
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start" })
+        await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → planning"
+    And I run the pin beat
+    And a file ".gtd/TODO.md" with:
+      """
+      Pick one:
+
+      - [x] APPROVE
+      - [ ] REJECT
+      """
+    When I tick the box on line 3 of ".gtd/TODO.md" via a spawned gtd ui
+    Then the file ".gtd/TODO.md" contains "- [ ] APPROVE"
+    And the file ".gtd/TODO.md" contains "- [x] REJECT"
+
+  @inmem
   Scenario: writing against a stale token refuses instead of clobbering the file
     Given a test project
     And a gtd config file at "gtd.config.ts" with:

@@ -1,3 +1,4 @@
+import type { ListItem } from "mdast"
 import { blockNodesOf } from "./Blocks.js"
 import { eolOf } from "./Eol.js"
 import {
@@ -93,6 +94,41 @@ const appendEdit = (content: string, text: string): SteeringEdit => {
   return wholeDocumentEdit(content, newText)
 }
 
+/** Every task-list item with its sibling task items (direct children of one list only). */
+const taskGroups = (node: unknown, out: ListItem[][]): void => {
+  const n = node as { type?: string; children?: unknown[] }
+  if (n.type === "list") {
+    out.push((n.children as ListItem[]).filter((i) => i.checked === true || i.checked === false))
+  }
+  for (const c of n.children ?? []) taskGroups(c, out)
+}
+
+/** The box sits on the first child's line, which is not the marker line when a bare `-` precedes it. */
+const boxEdit = (lines: string[], item: ListItem, newText: string): SteeringEdit | undefined => {
+  const line = toLspPosition((item.children[0]?.position ?? item.position!).start).line
+  const m = /\[( |x|X)\]/.exec(lines[line] ?? "")
+  if (!m) return undefined
+  const c = m.index + 1
+  return { range: { start: { line, character: c }, end: { line, character: c + 1 } }, newText }
+}
+
+/** Pick-one tick: sets the box on `line` and unticks its ticked siblings, in one edit set. Ticking an already-ticked box is an empty edit set. */
+const tickEdits = (content: string, line: number): SteeringAnnotateResult => {
+  const lines = content.split("\n")
+  const groups: ListItem[][] = []
+  taskGroups(parseMarkdown(content), groups)
+  const startLine = (i: ListItem): number => toLspPosition(i.position!.start).line
+  const group = groups.find((g) => g.some((i) => startLine(i) === line))
+  if (!group) return { ok: false, reason: "anchor-not-found" }
+  const target = group.find((i) => startLine(i) === line)!
+  if (target.checked === true) return { ok: true, edits: [] }
+  const edits = group
+    .filter((i) => i === target || i.checked === true)
+    .map((i) => boxEdit(lines, i, i === target ? "x" : " "))
+  if (edits.some((e) => e === undefined)) return { ok: false, reason: "anchor-not-found" }
+  return { ok: true, edits: edits as SteeringEdit[] }
+}
+
 /**
  * Free-form's `apply`: only a `paragraph` anchor resolves (the only kind
  * `view` ever reports), and it only ever APPENDS, at or past the document's
@@ -104,6 +140,8 @@ const appendEdit = (content: string, text: string): SteeringEdit => {
  */
 const freeFormApply: SteeringFormat["apply"] = (content, anchor, opts): SteeringAnnotateResult => {
   if (anchor.kind !== "paragraph") return { ok: false, reason: "anchor-not-found" }
+  if (opts.checked === true) return tickEdits(content, anchor.line)
+  if (opts.checked === false) return { ok: false, reason: "pick-never-clears" }
   const text = opts.text ?? ""
   const tree = parseMarkdown(content)
   const lines = content.split(/\r?\n/)
