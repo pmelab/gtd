@@ -95,3 +95,22 @@ batches. This is what lets read-only commands handle >1,000 untracked files.
 
 - [ ] ./.gtd/process.gtdpin#1-1 — gtd's binary process pin (593 KB), workflow
       state, not code.
+
+## Quality lap
+
+What the quality lenses found, and what became of it. Write a note under a line
+to reopen it.
+
+Fixed automatically:
+
+- New code was inserted between existing doc comments and the functions they
+  describe (fe2314c, lens ponytail-review)
+- Untracked-file refusal has no `@inmem` scenario and no command-level proof
+  (fe2314c, lens test-audit)
+
+Dropped at the finding gate:
+
+- `gtd check --open-threads` (and every other `currentRest` reader) refuses on a
+  huge untracked tree (lens correctness)
+- `.gitignore` lifting the limit is untested, and the in-memory twin ignores it
+  (lens correctness)
