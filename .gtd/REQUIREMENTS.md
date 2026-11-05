@@ -42,9 +42,10 @@ bind**, so a local reverse proxy (pitchfork,
   process with exit 0, as over HTTPS.
 - AC-2: In `--http` mode `gtd ui` prints `http://<host>:<port>/` with the bound
   host and port.
-- AC-3: In `--http` mode no certificate is generated or loaded: no `openssl` or
-  `tailscale cert` runs, and configured `ui.cert`/`ui.key` paths are never read
-  — a missing file at those paths does not stop startup.
+- AC-3: `gtd ui --http` starts, prints its `http://` URL and serves the client
+  even when `ui.cert`/`ui.key` name files that do not exist, and even on a
+  machine with no `openssl` and no `tailscale` on `PATH` — the same config
+  without `--http` fails to start with "could not read <path>".
 - AC-4: `--http` with a non-loopback bind host — `0.0.0.0`, `::`, `100.64.0.5`,
   `192.168.1.10`, or a non-`localhost` hostname, whether from `--host` or
   `ui.host` — fails with a usage error (exit 2) naming the loopback requirement,
@@ -59,9 +60,6 @@ bind**, so a local reverse proxy (pitchfork,
 - AC-9: `gtd ui --help` lists `--http` with a one-line description saying it
   serves plain HTTP for a local TLS-terminating proxy and needs a loopback
   `--host`.
-- AC-10: In `--http` mode a request carrying a proxy `Host` header
-  (`gate.wt.proj.internal`) and `X-Forwarded-Proto: https` gets the client HTML
-  and working `/trpc` responses.
 
 ## Impact
 
@@ -94,8 +92,11 @@ bind**, so a local reverse proxy (pitchfork,
   `http.createServer` when `tls` is absent (used today for the `tailscale serve`
   loopback target). HTTP mode must reuse it, not add a second listener.
 - Fixed request origin: `viaNode` in `src/ui/Server.ts` builds every request URL
-  against `http://localhost`, never the client `Host` header. Must keep working
-  unchanged — it is why a proxy `Host` is harmless.
+  against `http://localhost`, never the client `Host` header, and no code reads
+  `X-Forwarded-Proto` — so any listener, the plain-HTTP one included, already
+  serves the client HTML and `/trpc` to a request carrying a proxy `Host`
+  (`gate.wt.proj.internal`) and `X-Forwarded-Proto: https`. HTTP mode must sit
+  on that same request path, unchanged.
 - Relative API URL: `src/web/api.ts` and `src/web/main.tsx` call `/trpc`
   relative to the serving origin, so the browser stays on the proxy's HTTPS
   origin (secure context, no mixed content). Must stay relative.
