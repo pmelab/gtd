@@ -115,13 +115,17 @@ const tickEdits = (content: string, line: number): SteeringAnnotateResult => {
   if (target.checked === true) return { ok: true, edits: [] }
   const edits: SteeringEdit[] = []
   for (const item of group) {
-    const l = startLine(item)
-    const m = /\[( |x|X)\]/.exec(lines[l] ?? "")
-    if (!m) return { ok: false, reason: "anchor-not-found" }
     if (item !== target && item.checked !== true) continue
+    // The box sits on the first child's line, which is not the marker line when a bare `-` precedes it.
+    const boxLine = toLspPosition((item.children[0]?.position ?? item.position!).start).line
+    const m = /\[( |x|X)\]/.exec(lines[boxLine] ?? "")
+    if (!m) return { ok: false, reason: "anchor-not-found" }
     const c = m.index + 1
     edits.push({
-      range: { start: { line: l, character: c }, end: { line: l, character: c + 1 } },
+      range: {
+        start: { line: boxLine, character: c },
+        end: { line: boxLine, character: c + 1 },
+      },
       newText: item === target ? "x" : " ",
     })
   }

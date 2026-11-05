@@ -332,6 +332,11 @@ describe("freeFormFormat — task tick", () => {
     )
   })
 
+  it("ticks a box that sits on the line after a bare marker", () => {
+    const doc = "-\n  [ ] a\n-\n  [x] b\n"
+    expect(tick(doc, 0)).toBe("-\n  [x] a\n-\n  [ ] b\n")
+  })
+
   it("ticks an ordered item and keeps CRLF; a ticked box is a no-op; a fenced box refuses", () => {
     expect(tick("1. [ ] a\r\n2. [ ] b\r\n", 1)).toBe("1. [ ] a\r\n2. [x] b\r\n")
     const done = "- [x] a\n- [ ] b\n"
