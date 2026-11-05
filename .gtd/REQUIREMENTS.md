@@ -62,8 +62,10 @@ Boxes inside a code fence are not list items and stay plain text.
 - AC-2: On a file shaped like PR-CONFIRM.md (a "Tick exactly one event:" list of
   three unticked boxes, none pre-ticked), tapping `APPROVE` leaves the file with
   exactly `- [x] APPROVE` ticked and every other line byte-identical.
-- AC-3: A free-form tick changes only box characters inside the tapped item's
-  own list — no other line, footnote, or trailing newline of the file changes.
+- AC-3: Ticking a box in a free-form file that also holds footnote threads,
+  other lists and CRLF or LF line endings writes back the original text
+  character for character, with the box marks of the tapped list set to the new
+  pick.
 - AC-4: A checkbox in a nested list item, and one in an ordered-list item, ticks
   in the file the same way a top-level one does.
 - AC-6: After a free-form tick lands, the screen re-reads the file and shows the
