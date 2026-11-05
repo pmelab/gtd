@@ -971,6 +971,28 @@ const setupFor = (
     return { resolved, def, vars, env, setup }
   })
 
+const UNTRACKED_LIMIT = 1000
+
+// `git add -A` would commit every untracked file, so a huge tree is refused —
+// only by the commands that land (next, land, judge answer, start). Read-only
+// rest readers never refuse.
+export const refuseHugeUntracked = Effect.gen(function* () {
+  const paths = yield* (yield* GitService).untrackedPaths()
+  if (paths.length <= UNTRACKED_LIMIT) return
+  const dirs = new Map<string, number>()
+  for (const p of paths) {
+    const i = p.lastIndexOf("/")
+    const d = i === -1 ? "." : p.slice(0, i)
+    dirs.set(d, (dirs.get(d) ?? 0) + 1)
+  }
+  const top = [...dirs].sort((a, b) => b[1] - a[1]).slice(0, 3)
+  return yield* Effect.fail(
+    new Error(
+      `gtd: ${paths.length} untracked files (limit ${UNTRACKED_LIMIT}); largest untracked directories: ${top.map(([d, n]) => `${d} (${n})`).join(", ")}. Add them to .gitignore or delete them.`,
+    ),
+  )
+})
+
 // Only an approval gate counts an index-only edit (one staged, then reverted
 // in the worktree): its approval must cover exactly the judged diff. Every
 // other rest keeps the worktree's view, so a net-zero turn stays an attempt.

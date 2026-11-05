@@ -51,6 +51,7 @@ import {
 } from "../wire/index.js"
 import {
   currentRest,
+  refuseHugeUntracked,
   repinAnchor,
   startRefusal,
   currentRun,
@@ -311,6 +312,7 @@ const planLanding = (
   current?: Rest,
 ): Effect.Effect<LandResult, Error, CommandRequirements> =>
   Effect.gen(function* () {
+    yield* refuseHugeUntracked
     const rest = current ?? (yield* currentRest)
     const snapshot = yield* snapshotFromRest(rest, opts.judge)
     const outcome = planStepPure(snapshot, opts)
@@ -597,6 +599,7 @@ const startWorkflow = (
         new GtdUsageError(`${commandLabel}: unknown workflow "${workflow}" — ${startable}`),
       )
     }
+    yield* refuseHugeUntracked
     const rest = yield* restAt(undefined, varOverrides)
     const started = yield* startRefusal(rest, resolved, varOverrides)
     const plan = yield* planStart(
@@ -968,6 +971,7 @@ const runNextCommand = (
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
   Effect.gen(function* () {
+    yield* refuseHugeUntracked
     const rest = yield* currentRest
     const rendered = yield* renderRest(rest)
     const fields = yield* gatherBeatDocument(rest, rendered)
