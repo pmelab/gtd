@@ -1,41 +1,48 @@
-# Review: 63cfcdd
+# Review: c9a53c9
 
 <!-- base: e49e45dad6cb75b11620a7ab115cd89c89d11717 -->
 
 Fixes `spawn E2BIG` on huge untracked trees two ways: git path lists are split
-into 500-path batches, and any rest resolution refuses past 1,000 untracked
+into 500-path batches, and the landing commands refuse past 1,000 untracked
 files.
 
 ## Scenarios
 
-- [ ] ./tests/integration/features/land.feature#241-262 — `gtd next` with 1001
+- [ ] ./tests/integration/features/land.feature#242-262 — `gtd next` with 1001
       untracked files under `big/` fails, stderr names the count
       `1001 untracked files` and the directory `big (1001)`, and no commit is
       made.
+- [ ] ./tests/integration/features/land.feature#265-286 — `gtd land` with 1001
+      untracked files fails naming the count and commits nothing; in the same
+      repo `gtd check --open-threads` still exits 0.
 
-## Refuse over 1,000 untracked files
+## Refuse over 1,000 untracked files — landing commands only
 
-Every rest read that computes pending changes first lists untracked, non-ignored
-files; past 1,000 it fails naming the count and the 3 parent directories holding
-the most files.
+The fix moved the refusal out of rest resolution: it now guards only the four
+commands that land — `gtd next`, `gtd land`, `gtd judge answer` (via the shared
+landing path) and `gtd start`. Read-only commands resolve the rest normally. The
+prior risk (every rest reader refused) is resolved.
 
-- [ ] ./src/edge/Edge.ts#974-993 — the limit (1,000, hard-coded) and the refusal
-      message. Directories are grouped by each file's immediate parent, not
+- [ ] ./src/edge/Edge.ts#974-995 — the limit (1,000, hard-coded) and the refusal
+      message, now an exported standalone effect instead of a step inside
+      `pendingChanges`. Directories group by each file's immediate parent, not
       top-level: 1,001 files spread over `node_modules/a/…`, `node_modules/b/…`
       list leaf dirs, never `node_modules`.
-- [ ] ./src/edge/Edge.ts#1000-1000 — Risk: the check sits in `pendingChanges`,
-      reached by `currentRest`, so it refuses EVERY command that reads the
-      current rest — `gtd check --open-threads`, `gtd restore`, `gtd base`,
-      `gtd judge`, `gtd judge answer`, `gtd repin`, `gtd validate` — not only
-      `gtd next`/`gtd land`. The README states `gtd check --open-threads` never
-      refuses; that is false as built. Either scope the refusal to next/land or
-      correct the README to list every refusing command.
-- [ ] ./src/edge/Edge.test.ts#771-781 — unit pin of the boundary: exactly 1,000
-      proceeds to `idle`, 1,001 rejects with count, `big (1001)` and
-      `.gitignore` in the message.
-- [ ] ./README.md#475-481 — user doc for the limit and the remedy (`.gitignore`
-      / `.git/info/exclude` / delete). Carries the false `--open-threads` claim
-      flagged above.
+- [ ] ./src/edge/index.ts#6-6 — exports the guard to the CLI.
+- [ ] ./src/cli/Program.ts#314-314 — guard on the shared landing path; covers
+      `gtd land` and `gtd judge answer`.
+- [ ] ./src/cli/Program.ts#601-601 — guard on `gtd start`, after workflow-name
+      validation, before the rest resolves.
+- [ ] ./src/cli/Program.ts#973-973 — guard on `gtd next`, before the rest
+      resolves.
+- [ ] ./src/edge/Edge.test.ts#772-782 — unit pin of the boundary: exactly 1,000
+      passes, 1,001 rejects with count, `big (1001)` and `.gitignore` in the
+      message.
+- [ ] ./src/edge/Edge.test.ts#784-791 — pins that resolving the current rest
+      with 1,001 untracked files succeeds and lists all 1,001 changes.
+- [ ] ./README.md#475-482 — user doc: names the four refusing commands, the
+      remedy (`.gitignore` / `.git/info/exclude` / delete), and that every other
+      command never refuses. Now matches the code.
 
 ## `untrackedPaths` port operation
 
@@ -44,8 +51,8 @@ twins and contract coverage.
 
 - [ ] ./src/platform/Git.ts#97-98 — interface addition.
 - [ ] ./src/platform/Git.ts#494-495 — live impl:
-      `git ls-files --others --exclude-standard -z`. Runs alongside the same
-      listing inside `changedPaths`, so every rest read now spawns
+      `git ls-files --others --exclude-standard -z`. On landing commands it runs
+      alongside the same listing inside `changedPaths`, so those spawn
       `ls-files --others` twice.
 - [ ] ./src/twins/InMemRepo.ts#301-304 — in-memory impl: worktree keys absent
       from the index. Applies no ignore rules, unlike live; the contract test
@@ -59,7 +66,7 @@ twins and contract coverage.
 
 `ls-tree` and `hash-object` received every untracked path as argv; a long list
 threw `E2BIG` synchronously as a defect. Both now run in sequential 500-path
-batches.
+batches. This is what lets read-only commands handle >1,000 untracked files.
 
 - [ ] ./src/platform/Git.ts#210-216 — `ARGV_CHUNK = 500` and the `chunked`
       helper. 500 paths still overflow argv only if the average path exceeds
