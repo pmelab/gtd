@@ -69,3 +69,18 @@ New `--http` flag, scoped to `gtd ui`, threaded through the command type into
       `--http`'s effect. **"Flags … `--http` always override the matching `ui`
       value" is misleading: no `ui.http` key exists.** Wording only; leave it or
       reword.
+
+## Quality lap
+
+What the quality lenses found, and what became of it. Write a note under a line
+to reopen it.
+
+Fixed automatically:
+
+- `--http --host ::1` prints an invalid URL, and the test pins it (3f89e5a, lens
+  correctness)
+- `--http` + `--self-signed` conflict is checked twice (3f89e5a, lens
+  ponytail-review)
+- No `@inmem` cucumber scenario for `gtd ui --http` (3f89e5a, lens test-audit)
+- `--http` without `--host` contradicts the documented `--port`/`ui.host`
+  contract (3f89e5a, lens spec-challenge)
