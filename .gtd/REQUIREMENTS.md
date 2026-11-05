@@ -5,22 +5,6 @@ bind**, so a local reverse proxy (pitchfork,
 `https://gate.<wt>.<proj>.internal`) terminates TLS with its own trusted CA.
 **HTTPS stays mandatory on every other path.**
 
-## Open Questions
-
-### What does `--http` do when no host is given at all?
-
-Today, no `--host`/`ui.host` means the `tailscale serve` walk, then a Tailscale
-interface bind — never loopback. With `--http` the choice is: pick loopback for
-the user, or make them spell it out.
-
-- [ ] Refuse with a usage error naming `--host 127.0.0.1`
-  - matches the sketch literally ("`--host 127.0.0.1`/`::1`")
-  - one more flag to type; nothing ever binds by surprise
-- [x] Default the bind to `127.0.0.1`
-  - `gtd ui --http --port N` just works
-  - `--http` silently changes where gtd ui listens, not just the protocol
-- [ ] _your answer_
-
 ## Concerns
 
 1. **PRODUCT — the `--http` flag.** New `gtd ui`-only flag, no value. Rejected
@@ -29,8 +13,9 @@ the user, or make them spell it out.
 2. **PRODUCT — loopback only.** The resolved bind host (from `--host` or
    `ui.host`) must be a loopback address: any `127.0.0.0/8` literal, `::1`, or
    `localhost`. Anything else (`0.0.0.0`, `::`, a CGNAT/LAN address, a hostname)
-   is a usage error (exit 2) before anything binds. No-host case: see Open
-   Questions.
+   is a usage error (exit 2) before anything binds. With no `--host` and no
+   `ui.host`, `--http` binds `127.0.0.1` and skips the `tailscale serve` walk
+   and the Tailscale interface scan entirely.
 3. **PRODUCT — no certificate in HTTP mode.** `--http` never runs `openssl` or
    `tailscale cert` and never reads `ui.cert`/`ui.key`, even when both are
    configured. `--http` plus `--self-signed` is a usage error.
@@ -66,10 +51,9 @@ the user, or make them spell it out.
   and nothing listens.
 - AC-5: `--http` accepts any `127.0.0.0/8` literal, `::1`, and `localhost` as
   the bind host.
-- AC-6: `--http` with no `--host` and no `ui.host` fails with a usage error
-  (exit 2) telling the user to pass `--host 127.0.0.1`; no `tailscale serve`
-  publish is attempted. (Pending the open question — rewritten to "binds
-  `127.0.0.1`" if the human picks the default.)
+- AC-6: `gtd ui --http` with no `--host` and no `ui.host` binds `127.0.0.1` (on
+  `--port`/`ui.port` when given, otherwise any free port), prints
+  `http://127.0.0.1:<port>/`, and attempts no `tailscale serve` publish.
 - AC-7: `--http` combined with `--self-signed` fails with a usage error (exit
   2).
 - AC-9: `gtd ui --help` lists `--http` with a one-line description saying it
@@ -169,3 +153,8 @@ so enforcing the header buys nothing.
 
 The bound `http://<host>:<port>/` — gtd cannot know the proxy's public URL, and
 the workbench already knows its gate URL.
+
+### What does `--http` do when no host is given at all?
+
+Defaults the bind to `127.0.0.1` — the human picked it, so
+`gtd ui --http --port N` works without `--host`.
