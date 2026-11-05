@@ -768,6 +768,18 @@ describe("restAt", () => {
     ])
   })
 
+  it("refuses over 1000 untracked files and proceeds at exactly 1000", async () => {
+    const repo = repoWith(LINEAR)
+    const files = (n: number) =>
+      Object.fromEntries(Array.from({ length: n }, (_, i) => [`big/f${i}.txt`, "x\n"]))
+    write(repo, files(1000))
+    expect((await provide(currentRest, repo)).state).toBe("idle")
+    write(repo, files(1001))
+    await expect(provide(currentRest, repo)).rejects.toThrow(
+      /1001 untracked files.*big \(1001\).*\.gitignore/,
+    )
+  })
+
   it("restAt(ref) resolves where the process rested at that commit", async () => {
     const repo = repoWith(LINEAR)
     const boundary = headOf(repo)

@@ -472,6 +472,14 @@ unknown key. `gtd.config.ts` is the only repository config: gtd 23 removed the
 home directory — fails every command until you delete it. See
 [Migrating from `.gtdrc`](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#migrating-from-gtdrc).
 
+## Large untracked trees
+
+`gtd next` and `gtd land` refuse when the worktree holds more than 1,000
+untracked, un-ignored files (a landing would commit them all). The error names
+the count and the largest untracked directories; add them to `.gitignore` (or
+`.git/info/exclude`) or delete them, then run again. Fixed limit, no config key.
+`gtd check --open-threads` never refuses.
+
 ## Checking a range for stray files
 
 ```sh

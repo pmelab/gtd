@@ -99,6 +99,7 @@ export interface GitReaderOperations {
    * that `changedPaths` misses when the worktree reverted a staged edit. Empty
    * before the first commit.
    */
+  readonly untrackedPaths: () => Effect.Effect<ReadonlyArray<string>, Error>
   readonly stagedPaths: () => Effect.Effect<
     ReadonlyArray<{ readonly path: string; readonly status: string }>,
     Error
@@ -210,16 +211,30 @@ type GitExec = (...args: [string, ...Array<string>]) => Effect.Effect<string, Er
  * there. An unresolvable `ref` (an empty repo) yields an empty map, so every
  * candidate reads as "not at `ref`".
  */
+// Unbounded argv throws E2BIG synchronously (a defect), so path lists are chunked.
+const ARGV_CHUNK = 500
+const chunked = <T>(items: ReadonlyArray<T>): Array<ReadonlyArray<T>> => {
+  const out: Array<ReadonlyArray<T>> = []
+  for (let i = 0; i < items.length; i += ARGV_CHUNK) out.push(items.slice(i, i + ARGV_CHUNK))
+  return out
+}
+
 const blobsAtRef = (
   exec: GitExec,
   ref: string,
   paths: ReadonlyArray<string>,
 ): Effect.Effect<Map<string, string>, Error> =>
-  exec("git", "ls-tree", "-r", "-z", ref, "--", ...paths).pipe(
-    Effect.catch(() => Effect.succeed("")),
-    Effect.map((out) => {
+  Effect.forEach(
+    chunked(paths),
+    (chunk) =>
+      exec("git", "ls-tree", "-r", "-z", ref, "--", ...chunk).pipe(
+        Effect.catch(() => Effect.succeed("")),
+      ),
+    { concurrency: 1 },
+  ).pipe(
+    Effect.map((outs) => {
       const blobs = new Map<string, string>()
-      for (const entry of splitNul(out)) {
+      for (const entry of outs.flatMap(splitNul)) {
         const tab = entry.indexOf("\t")
         if (tab === -1) continue
         const [, type, oid] = entry.slice(0, tab).split(" ")
@@ -246,16 +261,20 @@ const hashObjects = (
   exec: GitExec,
   paths: ReadonlyArray<string>,
 ): Effect.Effect<Map<string, string>, Error> =>
-  exec("git", "hash-object", "--", ...paths).pipe(
-    Effect.map(
-      (out) =>
-        new Map(
+  Effect.forEach(
+    chunked(paths),
+    (chunk) =>
+      exec("git", "hash-object", "--", ...chunk).pipe(
+        Effect.map((out) =>
           out
             .trim()
             .split("\n")
-            .map((oid, i) => [paths[i] ?? "", oid.trim()] as const),
+            .map((oid, i) => [chunk[i] ?? "", oid.trim()] as const),
         ),
-    ),
+      ),
+    { concurrency: 1 },
+  ).pipe(
+    Effect.map((entries) => new Map(entries.flat())),
     Effect.catch(() => Effect.succeed(new Map<string, string>())),
   )
 
@@ -470,6 +489,9 @@ const makeGitImpl = (
         }
         return all
       }),
+
+    untrackedPaths: () =>
+      exec("git", "ls-files", "--others", "--exclude-standard", "-z").pipe(Effect.map(splitNul)),
 
     stagedPaths: () =>
       exec("git", "diff", "--cached", "--name-status", "--no-renames", "-z", "HEAD").pipe(
