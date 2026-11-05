@@ -6,6 +6,7 @@ import {
   currentRun,
   historyTrail,
   noProcessUnderway,
+  refuseHugeUntracked,
   renderRest,
   restAt,
   restIsIdle,
@@ -773,11 +774,20 @@ describe("restAt", () => {
     const files = (n: number) =>
       Object.fromEntries(Array.from({ length: n }, (_, i) => [`big/f${i}.txt`, "x\n"]))
     write(repo, files(1000))
-    expect((await provide(currentRest, repo)).state).toBe("idle")
+    await provide(refuseHugeUntracked, repo)
     write(repo, files(1001))
-    await expect(provide(currentRest, repo)).rejects.toThrow(
+    await expect(provide(refuseHugeUntracked, repo)).rejects.toThrow(
       /1001 untracked files.*big \(1001\).*\.gitignore/,
     )
+  })
+
+  it("resolving the current rest never refuses a huge untracked tree", async () => {
+    const repo = repoWith(LINEAR)
+    write(
+      repo,
+      Object.fromEntries(Array.from({ length: 1001 }, (_, i) => [`big/f${i}.txt`, "x\n"])),
+    )
+    expect((await provide(currentRest, repo)).changes).toHaveLength(1001)
   })
 
   it("restAt(ref) resolves where the process rested at that commit", async () => {

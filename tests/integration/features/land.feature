@@ -260,3 +260,27 @@ Feature: gtd land — the one landing verb, actorless
     And stderr contains "1001 untracked files"
     And stderr contains "big (1001)"
     And the commit count is unchanged
+
+  @inmem
+  Scenario: gtd land refuses over 1000 untracked files; gtd check --open-threads does not
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do it")
+      }
+      """
+    And 1001 files "big/f{n}.txt" numbered from 0, each with:
+      """
+      x
+      """
+    And I record the commit count
+    When I run gtd land
+    Then it fails
+    And stderr contains "1001 untracked files"
+    And the commit count is unchanged
+    When I run gtd with args "check --open-threads"
+    Then the exit code is 0
