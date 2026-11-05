@@ -19,7 +19,7 @@ vite.config.ts (3:29) [33m[UNRESOLVED_IMPORT] [0mCould not resolve 'vite-plus'
 [38;5;246m───╯[0m
 
 failed to load config from /Users/pmelab/Workbench/gtd/wt/feat-gtd-565-gtd-ui-cannot-tick-a-box-in-prreview-s-p/vite.config.ts
-[Vite+] resolve universal vite config error: Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'typescript' imported from /Users/pmelab/Workbench/gtd/wt/feat-gtd-565-gtd-ui-cannot-tick-a-box-in-prreview-s-p/vite.config.ts.timestamp-1793889071147-aff92436e4dd58.mjs
+[Vite+] resolve universal vite config error: Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'typescript' imported from /Users/pmelab/Workbench/gtd/wt/feat-gtd-565-gtd-ui-cannot-tick-a-box-in-prreview-s-p/vite.config.ts.timestamp-1793889074060-aed355a7546d28.mjs
     at Object.getPackageJSONURL (node:internal/modules/package_json_reader:301:9)
     at packageResolve (node:internal/modules/esm/resolve:784:25)
     at moduleResolve (node:internal/modules/esm/resolve:873:18)
@@ -34,6 +34,6 @@ failed to load config from /Users/pmelab/Workbench/gtd/wt/feat-gtd-565-gtd-ui-ca
 }
 error: Failed to load task graph
 * Failed to load task config file for package at /Users/pmelab/Workbench/gtd/wt/feat-gtd-565-gtd-ui-cannot-tick-a-box-in-prreview-s-p/
-* Failed to resolve vite config: GenericFailure, Cannot find package 'typescript' imported from /Users/pmelab/Workbench/gtd/wt/feat-gtd-565-gtd-ui-cannot-tick-a-box-in-prreview-s-p/vite.config.ts.timestamp-1793889071147-aff92436e4dd58.mjs
+* Failed to resolve vite config: GenericFailure, Cannot find package 'typescript' imported from /Users/pmelab/Workbench/gtd/wt/feat-gtd-565-gtd-ui-cannot-tick-a-box-in-prreview-s-p/vite.config.ts.timestamp-1793889074060-aed355a7546d28.mjs
 
-<!-- gtd check 926f639 -->
+<!-- gtd check 1600695 -->
