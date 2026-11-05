@@ -11,7 +11,7 @@ ticked box either clears the list or does nothing.
   - a wrong pick can be withdrawn from the phone
   - a stray double-tap clears the pick; the workflow's gate then refuses zero
     ticks
-- [ ] It does nothing — like a radio button, a pick can only move, never clear
+- [x] It does nothing — like a radio button, a pick can only move, never clear
   - no accidental clearing
   - zero ticks reachable only by editing the file by hand
 - [ ] _your answer_
