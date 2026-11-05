@@ -1261,3 +1261,7 @@ vp run: 2/11 cache hit (18%), 7/11 successful, 19.42s saved. (Run
 `vp run --last-details` for full details)
 
 <!-- gtd check fddcf3a -->
+
+Orchestrator note: the 3 test:web failures did not reproduce (fix precheck on
+main and gtd-568 baseline both green at 18:0x). Treat as flaky under load;
+re-run the check.
