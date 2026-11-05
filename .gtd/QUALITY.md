@@ -1,3 +1,5 @@
+# Quality
+
 ## `--http --host ::1` prints an invalid URL, and the test pins it
 
 `httpBind` (`src/ui/Server.ts`) builds the printed URL as
