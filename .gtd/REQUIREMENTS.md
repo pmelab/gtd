@@ -2,23 +2,18 @@
 
 ## Open Questions
 
-### When a free-form list reads "tick exactly one", does ticking a box untick its siblings?
+### Does tapping the box that is already ticked untick it?
 
-Free-form files carry no schema, so gtd cannot know a list is a pick-one group.
-The fork is plain toggles versus guessing radio behaviour from the list.
+With pick-one lists, a tap on an unticked box moves the tick there. A tap on the
+ticked box either clears the list or does nothing.
 
-- [ ] Plain toggles — each box flips on its own, siblings untouched
-  - matches what an editor does to the file; no guessing
-  - two ticks are possible; the workflow's own gate refuses them (`confirm`
-    already says "N are ticked")
-  - smallest build
-- [x] Radio behaviour for every task list — ticking one unticks every other box
-      in the same list
-  - one tap fixes a wrong pick on PR-CONFIRM.md
-  - breaks any free-form checklist meant to hold several ticks (a TODO list)
-- [ ] Radio behaviour only when the text just before the list says "exactly one"
-  - right for PR-CONFIRM.md and REVIEW.md-style wording
-  - a wording heuristic: rephrasing the prompt silently changes behaviour
+- [ ] It unticks — the list goes back to no tick
+  - a wrong pick can be withdrawn from the phone
+  - a stray double-tap clears the pick; the workflow's gate then refuses zero
+    ticks
+- [ ] It does nothing — like a radio button, a pick can only move, never clear
+  - no accidental clearing
+  - zero ticks reachable only by editing the file by hand
 - [ ] _your answer_
 
 ## Concerns
@@ -43,7 +38,18 @@ the rest gate, the stale-content refusal and retry, the optimistic overlay with
 rollback, the save indicator, and `ui.format` afterwards. How the anchor names a
 list item (line-based) is the builder's call.
 
-### 3. Every nesting depth and both list kinds (PRODUCT, decided)
+### 3. Every task list is pick-one (PRODUCT, decided)
+
+On the free-form screen, ticking a box unticks every other box in the same list.
+"Same list" means the direct sibling items of one list; a nested list is its own
+separate group, and its parent's tick is untouched. Plain items without a box
+are not part of the group.
+
+Risk: **any free-form checklist meant to hold several ticks (a TODO list on a
+mode-less file) can no longer collect more than one tick per list from the
+phone** — the human chose this trade-off.
+
+### 4. Every nesting depth and both list kinds (PRODUCT, decided)
 
 A box in a nested item, or in an ordered list, is tickable like a top-level one.
 Boxes inside a code fence are not list items and stay plain text.
@@ -52,28 +58,31 @@ Boxes inside a code fence are not list items and stay plain text.
 
 - AC-1: In `gtd ui`, a steering file opened with no mode (or an unregistered
   mode) shows each task-list item's checkbox as tappable; tapping an unticked
-  box rewrites that item's `- [ ]` to `- [x]` in the file on disk, and tapping a
-  ticked box rewrites `- [x]` to `- [ ]`.
+  box rewrites that item's `- [ ]` to `- [x]` in the file on disk.
 - AC-2: On a file shaped like PR-CONFIRM.md (a "Tick exactly one event:" list of
   three unticked boxes, none pre-ticked), tapping `APPROVE` leaves the file with
   exactly `- [x] APPROVE` ticked and every other line byte-identical.
-- AC-3: A free-form tick changes only the tapped item's box character — no other
-  line, footnote, or trailing newline of the file changes.
-- AC-4: A checkbox in a nested list item, and one in an ordered-list item,
-  toggles in the file the same way a top-level one does.
-- AC-5: A free-form tick sent against a file that changed since the screen read
-  it is refused as stale and leaves the file unchanged; the screen shows the box
-  back in its on-disk state.
+- AC-3: A free-form tick changes only box characters inside the tapped item's
+  own list — no other line, footnote, or trailing newline of the file changes.
+- AC-4: A checkbox in a nested list item, and one in an ordered-list item, ticks
+  in the file the same way a top-level one does.
 - AC-6: After a free-form tick lands, the screen re-reads the file and shows the
   box in its new state; reloading the page shows the same state.
+- AC-7: On the free-form screen, tapping an unticked box in a list that already
+  has a ticked box rewrites the new one to `- [x]` and every previously ticked
+  sibling in that same list to `- [ ]`, in one write; the screen shows only the
+  new box ticked.
+- AC-8: Ticking a box in a nested list leaves the ticks of its parent list and
+  of every other list in the file unchanged, and ticking a box in a parent list
+  leaves the ticks in its nested lists unchanged.
 
 ## Impact
 
 - `src/steering` (boundary): the free-form format's `apply` gains a checkbox
-  write for a list item; today it only appends and refuses every other anchor.
-  Its `view` may need to expose an anchor per task item. The steering contract
-  test (`contract.test.ts`) round-trips `checked` on every node that reports one
-  — free-form now joins it.
+  write for a list item that also unticks its siblings in the same list; today
+  it only appends and refuses every other anchor. Its `view` may need to expose
+  an anchor per task item. The steering contract test (`contract.test.ts`)
+  round-trips `checked` on every node that reports one — free-form now joins it.
 - `src/web` (boundary): the free-form screen and its prose-block list renderer
   turn read-only checkboxes into controls wired to the write store, plus a
   `setValue` mutation carrying `checked`.
@@ -84,7 +93,8 @@ Boxes inside a code fence are not list items and stay plain text.
 - Public surface: `gtd ui` behaviour only — no CLI flag, config key,
   driver-protocol field or exported API changes.
 - `README.md`: the `gtd ui` paragraph says a mode-less file opens as "read, plus
-  a note on any block"; it must add that task-list boxes are tickable.
+  a note on any block"; it must add that task-list boxes are tickable and each
+  list is pick-one.
 - Tests: `@inmem` cucumber scenario(s) in
   `tests/integration/features/ui.feature`, plus web screen and steering unit
   tests.
@@ -110,6 +120,9 @@ Boxes inside a code fence are not list items and stay plain text.
   in `src/steering/freeform.ts` keep working as they are.
 - `ui.format` runs after every landed write and shows a format notice; a
   free-form tick gets it too.
+- `src/ui/Write.ts` refuses a write whose head SHA or content hash went stale
+  since the screen read the file, leaving the file unchanged, and the write
+  store rolls the box back; a free-form tick inherits this, no new code.
 - prReview's `confirm` step (pmelab/gtd-workflows) refuses unless exactly one
   event is ticked — the guard against two ticks already exists downstream.
 
@@ -124,3 +137,14 @@ would repeat this bug.
 
 No — the workflow lives in pmelab/gtd-workflows; gtd's fix makes every mode-less
 checkbox work, which covers PR-CONFIRM.md without it.
+
+### When a free-form list reads "tick exactly one", does ticking a box untick its siblings?
+
+Yes, for every task list on the free-form screen — ticking one box unticks every
+other box in the same list, even where no "exactly one" wording appears;
+free-form checklists meant to hold several ticks lose that from the phone.
+
+### Which boxes count as "the same list"?
+
+The direct sibling items of one list — a nested list is its own group, so
+pick-one never reaches across levels or into other lists.
