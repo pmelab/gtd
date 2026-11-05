@@ -19,3 +19,15 @@ Minor, same predicate: `isLoopbackHost` matches only the literal `::1`, so
 equivalent spellings (`0:0:0:0:0:0:0:1`, `::ffff:127.0.0.1`) are refused as
 non-loopback — fail-safe, but worth normalising if IPv6 is meant to be supported
 at all.
+
+## `--http` + `--self-signed` conflict is checked twice
+
+`parseArgv` (`src/cli/Cli.ts`) rejects `--http` with `--self-signed` as a usage
+error, and `httpBind` (`src/ui/Server.ts`) repeats the same check with a second
+message. `selfSigned` reaches `runUiCommand` only from that flag (the only
+caller is `Program.ts`), so the `httpBind` branch is unreachable from the CLI;
+it exists only for its own unit test. Two messages for one rule also drift
+apart.
+
+Fix: keep one check (the parse-time one) and delete the `httpBind` branch and
+its `--http with --self-signed is a usage error` test, about 10 lines.
