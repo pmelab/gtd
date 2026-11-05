@@ -237,3 +237,26 @@ Feature: gtd land — the one landing verb, actorless
     When I run gtd land --json=script piped to sh
     Then the exit code is 0
     And the last commit subject is "gtd(human): idle → working"
+
+  @inmem
+  Scenario: gtd next refuses over 1000 untracked files and commits nothing
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do it")
+      }
+      """
+    And 1001 files "big/f{n}.txt" numbered from 0, each with:
+      """
+      x
+      """
+    And I record the commit count
+    When I run gtd next
+    Then it fails
+    And stderr contains "1001 untracked files"
+    And stderr contains "big (1001)"
+    And the commit count is unchanged

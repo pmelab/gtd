@@ -58,6 +58,13 @@ Given("a file {string} with:", (world: GtdWorld, path: string, content: string) 
   writeRepoFile(world, path, content)
 })
 
+Given(
+  "{int} files {string} numbered from 0, each with:",
+  (world: GtdWorld, count: number, pattern: string, content: string) => {
+    for (let i = 0; i < count; i++) writeRepoFile(world, pattern.replace("{n}", String(i)), content)
+  },
+)
+
 // A deterministic, root-proof stand-in for a permission error: reading a
 // DIRECTORY where a steering file is expected fails EISDIR the same way on
 // every machine, unlike `chmod 000` (a no-op when the suite runs as root).

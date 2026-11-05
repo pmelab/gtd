@@ -94,12 +94,13 @@ export interface GitReaderOperations {
   readonly changedPaths: (
     base?: string,
   ) => Effect.Effect<ReadonlyArray<{ readonly path: string; readonly status: string }>, Error>
+  /** Untracked, non-ignored paths. */
+  readonly untrackedPaths: () => Effect.Effect<ReadonlyArray<string>, Error>
   /**
    * The index vs `HEAD`, as `{path, status}` pairs — what a commit would carry
    * that `changedPaths` misses when the worktree reverted a staged edit. Empty
    * before the first commit.
    */
-  readonly untrackedPaths: () => Effect.Effect<ReadonlyArray<string>, Error>
   readonly stagedPaths: () => Effect.Effect<
     ReadonlyArray<{ readonly path: string; readonly status: string }>,
     Error
@@ -206,11 +207,6 @@ const stripCommitSeam = (tail: string): string => {
 
 type GitExec = (...args: [string, ...Array<string>]) => Effect.Effect<string, Error>
 
-/**
- * `path → blob object id` at `ref`; a path absent from the map doesn't exist
- * there. An unresolvable `ref` (an empty repo) yields an empty map, so every
- * candidate reads as "not at `ref`".
- */
 // Unbounded argv throws E2BIG synchronously (a defect), so path lists are chunked.
 const ARGV_CHUNK = 500
 const chunked = <T>(items: ReadonlyArray<T>): Array<ReadonlyArray<T>> => {
@@ -219,6 +215,11 @@ const chunked = <T>(items: ReadonlyArray<T>): Array<ReadonlyArray<T>> => {
   return out
 }
 
+/**
+ * `path → blob object id` at `ref`; a path absent from the map doesn't exist
+ * there. An unresolvable `ref` (an empty repo) yields an empty map, so every
+ * candidate reads as "not at `ref`".
+ */
 const blobsAtRef = (
   exec: GitExec,
   ref: string,
