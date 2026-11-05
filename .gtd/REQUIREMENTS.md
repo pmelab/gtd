@@ -1,21 +1,5 @@
 # gtd ui: tick a box in a mode-less steering file (pmelab/gtd#565)
 
-## Open Questions
-
-### Does tapping the box that is already ticked untick it?
-
-With pick-one lists, a tap on an unticked box moves the tick there. A tap on the
-ticked box either clears the list or does nothing.
-
-- [ ] It unticks — the list goes back to no tick
-  - a wrong pick can be withdrawn from the phone
-  - a stray double-tap clears the pick; the workflow's gate then refuses zero
-    ticks
-- [x] It does nothing — like a radio button, a pick can only move, never clear
-  - no accidental clearing
-  - zero ticks reachable only by editing the file by hand
-- [ ] _your answer_
-
 ## Concerns
 
 ### 1. Free-form checkboxes are read-only (PRODUCT, the bug)
@@ -44,6 +28,10 @@ On the free-form screen, ticking a box unticks every other box in the same list.
 "Same list" means the direct sibling items of one list; a nested list is its own
 separate group, and its parent's tick is untouched. Plain items without a box
 are not part of the group.
+
+Like a radio button, a pick only moves, never clears: tapping the box that is
+already ticked does nothing and sends no write. A list reaches zero ticks again
+only by editing the file by hand.
 
 Risk: **any free-form checklist meant to hold several ticks (a TODO list on a
 mode-less file) can no longer collect more than one tick per list from the
@@ -150,3 +138,8 @@ free-form checklists meant to hold several ticks lose that from the phone.
 
 The direct sibling items of one list — a nested list is its own group, so
 pick-one never reaches across levels or into other lists.
+
+### Does tapping the box that is already ticked untick it?
+
+No — it does nothing, like a radio button: a pick can only move, never clear, so
+a stray double-tap cannot wipe it; zero ticks needs a hand edit.
