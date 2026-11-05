@@ -103,6 +103,15 @@ const taskGroups = (node: unknown, out: ListItem[][]): void => {
   for (const c of n.children ?? []) taskGroups(c, out)
 }
 
+/** The box sits on the first child's line, which is not the marker line when a bare `-` precedes it. */
+const boxEdit = (lines: string[], item: ListItem, newText: string): SteeringEdit | undefined => {
+  const line = toLspPosition((item.children[0]?.position ?? item.position!).start).line
+  const m = /\[( |x|X)\]/.exec(lines[line] ?? "")
+  if (!m) return undefined
+  const c = m.index + 1
+  return { range: { start: { line, character: c }, end: { line, character: c + 1 } }, newText }
+}
+
 /** Pick-one tick: sets the box on `line` and unticks its ticked siblings, in one edit set. Ticking an already-ticked box is an empty edit set. */
 const tickEdits = (content: string, line: number): SteeringAnnotateResult => {
   const lines = content.split("\n")
@@ -113,23 +122,11 @@ const tickEdits = (content: string, line: number): SteeringAnnotateResult => {
   if (!group) return { ok: false, reason: "anchor-not-found" }
   const target = group.find((i) => startLine(i) === line)!
   if (target.checked === true) return { ok: true, edits: [] }
-  const edits: SteeringEdit[] = []
-  for (const item of group) {
-    if (item !== target && item.checked !== true) continue
-    // The box sits on the first child's line, which is not the marker line when a bare `-` precedes it.
-    const boxLine = toLspPosition((item.children[0]?.position ?? item.position!).start).line
-    const m = /\[( |x|X)\]/.exec(lines[boxLine] ?? "")
-    if (!m) return { ok: false, reason: "anchor-not-found" }
-    const c = m.index + 1
-    edits.push({
-      range: {
-        start: { line: boxLine, character: c },
-        end: { line: boxLine, character: c + 1 },
-      },
-      newText: item === target ? "x" : " ",
-    })
-  }
-  return { ok: true, edits }
+  const edits = group
+    .filter((i) => i === target || i.checked === true)
+    .map((i) => boxEdit(lines, i, i === target ? "x" : " "))
+  if (edits.some((e) => e === undefined)) return { ok: false, reason: "anchor-not-found" }
+  return { ok: true, edits: edits as SteeringEdit[] }
 }
 
 /**
