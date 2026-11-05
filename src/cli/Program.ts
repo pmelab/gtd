@@ -144,6 +144,7 @@ export type Command =
       readonly host?: string
       readonly port?: number
       readonly selfSigned: boolean
+      readonly http?: boolean
       readonly dev: boolean
     }
   | {
@@ -1260,6 +1261,7 @@ const runUiCliCommand = (
           ...(command.host !== undefined ? { host: command.host } : {}),
           ...(command.port !== undefined ? { port: command.port } : {}),
           selfSigned: command.selfSigned,
+          ...(command.http === true ? { http: true } : {}),
           dev: command.dev,
         },
         config: config.ui,

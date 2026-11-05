@@ -184,7 +184,7 @@ const FLAGS: readonly FlagRow[] = [
     },
     scopeError: "gtd: --port is only valid for `gtd ui`",
     valueHint: "<n>",
-    help: "The tailscale serve port (default: the first free of 8443, 10000, 443), or with --host the port to bind (default: any free one)",
+    help: "The tailscale serve port (default: the first free of 8443, 10000, 443), or with --host or --http the port to bind (default: any free one)",
   },
   {
     name: "--host",
@@ -208,6 +208,16 @@ const FLAGS: readonly FlagRow[] = [
     scopeError: "gtd: --self-signed is only valid for `gtd ui`",
     valueHint: "",
     help: "Bind directly with a throwaway self-signed certificate instead of the configured ui.cert/ui.key",
+  },
+  {
+    name: "--http",
+    arity: 0,
+    repeatable: false,
+    scope: (kind) => kind === "ui",
+    decode: () => Result.succeed(true),
+    scopeError: "gtd: --http is only valid for `gtd ui`",
+    valueHint: "",
+    help: "Serve plain HTTP for a local TLS-terminating proxy; binds 127.0.0.1 unless a loopback --host is given",
   },
   {
     name: "--dev",
@@ -1137,6 +1147,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--spec"?: string
     readonly "--host"?: string
     readonly "--self-signed"?: boolean
+    readonly "--http"?: boolean
     readonly "--dev"?: boolean
     readonly "--provider"?: "fixed" | "jev" | "llm"
     readonly "--answers"?: string
@@ -1185,6 +1196,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   }
 
   if (kind === "ui") {
+    if (bag["--http"] === true && bag["--self-signed"] === true) {
+      return usagePlan("gtd: --http and --self-signed cannot be combined", jsonSeen)
+    }
     return {
       kind: "command",
       command: {
@@ -1192,6 +1206,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
         ...(bag["--host"] !== undefined ? { host: bag["--host"] } : {}),
         ...(bag["--port"] !== undefined ? { port: bag["--port"] } : {}),
         selfSigned: bag["--self-signed"] ?? false,
+        ...(bag["--http"] === true ? { http: true } : {}),
         dev: bag["--dev"] ?? false,
       },
       json,
