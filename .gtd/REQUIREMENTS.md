@@ -12,7 +12,7 @@ The fork is plain toggles versus guessing radio behaviour from the list.
   - two ticks are possible; the workflow's own gate refuses them (`confirm`
     already says "N are ticked")
   - smallest build
-- [ ] Radio behaviour for every task list — ticking one unticks every other box
+- [x] Radio behaviour for every task list — ticking one unticks every other box
       in the same list
   - one tap fixes a wrong pick on PR-CONFIRM.md
   - breaks any free-form checklist meant to hold several ticks (a TODO list)
