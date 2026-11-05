@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { readFile as readFileFs, mkdir, writeFile as writeFileFs } from "node:fs/promises"
 import { dirname } from "node:path"
-import type { SteeringAnchor } from "../steering/index.js"
+import type { SteeringAnchor, SteeringFormat } from "../steering/index.js"
 import { applySteeringEdits, steeringFormatOrFreeForm } from "../steering/internal.js"
 import type { ReadFileResult, RunInWorktree } from "./Ports.js"
 import { resolveWithinRoot } from "./SafePath.js"
@@ -187,7 +187,9 @@ const finishWrite = async (
 }
 
 /** The one place a `SteeringAnnotateResult` refusal becomes a `WriteRefusalReason`. */
-const annotateRefusal = (reason: "anchor-not-found" | "id-collision"): WriteRefusal => ({
+const annotateRefusal = (
+  reason: Extract<ReturnType<SteeringFormat["annotate"]>, { ok: false }>["reason"],
+): WriteRefusal => ({
   ok: false,
   reason: reason === "id-collision" ? "note-collision" : "anchor-unresolved",
 })

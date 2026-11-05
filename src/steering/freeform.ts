@@ -141,7 +141,7 @@ const tickEdits = (content: string, line: number): SteeringAnnotateResult => {
 const freeFormApply: SteeringFormat["apply"] = (content, anchor, opts): SteeringAnnotateResult => {
   if (anchor.kind !== "paragraph") return { ok: false, reason: "anchor-not-found" }
   if (opts.checked === true) return tickEdits(content, anchor.line)
-  if (opts.checked === false) return { ok: false, reason: "anchor-not-found" }
+  if (opts.checked === false) return { ok: false, reason: "pick-never-clears" }
   const text = opts.text ?? ""
   const tree = parseMarkdown(content)
   const lines = content.split(/\r?\n/)

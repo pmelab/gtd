@@ -346,4 +346,16 @@ describe("freeFormFormat — task tick", () => {
         .ok,
     ).toBe(false)
   })
+
+  it("refuses to clear a box, whatever the anchor, and a tick round-trips byte-exact", () => {
+    const doc = "- [x] a\n- [ ] b\n"
+    expect(freeFormFormat.apply(doc, { kind: "paragraph", line: 0 }, { checked: false })).toEqual({
+      ok: false,
+      reason: "pick-never-clears",
+    })
+    const moved = tick(doc, 1)
+    expect(moved).toBe("- [ ] a\n- [x] b\n")
+    const back = freeFormFormat.apply(moved, { kind: "paragraph", line: 0 }, { checked: true })
+    expect(back.ok && applyEditsExact(moved, back.edits)).toBe(doc)
+  })
 })

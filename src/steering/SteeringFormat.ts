@@ -74,10 +74,13 @@ export type SteeringAnchor =
   | { readonly kind: "option"; readonly questionIndex: number; readonly index: number }
   | { readonly kind: "paragraph"; readonly line: number }
 
+/** `pick-never-clears`: a free-form pick-one tick only moves, so `checked: false` is refused by policy, not for a bad anchor. */
+type SteeringRefusalReason = "anchor-not-found" | "id-collision" | "pick-never-clears"
+
 /** `annotate`'s result: the edits to splice in, or a typed refusal — a stale/unresolvable `anchor`, or a derived note id that already names a definition. */
 export type SteeringAnnotateResult =
   | { readonly ok: true; readonly edits: readonly SteeringEdit[] }
-  | { readonly ok: false; readonly reason: "anchor-not-found" | "id-collision" }
+  | { readonly ok: false; readonly reason: SteeringRefusalReason }
 
 /** One item of a `list` block's `items` tree — recursive to whatever depth the source markdown nests. */
 export interface BlockListItem {
