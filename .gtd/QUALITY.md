@@ -45,3 +45,29 @@ pass every new test.
 
 Fix: add a scenario in `ui.feature` that runs `gtd ui --http` and asserts a
 plain `http://127.0.0.1:<port>/` URL, plus one refusing `--host 0.0.0.0`.
+
+## `--http` without `--host` contradicts the documented `--port`/`ui.host` contract
+
+The spec decision in AC-6 ("`--http` with no `--host` and no `ui.host` binds
+`127.0.0.1`, on `--port`/`ui.port` when given") conflicts with the user-facing
+contract that is still in place, and that the change did not update:
+
+- `--port` help (`docs/cli.md`, pinned to rendered help): "The tailscale serve
+  port … or with --host the port to bind". Under `--http` with no `--host`,
+  `--port` is a bind port, which this text says it is not.
+- `docs/configuration.md` `ui.port`: "with neither this key nor `host` given,
+  the port `gtd ui` publishes through `tailscale serve`".
+- `docs/configuration.md` `ui.host`: "With neither this key nor `--host` given,
+  `gtd ui` publishes through `tailscale serve` … it never refuses". `--http`
+  with no host skips serve, and refuses a non-loopback `ui.host`.
+- The new `--http` help line itself says "needs a loopback --host", but AC-6
+  makes `--host` optional.
+
+A reader following the docs believes `gtd ui --http --port 4443` publishes to
+tailscale serve on 4443, or that `--host` is required. The code binds
+`127.0.0.1:4443`.
+
+Fix: reword the `--http` help ("binds 127.0.0.1 unless a loopback --host is
+given"), add "or `--http`" to the `--port` help and to the `ui.port`/`ui.host`
+entries as a second way to opt out of serve, then regenerate the pinned
+`docs/cli.md` block.
