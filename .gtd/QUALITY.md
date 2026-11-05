@@ -44,3 +44,13 @@ mode, and no `@inmem` scenario ticks a box in a free-form file.
 Add an `@inmem` scenario that ticks a box in an unregistered-mode file and
 asserts the bytes on disk, plus a component/story assertion on the pick-one
 optimistic state.
+
+## No `@inmem` cucumber scenario for the new phone-side tick feature
+
+AGENTS.md, Testing: "create cucumber.js scenarios for each new feature, tagged
+`@inmem`." This change adds a user-visible feature (tickable, pick-one task
+boxes in free-form `gtd ui`, described in the README edit) but touches no
+`tests/integration/features/*.feature` file. Only `freeform.test.ts` unit cases
+were added. Same rule also asks that Given steps expose file content in the
+scenario text, so the scenario should show the markdown list before and after
+the tick.
