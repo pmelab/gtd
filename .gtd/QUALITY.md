@@ -31,3 +31,17 @@ apart.
 
 Fix: keep one check (the parse-time one) and delete the `httpBind` branch and
 its `--http with --self-signed is a usage error` test, about 10 lines.
+
+## No `@inmem` cucumber scenario for `gtd ui --http`
+
+`AGENTS.md` requires a cucumber scenario tagged `@inmem` for each new feature.
+The change touches no file under `tests/`; `--http` is exercised only by unit
+tests in `src/ui/Server.test.ts`. Sibling `--self-signed` has scenarios in
+`tests/integration/features/ui.feature`. The wiring from argv through
+`parseArgv` and `Program.ts` to `runUiCommand` is covered only by the
+`Cli.test.ts` flag-name list. That list checks the flag exists, not that it
+reaches the server. Dropping `http` in `Program.ts` or `ToolCommands.ts` would
+pass every new test.
+
+Fix: add a scenario in `ui.feature` that runs `gtd ui --http` and asserts a
+plain `http://127.0.0.1:<port>/` URL, plus one refusing `--host 0.0.0.0`.
