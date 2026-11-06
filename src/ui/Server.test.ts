@@ -2786,16 +2786,15 @@ describe("the tRPC API surface mounted under /trpc", () => {
     })
 
     // `Fiber.await`, not `Fiber.interrupt`: proves the main Effect completed
-    // ON ITS OWN, driven by the same idempotent end-of-life resolve `handOff`
-    // calls — no polling timer, this rides the `step` query the client
+    // ON ITS OWN — no polling timer, this rides the `step` query the client
     // already issued above.
     const exit = await Effect.runPromise(Fiber.await(fiber))
     expect(exit._tag).toBe("Success")
   })
 })
 
-describe("handoff exits the process", () => {
-  it("done writes the note durably, then the main Effect completes once the response has flushed — no child process, no signal needed", async () => {
+describe("done saves without ending the server", () => {
+  it("done writes the note durably and the server keeps serving afterwards", async () => {
     const { boundUrl, fiber } = await startRealServer(tmpDir)
 
     const filePath = "NOTES.md"
@@ -2827,21 +2826,17 @@ describe("handoff exits the process", () => {
       // through to the real file before resolving.
       const written = readFileSync(absPath, "utf8")
       expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
+      expect(written).toContain("handed back")
+
+      // The server is still up after `done`: a later read still answers.
+      const step = await client.step.query()
+      expect(step.status).toBe("ok")
+      const noNote = await client.done.mutate({})
+      expect(noNote).toEqual({ ok: true })
     })
 
-    // The write landed on disk before the process ever considers exiting —
-    // a fresh `Fiber.await` (not `Fiber.interrupt`) proves the main Effect
-    // completed ON ITS OWN, driven by `handOff`, never by an external signal.
-    // Timed: the response's own `finish` event settles the handoff deferred
-    // well under a second — an uncleared 2s fallback timer would keep the
-    // event loop (and so this `Fiber.await`) alive for the timer's own full
-    // duration regardless, since `settled` merely no-ops the callback rather
-    // than removing the pending timer.
-    const start = Date.now()
-    const exit = await Effect.runPromise(Fiber.await(fiber))
-    expect(Date.now() - start).toBeLessThan(1_500)
-    expect(exit._tag).toBe("Success")
-    expect(readFileSync(absPath, "utf8")).toContain("handed back")
+    expect(fiber.pollUnsafe()).toBeUndefined()
+    await Effect.runPromise(Fiber.interrupt(fiber))
   })
 
   it("Task 5/6: a configured ui.format runs after the write lands, and the resolved contentHash reflects the FORMATTED bytes on disk", async () => {
@@ -2914,7 +2909,7 @@ describe("handoff exits the process", () => {
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
 
-  it("a refused write throws WriteNoteRefusal and never schedules a handoff — the server keeps running", async () => {
+  it("a refused write throws WriteNoteRefusal — the server keeps running", async () => {
     const { boundUrl, fiber } = await startRealServer(tmpDir)
     // NOTES.md must actually exist for this to reach the stale-token check
     // (not fail earlier as file-vanished) — its real token is deliberately
@@ -2952,73 +2947,6 @@ describe("handoff exits the process", () => {
 
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
-
-  it("a 2s fallback timer hands off even when the client vanishes before the response flushes", async () => {
-    // The fallback timer itself takes >=2s, so this needs headroom beyond
-    // vitest's default 5s test timeout.
-    const { boundUrl, fiber } = await startRealServer(tmpDir)
-
-    const filePath = "NOTES.md"
-    const content = "Paragraph zero here.\n"
-    writeFileSync(join(tmpDir, filePath), content)
-    execFileSync("git", ["add", "-A"], { cwd: tmpDir })
-    execFileSync("git", ["commit", "-q", "-m", "add notes"], { cwd: tmpDir })
-    const headSha = await liveHeadSha(tmpDir)
-    if (headSha === undefined) throw new Error("liveHeadSha resolved to undefined")
-
-    // A real `client.done.mutate` call, dialed through a custom `fetch` that
-    // destroys its own socket the instant the request body is written —
-    // before any response bytes can come back — so `res`'s own `finish`
-    // event never fires for this call. `handOff`'s 2s fallback timer is the
-    // only thing left that can ever resolve the deferred here. Routed
-    // through the real client (not a hand-rolled body) so the request shape
-    // — batching included — matches production exactly.
-    const start = Date.now()
-    const vanishingFetch = (
-      input: string | URL,
-      init?: { readonly method?: string; readonly headers?: unknown; readonly body?: unknown },
-    ): Promise<Response> =>
-      new Promise(() => {
-        const target = new URL(input as string)
-        const req = https.request(
-          {
-            host: target.hostname,
-            port: target.port,
-            path: `${target.pathname}${target.search}`,
-            method: init?.method ?? "GET",
-            rejectUnauthorized: false,
-            headers: init?.headers as Record<string, string> | undefined,
-          },
-          () => {},
-        )
-        req.on("error", () => {})
-        req.end(init?.body as string | undefined, () => req.destroy())
-        // Never resolves — the caller below never awaits this fetch's own
-        // client-side outcome, only whether the SERVER'S fiber completes.
-      })
-    const vanishingClient = createTRPCClient<AppRouter>({
-      links: [httpBatchLink({ url: `${boundUrl}trpc`, fetch: vanishingFetch })],
-    })
-    vanishingClient.done
-      .mutate({
-        note: {
-          filePath,
-          expectedHeadSha: headSha,
-          expectedContentHash: contentHashOf(content),
-          mode: "qa",
-          anchor: { kind: "paragraph", line: 0 },
-          text: "vanishing client",
-        },
-      })
-      .catch(() => {})
-
-    // `Fiber.await`, not `Fiber.interrupt`: proves the main Effect completed
-    // ON ITS OWN, driven by the fallback timer, not by an external signal.
-    await Effect.runPromise(Fiber.await(fiber))
-    const elapsedMs = Date.now() - start
-    expect(elapsedMs).toBeGreaterThanOrEqual(1_900)
-    expect(readFileSync(join(tmpDir, filePath), "utf8")).toContain("vanishing client")
-  }, 10_000)
 })
 
 describe("package 02: gtd ui binds on an idle worktree", () => {
@@ -3088,7 +3016,7 @@ describe("package 02: gtd ui binds on an idle worktree", () => {
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
 
-  it("hand-off at idle is the existing done with no note: the deferred resolves, the process exits 0, and no write happens", async () => {
+  it("hand-off at idle is the existing done with no note: no write happens and the server keeps running", async () => {
     const { boundUrl, fiber } = await startRealServer(tmpDir, undefined, idleBeatJson("message"))
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
@@ -3097,8 +3025,8 @@ describe("package 02: gtd ui binds on an idle worktree", () => {
       const result = await client.done.mutate({})
       expect(result).toEqual({ ok: true })
     })
-    const exit = await Effect.runPromise(Fiber.await(fiber))
-    expect(exit._tag).toBe("Success")
+    expect(fiber.pollUnsafe()).toBeUndefined()
     expect(existsSync(join(tmpDir, ".gtd/TODO.md"))).toBe(false)
+    await Effect.runPromise(Fiber.interrupt(fiber))
   })
 })

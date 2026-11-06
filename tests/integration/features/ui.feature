@@ -47,7 +47,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       """
     And I record the commit count
     When I sketch ".gtd/TODO.md" with the text "a sketch from the phone" then hand off via a spawned gtd ui
-    Then the reported exit status is 0
+    Then gtd ui is still serving after done
     And the file ".gtd/TODO.md" contains "a sketch from the phone"
     And the git status contains ".gtd/TODO.md"
     And the commit count is unchanged
@@ -193,21 +193,21 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       Paragraph zero here.
       """
     When I hand off ".gtd/PLAN.md" in mode "custom-mode" with the text "handed back" to a spawned gtd ui
-    Then the reported exit status is 0
+    Then gtd ui is still serving after done
     And the file ".gtd/PLAN.md" contains "handed back"
 
   # ── The positive scenario that fails today (T7): a human rest carrying a
   # `file` and a registered `mode`, reporting kind `message` (not `prompt`) —
-  # the exact shape of `build.review.await-review` — binds a port and exits
-  # 0. The pre-existing render gate (kind === "prompt") refuses this with
+  # the exact shape of `build.review.await-review` — binds a port and takes
+  # a handoff. The pre-existing render gate (kind === "prompt") refuses this with
   # exit 2; only the actor-based gate this package installs admits it.
   # Proven via the same real spawn-and-handoff round trip
   # `ui-lifecycle.feature` already uses (`world.ts#spawnGtdUiAndHandOff`) —
-  # bind, then a real HTTPS tRPC `done` call, then the process exits 0 on
-  # its own. ─────────────────────────────────────────────────────────────
+  # bind, then a real tRPC `done` call, then the server still answers.
+  # ──────────────────────────────────────────────────────────────────────
 
   @inmem
-  Scenario: a human rest reporting kind message, carrying a file and a registered mode, binds a port and exits 0
+  Scenario: a human rest reporting kind message, carrying a file and a registered mode, binds a port and takes a handoff
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -236,7 +236,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       Paragraph two here.
       """
     When I hand off ".gtd/REVIEW.md" in mode "qa" with the text "handed back" to a spawned gtd ui
-    Then the reported exit status is 0
+    Then gtd ui is still serving after done
     And the file ".gtd/REVIEW.md" contains "handed back"
 
   # ── Package 01 Task 10 — a genuinely mode-less rest (no `mode:` key at all
@@ -395,7 +395,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And ".gtd/TODO.md" is still a directory
 
   @inmem
-  Scenario: handing off a genuinely mode-less rest (no mode key at all) exits 0 with the edit on disk
+  Scenario: handing off a genuinely mode-less rest (no mode key at all) keeps serving with the edit on disk
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -417,7 +417,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
       Paragraph zero here.
       """
     When I hand off ".gtd/TODO.md" with the text "handed back" to a spawned gtd ui
-    Then the reported exit status is 0
+    Then gtd ui is still serving after done
     And the file ".gtd/TODO.md" contains "handed back"
 
   @inmem

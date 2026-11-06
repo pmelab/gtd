@@ -20,8 +20,8 @@ const openable = (step: StepRead | undefined): step is StepRead & { status: "ok"
  * `"qa"` means `Plan`; `"findings"` means `Findings`; anything else (absent, or an unregistered mode name)
  * falls through to `FreeForm`, which reads the file as plain markdown and
  * offers only a note per block, plus a textfield when it's empty. Neither
- * screen offers a way back to a list — `done` is the only
- * thing that ends the turn, and it exits the process.
+ * screen offers a way back to a list — `done` hands the turn back (the
+ * server keeps running until the outer loop moves on).
  *
  * Never returns `null`: a blank white screen was package 03's own regression
  * (a phone over a tailnet with nothing on-screen to explain why) — every

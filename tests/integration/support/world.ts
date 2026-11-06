@@ -370,6 +370,8 @@ export class GtdWorld extends QuickPickleWorld {
   lastSignalExit:
     | { code: number | null; signal: NodeJS.Signals | null; status: number }
     | undefined = undefined
+  /** The `step` status a spawned `gtd ui` answered right after its `done` — proof `done` leaves the server running. */
+  uiStepAfterDone: string | undefined = undefined
   /** Whether the spawned `gtd next` was still alive (neither exited nor already signalled) the instant before `spawnGtdNextAndSignal` sent its signal — proves the process was actually there to interrupt, not racing its own natural exit. `@live` only. */
   signalAliveAtSend: boolean | undefined = undefined
   /** Baseline byte count `runGtdNextRedirectedAndPiped`'s piped count is compared against, to prove a large artifact is never truncated. `@live` only. */
@@ -917,14 +919,6 @@ export class GtdWorld extends QuickPickleWorld {
     else process.env["NODE_TLS_REJECT_UNAUTHORIZED"] = previousTlsReject
   }
 
-  /** Waits for a spawned `gtd ui` to exit ON ITS OWN and records the same `(code, signal, status)` triple `spawnGtdUiAndSignal` records for a SIGNALLED exit — the shared tail every `spawnGtdUi*AndHandOff` helper below ends on. */
-  private async recordSpawnedExit(
-    exited: Promise<{ code: number | null; signal: NodeJS.Signals | null }>,
-  ): Promise<void> {
-    const { code, signal } = await exited
-    this.lastSignalExit = { code, signal, status: signalExitStatus(code, signal) }
-  }
-
   /**
    * Spawns a real `gtd ui` over the same `--host 127.0.0.1 --self-signed
    * --port 0` shape `spawnGtdUiAndSignal` uses, polls for its printed
@@ -1143,13 +1137,17 @@ export class GtdWorld extends QuickPickleWorld {
     return this.uiHandler
   }
 
-  /** Ends a session on its own `done`, recording how it exited. */
+  /** Runs `done`, records what `step` answers afterwards (the server must still be up), then stops the session. */
   private async handOffThrough(
     session: UiSession,
     done: (client: UiSession["client"]) => Promise<unknown>,
   ): Promise<void> {
-    await done(session.client)
-    await this.recordSpawnedExit(session.finished)
+    try {
+      await done(session.client)
+      this.uiStepAfterDone = (await session.client.step.query()).status
+    } finally {
+      await session.stop()
+    }
   }
 
   private async noteRequest(
@@ -1306,7 +1304,7 @@ export class GtdWorld extends QuickPickleWorld {
     mode: string,
     text: string,
   ): Promise<void> {
-    const { exited, stdout } = await this.spawnBoundGtdUiServe(servePort)
+    const { child, exited, stdout } = await this.spawnBoundGtdUiServe(servePort)
     assert.ok(
       stdout().includes("not using tailscale serve"),
       `expected the fallback reason line before the bound URL, got:\n${stdout()}`,
@@ -1340,14 +1338,15 @@ export class GtdWorld extends QuickPickleWorld {
       await client.done.mutate(
         doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text),
       )
+      this.uiStepAfterDone = (await client.step.query()).status
     } finally {
       this.restoreTlsReject(previousTlsReject)
+      child.kill("SIGTERM")
+      await exited
     }
-
-    await this.recordSpawnedExit(exited)
   }
 
-  /** A `done` carrying a note, then `gtd ui` exiting on its own. */
+  /** A `done` carrying a note; `gtd ui` keeps serving. */
   async spawnGtdUiAndHandOff(
     filePath: string,
     mode: string | undefined,

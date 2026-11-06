@@ -1,9 +1,9 @@
-Feature: gtd ui's process lifecycle — one worktree, one step, one exit
+Feature: gtd ui's process lifecycle — one worktree, one step
 
-  Package 02 inverts `gtd ui`'s own control flow: handoff (the phone's "Done"
-  action) EXITS the process instead of spawning a configured loop command —
-  there is no more `ui.loop`, no shim `$PATH`, no SIGINT-then-SIGKILL child
-  management. Scenarios run the server in-process against the in-memory
+  handoff (the phone's "Done" action) saves and leaves the server running —
+  it spawns no configured loop command (there is no `ui.loop`, no shim
+  `$PATH`, no child management); the process ends on a signal or once the
+  outer loop moves the worktree on. Scenarios run the server in-process against the in-memory
   worktree, a fake tailnet standing in for `tailscale`; what only a real
   process shows — a signal's exit status, a serve mapping torn down on that
   signal, a fallback bind reachable on this machine's tailnet address — runs
@@ -134,7 +134,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
     And no tailscale serve mapping or ownership record survives on port 18446
 
   @inmem
-  Scenario: handing off exits 0, with the human's note durably on disk and no child process spawned
+  Scenario: handing off keeps gtd ui serving, with the human's note durably on disk and no child process spawned
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -158,17 +158,14 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
 
       Paragraph two here.
       """
-    # `spawnGtdUiAndHandOff` drives a REAL `done` mutation over a REAL HTTPS
-    # tRPC round trip against a REAL spawned `gtd ui`, then waits for the
-    # process to exit ON ITS OWN — never signalled — proving `ctx.handOff()`
-    # actually terminates the server once the response has flushed. No
-    # `ui.loop`/child process exists anywhere in this design to spawn.
+    # A real `done` mutation over a real tRPC round trip, then a `step`
+    # query proving the server still answers.
     When I hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back" to a spawned gtd ui
-    Then the reported exit status is 0
+    Then gtd ui is still serving after done
     And the file ".gtd/PLAN.md" contains "handed back"
 
   @inmem
-  Scenario: handing off with no note (package 04's Done control) exits the same way the note-carrying handoff does
+  Scenario: handing off with no note (package 04's Done control) keeps gtd ui serving the same way the note-carrying handoff does
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -192,17 +189,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
 
       Paragraph two here.
       """
-    # `spawnGtdUiAndHandOffNoNote` drives a REAL `done` mutation with no
-    # `note` at all over a REAL HTTPS tRPC round trip against a REAL spawned
-    # `gtd ui`, then waits for the process to exit ON ITS OWN — the exact
-    # same handoff the note-carrying scenario above exercises, minus the
-    # write there's nothing to leave behind for.
     When I hand off with no note to a spawned gtd ui
-    Then the reported exit status is 0
+    Then gtd ui is still serving after done
     And the file ".gtd/PLAN.md" contains "Paragraph zero here."
 
   @inmem
-  Scenario: a review step hands off with no note (the review screen's Done control) and exits
+  Scenario: a review step hands off with no note (the review screen's Done control) and keeps serving
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -231,11 +223,11 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       new add function
       """
     When I hand off with no note to a spawned gtd ui
-    Then the reported exit status is 0
+    Then gtd ui is still serving after done
     And the file ".gtd/REVIEW.md" contains "new add function"
 
   @inmem
-  Scenario: no --host given, gtd ui publishes through tailscale serve and tears the mapping down on handoff
+  Scenario: no --host given, gtd ui publishes through tailscale serve, keeps serving after handoff and tears the mapping down when stopped
     # Package 01's serve-first front door: no --host/--self-signed given, so
     # `runUiCommand` probes and publishes through `tailscale serve` instead of
     # binding the tailnet IP directly. Neither a real tailnet nor even the
@@ -271,12 +263,12 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       Paragraph two here.
       """
     When I hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back" to a spawned gtd ui using tailscale serve on port 18443
-    Then the reported exit status is 0
+    Then gtd ui is still serving after done
     And the file ".gtd/PLAN.md" contains "handed back"
     And no tailscale serve mapping or ownership record survives on port 18443
 
   @live
-  Scenario: no --host given, tailscale serve's publish fails, gtd ui falls back to a reachable direct bind and still exits 0 on handoff
+  Scenario: no --host given, tailscale serve's publish fails, gtd ui falls back to a reachable direct bind and keeps serving after handoff
     # Task 3's own "never refuses" guarantee (bullet 3): the serve ATTEMPT
     # still runs first (no --host/--self-signed — giving either would skip
     # the attempt entirely, defeating the point), but the fake `tailscale
@@ -322,7 +314,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     And the fake tailscale CLI's next serve publish fails
     When I hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back" to a spawned gtd ui using tailscale serve on port 18447, falling back after the failed publish
-    Then the reported exit status is 0
+    Then gtd ui is still serving after done
     And the file ".gtd/PLAN.md" contains "handed back"
 
   # Package 01 Task 6: no --port given at all, so `resolveListener`'s own
@@ -357,7 +349,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       """
     And a foreign tailscale serve mapping already published on port 8443
     When I hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back" to a spawned gtd ui using tailscale serve on the default port
-    Then the reported exit status is 0
+    Then gtd ui is still serving after done
     And the file ".gtd/PLAN.md" contains "handed back"
     And the taken serve port is 10000
     And no tailscale serve mapping or ownership record survives on port 10000
@@ -440,7 +432,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       - [ ] Red
       """
     When I hand off a note on question 1 of ".gtd/PLAN.md" in mode "qa" with the text "reconsider this" to a spawned gtd ui
-    Then the reported exit status is 0
+    Then gtd ui is still serving after done
     And the file ".gtd/PLAN.md" contains "### Which colour?[^"
     And the file ".gtd/PLAN.md" contains "- H: reconsider this"
 
@@ -448,8 +440,8 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
   Scenario: a page reload does not kill gtd ui — it survives and still hands off through done
     # No `pagehide` beacon exists any more (package 03 Task 8) to mistake a
     # reload for a close — a real GET against the served origin (the exact
-    # request a pull-to-refresh reissues) must still be served, and the
-    # process must still end through a real `done` handoff afterward, exit 0.
+    # request a pull-to-refresh reissues) must still be served, and a real
+    # `done` handoff afterward must still land.
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -474,7 +466,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step, one exit
       Paragraph two here.
       """
     When I reload the client of a spawned gtd ui, then hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back"
-    Then the reported exit status is 0
+    Then gtd ui is still serving after done
     And the file ".gtd/PLAN.md" contains "handed back"
 
   @inmem

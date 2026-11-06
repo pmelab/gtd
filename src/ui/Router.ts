@@ -9,7 +9,7 @@ import type { WriteNoteRequest, WriteResult, WriteValueRequest } from "./Write.j
 /** A request shape with the client-supplied `worktreePath` stripped — the server always writes/reads through the one worktree it serves, closed over server-side, never named by the client. */
 type NoWorktreePath<T> = Omit<T, "worktreePath">
 
-/** What every tRPC resolver needs: the one worktree `Server.ts` serves, closed over by every function here — no path ever reaches this router from a request. `readStep`/`writeNote`/`readSteeringFile`/`resolveDiff` each close over their own live deps (see `Beat.ts`/`Write.ts`/`ReadSteeringFile.ts`/`Diff.ts`). `handOff` is the done action's second half: resolves the deferred `Server.ts`'s main Effect awaits in place of `Effect.never`, so the process exits once the HTTP response carrying `done`'s result has actually flushed. The router never imports a format module or a filesystem API directly. */
+/** What every tRPC resolver needs: the one worktree `Server.ts` serves, closed over by every function here — no path ever reaches this router from a request. `readStep`/`writeNote`/`readSteeringFile`/`resolveDiff` each close over their own live deps (see `Beat.ts`/`Write.ts`/`ReadSteeringFile.ts`/`Diff.ts`). The router never imports a format module or a filesystem API directly. */
 export interface RouterContext {
   readonly readStep: () => Promise<StepRead>
   readonly writeNote: (request: NoWorktreePath<WriteNoteRequest>) => Promise<WriteResult>
@@ -22,8 +22,6 @@ export interface RouterContext {
   readonly readSteeringFile: (
     request: NoWorktreePath<ReadSteeringFileRequest>,
   ) => Promise<ReadSteeringFileResult>
-  /** Schedules the process exit that follows a successful `done` — never invoked directly by anything in this file besides `done` itself. */
-  readonly handOff: () => void
 }
 
 /** One of `Write.ts#WriteNoteRequest`'s five typed refusals, carried as a thrown `TRPCError`'s `cause` — the phone renders a different sentence for each, read off `error.data.writeRefusal`, never off `error.message`. */
@@ -204,7 +202,7 @@ const setValueInput = (
  * independently-optional flat fields (which could arrive in half-valid
  * combinations). `note` present is validated by `writeNoteInput` itself, so
  * a malformed note throws here, before `done`'s resolver ever runs — never
- * reaching `ctx.writeNote`/`ctx.handOff`. `note` absent needs no tokens:
+ * reaching `ctx.writeNote`. `note` absent needs no tokens:
  * there is nothing to compare-and-swap when nothing is written.
  */
 const doneInput = (
@@ -312,22 +310,13 @@ export const appRouter = t.router({
 
   /**
    * The done action: writes the steering file exactly as `writeNote` does
-   * WHEN `note` is present, then hands the turn back — `ctx.handOff()`
-   * schedules the process exit that follows this response actually reaching
-   * the client, never spawning a child process or waiting for one. `note`
-   * absent skips the write entirely (nothing to compare-and-swap) and goes
-   * straight to `ctx.handOff()` — a human who has nothing to leave behind
-   * still needs a way to end the turn. A write failure aborts before
-   * anything is scheduled, surfaced identically to `writeNote`'s own
-   * `WriteNoteRefusal`. The server itself emits no beat, lands no turn, and
-   * creates no session — the outer loop that started `gtd ui` re-reads gtd
-   * state after the process exits and drives the next turn itself.
+   * WHEN `note` is present; `note` absent writes nothing. Either way the
+   * server keeps running — the outer loop that started `gtd ui` decides when
+   * the turn is over, and the moved-on detection ends the process once it
+   * advances.
    */
   done: t.procedure.input(doneInput).mutation(async ({ input, ctx }) => {
-    if (input.note === undefined) {
-      ctx.handOff()
-      return { ok: true as const }
-    }
+    if (input.note === undefined) return { ok: true as const }
     const write = await ctx.writeNote(input.note)
     if (!write.ok) {
       throw new TRPCError({
@@ -336,7 +325,6 @@ export const appRouter = t.router({
         cause: new WriteNoteRefusal(write.reason, write.moved),
       })
     }
-    ctx.handOff()
     return {
       ok: true as const,
       contentHash: write.contentHash,

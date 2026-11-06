@@ -729,11 +729,9 @@ const resolveListener = (args: {
 /**
  * `gtd ui`: binds an HTTPS server exposing the phone/web client for the ONE
  * worktree at `root` — never a fleet, never a spawned loop. The server
- * lives for exactly one step: it starts, shows that step, takes the human's
- * input, and exits — either because the human handed the turn back (`done`
- * resolves `ctx.handOff()`'s deferred once the response has flushed) or
- * because the process was signalled (SIGINT/SIGTERM, handled by the runtime,
- * untouched here).
+ * lives for exactly one step: `done` saves without ending it; it exits once
+ * the outer loop moves the worktree on (the moved-on detection below) or
+ * when the process is signalled (SIGINT/SIGTERM, handled by the runtime).
  */
 export const runUiCommand = (
   options: UiCommandOptions,
@@ -786,29 +784,18 @@ export const runUiCommand = (
     const diffDeps: DiffDeps = { run: host.run }
     const readDeps: ReadSteeringFileDeps = { headSha: host.headSha, readFile: host.readFile }
 
-    // Resolved by `handOff` (scheduled on the HTTP response's `finish` event,
-    // with a 2s fallback so a vanished client can't wedge the process) or by
-    // the moved-on detection below (the outer loop advanced while this server
-    // was up) — in place of the never-resolving wait a fleet server could get
-    // away with, since this server outlives exactly one step, not the whole
-    // process lifetime. `gtd ui` now ends through exactly these two doors —
-    // no heuristic guesses at a closed tab (package 03 Task 8): a signal is
-    // the only other way out, owned by whatever spawned this process.
-    const handoffDeferred = yield* Deferred.make<void>()
-    // `Deferred.succeed` on an already-resolved deferred is a documented
-    // no-op (returns `false`, changes nothing) — safe to call from both
-    // `handOff` and the moved-on detection with no extra guard, since
-    // whichever fires first wins and the process still exits exactly once,
-    // exit 0.
+    // Resolved only by the moved-on detection below (the outer loop advanced
+    // while this server was up); a signal is the only other way out.
+    const movedOnDeferred = yield* Deferred.make<void>()
     const endServer = (): void => {
-      Deferred.doneUnsafe(handoffDeferred, Effect.void)
+      Deferred.doneUnsafe(movedOnDeferred, Effect.void)
     }
 
     // The `step` query's actual resolver — every read after startup is
     // compared against the rest captured above. A mismatched `state`, a read
     // that's gone broken, or one that's no longer renderable all mean the
-    // outer loop moved on while this server was up: end it the SAME
-    // idempotent way `handOff` does, one exit, exit 0, and hand the client a
+    // outer loop moved on while this server was up: end it, exit 0
+    // (idempotent — repeated reads resolve the deferred once), and hand the client a
     // `moved-on` read instead of a stale or now-unrenderable one. No polling
     // timer drives this — it rides the `step` query the client already
     // issues.
@@ -832,7 +819,7 @@ export const runUiCommand = (
     // requests `step.file`) could reach.
     const isServedFile = (filePath: string): boolean => filePath === step.file
 
-    const handler: UiHandler = (request, afterResponse) => {
+    const handler: UiHandler = (request) => {
       const path = new URL(request.url).pathname
       if (path !== TRPC_PATH_PREFIX && !path.startsWith(`${TRPC_PATH_PREFIX}/`)) {
         return Promise.resolve(
@@ -858,22 +845,6 @@ export const runUiCommand = (
             isServedFile(request.filePath)
               ? readSteeringFile({ ...request, worktreePath: root }, readDeps)
               : Promise.resolve({ ok: false, reason: "file-vanished" }),
-          handOff: () => {
-            let settled = false
-            const settle = (): void => {
-              if (settled) return
-              settled = true
-              clearTimeout(fallback)
-              endServer()
-            }
-            afterResponse(settle)
-            // Cleared the instant the response settles first (the normal
-            // path) — the CLI's success path sets `process.exitCode` rather
-            // than calling `process.exit`, so an uncleared timer keeps the
-            // event loop alive for its own full duration regardless of
-            // `settled`, delaying every ordinary handoff by up to 2s.
-            const fallback = setTimeout(settle, 2_000)
-          },
         }),
       })
     }
@@ -891,7 +862,7 @@ export const runUiCommand = (
 
     out.write(`${url}\n`)
     out.flush()
-    yield* Deferred.await(handoffDeferred).pipe(
+    yield* Deferred.await(movedOnDeferred).pipe(
       Effect.ensuring(Effect.sync(() => bound.close()).pipe(Effect.andThen(teardown))),
     )
   })

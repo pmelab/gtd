@@ -383,3 +383,11 @@ Then("the second write succeeded", (world: GtdWorld) => {
     `expected the second write to succeed, got: ${JSON.stringify(world.formatWriteResult)}`,
   )
 })
+
+Then("gtd ui is still serving after done", (world: GtdWorld) => {
+  assert.strictEqual(
+    world.uiStepAfterDone,
+    "ok",
+    'Expected the step query after "done" to answer "ok" — run a "hand off" step first.',
+  )
+})

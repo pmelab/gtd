@@ -35,7 +35,6 @@ const contextFor = (
     Promise.resolve({ kind: "refused", detail: "resolveDiff unexpectedly invoked" }),
   readSteeringFile: RouterContext["readSteeringFile"] = () =>
     Promise.resolve({ ok: false, reason: "file-vanished" }),
-  handOff: RouterContext["handOff"] = () => {},
   writeValue: RouterContext["writeValue"] = () => Promise.resolve(WRITE_OK),
 ): RouterContext => ({
   readStep,
@@ -43,7 +42,6 @@ const contextFor = (
   writeValue,
   resolveDiff,
   readSteeringFile,
-  handOff,
 })
 
 const doneNote = {
@@ -135,16 +133,14 @@ describe("appRouter.setValue", () => {
 
   it("delegates to the context's writeValue and returns ok on success, forwarding contentHash", async () => {
     const caller = appRouter.createCaller(
-      contextFor(undefined, undefined, undefined, undefined, undefined, () =>
-        Promise.resolve(WRITE_OK),
-      ),
+      contextFor(undefined, undefined, undefined, undefined, () => Promise.resolve(WRITE_OK)),
     )
     await expect(caller.setValue(request)).resolves.toEqual(WRITE_OK)
   })
 
   it("surfaces a refusal as a typed WriteNoteRefusal cause, naming the reason", async () => {
     const caller = appRouter.createCaller(
-      contextFor(undefined, undefined, undefined, undefined, undefined, () =>
+      contextFor(undefined, undefined, undefined, undefined, () =>
         Promise.resolve({ ok: false, reason: "stale-token", moved: "content-hash" }),
       ),
     )
@@ -157,7 +153,7 @@ describe("appRouter.setValue", () => {
 
   it("rejects malformed input rather than reaching writeValue", async () => {
     const caller = appRouter.createCaller(
-      contextFor(undefined, undefined, undefined, undefined, undefined, () =>
+      contextFor(undefined, undefined, undefined, undefined, () =>
         Promise.reject(new Error("writeValue unexpectedly invoked")),
       ),
     )
@@ -169,7 +165,7 @@ describe("appRouter.setValue", () => {
   it("accepts no worktreePath field at all — the server writes through the one worktree it serves", async () => {
     let received: unknown
     const caller = appRouter.createCaller(
-      contextFor(undefined, undefined, undefined, undefined, undefined, (input) => {
+      contextFor(undefined, undefined, undefined, undefined, (input) => {
         received = input
         return Promise.resolve(WRITE_OK)
       }),
@@ -181,7 +177,7 @@ describe("appRouter.setValue", () => {
   it("accepts checked and text together in one call, and accepts checked alone with no text field", async () => {
     let received: unknown
     const caller = appRouter.createCaller(
-      contextFor(undefined, undefined, undefined, undefined, undefined, (input) => {
+      contextFor(undefined, undefined, undefined, undefined, (input) => {
         received = input
         return Promise.resolve(WRITE_OK)
       }),
@@ -355,88 +351,48 @@ describe("appRouter.readSteeringFile", () => {
 })
 
 describe("appRouter.done", () => {
-  it("with a note: writes it then hands off, in that order — today's exact behaviour, unchanged", async () => {
-    const calls: string[] = []
-    const caller = appRouter.createCaller(
-      contextFor(
-        undefined,
-        () => {
-          calls.push("write")
-          return Promise.resolve(WRITE_OK)
-        },
-        undefined,
-        undefined,
-        () => {
-          calls.push("handoff")
-        },
-      ),
-    )
+  it("with a note: writes it and returns the write's result", async () => {
+    const write = vi.fn(() => Promise.resolve(WRITE_OK))
+    const caller = appRouter.createCaller(contextFor(undefined, write))
     const result = await caller.done(doneRequest)
     expect(result).toEqual(WRITE_OK)
-    expect(calls).toEqual(["write", "handoff"])
+    expect(write).toHaveBeenCalledTimes(1)
   })
 
-  it("with a note: a failed write refuses with the same WriteNoteRefusal-carrying CONFLICT error, and aborts before handing off", async () => {
-    const handOff = vi.fn()
+  it("with a note: a failed write refuses with the same WriteNoteRefusal-carrying CONFLICT error", async () => {
     const caller = appRouter.createCaller(
-      contextFor(
-        undefined,
-        () => Promise.resolve({ ok: false, reason: "stale-token", moved: "sha" }),
-        undefined,
-        undefined,
-        handOff,
+      contextFor(undefined, () =>
+        Promise.resolve({ ok: false, reason: "stale-token", moved: "sha" }),
       ),
     )
     const error = await caller.done(doneRequest).catch((e: unknown) => e)
     expect(error).toBeInstanceOf(Error)
     expect((error as { cause?: unknown }).cause).toBeInstanceOf(WriteNoteRefusal)
     expect((error as { code?: string }).code).toBe("CONFLICT")
-    expect(handOff).not.toHaveBeenCalled()
   })
 
-  it("with no note: performs no write at all and still hands off", async () => {
-    const calls: string[] = []
-    const caller = appRouter.createCaller(
-      contextFor(
-        undefined,
-        () => {
-          calls.push("write")
-          return Promise.resolve(WRITE_OK)
-        },
-        undefined,
-        undefined,
-        () => {
-          calls.push("handoff")
-        },
-      ),
-    )
+  it("with no note: performs no write at all", async () => {
+    const write = vi.fn(() => Promise.resolve(WRITE_OK))
+    const caller = appRouter.createCaller(contextFor(undefined, write))
     const result = await caller.done({})
     expect(result).toEqual({ ok: true })
-    expect(calls).toEqual(["handoff"])
+    expect(write).not.toHaveBeenCalled()
   })
 
-  it("with a malformed note (a missing string field) throws before anything is written and before handOff is scheduled", async () => {
+  it("with a malformed note (a missing string field) throws before anything is written", async () => {
     const write = vi.fn(() => Promise.resolve(WRITE_OK))
-    const handOff = vi.fn()
-    const caller = appRouter.createCaller(
-      contextFor(undefined, write, undefined, undefined, handOff),
-    )
+    const caller = appRouter.createCaller(contextFor(undefined, write))
     await expect(caller.done({ note: { ...doneNote, text: undefined } } as never)).rejects.toThrow()
     expect(write).not.toHaveBeenCalled()
-    expect(handOff).not.toHaveBeenCalled()
   })
 
-  it("with a malformed note (a bad anchor) throws before anything is written and before handOff is scheduled", async () => {
+  it("with a malformed note (a bad anchor) throws before anything is written", async () => {
     const write = vi.fn(() => Promise.resolve(WRITE_OK))
-    const handOff = vi.fn()
-    const caller = appRouter.createCaller(
-      contextFor(undefined, write, undefined, undefined, handOff),
-    )
+    const caller = appRouter.createCaller(contextFor(undefined, write))
     await expect(
       caller.done({ note: { ...doneNote, anchor: { kind: "unknown" } } } as never),
     ).rejects.toThrow()
     expect(write).not.toHaveBeenCalled()
-    expect(handOff).not.toHaveBeenCalled()
   })
 })
 

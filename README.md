@@ -450,7 +450,8 @@ to answer, reopening it edits your last entry instead. Tap an already-answered
 question to leave a note on it; the agent may overturn the answer. A `findings`
 file lists its findings, each with a fix checkbox and, once ticked, an optional
 line of guidance; Done stays disabled while the file holds anything its gate
-would refuse. See
+would refuse. Done saves and leaves the server running; it exits once the
+worktree moves on to another step. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 
