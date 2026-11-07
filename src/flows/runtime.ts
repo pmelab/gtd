@@ -89,7 +89,20 @@ export type HumanOptions = HumanCommon &
       })
   )
 
-export type RunOptions = SteeringOptions
+export type RunOptions = SteeringOptions & {
+  /**
+   * `"rest"`: a non-zero exit is recorded in the tree and the process rests at
+   * the step as `stalled`; any tree change runs the script again, and only a
+   * zero exit advances. Without it a failing body lands and the flow carries on.
+   */
+  readonly onFail?: "rest" | undefined
+}
+
+/** A ship step rests on no steering file. */
+export type ShipOptions = SteeringCommon & {
+  readonly file?: undefined
+  readonly mode?: undefined
+}
 
 export type JudgePrimitive = "noul" | "choice" | "score"
 
@@ -203,6 +216,12 @@ export type StepRequest =
       readonly name: string
       readonly body: string
       readonly options: RunOptions
+    }
+  | {
+      readonly kind: "ship"
+      readonly name: string
+      readonly message: string
+      readonly options: ShipOptions
     }
   | {
       readonly kind: "judge"
@@ -343,6 +362,18 @@ export const human: Human = (
 /** A check: `body` runs at the edge and its effect on the tree is committed. */
 export const run = (name: string, body: string, options: RunOptions = {}): Promise<void> =>
   ctx().step({ kind: "run", name, body, options }) as Promise<void>
+
+/**
+ * Squashes HEAD's tree, with `.gtd/` as the user's branch has it, into one commit on the user's branch
+ * with `message`, and moves that branch there; HEAD stays on `gtd/<b>`.
+ * Resolves to the new commit's hash, or `undefined` when nothing shipped.
+ */
+export const ship = (
+  name: string,
+  message: string,
+  options: ShipOptions = {},
+): Promise<string | undefined> =>
+  ctx().step({ kind: "ship", name, message, options }) as Promise<string | undefined>
 
 /** A judge gate: resolves to what the judge answered, for the flow to decide on. */
 export const judge = <const Q extends readonly JudgeQuestionInput[] = readonly JudgeQuestion[]>(

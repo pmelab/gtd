@@ -456,6 +456,20 @@ export class GtdWorld extends QuickPickleWorld {
     await this.runGtd("land")
   }
 
+  /** Takes a script beat the way a reference driver does: runs its content, then lands. */
+  async runScriptBeat(): Promise<void> {
+    await this.invokeGtd("next", "--json")
+    const beat = firstJsonObject(this.lastResult.stdout)
+    if (beat?.["kind"] !== "script") {
+      throw new Error(
+        `expected a script beat, got: ${this.lastResult.stdout}${this.lastResult.stderr}`,
+      )
+    }
+    const run = await this.runEmittedScript(stringField(beat, "content"))
+    if (run.exitCode !== 0) throw new Error(`the script beat failed: ${run.output}`)
+    await this.runGtd("land")
+  }
+
   /**
    * Plain `gtd land`'s own preview, undriven — package 02's prose sentence
    * carries no script to run, so this is a read: `gtd land`'s own git-write

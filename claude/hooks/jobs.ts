@@ -1,8 +1,8 @@
-// The one background slot ship and hand-off share: both push the branch, so
-// two at once would race. No global deadline on purpose: a deadline that freed
+// The one background slot for a hand-off: it pushes the branch, so two at
+// once would race. No global deadline on purpose: a deadline that freed
 // the slot while the work still ran would let a second push overwrite the first.
 
-import type { Shipped } from "./ship"
+import type { Done } from "./git"
 import type { JobName } from "./tools"
 import { JOB_NAME } from "./tools"
 
@@ -13,9 +13,9 @@ export type Jobs = {
   // running or queued.
   start(
     job: JobName,
-    work: () => Promise<Shipped>,
+    work: () => Promise<Done>,
     isInTurn: boolean,
-    done: (outcome: Shipped) => Promise<void>,
+    done: (outcome: Done) => Promise<void>,
   ): string
   flush(): void
   busy(): JobName | undefined
@@ -25,8 +25,8 @@ export function jobs(): Jobs {
   let current:
     | {
         job: JobName
-        work: () => Promise<Shipped>
-        done: (outcome: Shipped) => Promise<void>
+        work: () => Promise<Done>
+        done: (outcome: Done) => Promise<void>
         isRunning: boolean
       }
     | undefined
@@ -36,7 +36,7 @@ export function jobs(): Jobs {
     if (!slot || slot.isRunning) return
     slot.isRunning = true
     void (async () => {
-      let outcome: Shipped
+      let outcome: Done
       try {
         outcome = await slot.work()
       } catch (err) {

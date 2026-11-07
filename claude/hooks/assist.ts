@@ -5,7 +5,7 @@
 
 import type { Stop } from "../types"
 import { RELOAD_CUT_SCRIPT } from "./wording"
-import type { Shipped } from "./ship"
+import type { Done } from "./git"
 import { JOB_NAME, TOOL } from "./tools"
 import type { JobName } from "./tools"
 
@@ -23,16 +23,12 @@ export type Wake = {
   isRepeat?: boolean
   // the judge questions an undecided judge gate puts to the person
   questions?: Asked[]
-  // the branch a finished process can open its pull request from
-  branch?: string
 }
 
-// No wake for a stop the person asked for; a finished process wakes only
-// when it has a pull request to offer.
-export function wakes(stop: Stop, branch: string | undefined): boolean {
+// No wake for a finished process or a stop the person asked for.
+export function wakes(stop: Stop): boolean {
   if (stop.kind === "stopped") return stop.text === RELOAD_CUT_SCRIPT
-  if (stop.kind === "done") return branch !== undefined
-  return true
+  return stop.kind !== "done"
 }
 
 const step = (s: Stop) => s.label ?? s.state ?? "the current step"
@@ -116,23 +112,9 @@ function trouble(w: Wake) {
   ]
 }
 
-function finished(w: Wake) {
-  return [
-    `gtd finished the process on branch ${w.branch}.`,
-    `Tell the person in two or three lines what was built (read the branch's commits), then ask whether to squash it and open its pull request(s). On yes, call ${TOOL.ship}.`,
-  ]
-}
-
 export function wakePrompt(w: Wake): string {
   const { stop } = w
-  const body =
-    stop.kind === "done"
-      ? finished(w)
-      : stop.kind === "gate"
-        ? stop.isJudge
-          ? judged(w)
-          : gate(w)
-        : trouble(w)
+  const body = stop.kind === "gate" ? (stop.isJudge ? judged(w) : gate(w)) : trouble(w)
   const notes = w.notes?.length
     ? [
         `While gtd ran, the person asked for the following. Fold each in now in the way this step allows, or tell them why it does not fit here:\n${w.notes.map((n) => `- ${n}`).join("\n")}`,
@@ -142,9 +124,9 @@ export function wakePrompt(w: Wake): string {
   return [...body, ...notes, RULES, extras].join("\n\n")
 }
 
-// The wake after a background ship or hand-off ended. It must not forbid further work:
+// The wake after a background hand-off ended. It must not forbid further work:
 // an agent with standing instructions (a review loop, a CI watch) would go idle.
-export function jobPrompt(job: JobName, outcome: Shipped): string {
+export function jobPrompt(job: JobName, outcome: Done): string {
   const name = JOB_NAME[job]
   if (outcome.ok) {
     return [
@@ -153,17 +135,9 @@ export function jobPrompt(job: JobName, outcome: Shipped): string {
       "Relay the result to the person in a line or two, with any link in it; then continue with any work the person already asked for.",
     ].join("\n\n")
   }
-  const lines = [
+  return [
     `The ${name} the person asked for failed. gtd reports the failed step:`,
     fence(outcome.text),
-  ]
-  if (job === "ship") {
-    lines.push(
-      `If the commits were already squashed, they stay squashed: running /gtd ship again pushes the already-squashed branch.`,
-    )
-  }
-  lines.push(
     "Tell the person what failed in plain words and what to try. Do not retry it yourself.",
-  )
-  return lines.join("\n\n")
+  ].join("\n\n")
 }

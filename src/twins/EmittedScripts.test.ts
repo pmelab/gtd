@@ -5,15 +5,20 @@ import {
   combinedScript,
   commitAll,
   commitAsIs,
+  deleteBranch,
   emitScripts,
+  failRestScript,
   failurePromptWrapper,
   fileExistsGuard,
   modeContradictionSkipNotice,
+  switchBranchTo,
+  switchBack,
+  switchTo,
   transitionOutcome,
   withFileVar,
   type EmitStep,
 } from "../emit/index.js"
-import { Effect } from "effect"
+import { Effect, Option } from "effect"
 import { ScriptSurface } from "../emit/index.js"
 import { GitService } from "../platform/index.js"
 import { listFormat } from "../steering/index.js"
@@ -303,6 +308,147 @@ printf '%s\n' 'a' '' 'it'\''s' '100%' '-x' 'a\b' '.gtd/packages/00-x.md' > '.gtd
       expect(read(".gtd/packages/00-x.md")).toBe(
         "a\n\nit's\n100%\n-x\na\\b\n.gtd/packages/00-x.md\n",
       )
+    })
+
+    describe("branch scripts", () => {
+      it("switchBranchTo creates the branch at HEAD and moves onto it", () => {
+        const head = t.observe.resolveRef("HEAD")
+        expect(run(switchBranchTo("gtd/x")).ok).toBe(true)
+        expect(t.observe.resolveRef("gtd/x")).toBe(head)
+        t.seed.writeFile("a.txt", "a\n")
+        expect(run(commitAll("gtd(agent): building")).ok).toBe(true)
+        expect(t.observe.resolveRef("gtd/x")).toBe(t.observe.resolveRef("HEAD"))
+        expect(t.observe.resolveRef("gtd/x")).not.toBe(head)
+      })
+
+      it("switchTo moves onto an existing branch and fails for a missing one", () => {
+        expect(run(switchBranchTo("gtd/x")).ok).toBe(true)
+        expect(run(switchTo("nope")).ok).toBe(false)
+        expect(run(switchBranchTo("gtd/y")).ok).toBe(true)
+        expect(run(switchTo("gtd/x")).ok).toBe(true)
+      })
+
+      const branch = () =>
+        t.provide(Effect.flatMap(GitService, (g) => g.currentBranch())).then(Option.getOrUndefined)
+
+      it("switchBack carries a change to a path both branches agree on", async () => {
+        expect(run(switchBranchTo("gtd/x")).ok).toBe(true)
+        t.seed.commit("feat: on gtd/x", { "b.txt": "b\n" })
+        expect(run(switchBranchTo("x", "HEAD~1")).ok).toBe(true)
+        expect(run(switchTo("gtd/x")).ok).toBe(true)
+        t.seed.writeFile("a.txt", "changed\n")
+        const result = run(switchBack("x"))
+        expect(result.ok).toBe(true)
+        expect(result.output).toBe("")
+        expect(await branch()).toBe("x")
+        expect(read("a.txt")).toBe("changed\n")
+        expect(read("b.txt")).toBeUndefined()
+      })
+
+      it("switchBack stays put, saying so, when a change would be overwritten", async () => {
+        expect(run(switchBranchTo("gtd/x")).ok).toBe(true)
+        t.seed.commit("feat: on gtd/x", { "b.txt": "b\n" })
+        expect(run(switchBranchTo("x", "HEAD~1")).ok).toBe(true)
+        expect(run(switchTo("gtd/x")).ok).toBe(true)
+        t.seed.writeFile("b.txt", "changed\n")
+        const result = run(switchBack("x"))
+        expect(result.ok).toBe(true)
+        expect(result.output).toContain("pending changes keep HEAD off x")
+        expect(await branch()).toBe("gtd/x")
+        expect(read("b.txt")).toBe("changed\n")
+      })
+
+      it("deleteBranch removes another branch and refuses the checked-out one", () => {
+        expect(run(switchBranchTo("gtd/x")).ok).toBe(true)
+        expect(run(deleteBranch("gtd/x")).ok).toBe(false)
+        expect(run(switchBranchTo("gtd/y")).ok).toBe(true)
+        expect(run(deleteBranch("gtd/x")).ok).toBe(true)
+        expect(t.observe.refExists("refs/heads/gtd/x")).toBe(false)
+      })
+    })
+
+    describe("shipCommit", () => {
+      const HISTORY = "refs/gtd/history/0123456789012345678901234567890123456789"
+      const LANDING = "gtd(check): shipping → after\n\nGtd-Format: 4"
+      const git = <A>(f: (g: GitService["Service"]) => Effect.Effect<A, Error>) =>
+        t.provide(Effect.flatMap(GitService, f))
+      // As a landing renders it: under `set -eu`.
+      const ship = (branch: string, parent: string, shipMessage: string) =>
+        ScriptSurface.render([
+          {
+            kind: "gitWrite",
+            write: {
+              kind: "ship",
+              branch,
+              parent,
+              shipMessage,
+              historyRef: HISTORY,
+              message: LANDING,
+            },
+          },
+        ])
+
+      it("squashes the staged tree minus .gtd/ onto the branch, then lands naming it", async () => {
+        const branch = await git((g) => g.currentBranch())
+        const user = Option.getOrElse(branch, () => "main")
+        const parent = t.observe.resolveRef("HEAD")
+        expect(run(switchBranchTo(`gtd/${user}`)).ok).toBe(true)
+        t.seed.writeFile("a.txt", "shipped\n")
+        t.seed.writeFile(".gtd/notes.md", "kept back\n")
+        const result = run(ship(user, parent, "feat: it's shipped"))
+        expect(result.ok).toBe(true)
+        const shipped = t.observe.resolveRef(user)
+        expect(shipped).not.toBe(parent)
+        expect(t.observe.resolveRef(`${shipped}~1`)).toBe(parent)
+        expect(await git((g) => g.readFileAtRef(shipped, "a.txt"))).toBe("shipped\n")
+        expect(await git((g) => g.diffPaths(parent, shipped))).toEqual(["a.txt"])
+        const message = await git((g) => g.lastCommitMessage(shipped))
+        expect(message).toContain("feat: it's shipped")
+        expect(message).toContain(`\n\nGtd-History: ${HISTORY}\nGtd-Tip: ${parent}`)
+        expect(await git((g) => g.lastCommitMessage("HEAD"))).toContain(`Gtd-Shipped: ${shipped}`)
+        expect(t.observe.statusPorcelain()).toBe("")
+      })
+
+      it("keeps the .gtd/ files the branch tracks as it has them", async () => {
+        const user = Option.getOrElse(await git((g) => g.currentBranch()), () => "main")
+        t.seed.commit("chore: track", { ".gtd/keep.md": "tracked\n" })
+        const parent = t.observe.resolveRef("HEAD")
+        expect(run(switchBranchTo(`gtd/${user}`)).ok).toBe(true)
+        t.seed.writeFile("a.txt", "shipped\n")
+        t.seed.writeFile(".gtd/keep.md", "process\n")
+        expect(run(ship(user, parent, "feat: x")).ok).toBe(true)
+        const shipped = t.observe.resolveRef(user)
+        expect(await git((g) => g.readFileAtRef(shipped, ".gtd/keep.md"))).toBe("tracked\n")
+        expect(await git((g) => g.diffPaths(parent, shipped))).toEqual(["a.txt"])
+      })
+
+      it("fails before landing when the branch moved since the decision", () => {
+        const head = t.observe.resolveRef("HEAD")
+        expect(run(switchBranchTo("gtd/x")).ok).toBe(true)
+        expect(run(switchBranchTo("x")).ok).toBe(true)
+        t.seed.commit("feat: moved", { "b.txt": "b\n" })
+        expect(run(switchTo("gtd/x")).ok).toBe(true)
+        t.seed.writeFile("a.txt", "a\n")
+        expect(run(ship("x", head, "feat: x")).ok).toBe(false)
+        expect(t.observe.resolveRef("HEAD")).toBe(head)
+      })
+    })
+
+    describe("failRestScript", () => {
+      const FAIL_PATH = ".gtd/run-failed.txt"
+      const wrapped = (body: string) => failRestScript(body, FAIL_PATH)
+
+      it("records the status and output, without the output's trailing newline, and succeeds", () => {
+        expect(run(wrapped(withFileVar(FAILING, FILE))).ok).toBe(true)
+        expect(read(FAIL_PATH)).toBe(`exit 2\nbad: ${FILE}\n`)
+      })
+
+      it("leaves no record when the body passes, and clears an earlier one", () => {
+        t.seed.writeFile(FAIL_PATH, "exit 1\nold\n")
+        t.seed.writeFile(FILE, "a\n")
+        expect(run(wrapped(withFileVar(COPY, FILE))).ok).toBe(true)
+        expect(read(FAIL_PATH)).toBeUndefined()
+      })
     })
 
     describe("commitAll", () => {

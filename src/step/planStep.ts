@@ -36,11 +36,15 @@ const uncheckStep = (snapshot: RepoSnapshot): readonly LandStep[] =>
     : []
 
 const gitWriteOf = (landing: Extract<Landing, { kind: "commit" }>, message: string): GitWrite => {
+  if (landing.ship !== undefined) return { kind: "ship", message, ...landing.ship }
   if (landing.only !== undefined) return { kind: "commitPath", path: landing.only, message }
   if (landing.keepTurn !== undefined) return { kind: "keepTurn", ref: landing.keepTurn, message }
   if (landing.spec.approved !== undefined) return { kind: "commitClean", message }
   return { kind: "commitAll", message }
 }
+
+const writeIf = (value: string | undefined, write: (value: string) => GitWrite): LandStep[] =>
+  value === undefined ? [] : [{ kind: "gitWrite", write: write(value) }]
 
 export const planStep = (
   snapshot: RepoSnapshot,
@@ -78,6 +82,7 @@ export const planStep = (
     ...(opts.judge !== undefined && opts.judge.length > 0 ? { judge: opts.judge } : {}),
   })
   const subject = message.split("\n")[0]!
+  const historyRef = landing.keepHistory ?? landing.ship?.historyRef
   const outcome: LandStep =
     landing.to === snapshot.state
       ? { kind: "outcome", outcome: { kind: "commit", subject } }
@@ -88,20 +93,20 @@ export const planStep = (
     to: landing.to,
     subject,
     steps: [
+      ...writeIf(landing.startBranch, (branch) => ({ kind: "switchBranch", branch })),
       ...uncheckStep(snapshot),
-      {
-        kind: "gitWrite",
-        write: gitWriteOf(landing, message),
-      },
-      ...(landing.keepHistory !== undefined
-        ? [
-            {
-              kind: "gitWrite",
-              write: { kind: "updateRef", ref: landing.keepHistory, target: "HEAD" },
-            } as const,
-          ]
-        : []),
+      { kind: "gitWrite", write: gitWriteOf(landing, message) },
+      ...writeIf(historyRef, (ref) => ({ kind: "updateRef", ref, target: "HEAD" })),
+      ...writeIf(landing.leaveBranch, (branch) => ({ kind: "switchTo", branch })),
       outcome,
+      ...(landing.note !== undefined
+        ? [{ kind: "outcome", outcome: { kind: "note", text: landing.note } } as const]
+        : []),
+      ...writeIf(historyRef !== undefined ? landing.pushHistory : undefined, (remote) => ({
+        kind: "pushRef",
+        remote,
+        ref: historyRef!,
+      })),
     ],
   }
 }

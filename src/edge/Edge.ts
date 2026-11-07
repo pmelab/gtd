@@ -39,6 +39,7 @@ import {
   formatCommitMessage,
   scopeRunStart,
   setAsideBy,
+  diffTrees,
   treeFromRecord,
   type EpisodeCommit,
   type JudgeVerdict,
@@ -51,10 +52,11 @@ import {
 } from "../replay/index.js"
 import type { Mark, ScopeAccess, SummaryContext } from "../flows/index.js"
 import { steeringFormatFor } from "../steering/index.js"
-import { pinScript, unpinScript } from "../emit/index.js"
+import { failRestScript, noteOutcome, pinScript, unpinScript } from "../emit/index.js"
 import {
   judgeJson,
   PIN_PATH,
+  RUN_FAILED_PATH,
   UNATTRIBUTED_MODEL,
   type ApprovalEntry,
   type ModelCost,
@@ -63,6 +65,7 @@ import {
 
 import { GTD_VERSION } from "../install/index.js"
 import { keptRef, processHistoryRef } from "../platform/index.js"
+import { GTD_BRANCH_PREFIX, startBranchFor, userBranchOf } from "../step/index.js"
 import { accessRefusal, type Landing, type RepoSnapshot } from "../step/index.js"
 
 export { UNATTRIBUTED_MODEL }
@@ -478,20 +481,37 @@ const runAtTip = (
     return yield* runOf([...before, ...closing], { ...location }, tip.hash)
   })
 
-const runAtHead = (git: GitOperations, def: WorkflowDefinition) =>
-  Effect.gen(function* () {
-    // Cheap: just HEAD's own subject, never the commits before it.
-    return yield* runAtTip(git, def, (yield* git.subjectHistory(1, 0))[0])
-  })
-
-/** The process HEAD closes or sits inside — `gtd summary`'s run. */
+/**
+ * The process HEAD closes or sits inside — `gtd summary`'s run. On `<b>`, where
+ * a finished process leaves HEAD, it is the one `gtd/<b>`'s tip closes, while
+ * `<b>` holds nothing since: its start, or its last ship.
+ */
 export const summaryRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = Effect.gen(
   function* () {
     const git = yield* GitService
     const def = (yield* (yield* ConfigService).load).workflow
-    return yield* runAtHead(git, def)
+    const head = (yield* git.subjectHistory(1, 0))[0]
+    const left = head === undefined ? undefined : yield* leftProcessTip(git, head)
+    return yield* runAtTip(git, def, left ?? head)
   },
 )
+
+const leftProcessTip = (
+  git: GitOperations,
+  head: { readonly hash: string; readonly subject: string },
+) =>
+  Effect.gen(function* () {
+    if (parseCommitMessage(head.subject).parsed !== undefined) return undefined
+    const current = yield* git.currentBranch()
+    if (Option.isNone(current) || userBranchOf(current.value) !== undefined) return undefined
+    const tip = yield* git.readRefOption(`refs/heads/${GTD_BRANCH_PREFIX}${current.value}`)
+    if (Option.isNone(tip)) return undefined
+    const message = yield* git.lastCommitMessage(tip.value)
+    if (parseCommitMessage(message).parsed?.to === undefined) return undefined
+    const since = parseCommitMessage(yield* git.lastCommitMessage(head.hash)).tip ?? head.hash
+    if (!(yield* git.isAncestor(since, tip.value))) return undefined
+    return { hash: tip.value, subject: message.split("\n")[0]! }
+  })
 
 // ── Trees ───────────────────────────────────────────────────────────────────
 
@@ -653,7 +673,11 @@ interface ReplaySetup {
 
 const replayFor = (
   setup: ReplaySetup,
-  pending?: { readonly tree: TreeView; readonly verdicts?: readonly JudgeVerdict[] },
+  pending?: {
+    readonly tree: TreeView
+    readonly verdicts?: readonly JudgeVerdict[]
+    readonly shipped?: string
+  },
 ): Promise<ReplayOutcome> =>
   replay({
     flow: setup.def.flow,
@@ -744,7 +768,19 @@ const promptDef = (
 const scriptDef = (common: StepCommon, request: RequestOf<"run">): StepDef => ({
   ...common,
   kind: "script",
-  content: request.body,
+  content:
+    request.options.onFail === "rest"
+      ? failRestScript(request.body, RUN_FAILED_PATH)
+      : request.body,
+  ...optional("onFail", request.options.onFail),
+})
+
+const SHIP_CONTENT = noteOutcome("gtd: landing this step ships the process onto your branch")
+
+const shipDef = (common: StepCommon): StepDef => ({
+  ...common,
+  kind: "script",
+  content: SHIP_CONTENT,
 })
 
 const judgeDef = (common: StepCommon, request: RequestOf<"judge">, step: ReachedStep): StepDef => {
@@ -777,6 +813,8 @@ const stepDefOf = (step: ReachedStep): StepDef => {
       return promptDef(common, request, step.skills, step.access)
     case "run":
       return scriptDef(common, request)
+    case "ship":
+      return shipDef(common)
     case "judge":
       return judgeDef(common, request, step)
     case "human":
@@ -885,6 +923,8 @@ interface Rest extends ResolvedRest {
   /** Total recorded cost of the process, and its per-model breakdown. */
   readonly cost: { readonly total: number; readonly byModel: readonly ModelCost[] }
   readonly setup: ReplaySetup
+  /** At a ship step on a clean tree: why landing it would be refused. */
+  readonly shipBlocked?: string
 }
 
 /** Per-model token totals, highest-cost first (ties broken by model name). */
@@ -1054,6 +1094,8 @@ export const restAt = (
       yield* (yield* Narrator).warn(
         `gtd: notice: the live config differs from the pinned one (${config.drift.join(", ")}); \`gtd repin\` to switch`,
       )
+    const shipBlocked =
+      ref === undefined ? yield* shipBlockedAt(setup, pin, step, changes) : undefined
     return {
       def,
       workflowName: resolved.name,
@@ -1073,6 +1115,7 @@ export const restAt = (
       hints: hintsOf(stepDef),
       cost: costTotals(run.costEntries),
       setup,
+      ...(shipBlocked !== undefined ? { shipBlocked } : {}),
     }
   })
 
@@ -1246,6 +1289,8 @@ export interface RenderedRest extends RestHints {
   readonly memory?: string
   readonly memoryResumed: boolean
   readonly pin?: PinChange
+  readonly failure?: string
+  readonly blocked?: string
 }
 
 export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
@@ -1255,6 +1300,10 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
     kind: rest.stepDef.kind,
     content: rest.stepDef.content,
     ...rest.hints,
+    ...(failedRunStalled(rest)
+      ? { failure: rest.setup.workspace.readSync(RUN_FAILED_PATH) ?? "" }
+      : {}),
+    ...(rest.shipBlocked !== undefined ? { blocked: rest.shipBlocked } : {}),
     ...(rest.memory !== undefined ? { memory: rest.memory } : {}),
     memoryResumed: rest.memoryResumed,
     ...(rest.pin !== undefined ? { pin: rest.pin } : {}),
@@ -1265,13 +1314,25 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
  * attempt at this very agent rest, and another dispatch would repeat it.
  */
 export const stalledAt = (rest: Rest): boolean =>
+  failedRunStalled(rest) ||
+  rest.shipBlocked !== undefined ||
+  (rest.changes.length === 0 &&
+    rest.stepDef.kind === "prompt" &&
+    rest.stepDef.allowEmpty !== true &&
+    rest.run.headTurn?.state === rest.state &&
+    rest.run.headTurn.actor === rest.actor &&
+    !rest.run.headTurn.step &&
+    rest.run.headTurn.empty)
+
+/** A `run(…, { onFail: "rest" })` step whose last turn recorded a failure, on a clean tree. */
+const failedRunStalled = (rest: Rest): boolean =>
   rest.changes.length === 0 &&
-  rest.stepDef.kind === "prompt" &&
-  rest.stepDef.allowEmpty !== true &&
+  rest.stepDef.onFail === "rest" &&
   rest.run.headTurn?.state === rest.state &&
-  rest.run.headTurn.actor === rest.actor &&
   !rest.run.headTurn.step &&
-  rest.run.headTurn.empty
+  // Read from the (clean) tree, not the commit's touched paths: a retry that
+  // fails with identical output touches nothing yet must still stall.
+  rest.setup.workspace.readSync(RUN_FAILED_PATH) !== undefined
 
 /** No process is underway: the default workflow's first step, first visit — a dirty tree there is a turn not yet landed, not a process. */
 export const noProcessUnderway = (rest: Rest): boolean =>
@@ -1487,7 +1548,9 @@ const decideLanding = (
   verdicts: readonly JudgeVerdict[] | undefined,
   branch: Option.Option<string>,
   approver: Option.Option<AuthorIdent>,
+  shipped?: string,
 ): Effect.Effect<Landing, Error> =>
+  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     if (rest.pin !== undefined) return pinLanding(rest, rest.pin, branch)
     const unapproved = approvalRefusal(rest, approver)
@@ -1498,14 +1561,20 @@ const decideLanding = (
       const message = accessRefusal(rest.changes, rest.stepDef.access.write)
       if (message !== undefined) return { kind: "refusal", message }
     }
+    const landing = pendingTree(
+      rest.setup.workspace,
+      rest.setup.pendingWorktree(),
+      reviewGateRewrite(rest.stepDef),
+    )
+    // A recorded failure lands as an attempt: the process stays at the step.
+    if (rest.stepDef.onFail === "rest" && landing.read(RUN_FAILED_PATH) !== undefined) {
+      return { kind: "attempt", subject: formatSubject(rest.actor, rest.state) }
+    }
     const outcome = yield* Effect.promise(() =>
       replayFor(rest.setup, {
-        tree: pendingTree(
-          rest.setup.workspace,
-          rest.setup.pendingWorktree(),
-          reviewGateRewrite(rest.stepDef),
-        ),
+        tree: landing,
         ...(verdicts !== undefined ? { verdicts } : {}),
+        ...(shipped !== undefined ? { shipped } : {}),
       }),
     )
     const to = yield* landingTarget(outcome, rest)
@@ -1513,31 +1582,227 @@ const decideLanding = (
     return landingTo(rest, to, branch, approver, outcomeMarks(outcome))
   })
 
+/** The user's branch: `<b>` for a process on `gtd/<b>` while `<b>` still exists; any other branch as is. */
+const userBranch = (git: GitOperations): Effect.Effect<Option.Option<string>, Error> =>
+  Effect.gen(function* () {
+    const current = yield* git.currentBranch()
+    const name = Option.isSome(current) ? userBranchOf(current.value) : undefined
+    if (name === undefined) return current
+    const there = yield* git.readRefOption(`refs/heads/${name}`)
+    return Option.isSome(there) ? Option.some(name) : current
+  })
+
+/** `<b>` for a process on `gtd/<b>` while `<b>` exists: where a finishing landing leaves HEAD. */
+const returnBranch = Effect.gen(function* () {
+  const git = yield* GitService
+  const current = yield* git.currentBranch()
+  const name = Option.isSome(current) ? userBranchOf(current.value) : undefined
+  if (name === undefined) return undefined
+  return Option.isSome(yield* git.readRefOption(`refs/heads/${name}`)) ? name : undefined
+})
+
+/** A starting landing moves onto `gtd/<b>` first. */
+const withBranchAndPush = (landing: Landing) =>
+  Effect.gen(function* () {
+    if (landing.kind !== "commit") return landing
+    let out = landing
+    if (landing.spec.vars !== undefined) {
+      const start = yield* startBranchFor("gtd land")
+      if (start.kind === "refusal") return { kind: "refusal", message: start.message } as Landing
+      if (start.kind === "switch") out = { ...out, startBranch: start.branch }
+    }
+    return yield* withHistory(out)
+  })
+
+/** A closing landing switches back to `<b>`; it and a shipping one push their history ref. */
+const withHistory = (landing: Landing & { kind: "commit" }) =>
+  Effect.gen(function* () {
+    let out = landing
+    const back = landing.keepHistory === undefined ? undefined : yield* returnBranch
+    if (back !== undefined) out = { ...out, leaveBranch: back }
+    if (landing.keepHistory === undefined && landing.ship === undefined) return out
+    const remote = (yield* (yield* ConfigService).load).historyRemote
+    return remote === undefined ? out : { ...out, pushHistory: remote }
+  })
+
 /** Where landing the pending turn would leave the process, or `undefined` when it would land nothing. */
 export const previewLanding = (rest: Rest): Effect.Effect<StateName | undefined> =>
-  decideLanding(rest, undefined, Option.none(), Option.none()).pipe(
+  decideLanding(
+    rest,
+    undefined,
+    Option.none(),
+    Option.none(),
+    // Assumes the ship ships: deciding that needs git, and a preview reads none.
+    rest.step.request.kind === "ship" ? SHIPPED_STAND_IN : undefined,
+  ).pipe(
     Effect.map((landing) => (landing.kind === "commit" ? landing.to : undefined)),
     Effect.catch(() => Effect.succeed(undefined)),
   )
+
+const snapshotOf = (rest: Rest, landing: Landing): RepoSnapshot => ({
+  stepDef: rest.stepDef,
+  state: rest.state,
+  actor: rest.actor,
+  changes: rest.changes,
+  file: rest.hints.file,
+  landing,
+})
+
+const refusedSnapshot = (rest: Rest, message: string): RepoSnapshot =>
+  snapshotOf(rest, { kind: "refusal", message })
+
+// The squash's hash exists only once the landing script ran; the flow deciding
+// the landing's target sees this instead, and every later replay the real one.
+const SHIPPED_STAND_IN = "0".repeat(40)
+
+const SHIP_EXCLUDED = ".gtd/"
+
+type ShipDecision =
+  | { readonly kind: "ship"; readonly branch: string; readonly parent: string }
+  | { readonly kind: "skip"; readonly note: string }
+  | { readonly kind: "blocked"; readonly message: string }
+
+const shippedPaths = (before: TreeView, after: TreeView): readonly string[] => {
+  const diff = diffTrees(before, after)
+  return [...diff.added, ...diff.modified, ...diff.deleted].filter(
+    (path) => !path.startsWith(SHIP_EXCLUDED),
+  )
+}
+
+const noTarget = (why: string): ShipDecision => ({
+  kind: "skip",
+  note: `gtd: no branch to ship to: ${why}`,
+})
+
+/** `<b>` and its tip, for a process on `gtd/<b>`; why there is none otherwise. */
+const shipTarget = (git: GitOperations) =>
+  Effect.gen(function* () {
+    const current = yield* git.currentBranch()
+    if (Option.isNone(current)) return noTarget("HEAD is detached")
+    const branch = userBranchOf(current.value)
+    if (branch === undefined) return noTarget(`${current.value} is no gtd/ branch`)
+    if (userBranchOf(branch) !== undefined) {
+      return noTarget(`${current.value} records no user branch`)
+    }
+    const parent = yield* git.readRefOption(`refs/heads/${branch}`)
+    if (Option.isNone(parent)) return noTarget(`${branch} does not exist`)
+    return { kind: "ship", branch, parent: parent.value } as const
+  })
+
+/**
+ * The paths `<b>` changed outside this process that shipping `tree` would
+ * revert. A path the working tree changed since HEAD counts as brought in:
+ * whether it carries `<b>`'s change is the person's call, not a merge gtd redoes.
+ */
+const revertedPaths = (
+  git: GitOperations,
+  workspace: WorkspaceOps,
+  parent: string,
+  tree: TreeView,
+  changed: ReadonlySet<string>,
+) =>
+  Effect.gen(function* () {
+    const head = yield* git.resolveRef("HEAD")
+    const shipped = parseCommitMessage(yield* git.lastCommitMessage(parent)).tip
+    if (shipped !== undefined && (yield* git.isAncestor(shipped, head))) return []
+    const fork = yield* git.mergeBase(parent, head)
+    const foreign = Option.isNone(fork)
+      ? [...changed]
+      : shippedPaths(commitTree(workspace, fork.value), commitTree(workspace, parent))
+    const committed = commitTree(workspace, head)
+    return foreign.filter((path) => changed.has(path) && tree.read(path) === committed.read(path))
+  })
+
+/**
+ * Whether landing a ship step with `tree` would ship, and onto what. The squash
+ * replaces the user's branch's tree with `tree`, so it is blocked while that
+ * branch carries a change `tree` would revert: one made since the last ship
+ * (whose `Gtd-Tip` HEAD descends from), or since it forked from HEAD.
+ */
+const decideShip = (
+  workspace: WorkspaceOps,
+  tree: TreeView,
+): Effect.Effect<ShipDecision, Error, GitService> =>
+  Effect.gen(function* () {
+    const git = yield* GitService
+    const target = yield* shipTarget(git)
+    if (target.kind !== "ship") return target
+    const { branch, parent } = target
+    const changed = new Set(shippedPaths(commitTree(workspace, parent), tree))
+    const reverted = yield* revertedPaths(git, workspace, parent, tree, changed)
+    if (reverted.length > 0) {
+      return {
+        kind: "blocked",
+        message: `gtd: ${branch} changed outside this process, and shipping would revert ${reverted.join(", ")} — bring those changes into the working tree (\`git merge --squash --no-commit ${branch}\`, or by hand) and land`,
+      }
+    }
+    return changed.size === 0
+      ? { kind: "skip", note: `gtd: nothing to ship: ${branch} already has this tree` }
+      : target
+  })
+
+const shipBlockedAt = (
+  setup: ReplaySetup,
+  pin: PinChange | undefined,
+  step: ReachedStep,
+  changes: readonly PendingChange[],
+) =>
+  Effect.gen(function* () {
+    if (pin !== undefined || step.request.kind !== "ship" || changes.length > 0) return undefined
+    const head = yield* (yield* GitService).resolveRef("HEAD")
+    const decision = yield* decideShip(setup.workspace, commitTree(setup.workspace, head))
+    return decision.kind === "blocked" ? decision.message : undefined
+  })
+
+const shipSnapshot = (
+  rest: Rest,
+  message: string,
+  verdicts: readonly JudgeVerdict[] | undefined,
+  branch: Option.Option<string>,
+  approver: Option.Option<AuthorIdent>,
+) =>
+  Effect.gen(function* () {
+    const tree = pendingTree(rest.setup.workspace, rest.setup.pendingWorktree(), undefined)
+    const decision = yield* decideShip(rest.setup.workspace, tree)
+    if (decision.kind === "blocked") return refusedSnapshot(rest, decision.message)
+    const shipping = decision.kind === "ship"
+    const decided = yield* decideLanding(
+      rest,
+      verdicts,
+      branch,
+      approver,
+      shipping ? SHIPPED_STAND_IN : undefined,
+    )
+    if (decided.kind !== "commit") return snapshotOf(rest, decided)
+    const landing: Landing = shipping
+      ? {
+          ...decided,
+          ship: {
+            branch: decision.branch,
+            parent: decision.parent,
+            shipMessage: message,
+            historyRef: processHistoryRef(rest.run.startHash),
+          },
+        }
+      : { ...decided, note: decision.note }
+    return snapshotOf(rest, yield* withBranchAndPush(landing))
+  })
 
 /** Every fact the pure landing planner needs, read once: the rest, its steering file, and the landing decision. */
 export const snapshotFromRest = (
   rest: Rest,
   verdicts?: readonly JudgeVerdict[],
-): Effect.Effect<RepoSnapshot, Error, Workspace | GitService> =>
+): Effect.Effect<RepoSnapshot, Error, Workspace | GitService | RestRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
-    const branch = yield* git.currentBranch()
+    const branch = yield* userBranch(git)
     const approver = rest.stepDef.approve === true ? yield* git.authorIdent() : Option.none()
-    const landing = yield* decideLanding(rest, verdicts, branch, approver)
-    return {
-      stepDef: rest.stepDef,
-      state: rest.state,
-      actor: rest.actor,
-      changes: rest.changes,
-      file: rest.hints.file,
-      landing,
+    const request = rest.step.request
+    if (rest.pin === undefined && request.kind === "ship") {
+      return yield* shipSnapshot(rest, request.message, verdicts, branch, approver)
     }
+    const decided = yield* decideLanding(rest, verdicts, branch, approver)
+    return snapshotOf(rest, yield* withBranchAndPush(decided))
   })
 
 // ── Summary ─────────────────────────────────────────────────────────────────

@@ -13,19 +13,17 @@ import {
   withThreads,
 } from "./pr"
 import type { Thread } from "./pr"
-import type { Ran, ShipIo } from "./ship"
+import type { Ran, GitIo } from "./git"
 
 const repo = (script: Record<string, Partial<Ran>>) => {
   const calls: string[][] = []
-  const io: ShipIo = {
+  const io: GitIo = {
     run: async (argv) => {
       calls.push(argv)
       const key = Object.keys(script).find((k) => argv.join(" ").startsWith(k))
       return { code: 0, out: "", err: "", ...(key === undefined ? {} : script[key]) }
     },
-    complete: async () => undefined,
     log: () => {},
-    today: () => "2026-10-20",
   }
   return { calls, io }
 }

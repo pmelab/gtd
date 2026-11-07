@@ -40,6 +40,7 @@ export interface ConfigOperations {
   readonly doors: ReadonlyMap<string, Door>
   /** `config.ui` (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
   readonly ui?: flows.UiSettings
+  readonly historyRemote?: string
   /** Non-fatal findings, formatted through `formatDiagnostic` like an error. */
   readonly warnings: readonly Diagnostic[]
   /** The content hash of every file `gtd.config.ts`'s evaluation touched — itself plus any relative import — by path relative to the root. */
@@ -197,6 +198,7 @@ export const load: Effect.Effect<
       return entry === undefined ? undefined : resolve(name, entry)
     },
     ...(compiled.ui !== undefined ? { ui: compiled.ui } : {}),
+    ...(compiled.historyRemote !== undefined ? { historyRemote: compiled.historyRemote } : {}),
     warnings: diagnostics.filter((d) => d.severity === "warning"),
     fingerprint:
       pinned?.fingerprint ??

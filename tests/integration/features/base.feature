@@ -128,7 +128,8 @@ Feature: gtd base — prints the review anchor hash, writing nothing
     Then it succeeds
     And the last commit subject is "gtd(human): deciding → gtd:unpin"
     And I run the unpin beat
-    And the last commit subject is "gtd(check): gtd:unpin → idle"
+    And the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
 
     When I run gtd with args "base"
     Then it fails

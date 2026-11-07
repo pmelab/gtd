@@ -11,6 +11,7 @@ import {
 } from "../workflow/index.js"
 import { formatCommitMessage, formatSubject } from "../replay/index.js"
 import type { LandStep } from "./LandStep.js"
+import { startBranchFor } from "./startBranch.js"
 
 /** Just enough of the current rest for `planStart`'s checks. */
 export interface StartCurrent {
@@ -87,6 +88,7 @@ export const planStart = (
   Error,
   GitService | ConfigService | ConfigDiscovery | Workspace | Host | Narrator
 > =>
+  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     const { workflow, first, commandLabel, vars: varOverrides } = start
     const name = workflow.name
@@ -134,7 +136,12 @@ export const planStart = (
       ...(base !== undefined ? { reviewBase: base } : {}),
       vars,
     })
+    const onBranch = yield* startBranchFor(commandLabel)
+    if (onBranch.kind === "refusal") return refusal(onBranch.message)
     const steps: readonly LandStep[] = [
+      ...(onBranch.kind === "switch"
+        ? [{ kind: "gitWrite", write: { kind: "switchBranch", branch: onBranch.branch } } as const]
+        : []),
       { kind: "gitWrite", write: { kind: "commitAll", message } },
       { kind: "outcome", outcome: { kind: "commit", subject } },
     ]

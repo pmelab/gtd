@@ -1,20 +1,18 @@
 import { describe, expect, test } from "vitest"
 
 import { catchFrom, throwTo } from "./handoff"
-import { ship, THROWN } from "./ship"
-import type { Ran, ShipIo } from "./ship"
+import { THROWN } from "./git"
+import type { Ran, GitIo } from "./git"
 
-const repo = (script: Record<string, Partial<Ran>>, replies: string[] = []) => {
+const repo = (script: Record<string, Partial<Ran>>) => {
   const calls: { argv: string; stdin?: string }[] = []
-  const io: ShipIo = {
+  const io: GitIo = {
     run: async (argv, stdin) => {
       const key = argv.join(" ")
       calls.push({ argv: key, stdin })
       return { code: 0, out: "", err: "", ...script[key] }
     },
-    complete: async () => replies.shift(),
     log: () => {},
-    today: () => "2026-10-03",
   }
   return { calls, io, ran: () => calls.map((c) => c.argv) }
 }
@@ -134,7 +132,7 @@ describe("throw failures name their step", () => {
 
   test("a failing gh pr create fails the throw", async () => {
     const { io } = repo({ ...onBranch, [view]: { code: 1 }, "gh pr create": { code: 0 } })
-    const failing: ShipIo = {
+    const failing: GitIo = {
       ...io,
       run: async (argv, stdin) =>
         argv.slice(0, 3).join(" ") === "gh pr create"
@@ -204,29 +202,6 @@ describe("catch", () => {
     expect(await catchFrom(io, "9")).toMatchObject({ ok: false })
     expect(ran()).not.toContain("gh pr checkout 9")
   })
-})
-
-test("ship describes a thrown draft properly and marks it ready", async () => {
-  const pr = { number: 9, url: "u", state: "OPEN", body: `${THROWN}\nwaiting`, title: "wip" }
-  const { calls, io, ran } = repo(
-    {
-      "git rev-parse --abbrev-ref HEAD": { out: "gtd/x\n" },
-      "git symbolic-ref --quiet --short refs/remotes/origin/HEAD": { out: "origin/main\n" },
-      "gtd summary": { code: 1 },
-      "git merge-base main HEAD": { out: "m" },
-      "git merge-base --is-ancestor main origin/main": { code: 1 },
-      "git rev-parse HEAD": { out: "h" },
-      "gh pr view gtd/x --json number,title,body,url,state": {
-        out: JSON.stringify(pr),
-      },
-    },
-    ["feat: add x\n\nwhy"],
-  )
-  expect(await ship(io, false)).toMatchObject({ ok: true })
-  expect(
-    calls.find((c) => c.argv === "gh pr edit 9 --title feat: add x --body-file -")?.stdin,
-  ).toBe("why\n")
-  expect(ran()).toContain("gh pr ready 9")
 })
 
 describe("throwing from the default branch", () => {

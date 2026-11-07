@@ -23,3 +23,6 @@ export const ACCESS_REFUSAL =
 
 /** Where a process keeps its pin: the engine and workflow it runs on, as `gtd bundle` prints them. */
 export const PIN_PATH = ".gtd/process.gtdpin"
+
+/** Where a `run(…, { onFail: "rest" })` body's failure is recorded in the tree: the exit status and the output. */
+export const RUN_FAILED_PATH = ".gtd/run-failed.txt"

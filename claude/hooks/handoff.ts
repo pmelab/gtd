@@ -2,12 +2,12 @@
 // pushing the branch and telling them. `throw` opens (or refreshes) a draft
 // pull request for the hand-off; `catch` checks it out wherever it was thrown.
 
-import { defaultBranch, pushBranch, THROWN } from "./ship"
-import type { ShipIo, Shipped } from "./ship"
+import { defaultBranch, pushBranch, THROWN } from "./git"
+import type { GitIo, Done } from "./git"
 
 export type Rest = { state?: string; label?: string; content?: string; isIdle: boolean }
 
-const fail = (text: string): Shipped => ({ ok: false, text })
+const fail = (text: string): Done => ({ ok: false, text })
 
 type Pr = {
   number: number
@@ -18,11 +18,11 @@ type Pr = {
 }
 
 export async function throwTo(
-  io: ShipIo,
+  io: GitIo,
   rest: Rest,
   target: string | undefined,
   now: string,
-): Promise<Shipped> {
+): Promise<Done> {
   if (rest.isIdle) return fail("Nothing is in progress, so there is nothing to throw.")
   // Only landed state travels: an edit still in the tree is half an answer.
   if ((await io.run(["git", "status", "--porcelain"])).out.trim()) {
@@ -59,7 +59,7 @@ export async function throwTo(
 // The catcher checks out what origin holds, so a throw describing local HEAD
 // must not leave origin elsewhere: fetch first, a stale tracking ref can hide
 // a teammate's commits or a rewind. Returns why the throw refuses, or nothing.
-async function remoteAhead(io: ShipIo, branch: string) {
+async function remoteAhead(io: GitIo, branch: string) {
   const ok = async (...args: string[]) => (await io.run(["git", ...args])).code === 0
   if (!(await ok("fetch", "--prune", "origin"))) return "git fetch failed."
   if (!(await ok("rev-parse", "--verify", "--quiet", `origin/${branch}`))) return undefined
@@ -69,7 +69,7 @@ async function remoteAhead(io: ShipIo, branch: string) {
 
 // The branch to throw, moving the process off the default branch onto a new
 // one when it sits there; a string is why that failed.
-async function throwBranch(io: ShipIo, now: string) {
+async function throwBranch(io: GitIo, now: string) {
   const git = async (...args: string[]) => (await io.run(["git", ...args])).out.trim()
   const branch = await git("rev-parse", "--abbrev-ref", "HEAD")
   if (!branch || branch === "HEAD") return "Detached HEAD: there is no branch to throw."
@@ -103,7 +103,7 @@ ${content.slice(0, 6000)}
 // Opens the hand-off's draft, or refreshes a thrown one; a string is why that
 // failed.
 async function draft(
-  io: ShipIo,
+  io: GitIo,
   branch: string,
   base: string,
   rest: Rest,
@@ -144,7 +144,7 @@ async function draft(
   const pr = JSON.parse(view.out) as Pr
   if (pr.state !== "OPEN") return `The pull request for ${branch} is ${pr.state}, not open.`
   // A pull request someone opened for review keeps its own description and
-  // stays ready: only ship marks a draft ready again, and only a thrown one.
+  // stays ready: only a thrown one is rewritten and made a draft again.
   if (pr.body?.includes(THROWN)) {
     const edited = await io.run(["gh", "pr", "edit", String(pr.number), "--body-file", "-"], body)
     if (edited.code !== 0) return `gh pr edit failed; the pull request is unchanged.\n${edited.err}`
@@ -155,7 +155,7 @@ async function draft(
   return pr
 }
 
-async function assign(io: ShipIo, pr: Pr, handle: string) {
+async function assign(io: GitIo, pr: Pr, handle: string) {
   const stale = (pr.assignees ?? []).map((a) => a.login).filter((login) => login !== handle)
   const args = ["gh", "pr", "edit", String(pr.number), "--add-assignee", handle]
   for (const login of stale) args.push("--remove-assignee", login)
@@ -165,7 +165,7 @@ async function assign(io: ShipIo, pr: Pr, handle: string) {
     : `Thrown to ${pr.url}, but assigning @${handle} failed.\n${assigned.err}`
 }
 
-export async function catchFrom(io: ShipIo, ref: string): Promise<Shipped> {
+export async function catchFrom(io: GitIo, ref: string): Promise<Done> {
   if ((await io.run(["git", "status", "--porcelain"])).out.trim()) {
     return fail("The working tree has edits. Commit or stash them before catching.")
   }

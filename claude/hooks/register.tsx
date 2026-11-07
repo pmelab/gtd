@@ -25,9 +25,8 @@ import type { Judgment } from "./judge"
 import { catchFrom, throwTo } from "./handoff"
 import { jobs } from "./jobs"
 import { documents, readDocument } from "./schema"
-import { READ_ONLY_GIT, ship } from "./ship"
 import { withRequirements } from "./sketch"
-import type { Shipped, ShipIo } from "./ship"
+import type { Done, GitIo } from "./git"
 import { collectAnswer } from "./delegate"
 import { decideCommand, decideContinue, decideJob, restId, TOOLS } from "./tools"
 import type { JobName } from "./tools"
@@ -72,7 +71,7 @@ let isDriving = false
 // bumped by every stop, so a queued continue that was mid-check sees it
 let stopCount = 0
 // subagents answering into a file: what each may touch (see tool.call)
-const delegates = new Map<string, { file: string; mayRun: RegExp | undefined }>()
+const delegates = new Map<string, { file: string }>()
 const ours = new Set<string>()
 // What each turn agent may read and write; reset on every spawn and resume,
 // since the steering file can differ per step.
@@ -295,8 +294,7 @@ async function wake($: $) {
   const r = await read($, run)
   const stop = r.stop
   if (!stop || !r.rest) return
-  const branch = stop.kind === "done" ? await shippable($) : undefined
-  if (!wakes(stop, branch)) return
+  if (!wakes(stop)) return
   const questions = stop.isJudge ? await openQuestions($) : undefined
   const text = wakePrompt({
     stop,
@@ -304,7 +302,6 @@ async function wake($: $) {
     notes: r.notes,
     isRepeat: r.isRepeat,
     questions,
-    branch,
   })
   await update($, run, (x) => ({ ...x, notes: undefined }))
   // Not from inside the hook that started the run: a prompt submitted there
@@ -319,16 +316,6 @@ async function openQuestions($: $) {
   } catch {
     return undefined
   }
-}
-
-// The branch a finished process can open its pull request from, if any.
-async function shippable($: $) {
-  const branch = (
-    await $.process.run(["git", "rev-parse", "--abbrev-ref", "HEAD"], { cwd: root })
-  ).stdout.trim()
-  if (["main", "master", "HEAD"].includes(branch)) return undefined
-  const summary = await $.process.run(["gtd", "summary"], { cwd: root })
-  return summary.exitCode === 0 ? branch : undefined
 }
 
 // A new process starts from the requirements written to the steering file an
@@ -440,8 +427,8 @@ function startJob(
   $: $,
   job: JobName,
   isInTurn: boolean,
-  work: () => Promise<Shipped>,
-  then?: (outcome: Shipped) => Promise<void>,
+  work: () => Promise<Done>,
+  then?: (outcome: Done) => Promise<void>,
 ) {
   const answer = background.start(job, work, true, async (outcome) => {
     if (then) await then(outcome)
@@ -457,7 +444,7 @@ function startJob(
 }
 
 async function throwNow($: $, target: string | undefined, isInTurn: boolean) {
-  const refused = decideJob(await read($, run), "handoff")
+  const refused = decideJob(await read($, run))
   if (refused) return refused
   return startJob(
     $,
@@ -474,7 +461,7 @@ async function throwNow($: $, target: string | undefined, isInTurn: boolean) {
         content: b.content,
         isIdle: isTrue(b.idle),
       }
-      return throwTo(shipIo($), rest, target, new Date().toISOString())
+      return throwTo(gitIo($), rest, target, new Date().toISOString())
     },
     async (thrown) => {
       if (!thrown.ok) return
@@ -490,7 +477,7 @@ async function throwNow($: $, target: string | undefined, isInTurn: boolean) {
 
 async function enterNow($: $, door: string, args: string[]) {
   if ((await read($, run)).isRunning) return "Stop the loop first: /gtd stop."
-  const entered = await enter(shipIo($), door, args)
+  const entered = await enter(gitIo($), door, args)
   if (entered.ok) await start($)
   return entered.text
 }
@@ -511,7 +498,7 @@ async function prNow($: $) {
   if (r.pr && !isReviewGate(r.stop)) {
     return "Review threads from an earlier /gtd pr wait for the review's first review gate."
   }
-  const io = shipIo($)
+  const io = gitIo($)
   const pr = await currentPr(io)
   if (typeof pr === "string") return pr
   const threads = await unresolvedThreads(io, pr)
@@ -585,7 +572,7 @@ async function prRest($: $, stop: Stop) {
 async function replyThreads($: $, stop: Stop) {
   const pr = (await read($, run)).pr
   if (!pr?.importedAt) return
-  const io = shipIo($)
+  const io = gitIo($)
   const found = await decided(
     io,
     pr.importedAt,
@@ -618,7 +605,7 @@ async function replyThreads($: $, stop: Stop) {
 // shown to the catcher first, never landed unseen.
 async function catchNow($: $, ref: string) {
   if ((await read($, run)).isRunning) return "Stop the loop first: /gtd stop."
-  const caught = await catchFrom(shipIo($), ref)
+  const caught = await catchFrom(gitIo($), ref)
   if (!caught.ok) return caught.text
   await findRoot($)
   const b = await docs($).next()
@@ -636,27 +623,11 @@ async function catchNow($: $, ref: string) {
   return caught.text
 }
 
-// Ship's text turns need git to read the process, so they run as a subagent.
-// Its answer is a file, not its hand-back: a hand-back never reaches a mod.
-// `mayRun`: the only shell commands the subagent may run; none when absent.
 type Delegate = {
   name: string
   description: string
   system: string
   tools: string[]
-  mayRun?: RegExp
-}
-
-const SHIPPER: Delegate = {
-  name: "shipper",
-  description:
-    "Writes commit messages and pull requests for gtd's ship, spawned by the gtd mod only",
-  system:
-    "You write commit messages and pull-request descriptions for gtd's ship command. Read the repository with git and the file tools as the instructions ask. Never modify the repository: no commits, no checkouts, no pushes.",
-  tools: ["Bash", "Read", "Grep", "Glob", "Write", "Skill"],
-  // It reads commit messages anyone on the branch wrote: read-only git, and
-  // no shell syntax to chain anything else onto it.
-  mayRun: READ_ONLY_GIT,
 }
 
 // gtd's llm judge persona; writing its answer file is its one tool.
@@ -693,7 +664,7 @@ async function delegate($: $, who: Delegate, prompt: string, model: string, deli
   const id = spawned.agentId
   if (!id) return undefined
   ours.add(id)
-  delegates.set(id, { file, mayRun: who.mayRun })
+  delegates.set(id, { file })
   // A timed-out agent may still be running: it keeps its tool limits until its
   // turn ends, where turn.complete drops them.
   return collectAnswer({
@@ -702,11 +673,6 @@ async function delegate($: $, who: Delegate, prompt: string, model: string, deli
     read: () => $.fs.read(file),
     remove: () => $.process.run(["rm", "-f", file]),
   })
-}
-
-async function writer($: $, prompt: string) {
-  const model = (await $.env.get("GTD_PLANNERMODEL")) ?? "opus"
-  return delegate($, SHIPPER, prompt, model, "Your final answer, exactly as you would print it.")
 }
 
 // Where `gtd judge run` would pick its llm, a judge gate is put to a small
@@ -729,37 +695,17 @@ async function judgeInSession($: $, j: Judgment) {
   }
 }
 
-function shipIo($: $): ShipIo {
+function gitIo($: $): GitIo {
   return {
     run: async (argv, stdin) => {
       const r = await $.process.run(argv, { cwd: root, stdin, timeoutMs: TEN_MINUTES })
       return { code: r.exitCode, out: r.stdout, err: r.stderr }
     },
-    complete: (prompt) => writer($, prompt),
     log: (line) => {
       for (const l of line.split("\n")) $.ui.log(l)
       if (background.busy()) $.ui.status(line.split("\n")[0]!)
     },
-    today: () => new Date().toISOString().slice(0, 10),
   }
-}
-
-async function shipNow($: $, isDry: boolean, isInTurn: boolean) {
-  const refused = decideJob(await read($, run), "ship")
-  if (refused) return refused
-  return startJob(
-    $,
-    "ship",
-    isInTurn,
-    async () => {
-      $.ui.status(isDry ? "previewing the pull request…" : "opening the pull request…")
-      return ship(shipIo($), isDry)
-    },
-    async (shipped) => {
-      // a failed ship leaves the run as it was; a dry run changes nothing
-      if (shipped.ok && !isDry) await dismiss($)
-    },
-  )
 }
 
 // Turns a missing CLI or a wrong directory into an instruction, not a stack trace.
@@ -986,8 +932,6 @@ async function command($: $, arg: string): Promise<string | undefined> {
       return rest[0]
         ? catchNow($, rest[0])
         : "Name the pull request or branch: /gtd catch <number|branch>."
-    case "ship":
-      return shipNow($, rest[0] === "-n" || rest[0] === "--dry-run", false)
     case "":
       return resume($)
     default:
@@ -997,7 +941,7 @@ async function command($: $, arg: string): Promise<string | undefined> {
 
 // A door wins over the bare `pr` verb; anything else is requirements.
 async function routed($: $, verb: string, rest: string[], arg: string) {
-  if (doorFor(await doors(shipIo($)), verb, rest)) return enterNow($, verb, rest)
+  if (doorFor(await doors(gitIo($)), verb, rest)) return enterNow($, verb, rest)
   return verb === "pr" && rest.length === 0 ? prNow($) : begin($, arg)
 }
 
@@ -1067,11 +1011,8 @@ function subagentDenial(agentId: string, e: Record<string, unknown>) {
   if (denial) return denial
   const delegated = delegates.get(agentId)
   if (!delegated) return undefined
-  if (e.tool === "Write" && e.file_path !== delegated.file) {
+  if ((e.tool === "Write" && e.file_path !== delegated.file) || e.tool === "Bash") {
     return `Write only your answer, to ${delegated.file}.`
-  }
-  if (e.tool === "Bash" && !delegated.mayRun?.test(String(e.command).trim())) {
-    return "Only read-only git commands, without shell syntax, are allowed here."
   }
   return undefined
 }
@@ -1111,7 +1052,7 @@ export const register: Register = (on) => {
       name: "gtd",
       description: "Drive gtd until it rests on you; pass requirements to start a new process",
       argumentHint:
-        "[requirements | <door> [args] | stop | status | ui | ship [-n] | pr | throw [@user] | catch <pr|branch>]",
+        "[requirements | <door> [args] | stop | status | ui | pr | throw [@user] | catch <pr|branch>]",
       immediate: true,
     })
     return next(e)
@@ -1190,9 +1131,6 @@ export const register: Register = (on) => {
   )
   on("tool.call", { tool: "mcp__gtd__handoff" }, async ($, e) =>
     answer(await throwNow($, typeof e.to === "string" && e.to ? e.to : undefined, true), true),
-  )
-  on("tool.call", { tool: "mcp__gtd__ship" }, async ($, e) =>
-    answer(await shipNow($, e.dryRun === true, true), true),
   )
   on("tool.call", { tool: "mcp__gtd__browser" }, async ($) => answer(await browse($), true))
 

@@ -378,7 +378,9 @@ Options:
 Usage: gtd start [name] [args...] [options]
 
 Start a new process: print the script that makes its first commit, which also
-commits whatever the working tree holds.
+commits whatever the working tree holds. The process runs on the branch
+`gtd/<b>` (created, or reused when nothing on it would be lost), never on `<b>`;
+a branch already named `gtd/…` and a detached HEAD start in place.
 
 <name> is a door — a named shortcut whose positional args set the workflow's
 settings — or else a workflow the config exports, which takes no args. A door
@@ -407,9 +409,11 @@ Options:
 Usage: gtd abandon [options]
 
 Stop the process underway without finishing it. The printed script moves HEAD
-back to the commit the process started from and keeps everything it produced as
-uncommitted changes; `gtd restore` undoes it. With no process underway the
-script does nothing.
+back to the commit the process started from, or to its last ship, and keeps
+everything it produced as uncommitted changes, switches back to
+`<b>` and deletes `gtd/<b>`; it keeps the abandoned tip at
+`refs/gtd/history/<entry>` (pushed to `historyRemote` when set). `gtd restore`
+undoes it. With no process underway the script does nothing.
 
   s=$(gtd abandon --json=script) && sh -c "$s"
 
@@ -424,9 +428,10 @@ Options:
 ```
 Usage: gtd restore [options]
 
-Bring back the process the last `gtd abandon` stopped: the printed script resets
-HEAD to that process's last commit. Refuses on a dirty working tree, when
-nothing was abandoned, or when commits made since would be lost.
+Bring back the process the last `gtd abandon` stopped: the printed script puts
+that process's last commit back, on a recreated `gtd/<b>` when the process ran
+on one. Refuses on a dirty working tree, when nothing was abandoned, or when
+commits made since would be lost.
 
 Options:
   --json[=<path>]     Print { schema, script }, or with --json=script the script
@@ -464,9 +469,10 @@ Options:
 Usage: gtd summary
 
 Print the prompt for an agent to write the closing message of the process HEAD
-closes or sits inside: its first commit, each commit a person made, the diff
-range to read, and its cost. Writes nothing — what to do with the answer (a
-squash message, a PR body) is the driver's call.
+closes or sits inside (back on a user branch, the one its gtd/ branch closes):
+its first commit, each commit a person made, the diff range to read, and its
+cost. Writes nothing — what to do with the answer (a squash message, a PR body)
+is the driver's call.
 
 Refuses when the workflow declares no summary template, or when the process has
 no commits.

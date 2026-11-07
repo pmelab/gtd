@@ -12,8 +12,11 @@ export const pathspec = (paths: ReadonlyArray<string>): string => paths.map(shel
  * output rather than the exit code, so a genuinely rejected commit (a lint
  * error, a commit-msg hook) still fails.
  */
-const commitAllowEmpty = (message: string, only?: string): string => {
-  const m = shellQuote(message)
+const commitAllowEmpty = (message: string, only?: string): string =>
+  commitWordAllowEmpty(shellQuote(message), only)
+
+/** `commitAllowEmpty` over a message that is already a shell word. */
+const commitWordAllowEmpty = (m: string, only?: string): string => {
   const paths = only === undefined ? "" : ` -- ${shellQuote(only)}`
   return [
     `if ! out=$(git commit --allow-empty -m ${m}${paths} 2>&1); then`,
@@ -35,6 +38,29 @@ export const commitAll = (message: string): string =>
 /** Commits `path` alone, as the worktree has it; every other pending change stays pending. */
 export const commitPath = (path: string, message: string): string =>
   `git add -A -- ${shellQuote(path)} || exit 1\n${commitAllowEmpty(message, path)}`
+
+/**
+ * A `run()` body that records its own failure instead of failing the beat: the
+ * status and the last 50 output lines go to `path`, and the script exits zero
+ * so the turn lands. The file is COMMITTED (and force-pushed with a history
+ * remote), hence the cap.
+ */
+export const failRestScript = (body: string, path: string): string => {
+  const p = shellQuote(path)
+  const slash = path.lastIndexOf("/")
+  return [
+    `rm -f -- ${p}`,
+    `gtd_run_status=0`,
+    `gtd_run_out="$( {`,
+    body,
+    `} 2>&1 )" || gtd_run_status=$?`,
+    `printf '%s\\n' "$gtd_run_out"`,
+    `if [ "$gtd_run_status" -ne 0 ]; then`,
+    `  mkdir -p ${shellQuote(path.slice(0, slash))}`,
+    `  printf 'exit %s\\n%s\\n' "$gtd_run_status" "$(printf '%s\\n' "$gtd_run_out" | tail -n 50)" >${p}`,
+    `fi`,
+  ].join("\n")
+}
 
 /** A pin beat's script. A failed `gtd bundle` leaves no half-written pin behind. */
 export const pinScript = (path: string): string => {
@@ -123,6 +149,77 @@ export const keepTurn = (refPrefix: string, message: string): string => {
   ].join("\n")
 }
 
+/** `git switch -C <branch> [<start>]`: create or reset the branch, carrying pending changes over. */
+export const switchBranchTo = (branch: string, start?: string): string =>
+  `git switch -q -C ${shellQuote(branch)}${start === undefined ? "" : ` ${shellQuote(start)}`}`
+
+/** `git switch <branch>`: an existing branch, carrying pending changes over. */
+export const switchTo = (branch: string): string => `git switch -q ${shellQuote(branch)}`
+
+/** `switchTo` that, when pending changes block it, stays put and says so: the landing already happened. */
+export const switchBack = (branch: string): string =>
+  [
+    `if ! git switch -q ${shellQuote(branch)} 2>/dev/null; then`,
+    `  printf '%s\\n' ${shellQuote(`gtd: pending changes keep HEAD off ${branch}; switch to it once they are committed or stashed`)}`,
+    `fi`,
+  ].join("\n")
+
+export const deleteBranch = (branch: string): string => `git branch -q -D ${shellQuote(branch)}`
+
+/**
+ * Force-pushes one ref to a remote. A failed push exits non-zero with the retry
+ * on stderr: it runs after the closing commit has landed, so the commit stands.
+ */
+export const pushRef = (remote: string, ref: string): string => {
+  const retry = `git push --force ${shellQuote(remote)} ${shellQuote(`${ref}:${ref}`)}`
+  return [
+    `if ! ${retry}; then`,
+    `  printf '%s\\n' ${shellQuote(`gtd: pushing ${ref} failed — retry: ${retry}`)} >&2`,
+    `  exit 1`,
+    `fi`,
+  ].join("\n")
+}
+
+/**
+ * A ship step's landing, in one block because the landing commit's
+ * `Gtd-Shipped` trailer names the squash it makes first. The squash carries
+ * the staged tree with `.gtd/` as `<branch>` has it, built in a scratch index; `<branch>` moves by
+ * compare-and-swap against `parent`, so a branch moved since the decision
+ * fails the script before the landing commits. `commit-tree` ignores
+ * `commit.gpgSign`, so it is read here.
+ */
+export const shipCommit = (
+  branch: string,
+  parent: string,
+  shipMessage: string,
+  historyRef: string,
+  message: string,
+): string =>
+  [
+    `gtd_ship_parent=${shellQuote(parent)}`,
+    `gtd_ship_branch=${shellQuote(branch)}`,
+    `gtd_ship_history=${shellQuote(historyRef)}`,
+    `gtd_ship_message=${shellQuote(shipMessage)}`,
+    `gtd_land_message=${shellQuote(message)}`,
+    `git add -A || exit 1`,
+    `gtd_sign_cfg=$(git config --type=bool --default=false commit.gpgSign) || exit 1`,
+    `if [ "$gtd_sign_cfg" = true ]; then gtd_sign=-S; else gtd_sign=--no-gpg-sign; fi`,
+    `gtd_head=$(git rev-parse --verify HEAD) || exit 1`,
+    `gtd_tree=$(git write-tree) || exit 1`,
+    `gtd_index=$(git rev-parse --git-path gtd-ship-index) || exit 1`,
+    `rm -f -- "$gtd_index"`,
+    `GIT_INDEX_FILE="$gtd_index" git read-tree "$gtd_tree" || exit 1`,
+    `GIT_INDEX_FILE="$gtd_index" git rm -r -q --cached --ignore-unmatch -- .gtd || exit 1`,
+    `git ls-tree -r "$gtd_ship_parent" -- .gtd | GIT_INDEX_FILE="$gtd_index" git update-index --index-info || exit 1`,
+    `gtd_ship_tree=$(GIT_INDEX_FILE="$gtd_index" git write-tree) || exit 1`,
+    `rm -f -- "$gtd_index"`,
+    `gtd_ship_trailers=$(printf "Gtd-History: %s\\nGtd-Tip: %s" "$gtd_ship_history" "$gtd_head")`,
+    `gtd_shipped=$(git commit-tree "$gtd_sign" "$gtd_ship_tree" -p "$gtd_ship_parent" -m "$gtd_ship_message" -m "$gtd_ship_trailers") || exit 1`,
+    `git update-ref -m "gtd: ship" "refs/heads/$gtd_ship_branch" "$gtd_shipped" "$gtd_ship_parent" || exit 1`,
+    `gtd_message=$(printf "%s\\nGtd-Shipped: %s" "$gtd_land_message" "$gtd_shipped")`,
+    commitWordAllowEmpty(`"$gtd_message"`),
+  ].join("\n")
+
 export const updateRef = (ref: string, hash: string): string =>
   `git update-ref ${shellQuote(ref)} ${shellQuote(hash)}`
 
@@ -170,20 +267,24 @@ const renderOutcome = (outcome: Outcome): string => {
   }
 }
 
-const renderGitWrite = (write: GitWrite): string => {
-  switch (write.kind) {
-    case "commitAll":
-      return commitAll(write.message)
-    case "commitPath":
-      return commitPath(write.path, write.message)
-    case "commitClean":
-      return commitClean(write.message)
-    case "updateRef":
-      return updateRef(write.ref, write.target)
-    case "keepTurn":
-      return keepTurn(write.ref, write.message)
-  }
+type Renderers = {
+  readonly [K in GitWrite["kind"]]: (write: Extract<GitWrite, { kind: K }>) => string
 }
+
+const GIT_WRITES: Renderers = {
+  commitAll: (w) => commitAll(w.message),
+  commitPath: (w) => commitPath(w.path, w.message),
+  commitClean: (w) => commitClean(w.message),
+  updateRef: (w) => updateRef(w.ref, w.target),
+  keepTurn: (w) => keepTurn(w.ref, w.message),
+  switchBranch: (w) => switchBranchTo(w.branch),
+  switchTo: (w) => switchBack(w.branch),
+  pushRef: (w) => pushRef(w.remote, w.ref),
+  ship: (w) => shipCommit(w.branch, w.parent, w.shipMessage, w.historyRef, w.message),
+}
+
+const renderGitWrite = (write: GitWrite): string =>
+  (GIT_WRITES[write.kind] as (write: GitWrite) => string)(write)
 
 /**
  * Wraps `command` so a non-zero exit prints `prompt` plus the command's

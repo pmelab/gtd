@@ -180,6 +180,89 @@ export class InMemRepo {
     this.index = new Map(tree)
   }
 
+  /** `git switch -C <name> [<start>]`: pending changes ride along only when the tip's tree is unchanged. */
+  switchBranchTo(name: string, start?: string): void {
+    const hash = start === undefined ? this.head : this.resolveRef(start)
+    if (hash === null) throw new Error(`invalid reference: ${start ?? "HEAD"}`)
+    this.moveToBranch(name, hash, true)
+  }
+
+  /** `git switch <name>`: a pending change rides along when its path is the same in both trees. */
+  switchTo(name: string): void {
+    const hash = this.branches.get(name)
+    if (hash === undefined) throw new Error(`invalid reference: ${name}`)
+    if (hash === this.head) return this.moveToBranch(name, hash, false)
+    const from = this.headTree()
+    const to = this.getCommit(hash)?.files ?? new Map<string, string>()
+    const pending = [
+      ...new Set([...from.keys(), ...this.index.keys(), ...this.worktree.keys()]),
+    ].filter(
+      (path) =>
+        this.index.get(path) !== from.get(path) || this.worktree.get(path) !== from.get(path),
+    )
+    if (pending.some((path) => to.get(path) !== from.get(path))) {
+      throw new Error(`cannot switch to '${name}': local changes would be overwritten`)
+    }
+    const carry = (side: Map<string, string>) => {
+      const out = new Map(to)
+      for (const path of pending) {
+        const content = side.get(path)
+        if (content === undefined) out.delete(path)
+        else out.set(path, content)
+      }
+      return out
+    }
+    this.worktree = carry(this.worktree)
+    this.index = carry(this.index)
+    this.head = hash
+    this.currentBranch = name
+  }
+
+  private moveToBranch(name: string, hash: string, reset: boolean): void {
+    if (hash !== this.head) {
+      if (this.statusPorcelain().trim() !== "") {
+        throw new Error(`cannot switch to '${name}': the working tree has uncommitted changes`)
+      }
+      const tree = this.getCommit(hash)?.files ?? new Map<string, string>()
+      this.head = hash
+      this.worktree = new Map(tree)
+      this.index = new Map(tree)
+    }
+    if (reset || !this.branches.has(name)) this.branches.set(name, hash)
+    this.currentBranch = name
+  }
+
+  deleteBranch(name: string): void {
+    if (name === this.currentBranch) throw new Error(`cannot delete branch '${name}' checked out`)
+    if (!this.branches.delete(name)) throw new Error(`branch '${name}' not found`)
+  }
+
+  private remotes: Map<string, Map<string, string>> = new Map()
+
+  /** Test setup: a remote that accepts pushes. */
+  // fallow-ignore-next-line unused-class-member
+  addRemote(name: string): void {
+    this.remotes.set(name, new Map())
+  }
+
+  /** What a remote holds after pushes: ref → hash. */
+  // fallow-ignore-next-line unused-class-member
+  remoteRefs(name: string): ReadonlyMap<string, string> {
+    return this.remotes.get(name) ?? new Map()
+  }
+
+  /** `git push --force <remote> <ref>:<ref>`; returns git's complaint, or `undefined`. */
+  pushRef(remote: string, ref: string): string | undefined {
+    const there = this.remotes.get(remote)
+    if (there === undefined) {
+      return `fatal: '${remote}' does not appear to be a git repository`
+    }
+    const hash = this.resolveRef(ref)
+    if (hash === null) return `error: src refspec ${ref} does not match any`
+    there.set(ref, hash)
+    return undefined
+  }
+
   /** Refs under `prefix`, newest tip first; the commit sequence number stands in for the committer date. */
   listRefs(prefix: string): Array<{ ref: string; hash: string; date: string }> {
     return [...this.refs.entries()]
@@ -471,6 +554,39 @@ export class InMemRepo {
     this.index = new Map(tree)
     this.resetHard()
     return undefined
+  }
+
+  /** Twin of `GitScript.shipCommit`: the staged tree, with `.gtd/` as `branch` has it, onto `branch`, then the landing commit naming it. */
+  shipCommit(
+    branch: string,
+    parent: string,
+    shipMessage: string,
+    historyRef: string,
+    message: string,
+  ): string | undefined {
+    this.stageAll()
+    if (this.head === null) return "fatal: Needed a single revision"
+    if (this.signingFails) return "error: gpg failed to sign the data"
+    const kept = [...(this.commits.get(parent)?.files ?? [])]
+    const tree = new Map([
+      ...[...this.index].filter(([path]) => !path.startsWith(".gtd/")),
+      ...kept.filter(([path]) => path.startsWith(".gtd/")),
+    ])
+    const shipped = `${shipMessage}\n\nGtd-History: ${historyRef}\nGtd-Tip: ${this.head}\n`
+    const hash = makeHash(shipped, parent, tree)
+    if (this.branches.get(branch) !== parent) {
+      return `fatal: update_ref failed for ref 'refs/heads/${branch}': cannot lock ref 'refs/heads/${branch}': is at ${this.branches.get(branch) ?? "nothing"} but expected ${parent}`
+    }
+    this.commits.set(hash, {
+      hash,
+      message: shipped,
+      files: tree,
+      parent,
+      seq: this.nextSeq++,
+      signed: this.signingEnabled,
+    })
+    this.branches.set(branch, hash)
+    return this.commitAsIs(`${message}\nGtd-Shipped: ${hash}`)
   }
 
   /** Discard every pending change, tracked or untracked: stage everything, then hard-reset (which drops the freshly-staged untracked paths too). */

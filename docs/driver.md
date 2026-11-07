@@ -213,7 +213,7 @@ into the plugin's folder, once. Inside the session the plugin's `gtd` comes
 first on `PATH`, so agent beats and scripts run that same version; a global
 `npm install -g @pmelab/gtd` is only for your own terminal. An update to a
 version whose workflow changed can strand a process already underway, as with
-any gtd upgrade: finish or ship it before updating.
+any gtd upgrade: finish it before updating.
 
 To try a checkout instead, build it (`npx vp run build`) and load the repository
 for one session: `claude --plugin-dir /path/to/gtd`. A checkout without a build
@@ -243,10 +243,9 @@ falls back to the `gtd` on your `PATH`.
 - The model moves gtd only through tools the mod serves, never through `gtd`
   itself: `continue` (only after you said to; it refuses once gtd has left that
   rest, and runs the step's `gtd validate` first, sending any findings back
-  instead of landing), `note`, `handoff`, `ship` and `browser`. A review gate
-  you leave untouched signs off, from every driver. `ship` and `handoff` refuse
-  while a step runs (`ship` also while gtd waits on you) and leave the rest
-  open, so `continue` still works.
+  instead of landing), `note`, `handoff` and `browser`. A review gate you leave
+  untouched signs off, from every driver. `handoff` refuses while a step runs
+  and leaves the rest open, so `continue` still works.
 - While a step runs, the session's model may not edit files (Bash is not
   checked): ask questions and it answers read-only, or ask for a change and it
   is kept as a note for the next rest. At a question gate it may write only that
@@ -296,16 +295,14 @@ falls back to the `gtd` on your `PATH`.
   the history was reset past the import.
 - `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
   `/gtd ui` starts the browser view of the rest it waits at.
-- `/gtd throw`, `/gtd ship [-n]` and their tools (`handoff`, `ship`) answer at
-  once and run in the background, one at a time; progress shows on the status
-  line. While one runs or is queued, `/gtd catch`, `/gtd pr`, `/gtd <door>`,
-  `/gtd <requirements>`, `/gtd ui` and bare `/gtd` refuse with "wait for its
-  report"; `/gtd throw` and `/gtd ship` refuse for themselves on the same
-  grounds, and only `/gtd status` and `/gtd stop` always work. When the job ends
-  it reports by waking Claude, a toast, a transcript line and a push
+- `/gtd throw` and its tool (`handoff`) answer at once and run in the
+  background; progress shows on the status line. While it runs or is queued,
+  `/gtd catch`, `/gtd pr`, `/gtd <door>`, `/gtd <requirements>`, `/gtd ui` and
+  bare `/gtd` refuse with "wait for its report"; `/gtd throw` refuses for itself
+  on the same grounds, and only `/gtd status` and `/gtd stop` always work. When
+  it ends it reports by waking Claude, a toast, a transcript line and a push
   notification. A failed `git push` or `gh` call reports as a failure naming the
-  step; a failure after the squash keeps the squash, and `/gtd ship` again
-  pushes the already-squashed branch.
+  step.
 - `/gtd throw [@user]` hands the process to someone else. It needs a clean tree:
   proceed or stash a half-made answer first, and refuses when `origin` holds
   commits your branch lacks. It pushes the branch (moving the process to a new
@@ -318,37 +315,6 @@ falls back to the `gtd` on your `PATH`.
   assigns it to you, and Claude helps you through the gate it waits at; it never
   lands that gate before you have seen it. Agent conversations do not travel:
   each memory scope starts fresh for the catcher.
-- `/gtd ship` squashes the finished process into one commit (the process's turns
-  are already kept under `refs/gtd/history/`, written before the squash by the
-  landing that finished it), pushes that process's history ref before the squash
-  by force, so a retry after the tip changed replaces origin's copy of that one
-  ref (another clone shipping the same process replaces it), and records it as a
-  `Gtd-History: <ref>` trailer on the commit (a failed history push fails the
-  ship with nothing squashed; a push that did not finish says so, and retrying
-  is safe), pushes the branch, and opens its pull request, or appends to the
-  open one's description when something changed at the level of its motivation,
-  solution or decisions. A subagent writes the commit message (from
-  `gtd summary`) and the pull-request text; nothing reviews them before they are
-  published. Ship refuses while the process is still underway, and when
-  `gtd summary` names no `git log <base>..<tip>` range. A process that changed
-  only `.gtd/` lands nothing: its commits are dropped. The commit message keeps
-  a `BREAKING CHANGE:` footer when the change is breaking, and a `Closes #N`
-  footer when the process was started for an issue (its capture or
-  `.gtd/REQUIREMENTS.md` names it). Ship copies every `Closes`, `Fixes` or
-  `Resolves #N` line of a pull request's commits into its description, new or
-  open, so the pull request links the issue. The writer may run only read-only
-  `git` commands and write only its own answer, since it reads commit messages
-  anyone on the branch wrote. `/gtd ship -n` prints the commit message and what
-  would happen to the pull request, and writes nothing. It needs `gh`, a clean
-  tree, and a branch other than the default. When a process finishes on such a
-  branch, Claude offers to open the pull request. On a thrown draft, ship writes
-  the title and description properly and marks the pull request ready for
-  review. A merged or closed pull request refuses before anything changes and
-  needs a renamed branch. A closed pull request whose branch origin no longer
-  has is an abandoned earlier ship and is ignored: a new pull request opens, and
-  ship records its number in `branch.<branch>.gtdAbandonedPr` so a retry after
-  the push still ignores it. A `gh pr view` failure other than "no pull request"
-  refuses before that step's writes.
 - Each `prompt` beat runs as a subagent. Beats in the same memory scope continue
   the same subagent for as long as the session lives; a new session starts the
   scope fresh, as the minimal driver does when a remembered session is gone. A
@@ -584,8 +550,16 @@ change. Either way it then lands:
   process is not over yet.
 - The unpin's landing is the commit that closes the process —
   `gtd(check): gtd:unpin → <first step>` with a `Gtd-Pin: remove` trailer — and
-  the one that writes `refs/gtd/history/<entry>`. Landing it while the file is
-  still there is refused.
+  the one that writes `refs/gtd/history/<entry>` and, when the `config` export
+  sets `historyRemote`, force-pushes it there: a failed push makes the script
+  exit non-zero after the commit landed, printing the `git push` to retry.
+  Landing it while the file is still there is refused.
+
+Every process runs on `gtd/<b>`: the script of the start landing switches to it
+first, and the closing landing's script switches back to `<b>`. A `ship()` step
+rests as an ordinary `script` beat whose content only prints; its landing script
+makes the squash onto `<b>` before the landing commit, writes
+`refs/gtd/history/<entry>` and pushes it like the closing landing does.
 
 Pin and unpin commits are no turns: replay steps over them, flow code never sees
 `.gtd/process.gtdpin`, and `gtd strays` never reports it. A squash of the whole
@@ -1015,6 +989,13 @@ non-zero-looking exits are not a failure at all:
   produces a script (a print-only no-op, or a real commit carrying its
   `Gtd-Judge:` trailer) via `gtd judge answer --json=script`, which a driver
   must still run.
+- **`gtd next` is `stalled` at a `run(…, { onFail: "rest" })` step.** The body
+  exited non-zero; its output is the beat's `content`. Change the tree and the
+  step's script runs again; only a zero exit advances.
+- **`gtd next` is `stalled` at a `ship()` step.** The user's branch carries a
+  change the squash would revert; the beat's `content` names the paths. Bring
+  them into the working tree (`git merge --squash --no-commit <b>`, or by hand)
+  and land.
 - **An emitted script exits non-zero when YOU run it.** Something may have
   partially happened — e.g. one git write landed but a later step in the same
   script failed. Nothing is retried on your behalf: git's own error is what you

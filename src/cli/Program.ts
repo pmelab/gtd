@@ -9,6 +9,8 @@ import {
   type GitOperations,
   type HostOps,
   HISTORY_REF,
+  RESUME_BRANCH_REF,
+  processHistoryRef,
   readRetainedHistory,
   restorability,
   loopLogPath,
@@ -67,8 +69,14 @@ import {
   summaryRun,
   type RenderedRest,
 } from "../edge/index.js"
-import { formatCommitMessage, PIN_STATES } from "../replay/index.js"
-import { planStart, planStep as planStepPure, type JudgeVerdict } from "../step/index.js"
+import { formatCommitMessage, parseCommitMessage, PIN_STATES } from "../replay/index.js"
+import {
+  GTD_BRANCH_PREFIX,
+  userBranchOf,
+  planStart,
+  planStep as planStepPure,
+  type JudgeVerdict,
+} from "../step/index.js"
 import {
   BUILT_IN_MODE_NAMES,
   formatFromSpec,
@@ -85,6 +93,10 @@ import {
   deleteRef,
   hardResetTo,
   mixedResetTo,
+  switchBranchTo,
+  switchTo,
+  deleteBranch,
+  pushRef,
   unpinScript,
   repinScript,
   commitPath,
@@ -750,6 +762,29 @@ const runStartListCommand = (
   })
 
 /**
+ * Back on `<b>` when the process ran on `gtd/<b>` and `<b>` moved only by its
+ * ships (whose `Gtd-Tip` the tip descends from): the rewind stops at the last
+ * ship, so the uncommitted changes are what it left unshipped.
+ */
+const abandonTarget = (current: Option.Option<string>, tip: string, startParent: string) =>
+  Effect.gen(function* () {
+    const git = yield* GitService
+    const userBranch = Option.isSome(current) ? userBranchOf(current.value) : undefined
+    const userTip =
+      userBranch === undefined
+        ? Option.none<string>()
+        : yield* git.readRefOption(`refs/heads/${userBranch}`)
+    if (userBranch === undefined || Option.isNone(userTip)) {
+      return { leaves: undefined, rewindTo: startParent }
+    }
+    if (userTip.value === startParent) return { leaves: userBranch, rewindTo: startParent }
+    const shipped = parseCommitMessage(yield* git.lastCommitMessage(userTip.value)).tip
+    return shipped !== undefined && (yield* git.isAncestor(shipped, tip))
+      ? { leaves: userBranch, rewindTo: userTip.value }
+      : { leaves: undefined, rewindTo: startParent }
+  })
+
+/**
  * Ends the process underway without completing it. Nothing is discarded: a
  * `git reset --mixed` to the process's start commit leaves every turn
  * commit's content in the working tree.
@@ -766,6 +801,7 @@ const runAbandonCommand = (
   json: JsonMode,
   out: ArtifactOut,
 ): Effect.Effect<void, Error, CommandRequirements> =>
+  // fallow-ignore-next-line complexity
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
@@ -790,15 +826,56 @@ const runAbandonCommand = (
     }
 
     const tip = yield* git.resolveRef("HEAD")
+    const historyRef = processHistoryRef(run.startHash)
+
+    const current = yield* git.currentBranch()
+    const { leaves, rewindTo } = yield* abandonTarget(current, tip, run.startParentHash)
+    const remote = config.historyRemote
 
     const steps: EmitStep[] = [
       { kind: "gitWrite", command: updateRef(HISTORY_REF, tip) },
-      { kind: "gitWrite", command: mixedResetTo(run.startParentHash) },
+      { kind: "gitWrite", command: updateRef(historyRef, tip) },
+      { kind: "gitWrite", command: mixedResetTo(rewindTo) },
       { kind: "gitWrite", command: unpinScript(PIN_PATH) },
-      { kind: "outcome", command: abandonedOutcome(restState, run.startParentHash, initial) },
+      ...(leaves !== undefined
+        ? [
+            { kind: "gitWrite", command: switchTo(leaves) } as const,
+            {
+              kind: "gitWrite",
+              command: deleteBranch(Option.getOrThrow(current)),
+            } as const,
+            { kind: "gitWrite", command: updateRef(RESUME_BRANCH_REF, tip) } as const,
+          ]
+        : [{ kind: "gitWrite", command: deleteRef(RESUME_BRANCH_REF) } as const]),
+      { kind: "outcome", command: abandonedOutcome(restState, rewindTo, initial) },
+      ...(remote !== undefined
+        ? [{ kind: "gitWrite", command: pushRef(remote, historyRef) } as const]
+        : []),
     ]
     const required = emitScripts(steps).required
     yield* writeScript(json, out, combinedScript(required, ""))
+  })
+
+/**
+ * `gtd/<b>` when the abandon left it for `<b>` and HEAD is still on `<b>`. A
+ * `gtd/<b>` made since is reset only when the retained tip contains it — the
+ * `-C` switch would orphan anything else.
+ */
+const resumeBranch = (git: GitOperations, tip: string): Effect.Effect<string | undefined, Error> =>
+  Effect.gen(function* () {
+    if (Option.isNone(yield* git.readRefOption(RESUME_BRANCH_REF))) return undefined
+    const current = yield* git.currentBranch()
+    if (Option.isNone(current) || current.value.startsWith(GTD_BRANCH_PREFIX)) return undefined
+    const branch = `${GTD_BRANCH_PREFIX}${current.value}`
+    const existing = yield* git.readRefOption(`refs/heads/${branch}`)
+    if (Option.isSome(existing) && !(yield* git.isAncestor(existing.value, tip))) {
+      return yield* Effect.fail(
+        new Error(
+          `gtd restore: branch ${branch} holds commits the retained tip ${tip.slice(0, 7)} does not — merge or delete it first`,
+        ),
+      )
+    }
+    return branch
   })
 
 /**
@@ -847,9 +924,14 @@ const runRestoreCommand = (
     // A preview of the resulting state, resolved at tip directly since no reset has happened yet.
     const after = yield* restAt(tip)
 
+    const resumeOn = yield* resumeBranch(git, tip)
     const steps: EmitStep[] = [
-      { kind: "gitWrite", command: hardResetTo(tip) },
+      {
+        kind: "gitWrite",
+        command: resumeOn === undefined ? hardResetTo(tip) : switchBranchTo(resumeOn, tip),
+      },
       { kind: "gitWrite", command: deleteRef(HISTORY_REF) },
+      { kind: "gitWrite", command: deleteRef(RESUME_BRANCH_REF) },
       { kind: "outcome", command: restoredOutcome(tip, after.state) },
     ]
     const required = emitScripts(steps).required

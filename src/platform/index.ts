@@ -31,6 +31,7 @@ export * as NodeServices from "./NodeServices.js"
 export { loopLogPath } from "./WorktreeState.js"
 export {
   HISTORY_REF,
+  RESUME_BRANCH_REF,
   keptRef,
   processHistoryRef,
   PROCESS_HISTORY_PREFIX,

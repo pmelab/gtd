@@ -67,8 +67,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     When I run the pasted script
     Then it succeeds
     And stdout contains "write NOTE.md to start a process"
-    And the last commit subject is "gtd(check): gtd:unpin → idle"
-    And "src/calc.ts" exists
+    And the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
+    And "src/calc.ts" does not exist
 
   Scenario: Captures the human's pending edit at the opening gate, so the human only runs the driver
     # The machine rests at the initial human gate `idle` (no gtd commit — the
@@ -120,8 +121,13 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the driver pasted from docs/driver.md
     When I run the pasted script
     Then it succeeds
-    And "src/calc.ts" exists
-    And the last commit subject is "gtd(check): gtd:unpin → idle"
+    And "src/calc.ts" does not exist
+    And the branch "gtd/main" holds "src/calc.ts" with:
+      """
+      export const add = (a, b) => a + b
+      """
+    And the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
 
   Scenario: Runs the self-validation gate after a producing agent turn and re-prompts until the steering file is well-formed
     # `planning` declares file:/mode: (.gtd/PLAN.md as `qa`), so its output has
@@ -188,7 +194,8 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Then it succeeds
     And the log file contains "AGENT: first draft"
     And the log file contains "AGENT: fixing the plan"
-    And the last commit subject is "gtd(check): gtd:unpin → idle"
+    And the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
     # The fix re-prompt is the validate script's own output verbatim — not the
     # state's own prompt text prefixed onto it.
     And the log file does not contain "Write .gtd/PLAN.md with the plan."
@@ -219,8 +226,10 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the driver pasted from docs/driver.md
     When I run the pasted script
     Then it succeeds
-    And the last commit subject is "gtd(check): gtd:unpin → idle"
-    And the commit subjects from oldest to newest are:
+    And the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
+    Given the branch "gtd/main" is checked out
+    Then the commit subjects from oldest to newest are:
       """
       chore: initial commit
       chore: add gtd.config.ts

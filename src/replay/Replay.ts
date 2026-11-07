@@ -20,7 +20,7 @@ import {
   threads,
 } from "../steering/index.js"
 import { accessShapeFault, foldAccess, sameAccess } from "./Access.js"
-import { globMatches, PIN_PATH } from "../wire/index.js"
+import { globMatches, PIN_PATH, RUN_FAILED_PATH } from "../wire/index.js"
 import { refNameFault } from "./RefName.js"
 import { diffTrees, isEmptyDiff, withoutPath, type TreeView } from "./Tree.js"
 import {
@@ -60,6 +60,8 @@ export interface Episode {
 export interface PendingTurn {
   readonly tree: TreeView
   readonly verdicts?: readonly JudgeVerdict[]
+  /** What a pending ship step resolves to: a stand-in hash when it will ship, the real one exists only once it landed. */
+  readonly shipped?: string
 }
 
 export interface ReplayInput {
@@ -90,7 +92,13 @@ export type StepKind = Exclude<StepRequest["kind"], "restart">
 type Actor = "agent" | "human" | "check" | "judge"
 
 const actorOfKind = (kind: StepKind): Actor =>
-  kind === "run" ? "check" : kind === "agent" ? "agent" : kind === "human" ? "human" : "judge"
+  kind === "run" || kind === "ship"
+    ? "check"
+    : kind === "agent"
+      ? "agent"
+      : kind === "human"
+        ? "human"
+        : "judge"
 
 /** One step replay reached, completed or not. */
 export interface ReachedStep {
@@ -316,9 +324,20 @@ const STEERING_OPTIONS = ["file", "mode", "label", "base"]
 const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
   agent: new Set([...STEERING_OPTIONS, "model", "system", "allowEmpty", "keep"]),
   human: new Set([...STEERING_OPTIONS, "message", "acceptClean", "approve"]),
-  run: new Set(STEERING_OPTIONS),
+  run: new Set([...STEERING_OPTIONS, "onFail"]),
+  ship: new Set(["label", "base"]),
   judge: new Set([...STEERING_OPTIONS, "message"]),
 }
+
+const restsOnFail = (step: ReachedStep): boolean =>
+  step.request.kind === "run" && step.request.options.onFail === "rest"
+
+const onFailFault = (step: ReachedStep): string | undefined =>
+  step.request.kind === "run" &&
+  step.request.options.onFail !== undefined &&
+  step.request.options.onFail !== "rest"
+    ? `gtd: step "${step.name}": onFail must be "rest" in run() options`
+    : undefined
 
 const unknownOptions = (step: ReachedStep): string | undefined => {
   const unknown = Object.keys(step.request.options).filter(
@@ -454,12 +473,13 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
   const scoped = (name: string): string =>
     [...scopes.flatMap((s) => (s.name === undefined ? [] : [s.name])), name].join(".")
 
-  const isAttemptAt = (commit: ParsedCommit, name: string): boolean =>
+  const isAttemptAt = (commit: ParsedCommit, step: ReachedStep): boolean =>
     commit.parsed.step === undefined &&
     commit.parsed.parsed !== undefined &&
     commit.parsed.parsed.from === undefined &&
-    commit.parsed.parsed.to === name &&
-    isEmptyDiff(diffTrees(position.tree, commit.tree))
+    commit.parsed.parsed.to === step.name &&
+    (isEmptyDiff(diffTrees(position.tree, commit.tree)) ||
+      (restsOnFail(step) && commit.tree.read(RUN_FAILED_PATH) !== undefined))
 
   const advance = (next: Position): void => {
     previousPosition = position
@@ -469,13 +489,16 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
   const replyFor = (
     request: Exclude<StepRequest, { kind: "restart" }>,
     verdicts: readonly JudgeVerdict[],
+    shipped: string | undefined,
   ): unknown =>
     request.kind === "judge"
       ? {
           answers: answersFrom(verdicts, request.questions),
           truncated: judgeCuts.get(request) ?? [],
         }
-      : undefined
+      : request.kind === "ship"
+        ? shipped
+        : undefined
 
   const judgeCuts = new WeakMap<object, readonly string[]>()
 
@@ -636,7 +659,11 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
       )
     }
     const error =
-      unknownOptions(step) ?? approveConflict(step) ?? modeWithoutFile(step) ?? checkIdentity(step)
+      unknownOptions(step) ??
+      onFailFault(step) ??
+      approveConflict(step) ??
+      modeWithoutFile(step) ??
+      checkIdentity(step)
     return error === undefined ? undefined : { kind: "failed", message: error }
   }
 
@@ -670,7 +697,7 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
     expectNextOf(commit)
     skipPins()
     noteKept(step, commit)
-    return replyFor(step.request, commit.parsed.judge)
+    return replyFor(step.request, commit.parsed.judge, commit.parsed.shipped)
   }
 
   // A turn that ends a pinned process names the unpin, which is no step.
@@ -699,11 +726,15 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
       keptTips.set(step.name, { hash: "", before: position.tree, after: pending.tree })
     }
     advance({ hash: "", tree: keeping ? position.tree : pending.tree })
-    return replyFor(step.request, pending.verdicts ?? [])
+    return replyFor(step.request, pending.verdicts ?? [], pending.shipped)
   }
 
   const answer = (step: ReachedStep): unknown => {
-    while (cursor < commits.length && isAttemptAt(commits[cursor]!, step.name)) {
+    while (cursor < commits.length && isAttemptAt(commits[cursor]!, step)) {
+      // An attempt that recorded a failure carries its tree; an empty one changes nothing.
+      if (!isEmptyDiff(diffTrees(position.tree, commits[cursor]!.tree))) {
+        advance({ hash: commits[cursor]!.hash, tree: commits[cursor]!.tree })
+      }
       cursor++
       skipPins()
     }
@@ -718,7 +749,23 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
         marks,
       })
     }
+    if (restsOnFail(step) && input.pending.tree.read(RUN_FAILED_PATH) !== undefined) {
+      return finish({ kind: "rest", rest: step, trace, landed, marks })
+    }
     return landPending(step, input.pending)
+  }
+
+  const bodyFault = (request: Exclude<StepRequest, { kind: "restart" | "agent" }>) => {
+    if (
+      request.kind === "ship" &&
+      (typeof request.message !== "string" || request.message.trim() === "")
+    ) {
+      return `gtd: step "${scoped(request.name)}": a ship() message is a non-empty commit message`
+    }
+    if (request.kind === "run" && typeof request.body !== "string") {
+      return `gtd: step "${scoped(request.name)}": a run() body is a shell script string — decide in flow code, then render the script (see checkScript and friends)`
+    }
+    return undefined
   }
 
   // gtd.config.ts is loaded without a type check.
@@ -726,10 +773,7 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
     if (scoped(request.name).startsWith(ENGINE_PREFIX)) {
       return `gtd: step "${scoped(request.name)}": the "${ENGINE_PREFIX}" prefix is reserved for gtd's own beats — rename the step`
     }
-    if (request.kind === "run" && typeof request.body !== "string") {
-      return `gtd: step "${scoped(request.name)}": a run() body is a shell script string — decide in flow code, then render the script (see checkScript and friends)`
-    }
-    if (request.kind !== "agent") return undefined
+    if (request.kind !== "agent") return bodyFault(request)
     const name = scoped(request.name)
     if (request.options.keep === true) {
       // A clean allowEmpty keep would land an ordinary commit with no Gtd-Kept: a silent skip.

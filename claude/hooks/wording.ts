@@ -2,7 +2,7 @@
 
 import type { Stop } from "../types"
 import type { Beat } from "./drive"
-import type { Shipped } from "./ship"
+import type { Done } from "./git"
 import { JOB_NAME } from "./tools"
 import type { JobName } from "./tools"
 
@@ -61,8 +61,8 @@ export function pushText(stop: Stop, repo: string, url?: string) {
 
 const capitalised = (s: string) => s[0]!.toUpperCase() + s.slice(1)
 
-export const jobHeadline = (job: JobName, outcome: Shipped) =>
+export const jobHeadline = (job: JobName, outcome: Done) =>
   `${outcome.ok ? "✔" : "✘"} ${capitalised(JOB_NAME[job])} ${outcome.ok ? "finished" : "failed"}`
 
-export const jobPushText = (job: JobName, outcome: Shipped, repo: string) =>
+export const jobPushText = (job: JobName, outcome: Done, repo: string) =>
   `${repo}: ${JOB_NAME[job]} ${outcome.ok ? "finished" : "failed"}. ${outcome.text}`.trim()

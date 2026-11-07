@@ -100,7 +100,9 @@ Feature: the packed package — gtd installed from its own tarball
     And the driver pasted from docs/driver.md
     When I run the pasted script
     Then it succeeds
-    And the commit subjects from oldest to newest are:
+    And the current branch is "main"
+    Given the branch "gtd/main" is checked out
+    Then the commit subjects from oldest to newest are:
       """
       chore: initial commit
       chore: install @pmelab/gtd

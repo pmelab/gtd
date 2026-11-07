@@ -53,20 +53,14 @@ describe("job reports", () => {
   const good = { ok: true, text: "Opened https://github.com/o/r/pull/7" }
   const bad = { ok: false, text: "git push failed." }
 
-  test("success and failure headlines differ per job, a failure never reads as success", () => {
-    const all = (["ship", "handoff"] as const).flatMap((j) => [
-      jobHeadline(j, good),
-      jobHeadline(j, bad),
-    ])
-    expect(new Set(all).size).toBe(4)
-    expect(jobHeadline("ship", bad)).toMatch(/fail/i)
+  test("success and failure headlines differ, a failure never reads as success", () => {
     expect(jobHeadline("handoff", bad)).toMatch(/fail/i)
-    expect(jobHeadline("ship", good)).not.toMatch(/fail/i)
+    expect(jobHeadline("handoff", good)).not.toMatch(/fail/i)
   })
 
   test("the push names the repository and the outcome", () => {
-    expect(jobPushText("ship", good, "llm-judge")).toContain("llm-judge")
-    expect(jobPushText("ship", good, "llm-judge")).toContain("pull/7")
+    expect(jobPushText("handoff", good, "llm-judge")).toContain("llm-judge")
+    expect(jobPushText("handoff", good, "llm-judge")).toContain("pull/7")
     expect(jobPushText("handoff", bad, "llm-judge")).toContain("llm-judge")
     expect(jobPushText("handoff", bad, "llm-judge")).toContain("git push failed.")
   })

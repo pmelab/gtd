@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useRef, useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
-import { viewport } from "../testing/browserContext.js"
+import { disableTransitions, viewport } from "../testing/browserContext.js"
 import { FREE_TEXT_PLACEHOLDER, steeringFormatFor } from "../../steering/index.js"
 import type { SteeringAnchor, SteeringViewNode } from "../../steering/index.js"
 import { SaveIndicator, useSaveIndicatorProps } from "../Refusal.js"
@@ -844,6 +844,7 @@ export const AnUnbrokenPathInProseWrapsRatherThanWideningThePage: Story = {
 export const SelectingAnOptionMarksItsWholeRowNotJustTheRadio: Story = {
   args: { node: questionNode() },
   play: async ({ canvasElement }) => {
+    disableTransitions()
     const canvas = within(canvasElement)
     const row = canvas.getByTestId("option-0")
     const resting = getComputedStyle(row)

@@ -4,8 +4,8 @@
 // reads and writes the threads, and gtd only sees the notes.
 
 import type { PrFeedback, PrThread } from "../types"
-import { pushBranch } from "./ship"
-import type { ShipIo, Shipped } from "./ship"
+import { pushBranch } from "./git"
+import type { GitIo, Done } from "./git"
 
 export const REVIEW_FILE = ".gtd/REVIEW.md"
 
@@ -27,9 +27,9 @@ const TAG = /\(thread ([A-Za-z0-9_=-]+)\)\s*$/
 const LEAD = "Tick exactly one:"
 const PLACEHOLDER = "_your answer_"
 
-const fail = (text: string): Shipped => ({ ok: false, text })
+const fail = (text: string): Done => ({ ok: false, text })
 
-export async function currentPr(io: ShipIo): Promise<Pr | string> {
+export async function currentPr(io: GitIo): Promise<Pr | string> {
   const branch = (await io.run(["git", "rev-parse", "--abbrev-ref", "HEAD"])).out.trim()
   const v = await io.run(["gh", "pr", "view", "--json", "number,url"])
   if (v.code !== 0) return `gh pr view failed: ${v.err.trim()}`
@@ -69,7 +69,7 @@ type ThreadNode = {
   comments: { nodes: { author: { login: string } | null; body: string; url: string }[] }
 }
 
-export async function unresolvedThreads(io: ShipIo, pr: Pr): Promise<Thread[] | string> {
+export async function unresolvedThreads(io: GitIo, pr: Pr): Promise<Thread[] | string> {
   const r = await io.run([
     "gh",
     "api",
@@ -226,7 +226,7 @@ export function missingReasons(review: string) {
 
 // The first commit since `since` whose review answers any of `ids`: the gate
 // that decided them. Undefined while none has landed.
-export async function decided(io: ShipIo, since: string, ids: readonly string[]) {
+export async function decided(io: GitIo, since: string, ids: readonly string[]) {
   // A reset or rebase since the import leaves nothing to find the gate in.
   if ((await io.run(["git", "merge-base", "--is-ancestor", since, "HEAD"])).code !== 0)
     return "gone"
@@ -279,11 +279,11 @@ const RESOLVE = `mutation($thread: ID!) {
 // to each answered thread and resolves it. The code commits after `gate` are
 // the fixes; a thread that fails is named and left open.
 export async function reply(
-  io: ShipIo,
+  io: GitIo,
   host: string,
   gate: string,
   decidedAnswers: readonly Answer[],
-): Promise<Shipped & { isPushed: boolean }> {
+): Promise<Done & { isPushed: boolean }> {
   const branch = (await io.run(["git", "rev-parse", "--abbrev-ref", "HEAD"])).out.trim()
   const pushed = await pushBranch(io, branch)
   if (pushed) return { ...fail(pushed), isPushed: false }

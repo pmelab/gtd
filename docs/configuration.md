@@ -144,6 +144,7 @@ A step is one position a process can rest at. Each step function takes a
 | `agent(name, prompt, opts?)`   | `agent` | An agent turn. `prompt` is printed as the beat's content; the driver hands it to an agent and lands whatever the agent left in the tree. |
 | `human(name, message?, opts?)` | `human` | A person. The process waits until someone edits and lands. `message` (or `opts.message`) is what gtd shows.                              |
 | `run(name, body, opts?)`       | `check` | A script. `body` is a POSIX `sh` string the driver runs verbatim.                                                                        |
+| `ship(name, message, opts?)`   | `check` | Squashes the process onto the user's branch when it lands. See [Shipping](#shipping).                                                    |
 | `judge(name, spec)`            | `judge` | A judgment. A `message` rest carrying typed questions; `gtd judge answer` records the verdict. See [Judges](#judges).                    |
 | `restart()`                    | —       | Ends the episode from any depth (see [Episodes](#episodes-replay-and-divergence)). Never rests.                                          |
 
@@ -159,12 +160,15 @@ The step name is the `<to>` in the commit subject the landing writes,
 the episode). Other trailers a landing may carry: `Gtd-Judge:` (one per answered
 judge question), `Gtd-Var:` (a process setting), `Gtd-Cost:` (a
 `gtd land --cost`), `Gtd-Review-Base:` (a workflow's fixed diff base),
-`Gtd-Branch:` and `Gtd-Version:` (only on the landing that finishes a process),
-`Gtd-Mark:` (`<name>=<value>`, one per `mark()` call), `Gtd-Kept:` (only on the
-marker a `keep` step lands, see [Step options](#step-options)), `Gtd-Approved:`
-(only on the landing that completes an `approve` gate: one JSON object with the
-`step`, the git `user.name` and `user.email`). Every commit gtd writes also
-carries `Gtd-Format:` (see [History format](#history-format)).
+`Gtd-Branch:` (the user's branch `<b>`, never `gtd/<b>`; a `gtd/<timestamp>`
+branch from `/gtd throw` as is) and `Gtd-Version:` (both only on the landing
+that finishes a process), `Gtd-Mark:` (`<name>=<value>`, one per `mark()` call),
+`Gtd-Kept:` (only on the marker a `keep` step lands, see
+[Step options](#step-options)), `Gtd-Shipped:` (only on a `ship` step's landing:
+the commit it put on the user's branch), `Gtd-Approved:` (only on the landing
+that completes an `approve` gate: one JSON object with the `step`, the git
+`user.name` and `user.email`). Every commit gtd writes also carries
+`Gtd-Format:` (see [History format](#history-format)).
 
 A step name starting with `gtd:` is reserved for gtd's own beats, such as
 `gtd:pin` and `gtd:unpin` (see
@@ -178,7 +182,7 @@ Every step takes an options object; all keys are optional.
 | Option        | Steps                | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | ------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `label`       | all                  | Display name shown by `gtd next` and viewers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| `file`        | all                  | The step's steering file, a repository path under `.gtd/`.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `file`        | all but `ship`       | The step's steering file, a repository path under `.gtd/`.                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `mode`        | all, requires `file` | The steering file's mode: `qa`, `review`, `findings`, a name declared in `config.modes`, or a [declared format](#declared-formats). An unknown name fails the process once it rests at the step; a `mode` without a `file` fails it when replay reaches the step.                                                                                                                                                                                                                                             |
 | `message`     | `human`, `judge`     | The text shown to the person at this rest.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
 | `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
@@ -187,7 +191,44 @@ Every step takes an options object; all keys are optional.
 | `keep`        | `agent`              | Cannot be combined with `allowEmpty`. Set the turn aside: it lands off the branch under `refs/gtd/kept/<entry>/<step>/<hash>` and the branch gets an empty marker commit (subject, `Gtd-Step:`, `Gtd-Kept: <hash>`) instead. See [Kept tips](#kept-tips).                                                                                                                                                                                                                                                     |
 | `acceptClean` | `human`              | A landing that changes nothing completes the gate — "accept as-is". Without it, a clean landing is a no-op and the gate keeps waiting for an edit.                                                                                                                                                                                                                                                                                                                                                            |
 | `approve`     | `human`              | A sign-off gate; implies `acceptClean`. Only a **clean** `gtd land` completes it — any edit is refused, and git must have an author identity. Cannot be combined with `mode` or `file` (refused when replay reaches the step, so earlier steps may already have landed). That commit carries `Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}`. Git hooks do not run on that commit; `commit.gpgSign` still applies (a failing signer refuses the approval). See [`seamGate`](#judges). |
+| `onFail`      | `run`                | `"rest"`: a non-zero exit is recorded in `.gtd/run-failed.txt` and the process rests at the step as `stalled`, showing the failed output. Any tree change runs the script again; only a zero exit advances. Without it a failing body lands and the flow carries on.                                                                                                                                                                                                                                          |
 | `base`        | all                  | The commit this step reviews changes since — what `gtd base` prints while the process rests here. Without it, the process's `start()`.                                                                                                                                                                                                                                                                                                                                                                        |
+
+### Shipping
+
+`ship(name, message)` hands the user's branch `<b>` the process's work as one
+commit, while the process itself runs on `gtd/<b>`. It rests like a `run` step
+whose script only prints; landing it:
+
+1. commits the tree being landed, with `.gtd/` as `<b>` has it, as one commit on
+   `<b>`, with `message` followed by `Gtd-History: refs/gtd/history/<entry>` and
+   `Gtd-Tip: <HEAD>` trailers, and moves `<b>` there. HEAD stays on `gtd/<b>`;
+2. lands the step with a `Gtd-Shipped: <commit>` trailer, writes
+   `refs/gtd/history/<entry>` at it, and force-pushes that ref to
+   `historyRemote` when one is set (a failed push exits non-zero after landing
+   and prints the retry).
+
+The step resolves to the shipped commit's hash. It resolves to `undefined`, and
+`<b>` stays where it is, when the tree `<b>` already has is the one being
+shipped, when HEAD is detached, or when the process runs on a branch with no
+user branch beside it (any branch not named `gtd/<b>`, or `gtd/<b>` with no
+`<b>`). While deciding the landing's target, the flow sees a stand-in hash; it
+must branch on whether something shipped, never on the hash itself.
+
+Calling it again ships again: each call adds one commit on top of the last ship.
+When `<b>` has a change the squash would revert — someone committed to it
+outside the process — the step rests as `stalled` and landing it is refused,
+naming the paths. Bring those changes into the working tree
+(`git merge --squash --no-commit <b>`, or by hand) and land: a named path you
+changed in the working tree counts as brought in.
+
+When the process finishes, its closing landing switches HEAD back to `<b>`:
+whatever the process committed after its last ship stays on `gtd/<b>` and in
+`refs/gtd/history/<entry>`, not on `<b>`. `gtd abandon` after a ship rewinds
+only to the last ship, leaving the unshipped work uncommitted on `<b>`.
+
+Nothing else touches a remote: push `<b>` or open a pull request in a `run()`
+step of its own, e.g. `run("push", "git push origin <b>", { onFail: "rest" })`.
 
 ### Kept tips
 
@@ -827,6 +868,10 @@ It has exactly these keys, all optional:
   scope whose skill list you want to change. See [Skills](#skills).
 - **`access`** — a flat scope full-name -> `{ read?, write? }` glob-array map.
   See [File access](#file-access).
+- **`historyRemote`** — a remote name. The landing that finishes a process, a
+  `ship` step's landing, and `gtd abandon`, force-push
+  `refs/gtd/history/<entry>` to it. A failed push exits non-zero after the
+  commit landed and prints the `git push` to retry.
 
 **An unknown key is rejected**, at every depth: a type error when `@pmelab/gtd`
 is installed for editor type-checking, and a load error naming the key either

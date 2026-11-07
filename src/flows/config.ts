@@ -21,6 +21,8 @@ export interface GtdConfig {
   readonly ui?: UiSettings
   readonly skills?: Readonly<Record<string, readonly string[]>>
   readonly access?: Readonly<Record<string, ScopeAccess>>
+  /** A remote name: every finished or abandoned process force-pushes its history ref there. */
+  readonly historyRemote?: string
 }
 
 export interface ConfigProblem {
@@ -28,7 +30,7 @@ export interface ConfigProblem {
   readonly message: string
 }
 
-const CONFIG_KEYS = ["modes", "ui", "skills", "access"] as const
+const CONFIG_KEYS = ["modes", "ui", "skills", "access", "historyRemote"] as const
 const MODE_KEYS = ["format", "validate"] as const
 const UI_KEYS = ["port", "host", "cert", "key", "format"] as const
 
@@ -113,6 +115,10 @@ export const configProblems = (value: unknown): readonly ConfigProblem[] => {
     ...unknownKeys(value, CONFIG_KEYS, []),
     ...(value.modes === undefined ? [] : recordOf(value.modes, ["modes"], "modes", modeProblems)),
     ...(value.ui === undefined ? [] : uiProblems(value.ui, ["ui"])),
+    ...(value.historyRemote === undefined ||
+    (typeof value.historyRemote === "string" && value.historyRemote.trim() !== "")
+      ? []
+      : [{ path: ["historyRemote"], message: "must be a non-empty remote name" }]),
     ...(value.skills === undefined
       ? []
       : recordOf(value.skills, ["skills"], "skill-name arrays", (v, path) =>
