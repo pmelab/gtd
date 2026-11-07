@@ -49,3 +49,14 @@ export const setReducedMotion = async (reduced: boolean): Promise<void> => {
     features: [{ name: "prefers-reduced-motion", value: reduced ? "reduce" : "no-preference" }],
   })
 }
+
+/**
+ * Turns CSS transitions off for the page. A transition in a throttled or
+ * backgrounded runner tab can sit at its start value past any `waitFor`
+ * timeout, so a story asserting a changed colour reads the end state instead.
+ */
+export const disableTransitions = (): void => {
+  const style = document.createElement("style")
+  style.textContent = "*, *::before, *::after { transition: none !important }"
+  document.head.appendChild(style)
+}

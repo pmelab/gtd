@@ -13,6 +13,12 @@ import {
   hardResetTo,
   keepTurn,
   mixedResetTo,
+  switchBranchTo,
+  switchBack,
+  switchTo,
+  deleteBranch,
+  pushRef,
+  shipCommit,
   shellQuote,
   softResetTo,
   updateRef,
@@ -26,6 +32,7 @@ import {
   modeContradictionSkipNotice,
   OUTCOME_MARKER,
   pinScript,
+  failRestScript,
   repinScript,
   unpinScript,
 } from "../emit/index.js"
@@ -161,6 +168,19 @@ const recognizeKeepTurn = (repo: InMemRepo, block: string): BlockOutcome | undef
   return failure === undefined ? { kind: "applied" } : { kind: "failed", error: failure, status: 1 }
 }
 
+const attempt = (apply: () => void): BlockOutcome => {
+  try {
+    apply()
+    return { kind: "applied" }
+  } catch (e) {
+    return {
+      kind: "failed",
+      error: `fatal: ${e instanceof Error ? e.message : String(e)}`,
+      status: 128,
+    }
+  }
+}
+
 // fallow-ignore-next-line complexity
 const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
   if (block === discardPending()) {
@@ -248,6 +268,73 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
       return { kind: "applied" }
     }
     return undefined
+  }
+
+  if (block.startsWith("git switch -q -C ")) {
+    const [branch, start] = extractQuotedTokens(block)
+    if (branch !== undefined && switchBranchTo(branch, start) === block) {
+      return attempt(() => repo.switchBranchTo(branch, start))
+    }
+    return undefined
+  }
+
+  if (block.startsWith("if ! git switch -q ")) {
+    const [branch, , note] = extractQuotedTokens(block)
+    if (branch !== undefined && switchBack(branch) === block) {
+      try {
+        repo.switchTo(branch)
+        return { kind: "applied" }
+      } catch {
+        return { kind: "noop", output: `${note}\n` }
+      }
+    }
+    return undefined
+  }
+
+  if (block.startsWith("git switch -q ")) {
+    const [branch] = extractQuotedTokens(block)
+    if (branch !== undefined && switchTo(branch) === block) {
+      return attempt(() => repo.switchTo(branch))
+    }
+    return undefined
+  }
+
+  if (block.startsWith("git branch -q -D ")) {
+    const [branch] = extractQuotedTokens(block)
+    if (branch !== undefined && deleteBranch(branch) === block) {
+      return attempt(() => repo.deleteBranch(branch))
+    }
+    return undefined
+  }
+
+  if (block.startsWith("if ! git push --force ")) {
+    const [remote, refspec] = extractQuotedTokens(block)
+    const ref = refspec?.split(":")[0]
+    if (remote !== undefined && ref !== undefined && pushRef(remote, ref) === block) {
+      const failure = repo.pushRef(remote, ref)
+      if (failure === undefined) return { kind: "applied" }
+      const retry = extractQuotedTokens(block)[3]!
+      return { kind: "failed", error: `${failure}\n${retry}`, status: 1 }
+    }
+    return undefined
+  }
+
+  if (block.startsWith("gtd_ship_parent=")) {
+    const [parent, branch, history, shipMessage, message] = extractQuotedTokens(block)
+    if (
+      parent === undefined ||
+      branch === undefined ||
+      history === undefined ||
+      shipMessage === undefined ||
+      message === undefined ||
+      shipCommit(branch, parent, shipMessage, history, message) !== block
+    ) {
+      return undefined
+    }
+    const failure = repo.shipCommit(branch, parent, shipMessage, history, message)
+    return failure === undefined
+      ? { kind: "applied" }
+      : { kind: "failed", error: failure, status: 1 }
   }
 
   if (block.startsWith("git update-ref -d ")) {
@@ -373,6 +460,35 @@ const recognizeModeCommand = (
   const bound =
     scripted.kind === "rewrite" && scripted.file === "$GTD_FILE" ? { ...scripted, file } : scripted
   return recognizeScriptedCommand(repo, new Map([[command, bound]]), command)
+}
+
+const FAIL_REST_MIDDLE = '\n} 2>&1 )" || gtd_run_status=$?\n'
+
+/** A `run(…, { onFail: "rest" })` body: the inner script's failure is recorded in the tree and the block itself succeeds. */
+// fallow-ignore-next-line complexity
+const recognizeFailRest = (
+  repo: InMemRepo,
+  commands: CommandTable,
+  block: string,
+): BlockOutcome | undefined => {
+  if (!block.startsWith("rm -f -- '") || !block.includes("gtd_run_out=")) return undefined
+  const [path] = extractQuotedTokens(block)
+  const headerEnd = block.indexOf('gtd_run_out="$( {\n')
+  const bodyEnd = block.indexOf(FAIL_REST_MIDDLE)
+  if (path === undefined || headerEnd === -1 || bodyEnd === -1) return undefined
+  const body = block.slice(headerEnd + 'gtd_run_out="$( {\n'.length, bodyEnd)
+  if (failRestScript(body, path) !== block) return undefined
+  if (repo.readFile(path) !== undefined) repo.deleteFile(path)
+  const result = applyEmittedScript(repo, commands, body)
+  if (!result.ok && result.error?.startsWith(UNRECOGNIZED_PREFIX)) {
+    return { kind: "failed", error: `${result.output}${result.error}` }
+  }
+  if (!result.ok) {
+    // Mirrors `$(…)` (strips trailing newlines) and the script's `tail -n 50`.
+    const lines = result.output.replace(/\n+$/, "").split("\n")
+    repo.writeFile(path, `exit ${result.status}\n${lines.slice(-50).join("\n")}\n`)
+  }
+  return { kind: "noop", output: result.output }
 }
 
 const FAILURE_PROMPT_HEADER = 'gtd_validate_status=0\ngtd_validate_out="$( {\n'
@@ -728,6 +844,7 @@ const recognizersFor = (
   (block) => (git ? recognizeGitBuilders(repo, block) : undefined),
   (block) => recognizeWriteLines(repo, block),
   (block) => recognizePinScripts(repo, block),
+  (block) => recognizeFailRest(repo, commands, block),
   (block) => recognizeFailurePromptWrapper(repo, commands, block),
   (block) => recognizePresentationSubshell(repo, commands, block, git),
   (block) => recognizeModeContradictionSkipNotice(block),

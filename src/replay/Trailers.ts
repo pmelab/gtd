@@ -118,6 +118,10 @@ export interface CommitMessage {
   readonly pin: PinChange | undefined
   /** `Gtd-Anchor`, on a repin's commit: replay sets aside every commit after this one; a non-hash value is skipped. */
   readonly anchor: string | undefined
+  /** `Gtd-Shipped`, on a ship step's landing: the commit it put on the user's branch. */
+  readonly shipped: string | undefined
+  /** `Gtd-Tip`, on a shipped commit: the process commit whose tree it carries. */
+  readonly tip: string | undefined
   readonly format: number
 }
 
@@ -178,6 +182,8 @@ interface Trailers {
   approved: Approval | undefined
   pin: PinChange | undefined
   anchor: string | undefined
+  shipped: string | undefined
+  tip: string | undefined
   readonly judge: JudgeVerdict[]
   readonly marks: Mark[]
   readonly vars: Record<string, string>
@@ -228,6 +234,12 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
   "Gtd-Anchor": (value, into) => {
     if (HASH_RE.test(value)) into.anchor ??= value
   },
+  "Gtd-Shipped": (value, into) => {
+    if (HASH_RE.test(value)) into.shipped ??= value
+  },
+  "Gtd-Tip": (value, into) => {
+    if (HASH_RE.test(value)) into.tip ??= value
+  },
   "Gtd-Format": (value, into) => {
     if (FORMAT_RE.test(value)) into.format ??= Number(value)
   },
@@ -250,6 +262,8 @@ export const parseCommitMessage = (message: string): CommitMessage => {
     approved: undefined,
     pin: undefined,
     anchor: undefined,
+    shipped: undefined,
+    tip: undefined,
     judge: [],
     marks: [],
     vars: {},

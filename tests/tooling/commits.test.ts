@@ -81,7 +81,9 @@ describe("PR commit check", () => {
     )
     expect(run.output).not.toContain("✖")
     expect(run.status).toBe(0)
-  })
+    // First commitlint run in the file pays the npx cold start; under a loaded
+    // parallel gate it outran the 30s default.
+  }, 120_000)
 
   it.each([
     ["a non-conventional subject", "Update the readme", "type-empty"],

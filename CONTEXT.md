@@ -234,11 +234,11 @@ position. _Avoid_: inline thread, comment thread
 **Open thread**: A thread whose last entry is the agent's — it waits on the
 human. _Avoid_: unanswered thread
 
-**Squash**: Not an engine concept — gtd never rewrites history. A process ends
-with ordinary commits, keeping every turn; a squash (or an amend, or a PR body)
-is something a human or a driver may still do afterward, outside gtd, using
-`gtd summary`'s prompt to write the message. The turns survive it: see
-[process history](#process-history).
+**Ship**: A `ship()` step: one commit on the user's branch `<b>` carrying the
+process's tree minus `.gtd/`, made while the process keeps every turn on
+`gtd/<b>`. gtd never rewrites history — the ship is a new commit, and the turns
+stay reachable through the `Gtd-History` ref it names. _Avoid_: squash (no
+commit is rewritten), merge, release
 
 **Memory scope**: The span of a process over which one agent conversation
 persists — a step name up to its last dot, i.e. its `scope()` prefixes (`root`

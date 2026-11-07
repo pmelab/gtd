@@ -94,7 +94,7 @@
         "reason": "The mod's glue to Claude Code runs only inside Claude Code, so no vitest run covers it and every CRAP score here is the uncovered worst case. The ceiling stops it from growing; logic belongs in the tested modules beside it."
       },
       {
-        "files": ["claude/hooks/drive.ts", "claude/hooks/ship.ts", "claude/hooks/handoff.ts"],
+        "files": ["claude/hooks/drive.ts", "claude/hooks/handoff.ts"],
         "maxCrap": 60,
         "reason": "claude/hooks/*.test.ts cover these helpers through their exported callers; fallow's estimate without coverage data counts only exports as reached."
       }

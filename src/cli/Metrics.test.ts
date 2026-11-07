@@ -233,8 +233,9 @@ const land = async (repo: InMemRepo, files: Record<string, string>): Promise<str
     (JSON.parse(stdout) as { script: string }).script,
   )
   if (!outcome.ok) throw new Error(outcome.error)
+  const branch = repo.branchName()
   await takePinBeat(repo, "remove")
-  return repo.resolveRef("HEAD")!
+  return repo.resolveRef(`refs/heads/${branch}`)!
 }
 
 describe("readProcessMetrics", () => {

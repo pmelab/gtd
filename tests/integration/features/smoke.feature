@@ -81,9 +81,10 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     Then it succeeds
     And the last commit subject is "gtd(check): applying → gtd:unpin"
     And I run the unpin beat
-    And the last commit subject is "gtd(check): gtd:unpin → idle"
+    And the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
     And ".gtd/REQUIREMENTS.md" does not exist
-    And "src/feature.ts" exists
+    And "src/feature.ts" does not exist
 
   Scenario: gtd next --json reports state, actor, kind, and content
     Given a test project
@@ -131,11 +132,13 @@ Feature: v3 pattern-machine smoke — one-flow hops, gtd next --json, an ordinar
     Then it succeeds
     And the last commit subject is "gtd(agent): working → gtd:unpin"
     And I run the unpin beat
-    And the last commit subject is "gtd(check): gtd:unpin → idle"
-    And "NOTE.md" exists
+    And the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
+    And "NOTE.md" does not exist
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"idle\":true"
-    # both turn commits and the pin and unpin beats stay on the branch — no
+    # both turn commits and the pin and unpin beats stay on gtd/main — no
     # collapse.
-    And the commit count increased by 4
+    Given the branch "gtd/main" is checked out
+    Then the commit count increased by 4

@@ -53,6 +53,7 @@ describe("@pmelab/gtd/flows", () => {
         "sections",
         "settings",
         "settingsOf",
+        "ship",
         "showScript",
         "skillsFor",
         "start",

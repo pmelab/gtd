@@ -1,6 +1,7 @@
 export { planStep, type JudgeVerdict } from "./planStep.js"
 export { accessRefusal } from "./accessRefusal.js"
 export { planStart } from "./planStart.js"
+export { startBranchFor, GTD_BRANCH_PREFIX, userBranchOf } from "./startBranch.js"
 export type { GitWrite, LandStep, Outcome } from "./LandStep.js"
 export type { Landing, RepoSnapshot } from "./RepoSnapshot.js"
 export { strayPaths } from "./strayPaths.js"

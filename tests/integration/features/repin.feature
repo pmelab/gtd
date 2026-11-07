@@ -259,7 +259,8 @@ Feature: gtd repin — switch a running process to the live engine and workflow
     Then stdout contains "\"state\":\"gtd:unpin\""
     When I run the unpin beat
     Then it succeeds
-    And the last commit subject is "gtd(check): gtd:unpin → idle"
+    And the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
 
   @inmem
   Scenario: a second repin on top of an anchor

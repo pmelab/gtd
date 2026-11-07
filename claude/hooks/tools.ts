@@ -10,7 +10,6 @@ export const TOOL = {
   continue: "mcp__gtd__continue",
   note: "mcp__gtd__note",
   handoff: "mcp__gtd__handoff",
-  ship: "mcp__gtd__ship",
   browser: "mcp__gtd__browser",
 } as const
 
@@ -45,12 +44,6 @@ export const TOOLS = [
     inputSchema: { type: "object", properties: { to: { type: "string" } } },
   },
   {
-    name: "ship",
-    description:
-      "Combines the finished gtd process into one commit, pushes it and opens or updates its pull request. Call it only after the person agreed. `dryRun` previews without writing anything.",
-    inputSchema: { type: "object", properties: { dryRun: { type: "boolean" } } },
-  },
-  {
     name: "browser",
     description:
       "Starts gtd's browser view of the step it waits at and returns its address. Call it only when the person wants it.",
@@ -71,21 +64,21 @@ export type ContinueIo = {
   // the rest's own `gtd validate` script, run; ok when there is nothing to check
   validate(): Promise<{ ok: boolean; out: string }>
   judgment(): Promise<Judgment | undefined>
-  // a ship or hand-off running or queued: it writes the tree the driver would
+  // a hand-off running or queued: it writes the tree the driver would
   busy?: JobName
 }
 
-export type JobName = "ship" | "handoff"
+export type JobName = "handoff"
 
-export const JOB_NAME: Record<JobName, string> = { ship: "ship", handoff: "hand-off" }
+export const JOB_NAME: Record<JobName, string> = { handoff: "hand-off" }
 
 const busyText = (job: JobName) => `A ${JOB_NAME[job]} is still running: wait for its report.`
 
-// Only these leave the tree alone (ship and throw refuse for themselves); any
+// Only these leave the tree alone (throw refuses for itself); any
 // other verb, unknown ones included, may switch branch or write .gtd/. `stop`
 // is not here: `command` takes the bare word itself, and `stop <words>` is a
 // requirement. `ui` is not: its page writes steering files.
-const WHILE_BUSY = new Set(["status", "throw", "ship"])
+const WHILE_BUSY = new Set(["status", "throw"])
 
 export function decideCommand(arg: string, busy: JobName | undefined): string | undefined {
   if (!busy) return undefined
@@ -94,13 +87,9 @@ export function decideCommand(arg: string, busy: JobName | undefined): string | 
 }
 
 // Pure: a refused job leaves the run, and so `continue`, as it was.
-export function decideJob(run: Run, job: JobName): string | undefined {
+export function decideJob(run: Run): string | undefined {
   if (run.isRunning) return "gtd is running a step: wait for it to rest."
   if (run.pending) return "A continue is already waiting for this turn to end."
-  const kind = run.stop?.kind
-  if (job === "ship" && (kind === "gate" || kind === "stalled" || kind === "error")) {
-    return "gtd still waits on the person at this step: answer it with continue first."
-  }
   return undefined
 }
 
@@ -116,9 +105,7 @@ export async function decideContinue(
   if (io.busy) return { refuse: busyText(io.busy) }
   const stop = run.stop
   if (!stop) return { refuse: "Nothing is waiting: gtd has no rest open. /gtd drives it." }
-  if (stop.kind === "done") {
-    return { refuse: `The process is finished: ${TOOL.ship} opens its pull request.` }
-  }
+  if (stop.kind === "done") return { refuse: "The process is finished: nothing waits here." }
   if (rest !== undefined && rest !== run.rest) {
     return {
       refuse: "gtd has moved on from that step; it no longer waits there. Nothing was changed.",

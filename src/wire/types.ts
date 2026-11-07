@@ -55,4 +55,8 @@ export interface RenderedDemandSource {
   readonly skills?: readonly string[]
   readonly access?: StepAccess
   readonly pin?: PinMark
+  /** The recorded output of a failed `onFail: "rest"` run, shown at the stalled beat. */
+  readonly failure?: string
+  /** Why landing a ship step is refused, shown at the stalled beat. */
+  readonly blocked?: string
 }

@@ -362,24 +362,19 @@ questions one at a time, answers your own questions about the plan or the diff,
 records what you decide in the steering file the way the step asks, and moves
 the process on only when you say so; a review you leave untouched signs off.
 While a step runs you can keep asking; requests for changes wait for the next
-rest. When the process finishes, Claude offers to squash it and open its pull
-request (or run `/gtd ship`: one commit under one pull request, see the
-[driver doc](docs/driver.md)); a process started for an issue ships with
-`Closes #N` on its pull request; a closed pull request whose branch was deleted
-from origin is left behind and a new one opens. A process can change hands at
-any gate: ask Claude to hand it off (or run `/gtd throw @dev`) and it opens a
-draft pull request assigned to them, and `/gtd catch <pr>` picks it up exactly
-where it waits, so whoever wrote the requirements can hand the build to someone
-else. `/gtd pr` brings a pull request's unresolved review threads into the
-review: each becomes a note in `.gtd/REVIEW.md` ticked "fix as suggested"
-(untick it for "won't fix" plus a reason, or your own answer), the review door
-fixes them in place, and each thread then gets a reply naming the fixing commit
-(or your reason) and is resolved. Ship, hand-off and throw answer at once and
-run in the background, with progress on the status line; they report by waking
-Claude, a toast, a transcript line and a push notification, and a failed push or
-`gh` call reports as a failure. While a ship or hand-off runs or is queued,
-`/gtd catch`, the doors, `/gtd <requirements>` and bare `/gtd` wait for its
-report. See
+rest. A process can change hands at any gate: ask Claude to hand it off (or run
+`/gtd throw @dev`) and it opens a draft pull request assigned to them, and
+`/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote the
+requirements can hand the build to someone else. `/gtd pr` brings a pull
+request's unresolved review threads into the review: each becomes a note in
+`.gtd/REVIEW.md` ticked "fix as suggested" (untick it for "won't fix" plus a
+reason, or your own answer), the review door fixes them in place, and each
+thread then gets a reply naming the fixing commit (or your reason) and is
+resolved. Hand-off and throw answer at once and run in the background, with
+progress on the status line; they report by waking Claude, a toast, a transcript
+line and a push notification, and a failed push or `gh` call reports as a
+failure. While a hand-off runs or is queued, `/gtd catch`, the doors,
+`/gtd <requirements>` and bare `/gtd` wait for its report. See
 [Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
 
 ### Then let an agent build your own
@@ -499,14 +494,28 @@ or `.gitmodules` `ignore` say. Works in any git repository, no process needed.
 
 ## Process history
 
+Every process runs on the branch `gtd/<b>`, never on your branch `<b>`: starting
+creates it (or reuses one whose commits are on `<b>` or in a kept history ref;
+any other `gtd/<b>` is refused). A finished process switches HEAD back to `<b>`,
+and gtd moves `<b>` only when the workflow calls `ship()`, which squashes the
+process onto `<b>` as one commit (see
+[Shipping](docs/configuration.md#shipping)); what it committed after its last
+ship stays on `gtd/<b>`. `gtd abandon` switches back to `<b>` with the unshipped
+work uncommitted and deletes `gtd/<b>`; `gtd restore` recreates it. The closing
+commit records `Gtd-Branch: <b>`.
+
 When a process finishes, the landing that closes it also keeps the whole run
 behind a ref, `refs/gtd/history/<entry>`, so a squash or a deleted branch
-doesn't lose it. `/gtd ship` pushes this process's own ref to origin alongside
-the branch (never the others) and writes a `Gtd-History: <ref>` trailer on the
-squashed commit. The push is forced, so it replaces origin's copy of that one
-ref. If that push fails, the ship fails and nothing is squashed. Recover the
-full trail with `s=$(gtd history fetch --json=script) && sh -c "$s"`, then
+doesn't lose it. A `ship()` step writes the ref too, and names it in a
+`Gtd-History: <ref>` trailer on the commit it puts on `<b>`. Recover the full
+trail with `s=$(gtd history fetch --json=script) && sh -c "$s"`, then
 `gtd history show <ref>`.
+
+`gtd abandon` keeps `refs/gtd/history/<entry>` at the abandoned tip too; history
+lists and counts it like a finished one. Set `historyRemote` in the `config`
+export to a remote name and every finish, ship and abandon force-pushes its ref
+there; a failed push exits non-zero after the commit landed and prints the
+retry.
 
 ```sh
 gtd history list                 # one line per kept process
@@ -586,7 +595,7 @@ gtd history judges --jsonl > judges.jsonl
 ```
 
 `gtd history fetch` only prints a fetch script; pipe it into `sh` to run it.
-Beyond that one ship push, refs are not pushed or fetched by default. The ref
+Without `historyRemote`, refs are not pushed or fetched by default. The ref
 holds every step commit, including steering files and code a later step removed,
 so anyone who can fetch the remote can read it. To share the rest:
 
@@ -597,7 +606,7 @@ git config --add remote.origin.fetch 'refs/gtd/history/*:refs/gtd/history/*'
 
 The second line makes every plain `git fetch` include them. It has no leading
 `+`, so a conflicting local ref fails instead of being overwritten: after a
-forced `/gtd ship` push, a clone holding the old tip deletes its local ref
+forced `historyRemote` push, a clone holding the old tip deletes its local ref
 (`git update-ref -d <ref>`) and fetches again.
 
 A step declared with `keep: true` files its turn under `refs/gtd/kept/` instead

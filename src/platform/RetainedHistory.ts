@@ -4,6 +4,9 @@ import type { GitOperations } from "./Git.js"
 /** Per-worktree (`refs/worktree/gtd/*`) so linked worktrees sharing one `.git` don't clobber each other's retained history. */
 export const HISTORY_REF = "refs/worktree/gtd/history"
 
+/** Set by an abandon that left `gtd/<b>` for `<b>`: only then does restore recreate `gtd/<b>`. */
+export const RESUME_BRANCH_REF = "refs/worktree/gtd/history-branch"
+
 /** One ref per finished process, kept past the branch's deletion; distinct from the per-worktree `HISTORY_REF`. */
 export const PROCESS_HISTORY_PREFIX = "refs/gtd/history/"
 

@@ -32,7 +32,8 @@ Feature: a repository without a package.json runs its workflows
     Then it succeeds
     And the last commit subject is "gtd(agent): working → gtd:unpin"
     When I run the unpin beat
-    Then the last commit subject is "gtd(check): gtd:unpin → idle"
+    Then the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"idle\":true"

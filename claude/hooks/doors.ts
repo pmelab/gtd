@@ -2,7 +2,7 @@
 // prints the script that starts one; running it is the driver's job, as with
 // every git write gtd plans. The mod hardcodes no door: it asks gtd.
 
-import type { ShipIo, Shipped } from "./ship"
+import type { GitIo, Done } from "./git"
 
 export type Door = {
   name: string
@@ -10,12 +10,12 @@ export type Door = {
   args: { name: string; optional: boolean }[]
 }
 
-const fail = (text: string): Shipped => ({ ok: false, text })
+const fail = (text: string): Done => ({ ok: false, text })
 
 type Startable = { kind: "workflow"; name: string } | ({ kind: "door" } & Door)
 
 // Every door the repository offers; none when gtd cannot say.
-export async function doors(io: ShipIo): Promise<Door[]> {
+export async function doors(io: GitIo): Promise<Door[]> {
   const listed = await io.run(["gtd", "start", "--json"])
   if (listed.code !== 0) return []
   try {
@@ -27,7 +27,7 @@ export async function doors(io: ShipIo): Promise<Door[]> {
   }
 }
 
-export async function enter(io: ShipIo, name: string, args: string[]): Promise<Shipped> {
+export async function enter(io: GitIo, name: string, args: string[]): Promise<Done> {
   const argv = ["gtd", "start", name, ...args]
   const planned = await io.run(argv)
   if (planned.code !== 0)

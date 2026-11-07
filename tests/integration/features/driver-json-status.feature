@@ -646,7 +646,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     Then it succeeds
     And stdout contains "\"settled\":false"
 
-  Scenario: gtd land lands an ordinary commit for a green re-entry into the initial state — HEAD never moves backward
+  Scenario: gtd land lands an ordinary commit for a green re-entry into the initial state — the closing commit lands on gtd/<b>, HEAD back on <b>
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -669,5 +669,5 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     And the commit count increased by 3
     And the last commit subject is "gtd(check): checking → gtd:unpin"
     When I run the unpin beat
-    Then the commit count increased by 4
-    And the last commit subject is "gtd(check): gtd:unpin → idle"
+    Then the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"

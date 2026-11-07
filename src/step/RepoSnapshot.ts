@@ -1,5 +1,6 @@
 import type { CommitSpec } from "../replay/index.js"
 import type { PendingChange, StateName, StepDef } from "../workflow/index.js"
+import type { ShipSpec } from "./LandStep.js"
 
 /**
  * What landing the pending turn does, decided at the edge by replaying the
@@ -19,6 +20,16 @@ export type Landing =
       readonly keepHistory?: string
       /** The kept ref this landing's turn goes to; the branch gets a marker commit instead. */
       readonly keepTurn?: string
+      /** The `gtd/<b>` branch a starting landing switches to before it commits. */
+      readonly startBranch?: string
+      /** The user's branch `<b>` a finishing landing switches back to, after its history ref. */
+      readonly leaveBranch?: string
+      /** A remote the closing or shipping landing force-pushes its history ref to, after the commit. */
+      readonly pushHistory?: string
+      /** A ship step's squash onto the user's branch, made ahead of the landing commit. */
+      readonly ship?: ShipSpec
+      /** Printed after the landing: why a ship step shipped nothing. */
+      readonly note?: string
       /** The one path this landing commits; every other pending change stays pending. */
       readonly only?: string
     }

@@ -48,7 +48,8 @@ Feature: the return-lap stop is the human's silence, not a round cap
     # Back at the first step, the process ends: it lands at the unpin.
     And the last commit subject is "gtd(human): answering → gtd:unpin"
     When I run the unpin beat
-    Then the last commit subject is "gtd(check): gtd:unpin → drafting"
+    Then the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → drafting"
 
   Scenario: editing the qa file itself with the question left unticked is still refused
     Given a file ".gtd/TODO.md" with:

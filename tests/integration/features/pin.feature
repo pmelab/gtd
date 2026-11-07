@@ -94,9 +94,10 @@ Feature: Pin and unpin beats — a process commits the engine and workflow it ru
     And stdout contains "\"state\":\"gtd:unpin\""
     When I run the unpin beat
     Then it succeeds
-    And the last commit subject is "gtd(check): gtd:unpin → idle"
-    And the last commit body contains "Gtd-Pin: remove"
-    And the last commit body contains "Gtd-Version:"
+    And the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
+    And the branch "gtd/main" tip message contains "Gtd-Pin: remove"
+    And the branch "gtd/main" tip message contains "Gtd-Version:"
     And ".gtd/process.gtdpin" does not exist
     And the git status is clean
     When I run gtd next with "--json=idle"
@@ -147,7 +148,8 @@ Feature: Pin and unpin beats — a process commits the engine and workflow it ru
     Then the last commit subject is "gtd(agent): building → gtd:unpin"
     When I run the unpin beat
     Then it succeeds
-    And the last commit subject is "gtd(check): gtd:unpin → idle"
+    And the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
     When I run gtd next with "--json=idle"
     Then stdout is:
       """

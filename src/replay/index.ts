@@ -6,7 +6,7 @@ export {
   type ReachedStep,
   type ReplayOutcome,
 } from "./Replay.js"
-export { treeFromRecord, type TreeView } from "./Tree.js"
+export { diffTrees, treeFromRecord, type TreeView } from "./Tree.js"
 export {
   formatCommitMessage,
   formatStepId,

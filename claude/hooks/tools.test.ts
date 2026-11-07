@@ -79,7 +79,7 @@ describe("continue", () => {
     expect(refusals.map((r) => r.refuse)).toEqual([
       "gtd is already running a step.",
       "Nothing is waiting: gtd has no rest open. /gtd drives it.",
-      `The process is finished: ${TOOL.ship} opens its pull request.`,
+      "The process is finished: nothing waits here.",
     ])
   })
 
@@ -111,29 +111,17 @@ describe("continue", () => {
   })
 })
 
-describe("ship and hand-off", () => {
-  const stalled: Stop = { kind: "stalled", text: "stuck", state: "design.gate" }
-  const error: Stop = { kind: "error", text: "boom", state: "design.gate" }
+describe("hand-off", () => {
   const done: Stop = { kind: "done", text: "finished" }
 
-  test.each([
-    ["gate", gate],
-    ["stuck step", stalled],
-    ["failure", error],
-  ])("ship at a %s is refused without touching the run", async (_n, stop) => {
-    const run = at(stop)
+  test("is refused while a continue is queued, without touching the run", () => {
+    const run = at(gate, { pending: { rest: "abc:design.gate" } })
     const before = structuredClone(run)
-    expect(decideJob(run, "ship")).toEqual(expect.any(String))
+    expect(decideJob(run)).toEqual(expect.any(String))
     expect(run).toEqual(before)
   })
 
-  test.each(["ship", "handoff"] as const)("%s is refused while a continue is queued", (job) => {
-    expect(decideJob(at(gate, { pending: { rest: "abc:design.gate" } }), job)).toEqual(
-      expect.any(String),
-    )
-  })
-
-  test("continue is refused while a ship or hand-off runs or is queued", async () => {
+  test("continue is refused while a hand-off runs or is queued", async () => {
     const next = await decideContinue(at(gate), undefined, undefined, {
       ...fake().io,
       busy: "handoff",
@@ -141,17 +129,14 @@ describe("ship and hand-off", () => {
     expect(next.refuse).toMatch(/hand-off/)
   })
 
-  test.each(["ship", "handoff"] as const)("%s is refused while a step runs", (job) => {
-    expect(decideJob(at(gate, { isRunning: true }), job)).toEqual(expect.any(String))
+  test("is refused while a step runs", () => {
+    expect(decideJob(at(gate, { isRunning: true }))).toEqual(expect.any(String))
   })
 
-  test("ship is allowed at a done stop and with no stop", () => {
-    expect(decideJob(at(done), "ship")).toBeUndefined()
-    expect(decideJob(at(undefined as unknown as Stop, { stop: undefined }), "ship")).toBeUndefined()
-  })
-
-  test("hand-off is allowed at a gate", () => {
-    expect(decideJob(at(gate), "handoff")).toBeUndefined()
+  test("is allowed at a gate, a done stop and with no stop", () => {
+    expect(decideJob(at(gate))).toBeUndefined()
+    expect(decideJob(at(done))).toBeUndefined()
+    expect(decideJob(at(undefined as unknown as Stop, { stop: undefined }))).toBeUndefined()
   })
 })
 
@@ -176,18 +161,13 @@ describe("decideCommand", () => {
     "stop now",
     "ui",
   ]
-  const allowed = ["status", "throw @dev", "throw", "ship", "ship -n"]
+  const allowed = ["status", "throw @dev", "throw"]
 
-  test.each(refused)("refuses %j while a ship runs", (arg) => {
-    expect(decideCommand(arg, "ship")).toBe("A ship is still running: wait for its report.")
-  })
-  test("names a running hand-off", () => {
-    expect(decideCommand("catch 12", "handoff")).toBe(
-      "A hand-off is still running: wait for its report.",
-    )
+  test.each(refused)("refuses %j while a hand-off runs", (arg) => {
+    expect(decideCommand(arg, "handoff")).toBe("A hand-off is still running: wait for its report.")
   })
   test.each(allowed)("lets %j through while busy", (arg) => {
-    expect(decideCommand(arg, "ship")).toBeUndefined()
+    expect(decideCommand(arg, "handoff")).toBeUndefined()
   })
   test("lets everything through when idle", () => {
     expect(decideCommand("catch 12", undefined)).toBeUndefined()

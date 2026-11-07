@@ -108,7 +108,7 @@ describe("planStart", () => {
       repo.seedCommit("feat: ahead of main")
       const plan = await start(repo, "idle", "human", { ...REVIEW, vars: {} })
       if (plan.kind !== "start") throw new Error(`expected start, got ${JSON.stringify(plan)}`)
-      const write = plan.steps.find((s) => s.kind === "gitWrite")
+      const write = plan.steps.find((s) => s.kind === "gitWrite" && s.write.kind === "commitAll")
       if (write?.kind !== "gitWrite" || write.write.kind !== "commitAll")
         throw new Error("expected a gitWrite step")
       expect(write.write.message).toContain(`Gtd-Review-Base: ${fork}`)
@@ -125,7 +125,7 @@ describe("planStart", () => {
       repo.seedCommit("feat: my branch")
       const plan = await start(repo, "idle", "human", { ...REVIEW, vars: { base: "other" } })
       if (plan.kind !== "start") throw new Error(`expected start, got ${JSON.stringify(plan)}`)
-      const write = plan.steps.find((s) => s.kind === "gitWrite")
+      const write = plan.steps.find((s) => s.kind === "gitWrite" && s.write.kind === "commitAll")
       if (write?.kind !== "gitWrite" || write.write.kind !== "commitAll")
         throw new Error("expected a gitWrite step")
       expect(write.write.message).toContain(`Gtd-Review-Base: ${fork}`)
@@ -172,6 +172,7 @@ describe("planStart", () => {
     if (plan.kind !== "start") throw new Error(`expected start, got ${plan.kind}`)
     expect(plan.subject).toBe("gtd(human): work")
     expect(plan.steps).toEqual([
+      { kind: "gitWrite", write: { kind: "switchBranch", branch: "gtd/main" } },
       {
         kind: "gitWrite",
         write: {
@@ -191,7 +192,7 @@ describe("planStart", () => {
       vars: { base: "main" },
     })
     if (plan.kind !== "start") throw new Error(`expected start, got ${plan.kind}`)
-    const write = plan.steps.find((s) => s.kind === "gitWrite")
+    const write = plan.steps.find((s) => s.kind === "gitWrite" && s.write.kind === "commitAll")
     if (write?.kind !== "gitWrite" || write.write.kind !== "commitAll")
       throw new Error("expected a gitWrite step")
     expect(write.write.message).toBe(

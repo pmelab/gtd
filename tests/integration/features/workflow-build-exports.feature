@@ -64,7 +64,8 @@ Feature: a workflow factory's build carries skills, access, steering and summary
     Then it succeeds
     And the last commit subject is "gtd(agent): building → gtd:unpin"
     And I run the unpin beat
-    And the last commit subject is "gtd(check): gtd:unpin → idle"
+    And the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
     When I run gtd with args "summary"
     Then it succeeds
     And stdout contains "Built summary for"

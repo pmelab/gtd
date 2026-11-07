@@ -2,18 +2,16 @@ import { describe, expect, test } from "vitest"
 
 import { doorFor, doors, enter } from "./doors"
 import type { Door } from "./doors"
-import type { Ran, ShipIo } from "./ship"
+import type { Ran, GitIo } from "./git"
 
 const repo = (script: Record<string, Partial<Ran>>) => {
   const calls: string[] = []
-  const io: ShipIo = {
+  const io: GitIo = {
     run: async (argv) => {
       calls.push(argv.join(" "))
       return { code: 0, out: "", err: "", ...script[argv.join(" ")] }
     },
-    complete: async () => undefined,
     log: () => {},
-    today: () => "2026-10-03",
   }
   return { calls, io }
 }

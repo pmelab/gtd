@@ -1694,7 +1694,9 @@ export default async () => {
     const { exitCode, script } = await landAndApply(repo)
     expect(exitCode).toBe(0)
     expect(script).not.toContain("fmt-notes")
-    expect(repo.lastCommitSubject("HEAD~1")).toBe("gtd(agent): drafting → gtd:unpin")
+    expect(repo.lastCommitSubject(`${repo.resolveRef("gtd/main")}~1`)).toBe(
+      "gtd(agent): drafting → gtd:unpin",
+    )
   })
 
   it("`gtd next --json`'s `validate` field carries the mode's format command", async () => {
@@ -1974,7 +1976,7 @@ export default async () => {
   it("refuses once the process has closed and HEAD rests at the initial step again", async () => {
     const repo = await atDeciding()
     await landTurn(repo)
-    expect(repo.lastCommitSubject()).toBe("gtd(check): gtd:unpin → idle")
+    expect(repo.lastCommitSubject("gtd/main")).toBe("gtd(check): gtd:unpin → idle")
 
     const { exitCode, stdout, stderr } = await run(repo, "base")
     expect(exitCode).toBe(1)

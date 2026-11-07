@@ -54,14 +54,24 @@ export const beatKindOf = (input: {
  * `stalled at "<state>"` stays a stable substring (see
  * `tests/integration/features/driver-doc.feature`).
  */
-export const stallDiagnosis = (state: StateName, actor: Actor): string =>
-  `stalled at "${state}": the last gtd(${actor}): ${state} turn landed an empty ` +
-  `attempt, the tree is clean, and another dispatch would repeat it.\n\n` +
-  `Two ways out:\n` +
-  `  - sharpen the step's prompt so the turn has something concrete to author\n` +
-  `  - pass allowEmpty: true to the step, so an empty turn completes it and the\n` +
-  `    flow decides what follows — finishing, or an escalation step after N\n` +
-  `    empty turns\n`
+export const stallDiagnosis = (
+  state: StateName,
+  actor: Actor,
+  failure?: string,
+  blocked?: string,
+): string =>
+  blocked !== undefined
+    ? `stalled at "${state}": landing this ship step is refused.\n\n${blocked}\n`
+    : failure !== undefined
+      ? `stalled at "${state}": the script exited non-zero and its failure is recorded in the tree. ` +
+        `Change the tree to run the script again; the step advances only on a zero exit.\n\n${failure}`
+      : `stalled at "${state}": the last gtd(${actor}): ${state} turn landed an empty ` +
+        `attempt, the tree is clean, and another dispatch would repeat it.\n\n` +
+        `Two ways out:\n` +
+        `  - sharpen the step's prompt so the turn has something concrete to author\n` +
+        `  - pass allowEmpty: true to the step, so an empty turn completes it and the\n` +
+        `    flow decides what follows — finishing, or an escalation step after N\n` +
+        `    empty turns\n`
 
 /** One dispatch session — `resume`'s own meaning lives with `src/wire/Sessions.ts`'s `resolveSession`, which produces it. */
 export interface DemandSession {
@@ -100,7 +110,7 @@ export type Demand =
 export const demandOf = (input: {
   readonly rendered: Pick<
     RenderedDemandSource,
-    "actor" | "content" | "state" | "skills" | "access" | "pin"
+    "actor" | "content" | "state" | "skills" | "access" | "pin" | "failure" | "blocked"
   >
   readonly kind: BeatKind
   readonly session?: DemandSession
@@ -108,7 +118,9 @@ export const demandOf = (input: {
 }): Demand => {
   const { rendered, kind, session, validate } = input
   const content =
-    kind === "stalled" ? stallDiagnosis(rendered.state, rendered.actor) : rendered.content
+    kind === "stalled"
+      ? stallDiagnosis(rendered.state, rendered.actor, rendered.failure, rendered.blocked)
+      : rendered.content
   const skills =
     rendered.skills !== undefined && rendered.skills.length > 0 ? rendered.skills : undefined
   const access = rendered.access ?? { read: null, write: null }

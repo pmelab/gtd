@@ -10,6 +10,9 @@ import {
 import { runCli } from "./index.js"
 import { historyEntries, resolveHistoryRef, type HistoryEntry } from "./History.js"
 
+// A process runs on `gtd/<b>`; the recorded branch is the user's `<b>`.
+const USER_BRANCH = "main"
+
 const CONFIG = `import { agent, human } from "@pmelab/gtd/flows"
 
 export default async () => {
@@ -32,8 +35,9 @@ const land = async (repo: InMemRepo, files: Record<string, string>): Promise<str
     (JSON.parse(stdout) as { script: string }).script,
   )
   if (!outcome.ok) throw new Error(outcome.error)
+  const branch = repo.branchName()
   await takePinBeat(repo, "remove")
-  return repo.resolveRef("HEAD")!
+  return repo.resolveRef(`refs/heads/${branch}`)!
 }
 
 const finishedProcess = async (repo: InMemRepo, file: string) => {
@@ -82,7 +86,7 @@ describe("historyEntries", () => {
     expect(list.map((e) => e.entry)).toEqual([second.entry, first.entry])
     expect(list[0]).toMatchObject({
       ref: `refs/gtd/history/${second.entry}`,
-      branch: repo.branchName(),
+      branch: USER_BRANCH,
       tip: second.tip,
       subject: "gtd(human): idle → building",
     })
@@ -169,16 +173,14 @@ describe("gtd history list", () => {
     const text = await gtd(repo, "history", "list")
     const line = text.stdout.trimEnd().split("\n")
     expect(line).toHaveLength(1)
-    expect(
-      line[0]!.startsWith(`${hash.slice(0, 7)} ${repo.branchName()} ${tip.slice(0, 7)} `),
-    ).toBe(true)
+    expect(line[0]!.startsWith(`${hash.slice(0, 7)} ${USER_BRANCH} ${tip.slice(0, 7)} `)).toBe(true)
     expect(line[0]!.endsWith(" gtd(human): idle → building")).toBe(true)
     const json = await gtd(repo, "history", "list", "--json")
     expect(JSON.parse(json.stdout)).toEqual([
       expect.objectContaining({
         ref: `refs/gtd/history/${hash}`,
         entry: hash,
-        branch: repo.branchName(),
+        branch: USER_BRANCH,
         tip,
         subject: "gtd(human): idle → building",
       }),
@@ -195,7 +197,7 @@ describe("gtd history show", () => {
     expect(out.exitCode).toBe(0)
     const lines = out.stdout.trimEnd().split("\n")
     expect(lines[0]).toBe(
-      `refs/gtd/history/${hash} (branch ${repo.branchName()}, tip ${tip.slice(0, 7)})`,
+      `refs/gtd/history/${hash} (branch ${USER_BRANCH}, tip ${tip.slice(0, 7)})`,
     )
     expect(out.stdout).toContain("gtd(human): idle → building")
     expect(lines[lines.length - 1]).toBe("ended (return)")
@@ -206,7 +208,7 @@ describe("gtd history show", () => {
     const { entry: hash, tip } = await finishedProcess(repo, "a.txt")
     const out = await gtd(repo, "history", "show", hash, "--json")
     const doc = JSON.parse(out.stdout)
-    expect(doc).toMatchObject({ entry: hash, tip, ended: "return", branch: repo.branchName() })
+    expect(doc).toMatchObject({ entry: hash, tip, ended: "return", branch: USER_BRANCH })
     expect(doc.steps.length).toBeGreaterThan(0)
     expect(doc.version).toHaveProperty("running")
   })

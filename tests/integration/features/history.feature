@@ -31,11 +31,12 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
     And the last commit subject is "gtd(agent): building → gtd:unpin"
     And the last commit body does not contain "Gtd-Branch"
     When I run the unpin beat
-    Then the last commit subject is "gtd(check): gtd:unpin → idle"
-    And the last commit body contains "Gtd-Branch: main"
-    And the last commit body contains "Gtd-Version: "
-    And the last commit body contains "Gtd-Format: 4"
-    Given I mark the current commit as "tip"
+    Then the current branch is "main"
+    And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
+    And the branch "gtd/main" tip message contains "Gtd-Branch: main"
+    And the branch "gtd/main" tip message contains "Gtd-Version: "
+    And the branch "gtd/main" tip message contains "Gtd-Format: 4"
+    Given I mark the branch "gtd/main" tip as "tip"
     Then the history ref of "entry" points at "tip"
 
   @inmem
@@ -65,7 +66,7 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
     And gtd lands "gtd(agent): building → gtd:unpin"
     And I run the unpin beat
-    And I mark the current commit as "first-tip"
+    And I mark the branch "gtd/main" tip as "first-tip"
     And a file "NOTE.md" with:
       """
       Second.
@@ -79,7 +80,7 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
       """
     And gtd lands "gtd(agent): building → gtd:unpin"
     And I run the unpin beat
-    And I mark the current commit as "second-tip"
+    And I mark the branch "gtd/main" tip as "second-tip"
     Then the history ref of "first" points at "first-tip"
     And the history ref of "second" points at "second-tip"
     When I run gtd with args "history list --json"

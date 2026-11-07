@@ -8,6 +8,7 @@ export interface CompiledConfig {
   /** The built-in modes (qa/review, with gtd's own validators) merged with `config.modes`, per half. */
   readonly modes: Record<string, ModeDef>
   readonly ui?: UiSettings
+  readonly historyRemote?: string
   readonly skills: Readonly<Record<string, readonly string[]>>
   readonly access: GtdConfig["access"] & {}
   readonly diagnostics: readonly Diagnostic[]
@@ -48,6 +49,7 @@ export const compileConfig = (value: unknown, origin: string): CompiledConfig =>
   return {
     modes,
     ...(config.ui !== undefined ? { ui: config.ui } : {}),
+    ...(config.historyRemote !== undefined ? { historyRemote: config.historyRemote } : {}),
     // Null prototype: a `__proto__` key must stay an ordinary (reportable) entry.
     skills: Object.assign(Object.create(null), config.skills),
     access: Object.assign(Object.create(null), config.access),

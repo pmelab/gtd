@@ -12,6 +12,18 @@ export type GitWrite =
   | { readonly kind: "commitClean"; readonly message: string }
   | { readonly kind: "updateRef"; readonly ref: string; readonly target: "HEAD" }
   | { readonly kind: "keepTurn"; readonly ref: string; readonly message: string }
+  | { readonly kind: "switchBranch"; readonly branch: string }
+  | { readonly kind: "switchTo"; readonly branch: string }
+  | { readonly kind: "pushRef"; readonly remote: string; readonly ref: string }
+  | ({ readonly kind: "ship"; readonly message: string } & ShipSpec)
+
+/** A ship step's squash: `shipMessage` on `branch`, CAS against `parent`, its `Gtd-History` naming `historyRef`. */
+export interface ShipSpec {
+  readonly branch: string
+  readonly parent: string
+  readonly shipMessage: string
+  readonly historyRef: string
+}
 
 /** A landed step's trailing report, rendered by `GitScript.ts` into a `printf` line. */
 export type Outcome =

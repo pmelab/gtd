@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { viewport } from "../testing/browserContext.js"
+import { disableTransitions, viewport } from "../testing/browserContext.js"
 import { useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
 import type { DiffResult } from "../../ui/index.js"
@@ -643,6 +643,7 @@ export const ApproveRowMarksItsCheckedStateBeyondTheTickBox: StoryObj<typeof Tic
   render: () => <TickableHunk diff={RESOLVED_DIFF} />,
   play: async ({ canvasElement }) => {
     await viewport(390, 844)
+    disableTransitions()
     const canvas = within(canvasElement)
     const row = canvas.getByTestId("hunk-approve-row")
     await expect(row).toHaveTextContent("Approve this hunk")

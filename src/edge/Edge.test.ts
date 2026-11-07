@@ -100,7 +100,8 @@ const applied = (repo: InMemRepo, script: string): string => {
 /**
  * Lands the pending turn the way a driver does — `gtd land --json`, then its
  * script, then the pin or unpin beat it leads to — and returns the turn's
- * commit, or the closing commit when the turn led to the unpin.
+ * commit, or the closing commit when the turn led to the unpin (which leaves
+ * HEAD back on the user's branch).
  */
 const land = async (repo: InMemRepo, files: Files = {}): Promise<string> => {
   write(repo, files)
@@ -108,7 +109,8 @@ const land = async (repo: InMemRepo, files: Files = {}): Promise<string> => {
   if (exitCode !== 0) throw new Error(`gtd land exited ${exitCode}: ${stderr}${stdout}`)
   const turn = applied(repo, (JSON.parse(stdout) as { readonly script: string }).script)
   await takePinBeat(repo, "add")
-  return (await takePinBeat(repo, "remove")) ? headOf(repo) : turn
+  const branch = repo.branchName()
+  return (await takePinBeat(repo, "remove")) ? headOf(repo, `refs/heads/${branch}`) : turn
 }
 
 const enter = async (repo: InMemRepo, workflow: string, ...vars: string[]): Promise<string> => {
@@ -206,7 +208,8 @@ describe("currentRun", () => {
     await land(repo, { "a.txt": "a\n" })
     await land(repo, { "b.txt": "b\n" })
     const closing = await land(repo, { "c.txt": "c\n" })
-    expect(repo.lastCommitSubject()).toBe("gtd(check): gtd:unpin → idle")
+    expect(repo.lastCommitSubject(closing)).toBe("gtd(check): gtd:unpin → idle")
+    repo.checkoutBranch("gtd/main")
     const next = await land(repo, { "d.txt": "d\n" })
     const run = await provide(currentRun, repo)
     expect(run.startParentHash).toBe(closing)
@@ -413,7 +416,12 @@ export const again = workflow(async () => {
       await land(repo, { "a.txt": "a\n" })
       await land(repo, { "b.txt": "b\n" })
       const run = await provide(currentRun, repo)
-      expect(run.headTurn).toEqual({ state: "checking", actor: "agent", empty: false, step: true })
+      expect(run.headTurn).toEqual({
+        state: "checking",
+        actor: "agent",
+        empty: false,
+        step: true,
+      })
     })
 
     it("is undefined at a pin commit, which is no turn", async () => {
@@ -429,7 +437,12 @@ export const again = workflow(async () => {
       await land(repo)
       expect(repo.lastCommitMessage()).toBe("gtd(agent): building\n\nGtd-Format: 4")
       const run = await provide(currentRun, repo)
-      expect(run.headTurn).toEqual({ state: "building", actor: "agent", empty: true, step: false })
+      expect(run.headTurn).toEqual({
+        state: "building",
+        actor: "agent",
+        empty: true,
+        step: false,
+      })
     })
 
     it("is undefined at a non-gtd HEAD", async () => {
@@ -560,7 +573,7 @@ describe("summaryRun", () => {
 
     const ordinary = await provide(currentRun, repo)
     expect(ordinary.trace).toEqual([])
-    expect(ordinary.startParentHash).toBe(closing)
+    expect(ordinary.startParentHash).toBe(boundary)
 
     const summary = await provide(summaryRun, repo)
     expect(summary.closingHash).toBe(closing)
@@ -645,14 +658,17 @@ describe("process marks", () => {
   })
 })
 
-const withTipMessage = (repo: InMemRepo, edit: (message: string) => string): GitOperations => {
+const withTipMessage = (
+  repo: InMemRepo,
+  edit: (message: string) => string,
+  edited = repo.resolveRef("HEAD"),
+): GitOperations => {
   const real = fakeGitOperations(repo)
-  const head = repo.resolveRef("HEAD")
   return {
     ...real,
     commitHistory: (base, tip) =>
       Effect.map(real.commitHistory(base, tip), (commits) =>
-        commits.map((c) => (c.hash === head ? { ...c, message: edit(c.message) } : c)),
+        commits.map((c) => (c.hash === edited ? { ...c, message: edit(c.message) } : c)),
       ),
   }
 }
@@ -683,7 +699,8 @@ export default workflow(async () => {
     if (exitCode !== 0) throw new Error(`gtd land exited ${exitCode}: ${stderr}${stdout}`)
     const turn = applied(repo, (JSON.parse(stdout) as { readonly script: string }).script)
     await takePinBeat(repo, "add")
-    return (await takePinBeat(repo, "remove")) ? headOf(repo) : turn
+    const branch = repo.branchName()
+    return (await takePinBeat(repo, "remove")) ? headOf(repo, `refs/heads/${branch}`) : turn
   }
   type Rendered = {
     entryCommit: string
@@ -1366,7 +1383,7 @@ describe("finishing landings keep history", () => {
     expect(landing.spec.pin).toBe("remove")
     expect(landing.keepHistory).toBe(processHistoryRef(building))
     expect(landing.spec.version).toBe(GTD_VERSION)
-    expect(landing.spec.branch).toBe(repo.branchName())
+    expect(landing.spec.branch).toBe("main")
   })
 
   it("restart() is a finish too", async () => {
@@ -1647,8 +1664,10 @@ export default async () => {
 
   it("warns, never refuses, when the recorded version differs", async () => {
     const { repo, tip } = await finished()
-    const git = withTipMessage(repo, (m) =>
-      m.replace(`Gtd-Version: ${GTD_VERSION}`, "Gtd-Version: 0.0.1"),
+    const git = withTipMessage(
+      repo,
+      (m) => m.replace(`Gtd-Version: ${GTD_VERSION}`, "Gtd-Version: 0.0.1"),
+      tip,
     )
     const trail = await Effect.runPromise(
       historyTrail(tip).pipe(
@@ -1663,7 +1682,7 @@ export default async () => {
 
   it("a missing recorded version counts as different", async () => {
     const { repo, tip } = await finished()
-    const git = withTipMessage(repo, (m) => m.replace(/Gtd-Version: .*\n?/, ""))
+    const git = withTipMessage(repo, (m) => m.replace(/Gtd-Version: .*\n?/, ""), tip)
     const trail = await Effect.runPromise(
       historyTrail(tip).pipe(
         Effect.provideService(GitService, git),
@@ -1677,8 +1696,10 @@ export default async () => {
   it("reads a recorded version carrying control bytes as unknown", async () => {
     const { repo, tip } = await finished()
     const raw = "1.0\u001b]0;x\u0007"
-    const git = withTipMessage(repo, (m) =>
-      m.replace(`Gtd-Version: ${GTD_VERSION}`, `Gtd-Version: ${raw}`),
+    const git = withTipMessage(
+      repo,
+      (m) => m.replace(`Gtd-Version: ${GTD_VERSION}`, `Gtd-Version: ${raw}`),
+      tip,
     )
     const trail = await Effect.runPromise(
       historyTrail(tip).pipe(

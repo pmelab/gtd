@@ -15,6 +15,7 @@ import {
   refuse,
   restart,
   run,
+  ship,
   scope,
   threads,
   type Flow,
@@ -645,6 +646,14 @@ describe("replay", () => {
     const outcome = await replayOf(wf, new History())
     expect(outcome).toMatchObject({ kind: "failed" })
     expect(outcome.kind === "failed" && outcome.message).toContain("shell script string")
+  })
+
+  it("fails a ship step with an empty message", async () => {
+    const wf = async () => {
+      await ship("shipping", "  ")
+    }
+    const outcome = await replayOf(wf, new History())
+    expect(outcome.kind === "failed" && outcome.message).toContain("non-empty commit message")
   })
 
   it("fails a flow that awaits something other than a step", async () => {
