@@ -105,6 +105,12 @@ export interface SteeringViewThread {
   readonly waitingOn: "human" | "agent"
 }
 
+/** One labelled part of a node's drafted comment. */
+export interface SteeringViewSection {
+  readonly label: string
+  readonly body: readonly SteeringViewNode[]
+}
+
 /**
  * One node of a format's `view`: a generic container/item tree, the SAME
  * shape for every format. Deliberately never a closed per-format union — a
@@ -140,6 +146,8 @@ export interface SteeringViewNode {
    * (question); absent wherever `detail` itself is absent.
    */
   readonly detailInline?: readonly InlineNode[]
+  /** A review finding's drafted PR comment as labelled sections (What / Impact / Fix), when it has one. */
+  readonly comment?: readonly SteeringViewSection[]
   /** A file path this node points at, when it has one (a `review` hunk). */
   readonly path?: string
   /** A 1-based line in `path` this node points at, when it has one. */

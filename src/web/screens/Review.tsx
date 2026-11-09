@@ -588,6 +588,89 @@ const ChunkMark = ({
   )
 }
 
+const locationOf = (hunk: SteeringViewNode): string =>
+  `${hunk.path ?? hunk.title}${
+    hunk.line === undefined
+      ? ""
+      : `#${hunk.line}${hunk.endLine === undefined ? "" : `-${hunk.endLine}`}`
+  }`
+
+const CommentSections = ({
+  chunk,
+  chunkIndex,
+}: {
+  readonly chunk: SteeringViewNode
+  readonly chunkIndex: number
+}) => (
+  <div data-testid={`chunk-comment-${chunkIndex}`} className="mt-2 min-w-0 break-words">
+    {(chunk.comment ?? []).map((section, si) => (
+      <section
+        key={si}
+        data-testid={`chunk-comment-${chunkIndex}-${section.label.toLowerCase()}`}
+        className="mb-2 min-w-0"
+      >
+        <h4 className="m-0 text-small font-semibold text-muted">{section.label}</h4>
+        {section.body.map((node, i) =>
+          node.block?.kind === "code" ? (
+            <pre
+              key={i}
+              className="my-1 whitespace-pre-wrap break-words rounded bg-surface p-3 text-small text-code"
+            >
+              <code>{node.block.text ?? ""}</code>
+            </pre>
+          ) : (
+            <div key={i} className="-mx-3">
+              <ProseBlocks nodes={[node]} noteOverrides={{}} onOpenNote={() => {}} readOnly />
+            </div>
+          ),
+        )}
+      </section>
+    ))}
+  </div>
+)
+
+const FindingHeader = ({
+  chunk,
+  chunkIndex,
+  hunks,
+  expanded,
+  onToggle,
+  footnote,
+}: {
+  readonly chunk: SteeringViewNode
+  readonly chunkIndex: number
+  readonly hunks: readonly SteeringViewNode[]
+  readonly expanded: boolean
+  readonly onToggle: () => void
+  readonly footnote: boolean
+}) => (
+  <Button
+    variant="ghost"
+    data-testid={`chunk-expand-${chunkIndex}`}
+    aria-expanded={expanded}
+    onClick={onToggle}
+    className="min-h-11 min-w-0 flex-1 text-left"
+  >
+    <ChunkSummary chunk={chunk} chunkIndex={chunkIndex} />
+    {hunks.length > 0 && (
+      <div
+        data-testid={`chunk-location-${chunkIndex}`}
+        className="mt-0.5 break-all text-small text-muted"
+      >
+        {hunks.map(locationOf).join(", ")}
+      </div>
+    )}
+    {footnote && (
+      <div
+        data-testid={`chunk-footnote-badge-${chunkIndex}`}
+        className="mt-1 text-small text-warning"
+      >
+        Note keeps this round open
+      </div>
+    )}
+  </Button>
+)
+
 // fallow-ignore-next-line complexity
 const ChunkRow = ({
   chunk,
@@ -600,6 +683,8 @@ const ChunkRow = ({
 }) => {
   const hunks = hunksOf(chunk)
   const footnoteKeepsRoundOpen = state.hasNoteText(chunk)
+  const [expanded, setExpanded] = useState(false)
+  const expandable = chunk.decision !== undefined && (chunk.comment ?? []).length > 0
   return (
     <div data-testid={`chunk-card-${chunkIndex}`} className="border-b border-divider px-3 py-2.5">
       <div className="flex items-start gap-2">
@@ -615,6 +700,15 @@ const ChunkRow = ({
               <PlainNoteBody chunk={chunk} chunkIndex={chunkIndex} state={state} />
             )}
           </div>
+        ) : expandable ? (
+          <FindingHeader
+            chunk={chunk}
+            chunkIndex={chunkIndex}
+            hunks={hunks}
+            expanded={expanded}
+            onToggle={() => setExpanded(!expanded)}
+            footnote={footnoteKeepsRoundOpen}
+          />
         ) : (
           <Button
             variant="ghost"
@@ -647,6 +741,21 @@ const ChunkRow = ({
           </Button>
         )}
       </div>
+      {expandable && expanded && (
+        <div className="min-w-0 pl-13">
+          <CommentSections chunk={chunk} chunkIndex={chunkIndex} />
+          {hunks.length > 0 && (
+            <Button
+              variant="secondary"
+              data-testid={`chunk-open-${chunkIndex}`}
+              onClick={() => state.openChunk(chunkIndex)}
+              className="min-h-11"
+            >
+              Open code
+            </Button>
+          )}
+        </div>
+      )}
       {chunk.decision !== undefined && (
         <DecisionControl chunk={chunk} chunkIndex={chunkIndex} state={state} />
       )}
