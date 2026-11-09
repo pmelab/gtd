@@ -119,6 +119,7 @@ export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): Workspa
       Effect.succeed(
         new Map([...(base !== undefined ? [base] : []), ...commits].map((h) => [h, treeOf(h)])),
       ),
+    modeSync: (ref) => repo.modesAt(ref),
     worktreeSync: () =>
       new Map(
         repo

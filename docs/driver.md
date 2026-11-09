@@ -284,15 +284,18 @@ falls back to the `gtd` on your `PATH`.
   (`- [x] won't fix: out of scope`), checked before `continue` lands the gate,
   or write your own answer. Once the review door has acted on them and rests at
   a review gate again or finishes, and before it wakes Claude there, the mod
-  pushes the branch, replies to each thread — `Fixed in <sha>` naming the first
-  commit after that gate that changed code outside `.gtd/` (the fix turn), your
-  own answer, or `Won't fix: <reason>` — and resolves it. A failed push replies
-  to nothing; the next review gate, or `/gtd pr` at a review gate or the
-  finished process, retries it, and until then, as while threads still wait for
-  the review door's first review gate, another `/gtd pr` imports nothing. A
-  thread whose reply fails is named and left open. Threads are dropped
-  unanswered when the process ends before a review gate, the branch changes, or
-  the history was reset past the import.
+  replies to each thread — `Fixed in <sha>` naming the ship commit on the branch
+  that carries the fix (the first code change after that gate, outside `.gtd/`;
+  the mod pushes the branch first), your own answer, or `Won't fix: <reason>` —
+  and resolves it. On `gtd/<branch>` a "fix" reply waits for that ship (nothing
+  is sent or pushed meanwhile; `gtd/<branch>` is never pushed), and a process
+  that ends without shipping the fix replies "Fixed as suggested" with no commit
+  link. A failed push replies to nothing; the next review gate, or `/gtd pr` at
+  a review gate or the finished process, retries it, and until then, as while
+  threads still wait for the review door's first review gate, another `/gtd pr`
+  imports nothing. A thread whose reply fails is named and left open. Threads
+  are dropped unanswered when the process ends before a review gate, the branch
+  changes, or the history was reset past the import.
 - `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
   `/gtd ui` starts the browser view of the rest it waits at.
 - `/gtd throw` and its tool (`handoff`) answer at once and run in the

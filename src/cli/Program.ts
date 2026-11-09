@@ -911,7 +911,10 @@ const runRestoreCommand = (
     const tip = retained.value
 
     const headHash = yield* git.resolveRef("HEAD")
-    const check = yield* restorability(git, headHash, tip)
+    // Abandon after a ship leaves HEAD on `<b>` at the bare ship commit: its `Gtd-Tip` is on the retained tip.
+    const shippedTip = parseCommitMessage(yield* git.lastCommitMessage(headHash)).tip
+    const atShip = shippedTip !== undefined && (yield* git.isAncestor(shippedTip, tip))
+    const check = atShip ? { ok: true as const } : yield* restorability(git, headHash, tip)
     if (!check.ok) {
       return yield* Effect.fail(
         new Error(

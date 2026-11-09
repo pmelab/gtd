@@ -27,6 +27,11 @@ function makeHash(message: string, parent: string | null, tree: Map<string, stri
   return sha1(`${message}\n${parent ?? "null"}\n${treeStr}`)
 }
 
+/** An executable file's content carries this prefix inside the twin, so every tree copy keeps the mode for free; only the read edges strip it. */
+const EXEC = "\u0000exec\u0000"
+const plain = (content: string): string =>
+  content.startsWith(EXEC) ? content.slice(EXEC.length) : content
+
 export class InMemRepo {
   // Data-only marker read by no code path: embeds the sentinel in every
   // instance so a leaked object still carries it.
@@ -367,7 +372,8 @@ export class InMemRepo {
     if (!hash) return null
     const c = this.getCommit(hash)
     if (!c) return null
-    return c.files.get(path) ?? null
+    const content = c.files.get(path)
+    return content === undefined ? null : plain(content)
   }
 
   /**
@@ -400,7 +406,21 @@ export class InMemRepo {
 
   /** The worktree content of `path`, or `undefined` when absent. A LIVE read — never a snapshot. */
   readFile(path: string): string | undefined {
-    return this.worktree.get(path)
+    const content = this.worktree.get(path)
+    return content === undefined ? undefined : plain(content)
+  }
+
+  /** `chmod +x` / `-x` on a working-tree file. */
+  // fallow-ignore-next-line unused-class-member
+  setExecutable(path: string, on: boolean): void {
+    const content = this.readFile(path)
+    if (content !== undefined) this.worktree.set(path, on ? EXEC + content : content)
+  }
+
+  /** Every path's file mode at `ref`, or in the working tree when `ref` is `undefined`. */
+  modesAt(ref: string | undefined): Map<string, string> {
+    const tree = ref === undefined ? this.worktree : this.treeAt(ref)
+    return new Map([...tree].map(([path, c]) => [path, c.startsWith(EXEC) ? "100755" : "100644"]))
   }
 
   /** True when `path` is exactly a worktree file, or a directory prefix of one (any worktree key starts with `path/`). */
@@ -673,7 +693,9 @@ export class InMemRepo {
   }
 
   writeFile(path: string, content: string): void {
-    this.worktree.set(path, content)
+    // A live overwrite keeps the mode.
+    const was = this.worktree.get(path)
+    this.worktree.set(path, was?.startsWith(EXEC) ? EXEC + content : content)
   }
 
   deleteFile(path: string): void {

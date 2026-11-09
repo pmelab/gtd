@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs"
+import { chmodSync, mkdtempSync, realpathSync, rmSync, symlinkSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
@@ -12,6 +12,7 @@ interface Tier {
   readonly root: string
   readonly uid: number | undefined
   readonly symlink: (path: string, target: string) => void
+  readonly chmod: (path: string, executable: boolean) => void
   /** Commits `files`, repository-relative, as the only change. */
   readonly commit: (files: Record<string, string>) => void
 }
@@ -29,6 +30,7 @@ const liveTier = (): Tier => {
     root,
     uid: process.getuid?.(),
     symlink: (path, target) => symlinkSync(target, path),
+    chmod: (path, executable) => chmodSync(path, executable ? 0o755 : 0o644),
     commit: (files) => {
       for (const [path, content] of Object.entries(files))
         nodeSyncIo.writeText(join(root, path), content)
@@ -48,6 +50,7 @@ const inMemTier = (): Tier => {
     root,
     uid: 501,
     symlink: io.symlink,
+    chmod: io.setExecutable,
     commit: (files) => {
       for (const [path, content] of Object.entries(files)) {
         io.writeText(`${root}/${path}`, content)
@@ -106,15 +109,27 @@ describe.each([
     symlink(`${root}/link`, "dir")
     symlink(`${root}/dangling`, "nowhere")
 
-    expect(io.stat(`${root}/dir/f`)).toEqual({ type: "file", uid })
-    expect(io.stat(`${root}/link`)).toEqual({ type: "directory", uid })
-    expect(io.lstat(`${root}/link`)).toEqual({ type: "symlink", uid })
+    expect(io.stat(`${root}/dir/f`)).toMatchObject({ type: "file", uid })
+    expect(io.stat(`${root}/link`)).toMatchObject({ type: "directory", uid })
+    expect(io.lstat(`${root}/link`)).toMatchObject({ type: "symlink", uid })
     expect(io.lstat(`${root}/missing`)).toBeUndefined()
     expect(io.stat(`${root}/dangling`)).toBeUndefined()
     expect(io.readLink(`${root}/link`)).toBe("dir")
     expect(io.realPath(`${root}/link/f`)).toBe(`${root}/dir/f`)
     expect(io.readText(`${root}/link/f`)).toBe("x")
     expect(() => io.realPath(`${root}/dangling`)).toThrow()
+  })
+
+  it("reports the executable bit of files, kept across an overwrite", () => {
+    const { io, root, chmod } = makeTier()
+    io.writeText(`${root}/f`, "x")
+    expect(io.stat(`${root}/f`)?.executable).toBe(false)
+    chmod(`${root}/f`, true)
+    expect(io.stat(`${root}/f`)?.executable).toBe(true)
+    io.writeText(`${root}/f`, "y")
+    expect(io.lstat(`${root}/f`)?.executable).toBe(true)
+    chmod(`${root}/f`, false)
+    expect(io.stat(`${root}/f`)?.executable).toBe(false)
   })
 
   it("reads committed content through git", () => {

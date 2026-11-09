@@ -28,6 +28,8 @@ export type Landing =
       readonly pushHistory?: string
       /** A ship step's squash onto the user's branch, made ahead of the landing commit. */
       readonly ship?: ShipSpec
+      /** The history ref of a landing that only records an earlier ship (`ship` is unset). */
+      readonly recordedHistory?: string
       /** Printed after the landing: why a ship step shipped nothing. */
       readonly note?: string
       /** The one path this landing commits; every other pending change stays pending. */

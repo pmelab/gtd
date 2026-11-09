@@ -296,6 +296,8 @@ export interface CommitSpec {
   readonly anchor?: string
   readonly branch?: string
   readonly version?: string
+  /** Written after `Gtd-Format`: a landing recording a ship an earlier, hook-rejected attempt already made. */
+  readonly shipped?: string
 }
 
 const sortedEntries = (record: Readonly<Record<string, string>> = {}): [string, string][] =>
@@ -323,6 +325,7 @@ export const formatCommitMessage = (spec: CommitSpec): string => {
     ...trailer("Branch", spec.branch),
     ...trailer("Version", spec.version),
     `Gtd-Format: ${HISTORY_FORMAT}`,
+    ...trailer("Shipped", spec.shipped),
   ]
   const subject = formatSubject(spec.actor, spec.to, spec.from)
   return `${subject}\n\n${lines.join("\n")}`

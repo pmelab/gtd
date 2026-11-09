@@ -1620,7 +1620,13 @@ const withHistory = (landing: Landing & { kind: "commit" }) =>
     let out = landing
     const back = landing.keepHistory === undefined ? undefined : yield* returnBranch
     if (back !== undefined) out = { ...out, leaveBranch: back }
-    if (landing.keepHistory === undefined && landing.ship === undefined) return out
+    if (
+      landing.keepHistory === undefined &&
+      landing.ship === undefined &&
+      landing.recordedHistory === undefined
+    ) {
+      return out
+    }
     const remote = (yield* (yield* ConfigService).load).historyRemote
     return remote === undefined ? out : { ...out, pushHistory: remote }
   })
@@ -1659,8 +1665,15 @@ const SHIP_EXCLUDED = ".gtd/"
 
 type ShipDecision =
   | { readonly kind: "ship"; readonly branch: string; readonly parent: string }
+  | { readonly kind: "recorded"; readonly hash: string }
   | { readonly kind: "skip"; readonly note: string }
   | { readonly kind: "blocked"; readonly message: string }
+
+/** `tree` with file modes read from `ref` (the working tree when `undefined`), for the ship decision only: reading them costs a git call. */
+const withModes = (workspace: WorkspaceOps, tree: TreeView, ref: string | undefined): TreeView => {
+  let modes: ReadonlyMap<string, string> | undefined
+  return { ...tree, mode: (path) => (modes ??= workspace.modeSync(ref)).get(path) }
+}
 
 const shippedPaths = (before: TreeView, after: TreeView): readonly string[] => {
   const diff = diffTrees(before, after)
@@ -1700,6 +1713,7 @@ const revertedPaths = (
   parent: string,
   tree: TreeView,
   changed: ReadonlySet<string>,
+  treeRef: string | undefined,
 ) =>
   Effect.gen(function* () {
     const head = yield* git.resolveRef("HEAD")
@@ -1708,9 +1722,18 @@ const revertedPaths = (
     const fork = yield* git.mergeBase(parent, head)
     const foreign = Option.isNone(fork)
       ? [...changed]
-      : shippedPaths(commitTree(workspace, fork.value), commitTree(workspace, parent))
-    const committed = commitTree(workspace, head)
-    return foreign.filter((path) => changed.has(path) && tree.read(path) === committed.read(path))
+      : shippedPaths(
+          withModes(workspace, commitTree(workspace, fork.value), fork.value),
+          withModes(workspace, commitTree(workspace, parent), parent),
+        )
+    const committed = withModes(workspace, commitTree(workspace, head), head)
+    const moded = withModes(workspace, tree, treeRef)
+    return foreign.filter(
+      (path) =>
+        changed.has(path) &&
+        moded.read(path) === committed.read(path) &&
+        moded.mode!(path) === committed.mode!(path),
+    )
   })
 
 /**
@@ -1722,14 +1745,31 @@ const revertedPaths = (
 const decideShip = (
   workspace: WorkspaceOps,
   tree: TreeView,
+  /** The commit `tree` is of; `undefined` for the working tree. */
+  treeRef: string | undefined,
 ): Effect.Effect<ShipDecision, Error, GitService> =>
   Effect.gen(function* () {
     const git = yield* GitService
     const target = yield* shipTarget(git)
     if (target.kind !== "ship") return target
     const { branch, parent } = target
-    const changed = new Set(shippedPaths(commitTree(workspace, parent), tree))
-    const reverted = yield* revertedPaths(git, workspace, parent, tree, changed)
+    const changed = new Set(
+      shippedPaths(
+        withModes(workspace, commitTree(workspace, parent), parent),
+        withModes(workspace, tree, treeRef),
+      ),
+    )
+    // A landing whose hook rejected after the ship moved `<b>`: its tip is a ship of this very HEAD.
+    // An edit since (say, to satisfy that hook) ships again rather than reusing the stale ship.
+    const pending = parseCommitMessage(yield* git.lastCommitMessage(parent)).tip
+    if (
+      changed.size === 0 &&
+      pending !== undefined &&
+      pending === (yield* git.resolveRef("HEAD"))
+    ) {
+      return { kind: "recorded", hash: parent }
+    }
+    const reverted = yield* revertedPaths(git, workspace, parent, tree, changed, treeRef)
     if (reverted.length > 0) {
       return {
         kind: "blocked",
@@ -1750,7 +1790,7 @@ const shipBlockedAt = (
   Effect.gen(function* () {
     if (pin !== undefined || step.request.kind !== "ship" || changes.length > 0) return undefined
     const head = yield* (yield* GitService).resolveRef("HEAD")
-    const decision = yield* decideShip(setup.workspace, commitTree(setup.workspace, head))
+    const decision = yield* decideShip(setup.workspace, commitTree(setup.workspace, head), head)
     return decision.kind === "blocked" ? decision.message : undefined
   })
 
@@ -1763,7 +1803,7 @@ const shipSnapshot = (
 ) =>
   Effect.gen(function* () {
     const tree = pendingTree(rest.setup.workspace, rest.setup.pendingWorktree(), undefined)
-    const decision = yield* decideShip(rest.setup.workspace, tree)
+    const decision = yield* decideShip(rest.setup.workspace, tree, undefined)
     if (decision.kind === "blocked") return refusedSnapshot(rest, decision.message)
     const shipping = decision.kind === "ship"
     const decided = yield* decideLanding(
@@ -1771,9 +1811,17 @@ const shipSnapshot = (
       verdicts,
       branch,
       approver,
-      shipping ? SHIPPED_STAND_IN : undefined,
+      decision.kind === "recorded" ? decision.hash : shipping ? SHIPPED_STAND_IN : undefined,
     )
     if (decided.kind !== "commit") return snapshotOf(rest, decided)
+    if (decision.kind === "recorded") {
+      const recorded = {
+        ...decided,
+        spec: { ...decided.spec, shipped: decision.hash },
+        recordedHistory: processHistoryRef(rest.run.startHash),
+      }
+      return snapshotOf(rest, yield* withBranchAndPush(recorded))
+    }
     const landing: Landing = shipping
       ? {
           ...decided,

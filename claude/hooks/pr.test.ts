@@ -57,6 +57,22 @@ describe("currentPr", () => {
     expect(await currentPr(io)).toEqual(pr)
   })
 
+  test("on gtd/<b> it reads the pull request of <b>", async () => {
+    const { calls, io } = repo({
+      "git rev-parse --abbrev-ref HEAD": { out: "gtd/feat\n" },
+      "gh pr view": { out: JSON.stringify({ number: 7, url: pr.url }) },
+    })
+    expect(await currentPr(io)).toEqual(pr)
+    expect(calls.find((c) => c[0] === "gh")).toEqual([
+      "gh",
+      "pr",
+      "view",
+      "feat",
+      "--json",
+      "number,url",
+    ])
+  })
+
   test("a branch without one is refused with gh's words", async () => {
     const { io } = repo({ "gh pr view": { code: 1, err: "no pull requests found\n" } })
     expect(await currentPr(io)).toBe("gh pr view failed: no pull requests found")
@@ -210,7 +226,7 @@ describe("reply", () => {
   test("names the fixing commit; an own answer is its text", () => {
     const fix = { thread: "t", title: "x", choice: "fix" as const, text: "" }
     expect(replyText(fix, "c1")).toBe("Fixed in c1.")
-    expect(replyText(fix, undefined)).toBe("Fixed as suggested; the fix changed no code.")
+    expect(replyText(fix, undefined)).toBe("Fixed as suggested.")
     const own = { ...fix, choice: "answer" as const, text: "renamed instead" }
     expect(replyText(own, "c1")).toBe("renamed instead")
   })
@@ -238,6 +254,7 @@ describe("reply", () => {
     const { calls, io } = repo({
       "git rev-parse --abbrev-ref HEAD": { out: "feat\n" },
       "git rev-parse --verify --quiet origin/feat": { code: 0 },
+      "git rev-parse --verify --quiet refs/heads/gtd/feat": { code: 1 },
       "git log --reverse --first-parent --format=%H gate..HEAD": { out: "f1\nf2\n" },
     })
     const [a] = answers(withThreads(REVIEW, [thread]))
@@ -245,6 +262,7 @@ describe("reply", () => {
       ok: true,
       text: "Replied to and resolved 1 review thread(s).",
       isPushed: true,
+      waiting: [],
     })
     const gh = calls
       .filter((c) => c[0] === "gh")
@@ -273,6 +291,8 @@ describe("reply", () => {
     const { calls, io } = repo({
       "git rev-parse --abbrev-ref HEAD": { out: "feat\n" },
       "git rev-parse --verify --quiet origin/feat": { code: 1 },
+      "git rev-parse --verify --quiet refs/heads/gtd/feat": { code: 1 },
+      "git log --reverse --first-parent --format=%H gate..HEAD": { out: "f1\n" },
       "git push": { code: 1, err: "denied" },
     })
     const [a] = answers(withThreads(REVIEW, [thread]))
@@ -286,6 +306,7 @@ describe("reply", () => {
   test("a thread that fails is named and left open", async () => {
     const { io } = repo({
       "git rev-parse --abbrev-ref HEAD": { out: "feat\n" },
+      "git rev-parse --verify --quiet refs/heads/gtd/feat": { code: 1 },
       "gh api graphql": { code: 1, err: "nope" },
     })
     const [a] = answers(withThreads(REVIEW, [thread]))
@@ -293,7 +314,57 @@ describe("reply", () => {
       ok: false,
       text: "Replied to and resolved 0 review thread(s).\nThese failed and stay open:\n- src/calc.ts:3 (thread PRRT_1)",
       isPushed: true,
+      waiting: [],
     })
+  })
+})
+
+describe("reply on a process branch", () => {
+  const SHIP = "5".repeat(40)
+  const FIX = "f".repeat(40)
+  const [fixed] = answers(withThreads(REVIEW, [thread]))
+  const shipped = (head: string) =>
+    repo({
+      "git rev-parse --abbrev-ref HEAD": { out: `${head}\n` },
+      "git log --reverse --first-parent --format=%H gate..": { out: `${FIX}\n` },
+      "git log --reverse --first-parent --grep": { out: `${SHIP}\n` },
+      "git show -s": { out: `feat: x\n\nGtd-Tip: ${FIX}\n` },
+      "git rev-parse --verify --quiet origin/feat": { code: 0 },
+    })
+
+  test("a review gate on gtd/<b> before the ship sends and pushes nothing", async () => {
+    const { calls, io } = repo({
+      "git rev-parse --abbrev-ref HEAD": { out: "gtd/feat\n" },
+      "git log --reverse --first-parent --format=%H gate..": { out: `${FIX}\n` },
+      "git merge-base --is-ancestor": { code: 1 },
+    })
+    expect(await reply(io, "github.com", "gate", [fixed!], false)).toMatchObject({
+      isPushed: false,
+      waiting: [fixed],
+    })
+    expect(calls.some((c) => c[0] === "gh" || c[1] === "push")).toBe(false)
+  })
+
+  test("once shipped, <b> is pushed and the reply cites the ship commit", async () => {
+    const { calls, io } = shipped("feat")
+    expect(await reply(io, "github.com", "gate", [fixed!], true)).toMatchObject({
+      isPushed: true,
+      waiting: [],
+    })
+    const body = calls.find((c) => c.some((x) => x.startsWith("body=")))!
+    expect(body).toContain(`body=Fixed in ${SHIP}.`)
+    expect(calls.some((c) => c[1] === "push" && c.includes("feat"))).toBe(false)
+  })
+
+  test("a process ending without shipping the fix replies without a commit link", async () => {
+    const { calls, io } = repo({
+      "git rev-parse --abbrev-ref HEAD": { out: "feat\n" },
+      "git log --reverse --first-parent --format=%H": { out: `${FIX}\n` },
+      "git merge-base --is-ancestor": { code: 1 },
+    })
+    await reply(io, "github.com", "gate", [fixed!], true)
+    const body = calls.find((c) => c.some((x) => x.startsWith("body=")))!
+    expect(body).toContain("body=Fixed as suggested.")
   })
 })
 
@@ -323,5 +394,10 @@ describe("prAction", () => {
     expect(prAction(pending, at({ isReviewGate: true, branch: "other" }))).toBe("forget")
     expect(prAction(imported, at({ isDone: true, branch: "other" }))).toBe("forget")
     expect(prAction(undefined, at({ isReviewGate: true }))).toBe("none")
+  })
+
+  test("the process branch gtd/<b> belongs to <b>'s pull request", () => {
+    expect(prAction(pending, at({ isReviewGate: true, branch: "gtd/feat" }))).toBe("import")
+    expect(prAction(imported, at({ isDone: true, branch: "gtd/other" }))).toBe("forget")
   })
 })

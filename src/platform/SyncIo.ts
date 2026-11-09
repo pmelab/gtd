@@ -4,6 +4,8 @@ export interface FileInfo {
   readonly type: "file" | "directory" | "symlink" | "other"
   /** `undefined` where the platform has no POSIX user ids. */
   readonly uid: number | undefined
+  /** Any execute bit set; `undefined` where the platform has none. */
+  readonly executable?: boolean
 }
 
 /**

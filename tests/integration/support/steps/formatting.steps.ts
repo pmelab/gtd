@@ -18,6 +18,10 @@ Given(
   },
 )
 
+Given("the pre-commit hook rejection is lifted", (world: GtdWorld) => {
+  world.repo!.hookRejection = undefined
+})
+
 Given(
   "a pre-commit hook that writes {string} to {string} and stages it",
   (world: GtdWorld, content: string, path: string) => {
