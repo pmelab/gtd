@@ -15,6 +15,7 @@ import {
   decided,
   missingReasons,
   reply,
+  processTip,
   REVIEW_FILE,
   unresolvedThreads,
   withThreads,
@@ -573,10 +574,12 @@ async function replyThreads($: $, stop: Stop) {
   const pr = (await read($, run)).pr
   if (!pr?.importedAt) return
   const io = gitIo($)
+  const { tip } = await processTip(io)
   const found = await decided(
     io,
     pr.importedAt,
     pr.threads.map((t) => t.id),
+    tip,
   )
   if (found === "gone") {
     $.ui.log("gtd pr: the history moved since the review threads were added; they get no replies.")
@@ -592,12 +595,24 @@ async function replyThreads($: $, stop: Stop) {
   $.ui.status("replying to the review threads…")
   let replied
   try {
-    replied = await reply(io, pr.host, found.gate, found.answers)
+    replied = await reply(io, pr.host, found.gate, found.answers, stop.kind === "done")
   } finally {
     $.ui.status(undefined)
   }
-  for (const line of replied.text.split("\n")) $.ui.log(line)
-  $.ui.toast(replied.text.split("\n")[0]!)
+  if (replied.text) {
+    for (const line of replied.text.split("\n")) $.ui.log(line)
+    $.ui.toast(replied.text.split("\n")[0]!)
+  }
+  if (replied.waiting.length > 0) {
+    // Unshipped fixes keep their threads; answered ones are not answered twice.
+    if (replied.isPushed) {
+      const keep = new Set(replied.waiting.map((a) => a.thread))
+      await update($, run, (x) =>
+        x.pr ? { ...x, pr: { ...x.pr, threads: x.pr.threads.filter((t) => keep.has(t.id)) } } : x,
+      )
+    }
+    return
+  }
   if (replied.isPushed) await forgetPr($)
 }
 

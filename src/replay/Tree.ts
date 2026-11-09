@@ -8,6 +8,8 @@ export interface TreeView {
   readonly paths: () => readonly string[]
   readonly read: (path: string) => string | undefined
   readonly id?: (path: string) => string | undefined
+  /** Git file mode; when both sides give one, a differing mode is a modification even with equal content. */
+  readonly mode?: (path: string) => string | undefined
 }
 
 export const treeFromRecord = (files: Readonly<Record<string, string>>): TreeView => ({
@@ -24,6 +26,9 @@ export interface TreeDiff {
 export const diffTrees = (before: TreeView, after: TreeView): TreeDiff => {
   // Blob ids only compare against blob ids; otherwise fall back to contents.
   const same = (path: string): boolean => {
+    if (before.mode !== undefined && after.mode !== undefined) {
+      if (before.mode(path) !== after.mode(path)) return false
+    }
     const a = before.id?.(path)
     const b = after.id?.(path)
     return a !== undefined && b !== undefined ? a === b : before.read(path) === after.read(path)

@@ -501,8 +501,9 @@ and gtd moves `<b>` only when the workflow calls `ship()`, which squashes the
 process onto `<b>` as one commit (see
 [Shipping](docs/configuration.md#shipping)); what it committed after its last
 ship stays on `gtd/<b>`. `gtd abandon` switches back to `<b>` with the unshipped
-work uncommitted and deletes `gtd/<b>`; `gtd restore` recreates it. The closing
-commit records `Gtd-Branch: <b>`.
+work uncommitted and deletes `gtd/<b>`; `gtd restore` recreates it, also when
+`<b>` still sits on the abandoned ship commit. The closing commit records
+`Gtd-Branch: <b>`.
 
 When a process finishes, the landing that closes it also keeps the whole run
 behind a ref, `refs/gtd/history/<entry>`, so a squash or a deleted branch

@@ -29,9 +29,24 @@ const PLACEHOLDER = "_your answer_"
 
 const fail = (text: string): Done => ({ ok: false, text })
 
+const GTD_BRANCH = "gtd/"
+
+// The pull request belongs to `<b>`; a process runs on `gtd/<b>`.
+const userBranchOf = (branch: string) =>
+  branch.startsWith(GTD_BRANCH) ? branch.slice(GTD_BRANCH.length) : branch
+
 export async function currentPr(io: GitIo): Promise<Pr | string> {
-  const branch = (await io.run(["git", "rev-parse", "--abbrev-ref", "HEAD"])).out.trim()
-  const v = await io.run(["gh", "pr", "view", "--json", "number,url"])
+  const head = (await io.run(["git", "rev-parse", "--abbrev-ref", "HEAD"])).out.trim()
+  const branch = userBranchOf(head)
+  // `gtd/<b>` has no pull request of its own.
+  const v = await io.run([
+    "gh",
+    "pr",
+    "view",
+    ...(branch === head ? [] : [branch]),
+    "--json",
+    "number,url",
+  ])
   if (v.code !== 0) return `gh pr view failed: ${v.err.trim()}`
   try {
     const { url } = JSON.parse(v.out) as { url: string }
@@ -226,17 +241,16 @@ export function missingReasons(review: string) {
 
 // The first commit since `since` whose review answers any of `ids`: the gate
 // that decided them. Undefined while none has landed.
-export async function decided(io: GitIo, since: string, ids: readonly string[]) {
+export async function decided(io: GitIo, since: string, ids: readonly string[], tip = "HEAD") {
   // A reset or rebase since the import leaves nothing to find the gate in.
-  if ((await io.run(["git", "merge-base", "--is-ancestor", since, "HEAD"])).code !== 0)
-    return "gone"
+  if ((await io.run(["git", "merge-base", "--is-ancestor", since, tip])).code !== 0) return "gone"
   const log = await io.run([
     "git",
     "log",
     "--reverse",
     "--first-parent",
     "--format=%H",
-    `${since}..HEAD`,
+    `${since}..${tip}`,
   ])
   if (log.code !== 0) return "gone"
   for (const commit of log.out.split("\n").filter(Boolean)) {
@@ -255,7 +269,7 @@ export type PrRest = { isReviewGate: boolean; isDone: boolean; branch: string }
 // gate drops them.
 export function prAction(pr: PrFeedback | undefined, at: PrRest) {
   if (!pr) return "none"
-  if (at.branch !== pr.branch) return "forget"
+  if (userBranchOf(at.branch) !== pr.branch) return "forget"
   if (pr.importedAt === undefined) return at.isReviewGate ? "import" : at.isDone ? "forget" : "none"
   return at.isReviewGate || at.isDone ? "reply" : "none"
 }
@@ -265,7 +279,7 @@ export function prAction(pr: PrFeedback | undefined, at: PrRest) {
 export function replyText(a: Answer, fix: string | undefined) {
   if (a.choice === "wontfix") return a.text ? `Won't fix: ${a.text}` : "Won't fix."
   if (a.choice === "answer") return a.text
-  return fix ? `Fixed in ${fix}.` : "Fixed as suggested; the fix changed no code."
+  return fix ? `Fixed in ${fix}.` : "Fixed as suggested."
 }
 
 const REPLY = `mutation($thread: ID!, $body: String!) {
@@ -275,32 +289,77 @@ const RESOLVE = `mutation($thread: ID!) {
   resolveReviewThread(input: { threadId: $thread }) { thread { isResolved } }
 }`
 
-// Pushes the branch so the commits a reply names exist on GitHub, then replies
-// to each answered thread and resolves it. The code commits after `gate` are
-// the fixes; a thread that fails is named and left open.
+export type ProcessTip = { branch: string; tip: string; isShipped: boolean }
+
+// Where the process's commits are: HEAD on `gtd/<b>`, `gtd/<b>` once HEAD is
+// back on `<b>`. Without a `gtd/<b>` the process ran on `<b>` itself.
+export async function processTip(io: GitIo): Promise<ProcessTip> {
+  const head = (await io.run(["git", "rev-parse", "--abbrev-ref", "HEAD"])).out.trim()
+  const branch = userBranchOf(head)
+  if (branch !== head) return { branch, tip: "HEAD", isShipped: true }
+  const ref = `refs/heads/${GTD_BRANCH}${branch}`
+  const has = (await io.run(["git", "rev-parse", "--verify", "--quiet", ref])).code === 0
+  return { branch, tip: has ? ref : "HEAD", isShipped: has }
+}
+
+// The oldest ship on `<b>` whose process tip holds `fix`.
+async function shipOf(io: GitIo, branch: string, fix: string) {
+  const ships = await io.run([
+    "git",
+    "log",
+    "--reverse",
+    "--first-parent",
+    "--grep=^Gtd-Tip:",
+    "--format=%H",
+    `refs/heads/${branch}`,
+  ])
+  for (const ship of ships.out.split("\n").filter(Boolean)) {
+    const body = await io.run(["git", "show", "-s", "--format=%B", ship])
+    const tip = /^Gtd-Tip: ([0-9a-f]+)$/m.exec(body.out)?.[1]
+    if (tip && (await io.run(["git", "merge-base", "--is-ancestor", fix, tip])).code === 0)
+      return ship
+  }
+  return undefined
+}
+
+// Replies to each answered thread and resolves it. A process on `gtd/<b>` ships
+// its fixes to `<b>`: a "fixed" reply waits for the ship carrying the fix, then
+// pushes `<b>` and names that commit; a finished process without one replies
+// without a link. A thread that fails is named and left open.
 export async function reply(
   io: GitIo,
   host: string,
   gate: string,
   decidedAnswers: readonly Answer[],
-): Promise<Done & { isPushed: boolean }> {
-  const branch = (await io.run(["git", "rev-parse", "--abbrev-ref", "HEAD"])).out.trim()
-  const pushed = await pushBranch(io, branch)
-  if (pushed) return { ...fail(pushed), isPushed: false }
+  isDone = true,
+): Promise<Done & { isPushed: boolean; waiting: Answer[] }> {
+  const { branch, tip, isShipped } = await processTip(io)
   const log = await io.run([
     "git",
     "log",
     "--reverse",
     "--first-parent",
     "--format=%H",
-    `${gate}..HEAD`,
+    `${gate}..${tip}`,
     "--",
     ".",
     ":(exclude).gtd",
   ])
-  const fix = log.out.split("\n").find(Boolean)
+  const code = log.out.split("\n").find(Boolean)
+  const ship = isShipped && code ? await shipOf(io, branch, code) : undefined
+  const fix = isShipped ? ship : code
+  const waiting = decidedAnswers.filter(
+    (a) => isShipped && !isDone && a.choice === "fix" && code !== undefined && !ship,
+  )
+  const ready = decidedAnswers.filter((a) => !waiting.includes(a))
+  if (ready.length === 0) return { ok: true, text: "", isPushed: false, waiting }
+  // Only a reply naming a commit needs it on GitHub.
+  if (fix !== undefined && ready.some((a) => a.choice === "fix")) {
+    const pushed = await pushBranch(io, branch, false, isShipped ? `refs/heads/${branch}` : "HEAD")
+    if (pushed) return { ...fail(pushed), isPushed: false, waiting }
+  }
   const failed: string[] = []
-  for (const a of decidedAnswers) {
+  for (const a of ready) {
     const sent = await io.run([
       "gh",
       "api",
@@ -331,12 +390,13 @@ export async function reply(
       ).code === 0
     if (!resolved) failed.push(a.title)
   }
-  const done = decidedAnswers.length - failed.length
+  const done = ready.length - failed.length
   const text = `Replied to and resolved ${done} review thread(s).`
   return failed.length === 0
-    ? { ok: true, text, isPushed: true }
+    ? { ok: true, text, isPushed: true, waiting }
     : {
         ...fail(`${text}\nThese failed and stay open:\n${failed.map((t) => `- ${t}`).join("\n")}`),
         isPushed: true,
+        waiting,
       }
 }

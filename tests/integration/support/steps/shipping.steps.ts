@@ -1,7 +1,7 @@
 import { Given, Then, When } from "quickpickle"
 import assert from "node:assert"
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, rmSync } from "node:fs"
+import { chmodSync, mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { GtdWorld } from "../world.js"
@@ -139,5 +139,22 @@ Given(
     assert.ok(tip !== undefined, `branch ${branch} does not exist`)
     if (world.tier === "inmem") world.repo!.updateRef(name, tip)
     else git(world, "branch", name, tip)
+  },
+)
+
+Given("the file {string} is executable", (world: GtdWorld, path: string) => {
+  if (world.tier === "inmem") world.repo!.setExecutable(path, true)
+  else chmodSync(join(world.repoDir, path), 0o755)
+})
+
+Then(
+  "the branch {string} holds {string} as executable",
+  (world: GtdWorld, branch: string, path: string) => {
+    const ref = `refs/heads/${branch}`
+    const mode =
+      world.tier === "inmem"
+        ? world.repo!.modesAt(ref).get(path)
+        : git(world, "ls-tree", ref, "--", path).split(" ")[0]
+    assert.strictEqual(mode, "100755")
   },
 )

@@ -39,6 +39,8 @@ const infoOf = (stats: Stats): FileInfo => ({
         ? "file"
         : "other",
   uid: process.platform === "win32" ? undefined : stats.uid,
+  // git records 100755 from the owner execute bit alone.
+  ...(process.platform === "win32" ? {} : { executable: (stats.mode & 0o100) !== 0 }),
 })
 
 export const nodeSyncIo: SyncIo = {

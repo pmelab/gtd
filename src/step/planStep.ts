@@ -82,7 +82,7 @@ export const planStep = (
     ...(opts.judge !== undefined && opts.judge.length > 0 ? { judge: opts.judge } : {}),
   })
   const subject = message.split("\n")[0]!
-  const historyRef = landing.keepHistory ?? landing.ship?.historyRef
+  const historyRef = landing.keepHistory ?? landing.ship?.historyRef ?? landing.recordedHistory
   const outcome: LandStep =
     landing.to === snapshot.state
       ? { kind: "outcome", outcome: { kind: "commit", subject } }

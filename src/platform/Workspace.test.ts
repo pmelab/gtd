@@ -1,4 +1,5 @@
 import {
+  chmodSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -38,6 +39,7 @@ interface WorkspaceTier {
   readonly root: string
   readonly writeWorking: (path: string, content: string) => void
   readonly commit: (path: string, content: string) => void
+  readonly chmod: (path: string, executable: boolean) => void
   readonly provide: <A>(eff: Effect.Effect<A, Error, Workspace>) => Promise<A>
   readonly dispose: () => void
 }
@@ -70,6 +72,7 @@ const makeLiveTier = (): WorkspaceTier => {
       gitExecIn(root, "add", "-A")
       gitExecIn(root, "commit", "-m", `commit ${path}`)
     },
+    chmod: (path, executable) => chmodSync(join(root, path), executable ? 0o755 : 0o644),
     provide: (eff) => Effect.runPromise(eff.pipe(Effect.provide(workspaceLayer))),
     dispose: () => rmSync(root, { recursive: true, force: true }),
   }
@@ -86,6 +89,7 @@ const makeInMemTier = (): WorkspaceTier => {
       repo.writeFile(path, content)
       repo.seedCommit(`commit ${path}`)
     },
+    chmod: (path, executable) => repo.setExecutable(path, executable),
     provide: (eff) =>
       Effect.runPromise(eff.pipe(Effect.provide(Layer.succeed(Workspace, workspaceOps)))),
     dispose: () => {},
@@ -231,6 +235,39 @@ for (const { name, make } of tiers) {
       )
       await expect(attempt).rejects.toThrow(/repo-relative paths only/)
     })
+
+    it("modeSync reports committed and working-tree modes, kept across an overwrite", async () => {
+      t = make()
+      t.commit("a.sh", "echo\n")
+      t.chmod("a.sh", true)
+      const modes = await t.provide(
+        Effect.gen(function* () {
+          const workspace = yield* Workspace
+          const committed = workspace.modeSync("HEAD").get("a.sh")
+          const chmodded = workspace.modeSync(undefined).get("a.sh")
+          t.writeWorking("a.sh", "echo 2\n")
+          return [committed, chmodded, workspace.modeSync(undefined).get("a.sh")]
+        }),
+      )
+      expect(modes).toEqual(["100644", "100755", "100755"])
+    })
+
+    it.runIf(name === "Live")(
+      "modeSync reads only the owner execute bit, as git does",
+      async () => {
+        t = make()
+        t.commit("a.sh", "echo\n")
+        t.writeWorking("a.sh", "echo 2\n")
+        chmodSync(join(t.root, "a.sh"), 0o654)
+        const mode = await t.provide(
+          Effect.gen(function* () {
+            return (yield* Workspace).modeSync(undefined).get("a.sh")
+          }),
+        )
+        gitExecIn(t.root, "add", "a.sh")
+        expect(mode).toBe(gitExecIn(t.root, "ls-files", "-s", "a.sh").split(" ")[0])
+      },
+    )
 
     it("atPath reads an absolute path INSIDE root, the same content readSync's relative form sees", async () => {
       t = make()

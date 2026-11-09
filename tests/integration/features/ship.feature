@@ -265,3 +265,140 @@ Feature: ship() squashes the process onto the user's branch
     And the branch "gtd/main" does not exist
     And the git status contains "src/b.ts"
     And the git status does not contain "src/a.ts"
+
+  Scenario: restore after abandoning following a ship returns to the retained process tip
+    Given a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
+    And a file "src/a.ts" with:
+      """
+      export const a = 1
+      """
+    And gtd lands "gtd(agent): building → shipping"
+    And I run the script beat
+    And I mark the current commit as "tip"
+    And I run gtd with args "abandon"
+    When I run gtd with args "restore"
+    Then the current branch is "gtd/main"
+    And the current commit is the same as "tip"
+
+  Scenario: restore after abandoning following a ship refuses once <b> carries a user commit on top
+    Given a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
+    And a file "src/a.ts" with:
+      """
+      export const a = 1
+      """
+    And gtd lands "gtd(agent): building → shipping"
+    And I run the script beat
+    And I run gtd with args "abandon"
+    And a file "src/user.ts" with:
+      """
+      export const u = 1
+      """
+    And the working tree is committed as "feat: user"
+    When I run gtd with args "restore"
+    Then it fails
+    And stderr contains "HEAD has advanced past the retained tip"
+
+  Scenario: retrying a landing whose hook rejected after the ship records that ship
+    Given a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
+    And a file "src/a.ts" with:
+      """
+      export const a = 1
+      """
+    And gtd lands "gtd(agent): building → shipping"
+    And a pre-commit hook rejecting every commit with "lint error"
+    When I run the script beat
+    Then it fails
+    Given the pre-commit hook rejection is lifted
+    When I run the script beat
+    Then it succeeds
+    And the last commit subject is "gtd(check): shipping → shipped"
+    And the last commit body contains "Gtd-Shipped: "
+    And the process rests at "shipped"
+
+  Scenario: retrying a hook-rejected landing after an edit ships the edit
+    Given a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
+    And a file "src/a.ts" with:
+      """
+      export const a = 1
+      """
+    And gtd lands "gtd(agent): building → shipping"
+    And a pre-commit hook rejecting every commit with "lint error"
+    When I run the script beat
+    Then it fails
+    Given the pre-commit hook rejection is lifted
+    And a file "src/a.ts" with:
+      """
+      export const a = 2
+      """
+    When I run the script beat
+    Then it succeeds
+    And the branch "main" holds "src/a.ts" with:
+      """
+      export const a = 2
+      """
+
+  Scenario: a process whose only change is an executable bit ships it
+    Given a file "run.sh" with:
+      """
+      echo hi
+      """
+    And the working tree is committed as "chore: add run.sh"
+    And a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
+    And the file "run.sh" is executable
+    And gtd lands "gtd(agent): building → shipping"
+    When I run the script beat
+    Then it succeeds
+    And the last commit subject is "gtd(check): shipping → shipped"
+    And the last commit body contains "Gtd-Shipped: "
+    And the branch "main" holds "run.sh" as executable
+
+  Scenario: a mode change on <b> the ship would revert stalls the step
+    Given a file "run.sh" with:
+      """
+      echo hi
+      """
+    And the working tree is committed as "chore: add run.sh"
+    And a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
+    And a file "src/a.ts" with:
+      """
+      export const a = 1
+      """
+    And gtd lands "gtd(agent): building → shipping"
+    And the branch "main" is checked out
+    And the file "run.sh" is executable
+    And the working tree is committed as "chore: make run.sh executable"
+    And the branch "gtd/main" is checked out
+    When I run gtd next with "--json"
+    Then stdout contains "\"kind\":\"stalled\""
+    And stdout contains "main changed outside this process"
+    And stdout contains "run.sh"

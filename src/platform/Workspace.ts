@@ -150,6 +150,16 @@ const applyRawDiff = (tree: Map<string, string>, entries: readonly RawDiffEntry[
   }
 }
 
+/** `git ls-tree -r -z --full-tree <ref>`'s output, parsed into `path → mode`. */
+const parseLsTreeModes = (out: string): Map<string, string> => {
+  const modes = new Map<string, string>()
+  for (const record of out.split("\0")) {
+    const tab = record.indexOf("\t")
+    if (tab !== -1) modes.set(record.slice(tab + 1), record.slice(0, tab).split(" ")[0]!)
+  }
+  return modes
+}
+
 /** `git ls-tree -r -z --full-tree <ref>`'s output, parsed into `path → blob id`. */
 const parseLsTree = (out: string): Map<string, string> => {
   const entries = new Map<string, string>()
@@ -227,6 +237,8 @@ export interface WorkspaceOps {
    * reader compares contents instead.
    */
   readonly worktreeSync: () => ReadonlyMap<string, string | undefined>
+  /** Every path's git file mode (`100644`, `100755`, …) at `ref`, or in the working tree as `git add -A` would store it when `ref` is `undefined`. */
+  readonly modeSync: (ref: string | undefined) => ReadonlyMap<string, string>
   /**
    * `hash → (path → blob id)` for `base` (when given) and every one of
    * `commits`, in ONE call regardless of how many commits that is: a single
@@ -528,6 +540,29 @@ const makeWorkspaceOps = (
     return new Map([...entries].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)))
   }
 
+  const modeSync = (ref: string | undefined): ReadonlyMap<string, string> => {
+    const modes = parseLsTreeModes(gitSync(["ls-tree", "-r", "-z", "--full-tree", ref ?? "HEAD"]))
+    if (ref !== undefined) return modes
+    const status = gitSync([
+      "status",
+      "--porcelain=v1",
+      "-z",
+      "--untracked-files=all",
+      "--no-renames",
+      "--ignore-submodules=none",
+    ])
+    for (const record of status.split("\0")) {
+      if (record.length < 4) continue
+      const path = record.slice(3).replace(/\/$/, "")
+      const stat = io.lstat(paths.join(root, path))
+      if (stat === undefined) modes.delete(path)
+      else if (stat.type === "symlink") modes.set(path, "120000")
+      else if (stat.type === "directory") modes.set(path, "160000")
+      else modes.set(path, stat.executable === true ? "100755" : "100644")
+    }
+    return modes
+  }
+
   /** A submodule's (or embedded repository's) checked-out commit — what `git add` records for it. */
   const gitlinkOf = (path: string): string | undefined => {
     try {
@@ -547,6 +582,7 @@ const makeWorkspaceOps = (
   return {
     treeSync,
     worktreeSync,
+    modeSync,
     episodeTrees,
     readSync,
     read: (path) => Effect.try({ try: () => readSync(path), catch: toError }),

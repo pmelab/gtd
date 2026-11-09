@@ -29,7 +29,7 @@ export async function defaultBranch(git: (...args: string[]) => Promise<string>)
 // needs --force-with-lease on an existing origin/<branch>. `fresh`: origin
 // lacks the branch, so any tracking ref is stale. Returns why the push failed,
 // or nothing.
-export async function pushBranch(io: GitIo, branch: string, fresh = false) {
+export async function pushBranch(io: GitIo, branch: string, fresh = false, head = "HEAD") {
   const ok = async (...args: string[]) => (await io.run(["git", ...args])).code === 0
   const push = async (args: string[], failure: string) => {
     const r = await attempt(io, ["git", "push", ...args])
@@ -42,7 +42,7 @@ export async function pushBranch(io: GitIo, branch: string, fresh = false) {
     io.log(`Pushing ${branch} to origin…`)
     return push(["--set-upstream", "origin", branch], "git push failed.")
   }
-  if (!(await ok("merge-base", "--is-ancestor", "HEAD", `origin/${branch}`))) {
+  if (!(await ok("merge-base", "--is-ancestor", head, `origin/${branch}`))) {
     io.log(`Pushing ${branch} to origin…`)
     return push(
       ["--force-with-lease", "origin", branch],

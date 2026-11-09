@@ -15,6 +15,8 @@ const decoder = new TextDecoder("utf-8", { ignoreBOM: true })
 
 export interface InMemorySyncIo extends SyncIo {
   readonly symlink: (path: string, target: string) => void
+  /** `chmod +x` / `-x` on a file. */
+  readonly setExecutable: (path: string, on: boolean) => void
 }
 
 /**
@@ -27,6 +29,7 @@ export const inMemorySyncIo = (
   const files = new Map<string, Uint8Array>()
   const links = new Map<string, string>()
   const dirs = new Set<string>(["/"])
+  const execs = new Set<string>()
 
   /** `path` with every symlink resolved, the last component's only when `followLast`. */
   const resolve = (path: string, followLast: boolean): string => {
@@ -68,7 +71,9 @@ export const inMemorySyncIo = (
 
   const info = (path: string): FileInfo | undefined => {
     const type = typeOf(path)
-    return type === undefined ? undefined : { type, uid: opts.uid }
+    return type === undefined
+      ? undefined
+      : { type, uid: opts.uid, ...(type === "file" ? { executable: execs.has(path) } : {}) }
   }
 
   const readFile = (path: string): Uint8Array | undefined => {
@@ -136,6 +141,8 @@ export const inMemorySyncIo = (
       links.delete(target)
       files.set(target, bytes)
       files.delete(source)
+      execs.delete(target)
+      if (execs.delete(source)) execs.add(target)
     },
     stat: (path) => info(resolve(path, true)),
     lstat: (path) => info(resolve(path, false)),
@@ -152,6 +159,11 @@ export const inMemorySyncIo = (
     git,
     gitBytes: (cwd, args) => encoder.encode(git(cwd, args)),
     hash: pureHash,
+    setExecutable: (path, on) => {
+      const real = resolve(path, true)
+      if (on) execs.add(real)
+      else execs.delete(real)
+    },
     symlink: (path, target) => {
       links.set(resolve(path, false), target)
     },
