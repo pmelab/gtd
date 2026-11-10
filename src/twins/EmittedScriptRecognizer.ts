@@ -681,7 +681,7 @@ const recognizeGtdCheck = (repo: InMemRepo, block: string): BlockOutcome | undef
 
 const GTD_UNCHECK_RE = /^gtd uncheck (.+)$/
 
-/** `gtd uncheck <file>` — the review-gate reset prepended ahead of the human's commit, so no tick ever reaches it. Re-runs the REAL `clearTicks`, writing back only on an actual change. */
+/** `gtd uncheck <file>` — the review-gate reset prepended ahead of the human's commit, absent when the next step is an agent turn. Re-runs the REAL `clearTicks`, writing back only on an actual change. */
 const recognizeGtdUncheck = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
   const match = GTD_UNCHECK_RE.exec(block)
   if (!match) return undefined

@@ -615,7 +615,7 @@ The fixed answerer reads --answers and leaves out the questions it does not cove
     arity: { name: "file" },
     group: "Driver plumbing",
     summary: "Untick a review file's boxes",
-    details: `Reset every ticked review box (- [x]) in <file> to - [ ], writing the file only when it changes; a missing file writes nothing. Reads no workflow and runs from any directory — the landing script at a review gate calls it, so no tick is ever committed.`,
+    details: `Reset every ticked review box (- [x]) in <file> to - [ ], writing the file only when it changes; a missing file writes nothing. Reads no workflow and runs from any directory — the landing script at a review gate calls it unless the next step is an agent turn, which keeps the ticks.`,
   },
   {
     token: "lsp",
