@@ -3,15 +3,15 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
 
   At a human gate whose file is in `mode: review`, `gtd land`'s emitted
   script resets every `- [x]`/`- [X]` file-pointer box back to `- [ ]` (via
-  `gtd uncheck`) BEFORE it commits — no record of which hunks were read
-  survives the land, in history or on disk. `qa`-mode's `- [ ]` boxes ARE the
+  `gtd uncheck`) BEFORE it commits — unless the next step is an agent turn,
+  which keeps the ticks so they survive the round trip. `qa`-mode's `- [ ]` boxes ARE the
   answer, so `gtd uncheck` never runs at a `qa`-mode gate.
 
   Background:
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
-      import { agent, human, removeScript, run, workflow } from "@pmelab/gtd/flows"
+      import { agent, human, read, removeScript, run, workflow } from "@pmelab/gtd/flows"
 
       const REVIEW = ".gtd/REVIEW.md"
 
@@ -25,6 +25,30 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
         })
         await run("closing", removeScript([REVIEW]), { label: "Closing the review" })
       }
+
+      export const rework = workflow(async () => {
+        await agent("reviewing", "Write .gtd/REVIEW.md.", { file: REVIEW, mode: "review" })
+        await human("await-review", {
+          message: "Review the change.",
+          file: REVIEW,
+          mode: "review",
+        })
+        await agent("fixing", "Fix what the review asks.", { file: REVIEW, mode: "review" })
+      })
+
+      export const peek = workflow(async () => {
+        await agent("reviewing", "Write .gtd/REVIEW.md.", { file: REVIEW, mode: "review" })
+        await human("await-review", {
+          message: "Review the change.",
+          file: REVIEW,
+          mode: "review",
+          acceptClean: true,
+        })
+        if ((read(REVIEW) ?? "").includes("sum")) {
+          await agent("fixing", "Fix what the review asks.", { file: REVIEW, mode: "review" })
+        }
+        await run("closing", removeScript([REVIEW]), { label: "Closing the review" })
+      })
 
       export const answer = workflow(async () => {
         await agent("drafting", "Draft the plan.", { file: ".gtd/PLAN.md", mode: "qa" })
@@ -212,3 +236,95 @@ Feature: Review checkboxes reset on land — a tick is read-progress, never sign
     Then it succeeds
     And the last commit subject is "gtd(human): answering → revising"
     And ".gtd/PLAN.md" contains "[x] SQLite"
+
+  Scenario: a tick survives a landing into an agent turn
+    When I run gtd with args "start rework"
+    Then it succeeds
+    And I run the pin beat
+    Given a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1-1
+      new add function
+      """
+    And gtd lands "gtd(agent): reviewing → await-review"
+    And ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [x] ./src/calc.ts#1-1
+      new add function — rename it to sum
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): await-review → fixing"
+    And ".gtd/REVIEW.md" contains "- [x] ./src/calc.ts#1-1"
+    And the git status is clean
+
+  Scenario: a tick-only sign-off at an acceptClean gate lands clean even when the next step is an agent turn
+    When I run gtd with args "start peek"
+    Then it succeeds
+    And I run the pin beat
+    Given a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1-1
+      new add function — rename it to sum
+      """
+    And gtd lands "gtd(agent): reviewing → await-review"
+    And ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [x] ./src/calc.ts#1-1
+      new add function — rename it to sum
+      """
+    When I run gtd land
+    Then it succeeds
+    And ".gtd/REVIEW.md" contains "- [ ] ./src/calc.ts#1-1"
+    And the git status is clean
+
+  Scenario: a landing that keeps ticks replays to the same step afterwards
+    When I run gtd with args "start peek"
+    Then it succeeds
+    And I run the pin beat
+    Given a file ".gtd/REVIEW.md" with:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [ ] ./src/calc.ts#1-1
+      new add function
+      """
+    And gtd lands "gtd(agent): reviewing → await-review"
+    And ".gtd/REVIEW.md" is modified to:
+      """
+      # Review: abc1234
+
+      <!-- base: 0000000 -->
+
+      ## calc
+      - [x] ./src/calc.ts#1-1
+      new add function — rename it to sum
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): await-review → fixing"
+    When I run gtd next
+    Then it succeeds

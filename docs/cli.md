@@ -746,8 +746,8 @@ Usage: gtd uncheck <file>
 
 Reset every ticked review box (- [x]) in <file> to - [ ], writing the file only
 when it changes; a missing file writes nothing. Reads no workflow and runs from
-any directory — the landing script at a review gate calls it, so no tick is ever
-committed.
+any directory — the landing script at a review gate calls it unless the next
+step is an agent turn, which keeps the ticks.
 
 Options:
   -v, --verbose       Narrate on stderr what gtd resolved

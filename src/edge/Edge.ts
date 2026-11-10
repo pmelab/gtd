@@ -1383,13 +1383,23 @@ const cleanLanding = (rest: Rest): Landing | undefined => {
   return undefined
 }
 
-/** At the human review gate the pending tree lands with every tick cleared, as the landing script will. */
+/** At the human review gate the pending tree lands with every tick cleared; an agent-bound landing keeps them only if the unrewritten tree replays to the same step. */
 const reviewGateRewrite = (def: StepDef): Rewrite | undefined => {
   const reviewFormat = steeringFormatFor("review")
   if (!isHumanReviewGate(def) || def.file === undefined || reviewFormat === undefined) {
     return undefined
   }
   return { path: def.file, apply: (content) => reviewFormat.clearTicks(content) }
+}
+
+/** Whether the pending review file differs from HEAD's once both have their ticks cleared. */
+const reviewEditedBeyondTicks = (rest: Rest): boolean => {
+  const rewrite = reviewGateRewrite(rest.stepDef)
+  if (rewrite === undefined) return false
+  const pending = rest.setup.workspace.readSync(rewrite.path)
+  const committed = rest.setup.workspace.readCommittedSync(rewrite.path)
+  if (pending === undefined || committed === undefined) return true
+  return rewrite.apply(pending) !== rewrite.apply(committed)
 }
 
 const multilineRefusal = (vars: Record<string, string>): Landing | undefined => {
@@ -1579,7 +1589,28 @@ const decideLanding = (
     )
     const to = yield* landingTarget(outcome, rest)
     if (typeof to !== "string") return to
-    return landingTo(rest, to, branch, approver, outcomeMarks(outcome))
+    const landed = landingTo(rest, to, branch, approver, outcomeMarks(outcome))
+    // Ticks survive an agent-bound landing only when the review file changed beyond ticks
+    // (a tick-only sign-off lands clean) and the unrewritten tree replays to the same step.
+    if (
+      landed.kind !== "commit" ||
+      !isHumanReviewGate(rest.stepDef) ||
+      outcome.kind !== "rest" ||
+      outcome.rest.request.kind !== "agent" ||
+      !reviewEditedBeyondTicks(rest)
+    ) {
+      return landed
+    }
+    const ticked = yield* Effect.promise(() =>
+      replayFor(rest.setup, {
+        tree: pendingTree(rest.setup.workspace, rest.setup.pendingWorktree(), undefined),
+        ...(verdicts !== undefined ? { verdicts } : {}),
+        ...(shipped !== undefined ? { shipped } : {}),
+      }),
+    )
+    return ticked.kind === "rest" && ticked.rest.name === outcome.rest.name
+      ? { ...landed, keepTicks: true }
+      : landed
   })
 
 /** The user's branch: `<b>` for a process on `gtd/<b>` while `<b>` still exists; any other branch as is. */

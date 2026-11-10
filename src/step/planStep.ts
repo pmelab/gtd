@@ -24,11 +24,11 @@ export type StepOutcome =
     }
 
 /**
- * At the human review gate an unconditional `gtd uncheck '<file>'` runs
- * ahead of the commit, resetting every checkbox before `git add -A` picks it
- * up — a tick is read-progress, never sign-off.
+ * Clear ticks at the human review gate, a tick is read-progress. Keep them when
+ * the next step is an agent turn: the agent reads them.
  */
-const uncheckStep = (snapshot: RepoSnapshot): readonly LandStep[] =>
+const uncheckStep = (snapshot: RepoSnapshot, keepTicks: boolean): readonly LandStep[] =>
+  !keepTicks &&
   snapshot.stepDef.actor === "human" &&
   snapshot.stepDef.mode === "review" &&
   snapshot.file !== undefined
@@ -94,7 +94,7 @@ export const planStep = (
     subject,
     steps: [
       ...writeIf(landing.startBranch, (branch) => ({ kind: "switchBranch", branch })),
-      ...uncheckStep(snapshot),
+      ...uncheckStep(snapshot, landing.keepTicks === true),
       { kind: "gitWrite", write: gitWriteOf(landing, message) },
       ...writeIf(historyRef, (ref) => ({ kind: "updateRef", ref, target: "HEAD" })),
       ...writeIf(landing.leaveBranch, (branch) => ({ kind: "switchTo", branch })),
