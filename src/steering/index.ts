@@ -47,6 +47,7 @@ export type {
   SteeringPointer,
   SteeringView,
   SteeringViewNode,
+  SteeringViewSection,
   SteeringViewThread,
 } from "./SteeringFormat.js"
 

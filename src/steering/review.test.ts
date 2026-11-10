@@ -27,6 +27,7 @@ describe("parseReviewDoc", () => {
           title: "Add calculator",
           headingLine: 4,
           description: "New add function for the calculator.",
+          detail: "New add function for the calculator.",
           descriptionInline: [{ kind: "text", value: "New add function for the calculator." }],
           descriptionNodes: [
             {
@@ -2254,5 +2255,69 @@ describe("review — sectioned layout", async () => {
       .actionsAt({ start: { line: 20, character: 0 }, end: { line: 20, character: 0 } })
       .map((a) => a.title)
     expect(titles.some((t) => t.includes("A finding"))).toBe(false)
+  })
+})
+
+describe("review view drafted comment", () => {
+  const doc = (pointer: string) => `# Review
+
+## Findings
+
+### Token check
+
+_correctness · judge: fix_
+
+${pointer}Draft PR comment:
+
+> nit: Uses \`==\`.
+> Impact: Timing leak.
+> Fix: Use \`timingSafeEqual\`.
+>
+> \`\`\`suggestion
+> return ok
+> \`\`\`
+
+Tick exactly one:
+
+- [ ] fix as suggested
+- [ ] won't fix
+- [ ] _your answer_
+`
+  for (const [name, pointer] of [
+    ["with a pointer", "- [ ] ./src/auth.ts#1-3\n\n"],
+    ["without a pointer", ""],
+  ] as const) {
+    it(`splits the comment into What, Impact and Fix ${name}`, () => {
+      const node = steeringFormatFor("review")!.view(doc(pointer)).nodes[0]!
+      expect(node.comment?.map((s) => s.label)).toEqual(["What", "Impact", "Fix"])
+      const fix = node.comment![2]!.body
+      expect(fix.some((n) => n.block?.kind === "code" && n.block.text === "return ok")).toBe(true)
+      expect(node.detail).not.toContain("Draft PR comment")
+    })
+  }
+
+  it("keeps an unlabelled comment as one What", () => {
+    const node = steeringFormatFor("review")!.view(
+      doc("")
+        .replace(/Impact:[^]*?```\n\nTick/, "Plain.\n\nTick")
+        .replace("> nit: Uses `==`.\n> ", "> nit: Uses."),
+    ).nodes[0]!
+    expect(node.comment?.map((s) => s.label)).toEqual(["What"])
+  })
+
+  it("keeps a Fix: line inside a suggestion fence in its code block", () => {
+    const node = steeringFormatFor("review")!.view(
+      doc("").replace("> return ok", "> Fix: inside\n> return ok"),
+    ).nodes[0]!
+    expect(node.comment?.map((s) => s.label)).toEqual(["What", "Impact", "Fix"])
+    const code = node.comment![2]!.body.find((n) => n.block?.kind === "code")
+    expect(code?.block?.text).toContain("Fix: inside")
+  })
+
+  it("leaves the comment in the body of a chunk with no answer list", () => {
+    const node = steeringFormatFor("review")!.view(doc("").replace(/Tick exactly one:[^]*$/, ""))
+      .nodes[0]!
+    expect(node.comment).toBeUndefined()
+    expect(node.detail).toContain("Draft PR comment")
   })
 })

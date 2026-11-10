@@ -46,6 +46,7 @@ import type {
   SteeringOutlineNode,
   SteeringView,
   SteeringViewNode,
+  SteeringViewSection,
 } from "./SteeringFormat.js"
 
 interface ReviewFile {
@@ -68,10 +69,14 @@ interface ReviewFile {
 interface Changeset {
   readonly title: string
   readonly description: string
+  /** `description` without the drafted comment: what the view shows. */
+  readonly detail: string
   /** The same leading run collapsed into `description`, projected as block nodes (`Blocks.ts#blockNodesOfRun`) instead of flattened text — `Review.tsx`'s chunk screen renders these through the shared prose-block rendering. */
   readonly descriptionNodes: readonly SteeringViewNode[]
   /** `description`'s own inline structure, image-collapsed (R2) — feeds the chunk node's `detailInline`. */
   readonly descriptionInline: readonly InlineNode[]
+  /** The drafted PR comment (de-quoted markdown) of a decision chunk, when it carries one. */
+  readonly comment?: string
   readonly files: readonly ReviewFile[]
   /** 0-based index of this chunk's `##` heading. */
   readonly headingLine: number
@@ -530,6 +535,31 @@ const answerListOf = (
   return { lead, list, options }
 }
 
+const COMMENT_LABEL_RE = /^(Impact|Fix):[ \t]*/
+
+/** Splits a drafted comment at its `Impact:` / `Fix:` lines (outside fences) into labelled block sections; no labels is one What. */
+const commentSections = (comment: string): readonly SteeringViewSection[] => {
+  const parts: { label: string; lines: string[] }[] = [{ label: "What", lines: [] }]
+  let fence: string | undefined
+  for (const line of comment.split("\n")) {
+    const marker = /^\s*(`{3,}|~{3,})/.exec(line)?.[1]
+    if (marker !== undefined) {
+      if (fence === undefined) fence = marker
+      else if (marker.startsWith(fence)) fence = undefined
+    }
+    const label = fence === undefined && marker === undefined ? COMMENT_LABEL_RE.exec(line) : null
+    if (label) parts.push({ label: label[1]!, lines: [line.slice(label[0].length)] })
+    else parts.at(-1)!.lines.push(line)
+  }
+  return parts
+    .map(({ label, lines }) => ({ label, text: lines.join("\n").trim() }))
+    .filter(({ text }) => text.length > 0)
+    .map(({ label, text }) => ({
+      label,
+      body: blockNodesOfRun(text, parseMarkdown(text).children),
+    }))
+}
+
 /** A leading severity line is the chunk's tier, never its prose. */
 const splitSeverity = (
   content: string,
@@ -551,6 +581,7 @@ const splitSeverity = (
 }
 
 /** Splits one chunk's body nodes into its file pointers (hunk pointers are task items, collected recursively at ANY nesting depth via `taskItems` — a nested hunk is the same kind of hunk as a top-level one) and description prose. The description is the chunk's own leading run and never a node that contains a hunk pointer: it stops at the first node whose `taskItems` include a real pointer (at any depth — a blockquote wrapping a pointer list stops it just as a top-level list would). Every node kind in what's left before that point contributes — a `footnoteDefinition` is the one exception, excluded by `blockNodesOfRun` itself (it's a note, never document content). */
+// fallow-ignore-next-line complexity
 const parseChunkBody = (
   content: string,
   lines: readonly string[],
@@ -559,8 +590,10 @@ const parseChunkBody = (
   answerable: boolean,
 ): {
   readonly description: string
+  readonly detail: string
   readonly descriptionNodes: readonly SteeringViewNode[]
   readonly descriptionInline: readonly InlineNode[]
+  readonly comment?: string
   readonly files: readonly ReviewFile[]
   readonly errors: readonly SteeringFinding[]
   readonly answers?: readonly AnswerOption[]
@@ -579,14 +612,40 @@ const parseChunkBody = (
   const run = (firstPointerIndex === -1 ? body : body.slice(0, firstPointerIndex)).filter(
     (n) => !isAnswer(n),
   )
-  const { severity, leadingRun } = splitSeverity(content, run)
+  // The drafted comment: the blockquote right after a `Draft PR comment:` line, wherever the pointer sits.
+  const draftIndex =
+    answer !== undefined
+      ? body.findIndex(
+          (n, i) =>
+            !isAnswer(n) &&
+            n.type === "blockquote" &&
+            body[i - 1]?.type === "paragraph" &&
+            /^draft pr comment:?$/i.test(sourceText(content, body[i - 1]!).trim()),
+        )
+      : -1
+  const comment =
+    draftIndex === -1
+      ? undefined
+      : content
+          .slice(body[draftIndex]!.position!.start.offset!, body[draftIndex]!.position!.end.offset!)
+          .split("\n")
+          .map((l) => l.replace(/^\s*> ?/, ""))
+          .join("\n")
+          .trim()
+  const draftNodes = new Set(draftIndex === -1 ? [] : [body[draftIndex], body[draftIndex - 1]])
+  const { severity, leadingRun: fullRun } = splitSeverity(content, run)
+  const leadingRun = fullRun.filter((n) => !draftNodes.has(n))
   const descriptionNodes = blockNodesOfRun(content, leadingRun)
   const descriptionInline = collapseImages(blockRunInline(content, leadingRun))
-  const description = leadingRun
-    .filter((n) => n.type !== "footnoteDefinition")
-    .map((n) => sourceText(content, n))
-    .join(" ")
-    .trim()
+  const textOf = (nodes: readonly RootContent[]): string =>
+    nodes
+      .filter((n) => n.type !== "footnoteDefinition")
+      .map((n) => sourceText(content, n))
+      .join(" ")
+      .trim()
+  // `description` stays whole: it is the decision body gtd hands to the fixer.
+  const description = textOf(fullRun)
+  const detail = textOf(leadingRun)
 
   const files: ReviewFile[] = []
   const errors: SteeringFinding[] = []
@@ -598,8 +657,10 @@ const parseChunkBody = (
   }
   return {
     description,
+    detail,
     descriptionNodes,
     descriptionInline,
+    ...(comment === undefined ? {} : { comment }),
     files,
     errors,
     ...(answer === undefined
@@ -690,8 +751,10 @@ const parseChangesets = (
     const title = headingText(content, heading)
     const {
       description,
+      detail,
       descriptionNodes,
       descriptionInline,
+      comment,
       files,
       answers,
       answerLine,
@@ -711,8 +774,10 @@ const parseChangesets = (
     changesets.push({
       title,
       description,
+      detail,
       descriptionNodes,
       descriptionInline,
+      ...(comment === undefined ? {} : { comment }),
       files,
       headingLine,
       ...(answers === undefined ? {} : { answers, answerLine: answerLine! }),
@@ -1129,9 +1194,10 @@ const reviewView = (content: string): SteeringView => {
     ...(shortHash ? { header: shortHash } : {}),
     nodes: changesets.map((chunk, chunkIndex) => ({
       title: chunk.title,
-      detail: chunk.description,
+      detail: chunk.detail,
       detailInline: chunk.descriptionInline,
       body: chunk.descriptionNodes,
+      ...(chunk.comment === undefined ? {} : { comment: commentSections(chunk.comment) }),
       ...(chunk.severity === undefined ? {} : { status: chunk.severity.label }),
       anchor: { kind: "chunk", index: chunkIndex },
       ...(chunk.section === undefined ? {} : { group: REVIEW_SECTIONS[chunk.section] }),

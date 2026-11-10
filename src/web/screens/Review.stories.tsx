@@ -2612,3 +2612,101 @@ export const TheQualityLapSummaryTakesANoteOnEachItem: StoryObj<typeof Review> =
     await expect(canvas.queryByTestId("note-item-thread-0-2-0")).not.toBeInTheDocument()
   },
 }
+
+const DRAFTED_REVIEW = `# Review
+
+## Findings
+
+### Token check
+
+_correctness · judge: fix_
+
+- [ ] ./src/auth.ts#1-3
+
+Draft PR comment:
+
+> nit: The token is compared with \`==\` in \`check\`.
+> Impact: A timing attack leaks it.
+> Fix: Use \`timingSafeEqual\`.
+>
+> \`\`\`suggestion
+> return timingSafeEqual(aVeryLongIdentifierNumberOne, aVeryLongIdentifierNumberTwo, aVeryLongIdentifierNumberThree)
+> \`\`\`
+
+Tick exactly one:
+
+- [ ] fix as suggested
+- [ ] won't fix
+- [ ] _your answer_
+
+### Plain finding
+
+_style · judge: fix_
+
+Draft PR comment:
+
+> question: Why is this loop unbounded?
+
+Tick exactly one:
+
+- [ ] fix as suggested
+- [ ] won't fix
+- [ ] _your answer_
+`
+
+/** A finding starts collapsed: lens, verdict, location, decision boxes; no comment, no Open code. */
+export const AFindingStartsCollapsedWithItsLocation: Story = {
+  args: { view: reviewFormat.view(DRAFTED_REVIEW), isLoading: false },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("chunk-card-0")).toHaveTextContent("correctness · judge: fix")
+    await expect(canvas.getByTestId("chunk-location-0")).toHaveTextContent("src/auth.ts#1-3")
+    await expect(canvas.queryByTestId("chunk-comment-0")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("chunk-open-0")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("chunk-decision-0-0")).toBeVisible()
+    await expect(
+      canvas.getByTestId("chunk-expand-0").getBoundingClientRect().height,
+    ).toBeGreaterThanOrEqual(44)
+  },
+}
+
+/** Expanding shows What / Impact / Fix, keeps the decision, collapses again, and Open code reaches the deck. */
+export const AnExpandedFindingShowsWhatImpactAndFix: Story = {
+  args: { view: reviewFormat.view(DRAFTED_REVIEW), isLoading: false },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("chunk-decision-0-1"))
+    await fireEvent.click(canvas.getByTestId("chunk-expand-0"))
+    await expect(canvas.getByTestId("chunk-comment-0-what")).toHaveTextContent("nit: The token")
+    await expect(canvas.getByTestId("chunk-comment-0-impact")).toHaveTextContent("A timing attack")
+    await expect(canvas.getByTestId("chunk-comment-0-impact")).not.toHaveTextContent("Fix:")
+    const fix = canvas.getByTestId("chunk-comment-0-fix")
+    await expect(fix).toHaveTextContent("Use timingSafeEqual")
+    await expect(fix.querySelector("pre")).toHaveTextContent("return timingSafeEqual(")
+    await expect(canvasElement.ownerDocument.documentElement.scrollWidth).toBeLessThanOrEqual(
+      canvasElement.ownerDocument.documentElement.clientWidth,
+    )
+    await expect(canvas.getByTestId("chunk-decision-0-1")).toBeChecked()
+    await fireEvent.click(canvas.getByTestId("chunk-expand-0"))
+    await expect(canvas.queryByTestId("chunk-comment-0")).not.toBeInTheDocument()
+    await expect(canvas.getByTestId("chunk-decision-0-1")).toBeChecked()
+    await fireEvent.click(canvas.getByTestId("chunk-expand-0"))
+    await fireEvent.click(canvas.getByTestId("chunk-open-0"))
+    await expect(canvas.getByTestId("hunk-deck")).toBeInTheDocument()
+  },
+}
+
+/** A comment without labels is one What section, and a pointer-less finding has no Open code. */
+export const AnUnlabelledFindingShowsOneWhatSection: Story = {
+  args: { view: reviewFormat.view(DRAFTED_REVIEW), isLoading: false },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getByTestId("chunk-expand-1"))
+    await expect(canvas.getByTestId("chunk-comment-1-what")).toHaveTextContent(
+      "question: Why is this loop unbounded?",
+    )
+    await expect(canvas.queryByTestId("chunk-comment-1-impact")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("chunk-comment-1-fix")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("chunk-open-1")).not.toBeInTheDocument()
+  },
+}
