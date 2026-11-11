@@ -87,17 +87,13 @@ describe("diffPaths [Live]", () => {
   })
 
   // An exported GIT_DIR/GIT_WORK_TREE would send this test's commits to the real repo;
-  // the pinned config keeps a global commit.gpgsign or missing identity from failing them.
-  const cleanEnv = {
-    ...Object.fromEntries(Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_"))),
-    GIT_CONFIG_COUNT: "3",
-    GIT_CONFIG_KEY_0: "commit.gpgsign",
-    GIT_CONFIG_VALUE_0: "false",
-    GIT_CONFIG_KEY_1: "user.email",
-    GIT_CONFIG_VALUE_1: "test@test.com",
-    GIT_CONFIG_KEY_2: "user.name",
-    GIT_CONFIG_VALUE_2: "Test",
-  }
+  // the suite's isolated global config keeps a developer's signing setup out.
+  const cleanEnv = Object.fromEntries(
+    Object.entries(process.env).filter(
+      ([key]) =>
+        !key.startsWith("GIT_") || key === "GIT_CONFIG_GLOBAL" || key === "GIT_CONFIG_NOSYSTEM",
+    ),
+  )
 
   it("reports a submodule pointer bump whatever diff.ignoreSubmodules and .gitmodules ignore say", async () => {
     const root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-diffpaths-sm-")))
