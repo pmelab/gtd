@@ -322,11 +322,41 @@ const STEERING_OPTIONS = ["file", "mode", "label", "base"]
 // The option keys each step accepts. A gtd.config.ts is evaluated without a
 // type check, so a misspelt key would otherwise be silently ignored.
 const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
-  agent: new Set([...STEERING_OPTIONS, "model", "system", "allowEmpty", "keep"]),
+  agent: new Set([
+    ...STEERING_OPTIONS,
+    "model",
+    "system",
+    "allowEmpty",
+    "keep",
+    "validate",
+    "cap",
+    "exhausted",
+    "correction",
+  ]),
   human: new Set([...STEERING_OPTIONS, "message", "acceptClean", "approve"]),
   run: new Set([...STEERING_OPTIONS, "onFail"]),
   ship: new Set(["label", "base"]),
   judge: new Set([...STEERING_OPTIONS, "message"]),
+}
+
+const validatorOptionFault = (
+  name: string,
+  options: Extract<StepRequest, { kind: "agent" }>["options"],
+): string | undefined => {
+  const { validate, cap, exhausted, correction } = options
+  const prefix = `gtd: step "${name}": `
+  const notFunction = Object.entries({ validate, exhausted, correction }).find(
+    ([, value]) => value !== undefined && typeof value !== "function",
+  )
+  if (notFunction !== undefined)
+    return `${prefix}${notFunction[0]} must be a function in agent() options`
+  if (cap !== undefined && !(Number.isInteger(cap) && cap > 0)) {
+    return `${prefix}cap must be a positive integer in agent() options`
+  }
+  if (validate !== undefined && options.keep === true) {
+    return `${prefix}validate cannot be combined with keep: true — a kept turn is set aside, so there is no landed result to validate`
+  }
+  return undefined
 }
 
 const restsOnFail = (step: ReachedStep): boolean =>
@@ -775,6 +805,8 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
     }
     if (request.kind !== "agent") return bodyFault(request)
     const name = scoped(request.name)
+    const optionFault = validatorOptionFault(name, request.options)
+    if (optionFault !== undefined) return optionFault
     if (request.options.keep === true) {
       // A clean allowEmpty keep would land an ordinary commit with no Gtd-Kept: a silent skip.
       if ((request.options as { readonly allowEmpty?: unknown }).allowEmpty === true) {

@@ -33,6 +33,7 @@ const dispatchFieldsOf = (
 ): {
   readonly session: DemandSession | undefined
   readonly validate: string | undefined
+  readonly fresh: string | null
   readonly skills: readonly string[] | undefined
   readonly access: StepAccess | undefined
   readonly pin: PinMark | undefined
@@ -40,6 +41,7 @@ const dispatchFieldsOf = (
   const none = {
     session: undefined,
     validate: undefined,
+    fresh: null,
     skills: undefined,
     access: undefined,
     pin: undefined,
@@ -50,6 +52,7 @@ const dispatchFieldsOf = (
         ...none,
         session: demand.session,
         validate: demand.validate,
+        fresh: demand.fresh,
         skills: demand.skills,
         access: demand.access,
       }
@@ -75,6 +78,8 @@ export interface BeatDocument {
   readonly model: string | undefined
   readonly system: string | undefined
   readonly validate: string | undefined
+  /** A validator retry with `session.resume`: the original prompt plus the correction, for a driver that starts a new session. `null` otherwise. */
+  readonly fresh: string | null
   /** On a pin or unpin beat only: what its script does to `.gtd/process.gtdpin`. */
   readonly pin: PinMark | undefined
   readonly log: string
@@ -96,13 +101,13 @@ export interface BeatDocument {
 }
 
 /**
- * Flatten a `Demand` plus its `BeatStatus` into the single 26-key document
+ * Flatten a `Demand` plus its `BeatStatus` into the single 27-key document
  * `gtd next --json` emits — the ONLY place the two are joined. `cost`/
  * `costByModel` are omitted together, exactly when no cost was recorded
  * (`cost <= 0`).
  */
 export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument => {
-  const { session, validate, skills, access, pin } = dispatchFieldsOf(demand)
+  const { session, validate, fresh, skills, access, pin } = dispatchFieldsOf(demand)
   const hasCost = status.cost > 0
   return {
     schema: WIRE_SCHEMA,
@@ -114,6 +119,7 @@ export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument =
     model: status.model,
     system: status.system,
     validate,
+    fresh,
     pin,
     log: status.log,
     state: status.state,

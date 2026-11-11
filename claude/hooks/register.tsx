@@ -218,7 +218,7 @@ function io($: $): Io {
       // held it): start one, as the sh driver falls back to `--session-id`.
       const spawned = await $.agent.spawn({
         subagentType: await persona($, t),
-        prompt: t.prompt,
+        prompt: t.fresh ?? t.prompt,
         description: t.label || "gtd",
         model: await workerModel($, t.model),
         cwd: root,

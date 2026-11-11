@@ -1289,6 +1289,17 @@ const computeNextMatch = (rest: Rest): Effect.Effect<NextMatch | null> =>
     (target) => (target === undefined ? null : { target }),
   )
 
+/** A validator retry's content is the correction; a session that cannot resume needs the original prompt too, and one that can hands a driver that loses it `fresh`. */
+const retryContent = (
+  kind: BeatKind,
+  rendered: RenderedRest,
+  resumes: boolean,
+): { readonly rendered: RenderedRest; readonly fresh?: string } => {
+  if (kind !== "prompt" || rendered.original === undefined) return { rendered }
+  const joined = `${rendered.original}\n\n${rendered.content}`
+  return resumes ? { rendered, fresh: joined } : { rendered: { ...rendered, content: joined } }
+}
+
 /** Everything one beat needs beyond the resolved rest itself, gathered once so plain/`--json` can never describe different rests for the same beat — built as `wire`'s `Demand` (what to do) and `BeatStatus` (what no driver branches on), then flattened by `beatDocument` into the one wire-shaped object plain/`--json` both render from. */
 const gatherBeatDocument = (
   rest: Rest,
@@ -1307,9 +1318,11 @@ const gatherBeatDocument = (
         ? resolvedValidate.script
         : undefined
     const log = yield* loopLogPath
+    const retry = retryContent(kind, rendered, session?.resume === true)
     const demand = demandOf({
-      rendered,
+      rendered: retry.rendered,
       kind,
+      ...(retry.fresh !== undefined ? { fresh: retry.fresh } : {}),
       ...(session !== undefined
         ? { session: { id: session.sessionId, resume: session.resume } }
         : {}),

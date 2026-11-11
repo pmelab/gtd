@@ -70,6 +70,25 @@ describe("drive", () => {
     ])
   })
 
+  test("a retry beat hands the turn its fresh prompt", async () => {
+    const turns: Array<{ prompt: string; fresh?: string }> = []
+    const { io } = fake(
+      [
+        {
+          kind: "prompt",
+          content: "fix",
+          fresh: "do it\n\nfix",
+          memory: "m",
+          session: { resume: true },
+        },
+      ],
+      [{ script: "commit", settled: true, idle: true }],
+      { turn: async (t) => (turns.push({ prompt: t.prompt, fresh: t.fresh }), { ok: true }) },
+    )
+    await drive(io)
+    expect(turns).toEqual([{ prompt: "fix", fresh: "do it\n\nfix" }])
+  })
+
   test("a lost subagent's findings go to a fresh one with the step's prompt", async () => {
     const checks = [
       { ok: false, out: "fix line 3" },
@@ -94,6 +113,25 @@ describe("drive", () => {
       "land",
       "sh:commit",
     ])
+  })
+
+  test("a lost subagent on a beat with a fresh prompt starts from that prompt", async () => {
+    const checks = [
+      { ok: false, out: "fix line 3" },
+      { ok: true, out: "" },
+    ]
+    const turns: Array<{ prompt: string; fresh?: string }> = []
+    const { io } = fake(
+      [{ kind: "prompt", content: "fix", fresh: "do it\n\nfix", memory: "m", validate: "v" }],
+      [{ script: "commit", settled: true, idle: true }],
+      {
+        check: async () => checks.shift()!,
+        turn: async (t) => (turns.push({ prompt: t.prompt, fresh: t.fresh }), { ok: true }),
+        resume: async () => ({ ok: false, isLost: true, why: "no live subagent for m" }),
+      },
+    )
+    await drive(io)
+    expect(turns[1]).toEqual({ prompt: `do it\n\nfix\n\n${LOST}\n\nfix line 3`, fresh: undefined })
   })
 
   test("a follow-up that fails for any other reason stops the step", async () => {

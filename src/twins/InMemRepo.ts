@@ -411,7 +411,6 @@ export class InMemRepo {
   }
 
   /** `chmod +x` / `-x` on a working-tree file. */
-  // fallow-ignore-next-line unused-class-member
   setExecutable(path: string, on: boolean): void {
     const content = this.readFile(path)
     if (content !== undefined) this.worktree.set(path, on ? EXEC + content : content)

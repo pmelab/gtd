@@ -11,6 +11,7 @@
   "model": "opus",
   "system": "You are a careful senior engineer.",
   "validate": "gtd check qa 'TODO.md'",
+  "fresh": null,
   "log": ".git/gtd-loop.log",
   "state": "build.fixing",
   "actor": "agent",

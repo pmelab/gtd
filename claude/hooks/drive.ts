@@ -19,6 +19,7 @@ export type Beat = {
   system?: string
   skills?: string[]
   validate?: string
+  fresh?: string | null
   access?: AccessDef
   judge?: unknown
   changes?: { status: string; path: string }[]
@@ -36,6 +37,8 @@ export type Turn = {
   memory: string
   resume: boolean
   prompt: string
+  /** A validator retry: what a replacement subagent starts from — the original prompt plus the correction. */
+  fresh?: string
   label?: string
   model?: string
   system?: string
@@ -163,7 +166,12 @@ async function followUp(io: Io, b: Beat, text: string): Promise<TurnEnd> {
   const turn = turnOf(b)
   const r = await io.resume(turn.memory, text)
   if (r.ok || !r.isLost) return r
-  return io.turn({ ...turn, resume: false, prompt: `${turn.prompt}\n\n${LOST}\n\n${text}` })
+  const { fresh, ...rest } = turn
+  return io.turn({
+    ...rest,
+    resume: false,
+    prompt: `${fresh ?? turn.prompt}\n\n${LOST}\n\n${text}`,
+  })
 }
 
 const LOST =
@@ -177,6 +185,7 @@ function turnOf(b: Beat): Turn {
     memory,
     resume: isTrue(b.session?.resume),
     prompt: b.content ?? "",
+    ...(b.fresh ? { fresh: b.fresh } : {}),
     label: b.label,
     model: b.model || undefined,
     system: b.system || undefined,

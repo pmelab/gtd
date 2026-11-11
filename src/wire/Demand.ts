@@ -96,6 +96,7 @@ export type Demand =
       readonly content: string
       readonly session: DemandSession | undefined
       readonly validate: string | undefined
+      readonly fresh: string | null
       readonly skills: readonly string[] | undefined
       readonly access: StepAccess
     }
@@ -115,8 +116,9 @@ export const demandOf = (input: {
   readonly kind: BeatKind
   readonly session?: DemandSession
   readonly validate?: string
+  readonly fresh?: string | null
 }): Demand => {
-  const { rendered, kind, session, validate } = input
+  const { rendered, kind, session, validate, fresh = null } = input
   const content =
     kind === "stalled"
       ? stallDiagnosis(rendered.state, rendered.actor, rendered.failure, rendered.blocked)
@@ -124,7 +126,7 @@ export const demandOf = (input: {
   const skills =
     rendered.skills !== undefined && rendered.skills.length > 0 ? rendered.skills : undefined
   const access = rendered.access ?? { read: null, write: null }
-  if (kind === "prompt") return { kind, content, session, validate, skills, access }
+  if (kind === "prompt") return { kind, content, session, validate, fresh, skills, access }
   if (kind === "script" && rendered.pin !== undefined) return { kind, content, pin: rendered.pin }
   return { kind, content }
 }
