@@ -540,7 +540,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
 
       ### Token check
 
-      - [x] ./src/auth.ts#1-2
+      - ./src/auth.ts#1-2
 
       Tick exactly one:
 

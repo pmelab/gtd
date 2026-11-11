@@ -291,7 +291,9 @@ export const Hunk = ({
     <DiffBody diff={diff} />
 
     <div className="flex flex-col gap-2 p-3">
-      <ApproveRow checked={checked} onToggle={onToggle} onApprove={onApprove} />
+      {node.checked !== undefined && (
+        <ApproveRow checked={checked} onToggle={onToggle} onApprove={onApprove} />
+      )}
       <NoteAffordance hasNote={hasNote} note={note} thread={thread} onOpenNote={onOpenNote} />
     </div>
   </div>

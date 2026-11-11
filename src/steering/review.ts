@@ -37,6 +37,7 @@ import {
 } from "./MarkdownTree.js"
 import { FREE_TEXT_PLACEHOLDER, normalizeFreeTextAnswer } from "./qa.js"
 import type {
+  SteeringAction,
   SteeringAnchor,
   SteeringAnnotateResult,
   SteeringEdit,
@@ -56,6 +57,8 @@ interface ReviewFile {
   /** 1-based post-image end line of a `#<start>-<end>` range — `line` holds the start. Absent for a bare `#<line>` pointer or a `#`-less one. */
   readonly rangeEnd?: number
   readonly checked: boolean
+  /** A finding's location: a plain list item with no tick box. */
+  readonly plain?: boolean
   /** The pointer's explanation: same-line text (if any) first, then the lines gathered from BELOW it, joined with " ". */
   readonly note?: string
   /** `note`'s own inline structure, image-collapsed (R2) — feeds the hunk node's `detailInline`. Absent exactly where `note` is. */
@@ -380,6 +383,7 @@ const buildHunkFile = (
     ...(parsed.line !== undefined ? { line: parsed.line } : {}),
     ...(parsed.rangeEnd !== undefined ? { rangeEnd: parsed.rangeEnd } : {}),
     checked: item.checked === true,
+    ...(item.checked === null ? { plain: true } : {}),
     sourceLine,
     endLine: hunkOwnEndLine(item, sourceLine),
     ...(note.length > 0 ? { note, noteInline } : {}),
@@ -580,6 +584,17 @@ const splitSeverity = (
   }
 }
 
+/** Every `listItem` under `node`, task or plain, at any depth. */
+const allListItems = (node: RootContent): readonly ListItem[] => {
+  const items: ListItem[] = []
+  const walk = (n: { type: string; children?: readonly unknown[] }): void => {
+    if (n.type === "listItem") items.push(n as unknown as ListItem)
+    n.children?.forEach((c) => walk(c as { type: string; children?: readonly unknown[] }))
+  }
+  walk(node)
+  return items
+}
+
 /** Splits one chunk's body nodes into its file pointers (hunk pointers are task items, collected recursively at ANY nesting depth via `taskItems` — a nested hunk is the same kind of hunk as a top-level one) and description prose. The description is the chunk's own leading run and never a node that contains a hunk pointer: it stops at the first node whose `taskItems` include a real pointer (at any depth — a blockquote wrapping a pointer list stops it just as a top-level list would). Every node kind in what's left before that point contributes — a `footnoteDefinition` is the one exception, excluded by `blockNodesOfRun` itself (it's a note, never document content). */
 // fallow-ignore-next-line complexity
 const parseChunkBody = (
@@ -588,6 +603,7 @@ const parseChunkBody = (
   title: string,
   body: readonly RootContent[],
   answerable: boolean,
+  finding: boolean,
 ): {
   readonly description: string
   readonly detail: string
@@ -606,8 +622,10 @@ const parseChunkBody = (
   const answer = answerable ? answerListOf(content, body) : undefined
   const isAnswer = (n: RootContent): boolean =>
     answer !== undefined && (n === answer.list || n === body[answer.lead])
+  const pointerItems = (n: RootContent): readonly ListItem[] =>
+    finding ? allListItems(n) : taskItems(n)
   const firstPointerIndex = body.findIndex(
-    (n) => !isAnswer(n) && taskItems(n).some((item) => hasPointerToken(content, item)),
+    (n) => !isAnswer(n) && pointerItems(n).some((item) => hasPointerToken(content, item)),
   )
   const run = (firstPointerIndex === -1 ? body : body.slice(0, firstPointerIndex)).filter(
     (n) => !isAnswer(n),
@@ -649,9 +667,16 @@ const parseChunkBody = (
 
   const files: ReviewFile[] = []
   const errors: SteeringFinding[] = []
-  for (const item of body.filter((n) => !isAnswer(n)).flatMap((n) => taskItems(n))) {
+  for (const item of body.filter((n) => !isAnswer(n)).flatMap((n) => pointerItems(n))) {
     const parsed = parseHunk(content, lines, title, item)
     if (!parsed) continue
+    if (finding && item.checked !== null) {
+      errors.push({
+        message: `Chunk "${title}" finding location ${pointerDisplay(parsed.file)} must be a plain list item — drop the checkbox`,
+        line: parsed.file.sourceLine,
+        range: lineRange(lines, parsed.file.sourceLine),
+      })
+    }
     files.push(parsed.file)
     errors.push(...parsed.errors)
   }
@@ -761,7 +786,14 @@ const parseChangesets = (
       severity,
       boxed,
       errors: bodyErrors,
-    } = parseChunkBody(content, lines, title, body, section !== "walkthrough")
+    } = parseChunkBody(
+      content,
+      lines,
+      title,
+      body,
+      section !== "walkthrough",
+      section === "findings",
+    )
     errors.push(...bodyErrors)
     // A prose-only chunk is a note gtd composed; a box with no pointer is a pointer gone wrong.
     if (files.length === 0 && boxed) {
@@ -943,7 +975,7 @@ const decisionNodes = (
 }
 
 const isOpenChunk = (chunk: Changeset, markers: number): boolean =>
-  chunk.files.some((file) => !file.checked) ||
+  chunk.files.some((file) => !file.plain && !file.checked) ||
   markers > 0 ||
   (chunk.answers !== undefined && decisionOf(chunk) === undefined)
 
@@ -982,7 +1014,7 @@ const reviewOutline = (content: string): readonly SteeringOutlineNode[] => {
     if (!listed && !isOpenChunk(chunk, chunkMarkers.length)) return []
     const node: SteeringOutlineNode = {
       name:
-        chunk.files.length === 0
+        chunk.files.length === 0 || chunk.section === "findings"
           ? chunk.title
           : `${chunk.title} (${checkedCount}/${chunk.files.length})`,
       range: spanRange(lines, start, end),
@@ -1056,6 +1088,39 @@ const footnoteBlockEnd = (content: string, tree: Root, cursorLine: number): numb
   return block?.position ? toLspPosition(block.position.end).line : cursorLine
 }
 
+const FINDING_ACTIONS = [
+  { title: "gtd: accept finding", index: 0 },
+  { title: "gtd: reject finding", index: 1 },
+  { title: "gtd: answer finding", index: 2 },
+] as const
+
+/** Accept / reject / answer for one finding chunk; the one matching its single current tick is left out. */
+const findingActions = (
+  content: string,
+  chunk: Changeset,
+  chunkIndex: number,
+): Array<{ title: string; edits: readonly SteeringEdit[]; select?: SteeringAction["select"] }> => {
+  if (chunk.answers?.length !== 3) return []
+  const ticked = chunk.answers.flatMap((o, i) => (o.checked ? [i] : []))
+  const current = ticked.length === 1 ? ticked[0] : undefined
+  const items = answerItemsOf(content, chunkIndex)
+  return FINDING_ACTIONS.filter((a) => a.index !== current).flatMap((a) => {
+    const result = decisionEdits(content, chunkIndex, a.index, {})
+    if (!result.ok) return []
+    const slot = items[2]
+    const from = slot ? firstParagraphContentOffset(slot) : undefined
+    const to = slot?.children.find((c) => c.type === "paragraph")?.position?.end.offset
+    const select =
+      a.index === 2 && from !== undefined && to !== undefined
+        ? {
+            start: toLspPositionFromOffset(content, from),
+            end: toLspPositionFromOffset(content, to),
+          }
+        : undefined
+    return [{ title: a.title, edits: result.edits, ...(select ? { select } : {}) }]
+  })
+}
+
 /**
  * Actions for `.gtd/REVIEW.md`: "check/uncheck this hunk" when `range` sits
  * on a hunk line, "check/uncheck all hunks" when `range` sits anywhere in a
@@ -1079,7 +1144,7 @@ const reviewActions: SteeringFormat["actions"] = (content, range) => {
     const hunk = chunk.files.find(
       (file) => cursorLine >= file.sourceLine && cursorLine <= file.endLine,
     )
-    if (hunk) {
+    if (hunk && !hunk.plain) {
       const edit = toggleFilePointer(content, hunk.sourceLine)
       if (edit) {
         actions.push({
@@ -1094,7 +1159,15 @@ const reviewActions: SteeringFormat["actions"] = (content, range) => {
       chunk.section === undefined
         ? Math.max(chunk.headingLine, (changesets[i + 1]?.headingLine ?? lines.length) - 1)
         : (endLines.get(chunk.headingLine) ?? chunk.headingLine)
-    if (chunk.files.length > 0 && cursorLine >= chunk.headingLine && cursorLine <= chunkEnd) {
+    if (chunk.section === "findings" && cursorLine >= chunk.headingLine && cursorLine <= chunkEnd) {
+      actions.push(...findingActions(content, chunk, i))
+    }
+    if (
+      chunk.section !== "findings" &&
+      chunk.files.length > 0 &&
+      cursorLine >= chunk.headingLine &&
+      cursorLine <= chunkEnd
+    ) {
       const edits = toggleChunkEdits(content, chunk.headingLine)
       if (edits.length > 0) {
         const checkedCount = chunk.files.filter((file) => file.checked).length
@@ -1178,7 +1251,10 @@ const reviewDocumentLinks = (content: string): readonly SteeringLink[] => {
   const tree = parseMarkdown(content)
   const links: SteeringLink[] = []
   for (const block of splitChunks(tree, content).chunks) {
-    for (const item of block.body.flatMap((n) => taskItems(n))) {
+    const items = block.body.flatMap((n) =>
+      block.section === "findings" ? allListItems(n) : taskItems(n),
+    )
+    for (const item of items) {
       const link = hunkLinkFor(content, item)
       if (link) links.push(link)
     }
@@ -1217,7 +1293,7 @@ const reviewView = (content: string): SteeringView => {
         path: file.path,
         ...(file.line !== undefined ? { line: file.line } : {}),
         ...(file.rangeEnd !== undefined ? { endLine: file.rangeEnd } : {}),
-        checked: file.checked,
+        ...(file.plain ? {} : { checked: file.checked }),
         ...(file.note !== undefined
           ? { detail: file.note, detailInline: file.noteInline ?? [] }
           : {}),
@@ -1405,12 +1481,12 @@ const reviewApply: SteeringFormat["apply"] = (content, anchor, opts) => {
   const checked = opts.checked ?? true
   if (anchor.kind === "hunk") {
     const file = changesets[anchor.chunkIndex]?.files[anchor.index]
-    if (!file) return { ok: false, reason: "anchor-not-found" }
+    if (!file || file.plain) return { ok: false, reason: "anchor-not-found" }
     return { ok: true, edits: setFileTickEdits(content, [file], checked) }
   }
   if (anchor.kind === "chunk") {
     const chunk = changesets[anchor.index]
-    if (!chunk) return { ok: false, reason: "anchor-not-found" }
+    if (!chunk || chunk.section === "findings") return { ok: false, reason: "anchor-not-found" }
     return { ok: true, edits: setFileTickEdits(content, chunk.files, checked) }
   }
   return { ok: false, reason: "anchor-not-found" }

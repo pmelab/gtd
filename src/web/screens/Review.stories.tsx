@@ -661,7 +661,7 @@ export const FindingsAndWalkthroughListSeparately: Story = {
         "",
         "_critical: security_",
         "",
-        "- [ ] ./src/auth.ts#1-1",
+        "- ./src/auth.ts#1-1",
         "",
         "Tick exactly one:",
         "",
@@ -705,7 +705,7 @@ const FINDING_REVIEW = [
   "",
   "### Token check",
   "",
-  "- [x] ./src/auth.ts#1-1",
+  "- ./src/auth.ts#1-1",
   "",
   "Tick exactly one:",
   "",
@@ -721,7 +721,7 @@ const FINDING_REVIEW = [
   "",
 ].join("\n")
 
-/** Ticking a finding's code pointers never decides it: Done stays disabled, and says why, until a box is chosen. */
+/** Done stays disabled, and says why, until a finding's decision box is chosen. */
 export const AFindingIsDoneOnlyOnceItsDecisionIsSet: Story = {
   args: {
     view: reviewFormat.view(FINDING_REVIEW),

@@ -1558,6 +1558,23 @@ describe("review.apply", () => {
     ).toEqual({ ok: false, reason: "anchor-not-found" })
   })
 
+  it("a chunk anchor on a findings chunk refuses anchor-not-found", () => {
+    const doc = [
+      "# Review: abc1234",
+      "",
+      "## Findings",
+      "",
+      "### Token check",
+      "",
+      "- ./src/auth.ts#1-2",
+      "",
+    ].join("\n")
+    expect(review.apply(doc, { kind: "chunk", index: 0 }, { checked: true })).toEqual({
+      ok: false,
+      reason: "anchor-not-found",
+    })
+  })
+
   it("a question anchor — not this format's own kind — refuses anchor-not-found", () => {
     expect(review.apply(NESTED_CONTENT, { kind: "question", index: 0 }, { checked: true })).toEqual(
       { ok: false, reason: "anchor-not-found" },
@@ -1575,7 +1592,7 @@ describe("review decisions — a finding's answer boxes", () => {
     "",
     "### Token check",
     "",
-    "- [ ] ./src/auth.ts#1-2",
+    "- ./src/auth.ts#1-2",
     "",
     "Tick exactly one:",
     "",
@@ -2170,7 +2187,7 @@ describe("review — sectioned layout", async () => {
       "",
       "Leaks a token.",
       "",
-      "- [ ] ./src/a.ts#1-2 — here",
+      "- ./src/a.ts#1-2 — here",
       "",
       ...boxes(ticked),
       "",
@@ -2229,16 +2246,16 @@ describe("review — sectioned layout", async () => {
   it("outlines the sections as containers, each finding's decision a node of its own", () => {
     const outline = viewOf(review, sectioned()).outline
     expect(outline.map((n) => n.name)).toEqual(["Findings", "Walkthrough", "Fixed automatically"])
-    expect(outline[0]!.children!.map((n) => n.name)).toEqual(["A finding (0/1)"])
+    expect(outline[0]!.children!.map((n) => n.name)).toEqual(["A finding"])
     expect(outline[0]!.children![0]!.children!.map((n) => n.name)).toEqual(["Decision: open"])
     expect(outline[0]!.children![0]!.children![0]!.selectionRange.start.line).toBe(14)
     // A fully ticked walkthrough chunk is reviewed: its section is left empty.
     expect(outline[1]!.children).toEqual([])
   })
 
-  it("names the ticked decision, and keeps a decided finding while a hunk is unticked", () => {
+  it("drops a decided finding from the outline: its location carries no read tick", () => {
     const outline = viewOf(review, sectioned(1)).outline
-    expect(outline[0]!.children![0]!.children!.map((n) => n.name)).toEqual(["Decision: won't fix"])
+    expect(outline[0]!.children).toEqual([])
   })
 
   it("groups the view's chunks by section, anchors unchanged", () => {
@@ -2255,6 +2272,100 @@ describe("review — sectioned layout", async () => {
       .actionsAt({ start: { line: 20, character: 0 }, end: { line: 20, character: 0 } })
       .map((a) => a.title)
     expect(titles.some((t) => t.includes("A finding"))).toBe(false)
+  })
+})
+
+describe("review — finding locations and decision actions", () => {
+  const finding = (pointer: string, ticked?: 0 | 1 | 2): string =>
+    [
+      "# Review: abc1234",
+      "",
+      "<!-- base: abc1234def5678901234567890123456789abcd -->",
+      "",
+      "## Findings",
+      "",
+      "### A finding",
+      "",
+      pointer,
+      "",
+      "Tick exactly one:",
+      "",
+      `- [${ticked === 0 ? "x" : " "}] fix as suggested`,
+      `- [${ticked === 1 ? "x" : " "}] won't fix`,
+      `- [${ticked === 2 ? "x" : " "}] _your answer_`,
+      "",
+    ].join("\n")
+  const at = (content: string, line: number) =>
+    review.actions!(content, { start: { line, character: 0 }, end: { line, character: 0 } })
+
+  it("links a plain location and resolves go-to-definition to its line", () => {
+    const content = finding("- ./src/a.ts#5-6 — here")
+    expect(review.validate(content)).toEqual([])
+    expect(review.documentLinks!(content)).toEqual([
+      expect.objectContaining({ path: "./src/a.ts", line: 4 }),
+    ])
+    expect(review.pointerAt!(content, { line: 8, character: 3 })).toEqual({
+      path: "./src/a.ts",
+      line: 4,
+    })
+  })
+
+  it("refuses a checkbox pointer in a finding at its own line", () => {
+    for (const box of ["[ ]", "[x]"]) {
+      const found = review.validate(finding(`- ${box} ./src/a.ts#5-6`))
+      expect(found.some((f) => f.line === 8)).toBe(true)
+    }
+  })
+
+  it("offers no hunk tick and no read count for a finding location", () => {
+    const content = finding("- ./src/a.ts#5-6")
+    const titles = at(content, 8).map((a) => a.title)
+    expect(titles.some((t) => t.includes("hunk"))).toBe(false)
+    expect(viewOf(review, content).outline[0]!.children![0]!.name).toBe("A finding")
+    const hunk = review.view(content).nodes[0]!.children![0]!
+    expect(hunk.checked).toBeUndefined()
+    expect(review.apply(content, hunk.anchor, { checked: true }).ok).toBe(false)
+  })
+
+  it("accepts, rejects and answers from any line, leaving out the current tick's action", () => {
+    const content = finding("- ./src/a.ts#5-6")
+    for (const line of [6, 8, 12]) {
+      expect(at(content, line).map((a) => a.title)).toEqual(
+        expect.arrayContaining([
+          "gtd: accept finding",
+          "gtd: reject finding",
+          "gtd: answer finding",
+        ]),
+      )
+    }
+    const run = (title: string, text: string) =>
+      applySteeringEdits(text, at(text, 8).find((a) => a.title === title)!.edits)
+    const accepted = run("gtd: accept finding", finding("- ./src/a.ts#5-6", 1))
+    expect(accepted).toBe(finding("- ./src/a.ts#5-6", 0))
+    expect(at(accepted, 8).map((a) => a.title)).not.toContain("gtd: accept finding")
+    expect(run("gtd: reject finding", accepted)).toBe(finding("- ./src/a.ts#5-6", 1))
+    expect(run("gtd: answer finding", accepted)).toBe(finding("- ./src/a.ts#5-6", 2))
+  })
+
+  it("selects the whole free-text slot on answer", () => {
+    const content = finding("- ./src/a.ts#5-6")
+    const answer = at(content, 8).find((a) => a.title === "gtd: answer finding")!
+    expect(answer.select).toEqual({
+      start: { line: 14, character: 6 },
+      end: { line: 14, character: 19 },
+    })
+  })
+
+  it("offers no finding actions on a top-level comments chunk", () => {
+    const content = finding("- ./src/a.ts#5-6").replace(
+      "## Findings\n\n### A finding",
+      "## Your comments:",
+    )
+    expect(
+      at(content, 6)
+        .map((a) => a.title)
+        .join(),
+    ).not.toContain("finding")
   })
 })
 

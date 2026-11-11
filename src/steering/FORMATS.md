@@ -17,7 +17,9 @@ read them.
   pointer is a hunk the human has read. A chunk's `Tick exactly one:` list is
   its decision. A `## Findings` or `## Walkthrough` heading groups the `###`
   chunks under it; a walkthrough chunk takes no decision. Any other `##` is a
-  chunk of its own.
+  chunk of its own. Under `## Findings` a location is a plain list item
+  (`- ./path`, `- ./path#start-end`) with no checkbox; a `- [ ]`/`- [x]` pointer
+  there is an error.
 - **`findings`**: the finding gate's file. `## ` entries, those under a
   `# Dropped as noise` heading being the noise; each holds exactly one
   `- [ ] fix` box. A ticked box fixes the finding; text below the box is the
