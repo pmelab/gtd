@@ -12,7 +12,7 @@ The parser keeps a lone `\r` as content.
 
 In the code:
 
-- [x] ./src/parse.ts#30-31 — where it is kept
+- ./src/parse.ts#30-31 — where it is kept
 
 Tick exactly one:
 

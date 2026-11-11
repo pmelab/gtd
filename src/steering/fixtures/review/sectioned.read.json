@@ -62,7 +62,6 @@
           "path": "./src/parse.ts",
           "line": 30,
           "endLine": 31,
-          "checked": true,
           "detail": "where it is kept",
           "anchor": {
             "kind": "hunk",

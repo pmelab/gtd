@@ -120,6 +120,25 @@ export const ProgressThroughTheDeckIsVisibleWithoutLeavingTheScreen: StoryObj<ty
     },
   }
 
+export const AFindingLocationHasNoApproveControl: Story = {
+  args: {
+    node: (({ checked: _c, ...rest }) => rest)(hunkNode()),
+    diff: RESOLVED_DIFF,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("hunk-screen")).toBeInTheDocument()
+    await expect(canvas.queryByTestId("hunk-tick")).not.toBeInTheDocument()
+  },
+}
+
 export const TickingApprovesAndTheTickIsTheApprovalGesture: StoryObj<typeof TickableHunk> = {
   render: () => <TickableHunk diff={RESOLVED_DIFF} />,
   play: async ({ canvasElement }) => {

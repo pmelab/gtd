@@ -96,7 +96,7 @@ const revealPositionFor = (text: string, action: SteeringAction): Position | und
 export const toCodeAction =
   (uri: string, text: string) =>
   (action: SteeringAction): CodeAction => {
-    const position = revealPositionFor(text, action)
+    const position = action.select?.start ?? revealPositionFor(text, action)
     return {
       title: action.title,
       kind: CodeActionKind.QuickFix,
@@ -106,7 +106,7 @@ export const toCodeAction =
             command: {
               title: action.title,
               command: REVEAL_POSITION_COMMAND,
-              arguments: [uri, position],
+              arguments: [uri, position, ...(action.select ? [action.select.end] : [])],
             },
           }
         : {}),
@@ -288,17 +288,20 @@ export interface SteeringLanguageService {
 
 const errorText = (e: unknown): string => (e instanceof Error ? e.message : String(e))
 
-/** Reads `gtd.revealPosition`'s two required arguments off the raw, untyped `args` array — `undefined` for anything malformed (wrong length/types, a position missing `line`/`character`), never a thrown property access. */
+const toPosition = (value: unknown): Position | undefined => {
+  const { line, character } = (value ?? {}) as { line?: unknown; character?: unknown }
+  return typeof line === "number" && typeof character === "number" ? { line, character } : undefined
+}
+
+/** Reads `gtd.revealPosition`'s arguments — uri, start, optional end — off the raw `args`; `undefined` for anything malformed, never a thrown property access. */
 const revealPositionArgs = (
   args: ReadonlyArray<unknown> | undefined,
-): { readonly uri: string; readonly position: Position } | undefined => {
-  const [uri, position] = args ?? []
-  if (typeof uri !== "string" || typeof position !== "object" || position === null) {
-    return undefined
-  }
-  const { line, character } = position as { line?: unknown; character?: unknown }
-  if (typeof line !== "number" || typeof character !== "number") return undefined
-  return { uri, position: { line, character } }
+): { readonly uri: string; readonly position: Position; readonly end?: Position } | undefined => {
+  const [uri, start, end] = args ?? []
+  const position = toPosition(start)
+  if (typeof uri !== "string" || position === undefined) return undefined
+  const endPos = toPosition(end)
+  return { uri, position, ...(endPos ? { end: endPos } : {}) }
 }
 
 /**
@@ -410,7 +413,7 @@ export const makeSteeringLanguageService = (
         return {
           kind: "show",
           uri: parsed.uri,
-          selection: { start: parsed.position, end: parsed.position },
+          selection: { start: parsed.position, end: parsed.end ?? parsed.position },
         }
       }
       if (command !== OPEN_STEERING_FILE_COMMAND) return { kind: "unknown" }

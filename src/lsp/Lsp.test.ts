@@ -202,6 +202,16 @@ describe("toCodeAction", () => {
     })
   })
 
+  it("an action with a select reveals at its start and passes its end as a third argument", () => {
+    const start = { line: 4, character: 6 }
+    const end = { line: 4, character: 19 }
+    const action = toCodeAction(
+      "file:///repo/REVIEW.md",
+      "a",
+    )({ title: "gtd: answer", edits: [], select: { start, end } })
+    expect(action.command?.arguments).toEqual(["file:///repo/REVIEW.md", start, end])
+  })
+
   it("with content 'a\\n' (a real trailing newline), the reveal position lands on line 2", () => {
     const markerEdit = {
       range: { start: { line: 0, character: 1 }, end: { line: 0, character: 1 } },
@@ -903,6 +913,20 @@ describe("makeSteeringLanguageService", () => {
           start: { line: 3, character: 7 },
           end: { line: 3, character: 7 },
         },
+      })
+    })
+
+    it("gtd.revealPosition with a third argument selects the whole range", async () => {
+      const service = makeSteeringLanguageService(fakeEnv(), () => {})
+      const outcome = await service.executeCommand("gtd.revealPosition", [
+        "file:///repo/TODO.md",
+        { line: 3, character: 7 },
+        { line: 3, character: 20 },
+      ])
+      expect(outcome).toEqual({
+        kind: "show",
+        uri: "file:///repo/TODO.md",
+        selection: { start: { line: 3, character: 7 }, end: { line: 3, character: 20 } },
       })
     })
 

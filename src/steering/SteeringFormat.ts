@@ -17,6 +17,11 @@ export interface SteeringEdit {
 export interface SteeringAction {
   readonly title: string
   readonly edits: readonly SteeringEdit[]
+  /** A range the editor selects once the edits apply; absent means no reveal. */
+  readonly select?: {
+    readonly start: { readonly line: number; readonly character: number }
+    readonly end: { readonly line: number; readonly character: number }
+  }
 }
 
 /** A go-to-definition target. `path` absent means "this same document" (a footnote jump); `character` defaults to 0. */
