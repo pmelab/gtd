@@ -83,6 +83,7 @@ while :; do
       model="$(gtd next --json=model)"
       system="$(gtd next --json=system)"
       validate="$(gtd next --json=validate)"
+      fresh="$(gtd next --json=fresh)"
       log="$(gtd next --json=log)"
       # \`model\` is a hint, not a model name — gtd-workflows' default ships
       # \`smart\` and \`base\`, which \`claude --model\` rejects. Resolve them
@@ -125,8 +126,14 @@ while :; do
       then first=--resume second=--session-id
       else first=--session-id second=--resume
       fi
+      # A validator retry resumes with the correction alone; a session that
+      # cannot resume starts over with \`fresh\`, the original prompt plus it.
+      second_prompt="$log.prompt"
+      if [ "$second" = --session-id ] && [ -n "\${fresh:-}" ]
+      then printf '%s\\n' "$fresh" >"$log.fresh" && second_prompt="$log.fresh"
+      fi
       turn "$first" "$session_id" <"$log.prompt" ||
-        { [ "$ran" = false ] && turn "$second" "$session_id" <"$log.prompt"; } || {
+        { [ "$ran" = false ] && turn "$second" "$session_id" <"$second_prompt"; } || {
         echo "agent turn failed — see $log" >&2
         exit 1
       }
@@ -140,7 +147,7 @@ while :; do
           exit 1
         }
       done
-      rm -f "$log.prompt" ;;
+      rm -f "$log.prompt" "$log.fresh" ;;
   esac
 
   # Read every value the landing needs BEFORE piping the script to \`sh\`:

@@ -6,6 +6,7 @@
   "initial": false,
   "model": "opus",
   "system": "You are a careful senior engineer.",
+  "fresh": null,
   "log": ".git/gtd-loop.log",
   "state": "build.fixing",
   "actor": "agent",

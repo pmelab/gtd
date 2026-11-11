@@ -324,9 +324,9 @@ falls back to the `gtd` on your `PATH`.
   change to that scope's skills or system starts a fresh subagent on the next
   beat, losing the scope's earlier conversation, and says so in the transcript.
   When a scope's subagent is gone mid-step, a validator's findings or an access
-  refusal go to a fresh subagent together with the step's prompt, and the gone
-  subagent's task is stopped, rather than failing the step; the transcript says
-  so.
+  refusal go to a fresh subagent together with the step's prompt (on a retry
+  beat of an `agent()` validator, the beat's `fresh`), and the gone subagent's
+  task is stopped, rather than failing the step; the transcript says so.
 - A step's `system` becomes the subagent's whole system prompt, and its `model`
   the subagent's model. Each subagent sees only its scope's `skills`.
 - **The mod's subagents run with `bypassPermissions`**, the equivalent of the
@@ -588,13 +588,14 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 26 keys (21 of them outside `kind: "prompt"`, which is
+`gtd next --json` emits 27 keys (22 of them outside `kind: "prompt"`, which is
 the only kind that ever carries `session`/`validate`/`skills`/`access`, and
-`pin`, which only a pin or unpin beat carries); a real driver reads 9 of the 26.
-The minimal driver below is the reference for exactly which: `kind`, `idle`,
+`pin`, which only a pin or unpin beat carries; `fresh` is on every beat and is
+`null` except on a validator retry); a real driver reads 10 of the 27. The
+minimal driver below is the reference for exactly which: `kind`, `idle`,
 `content`, `log`, `session` (read as its two sub-paths,
-`session.id`/`session.resume`), `model`, `system`, `validate`, and `judge` —
-every `--json=<path>` selector its `case` arms touch. The remaining 17
+`session.id`/`session.resume`), `model`, `system`, `validate`, `fresh`, and
+`judge` — every `--json=<path>` selector its `case` arms touch. The remaining 17
 (`schema`, `initial`, `state`, `actor`, `workflow`, `label`, `memory`, `file`,
 `mode`, `changes`, `next`, `cost`, `costByModel`, `skills`, `access`,
 `approvals`, `pin`) are read only by a human looking at plain output, or by a
@@ -602,7 +603,7 @@ driver author deciding what to log or preload — no `case` arm in THIS referenc
 driver branches on them. This is a property of what a driver NEEDS, not a
 smaller wire: every key stays on every `gtd next --json` line, unconditionally,
 so `--json=<path>` keeps resolving the same way for a human poking at one field
-as for the reference driver reading nine of them in a loop.
+as for the reference driver reading ten of them in a loop.
 
 (`gtd land --json` is a separate command with its own eight-key document —
 `schema`/`script`/`settled`/`idle`/`state`/`subject`/`cost`/`model` — never a
@@ -713,6 +714,7 @@ while :; do
       model="$(gtd next --json=model)"
       system="$(gtd next --json=system)"
       validate="$(gtd next --json=validate)"
+      fresh="$(gtd next --json=fresh)"
       log="$(gtd next --json=log)"
       # `model` is a hint, not a model name — gtd-workflows' default ships
       # `smart` and `base`, which `claude --model` rejects. Resolve them
@@ -755,8 +757,14 @@ while :; do
       then first=--resume second=--session-id
       else first=--session-id second=--resume
       fi
+      # A validator retry resumes with the correction alone; a session that
+      # cannot resume starts over with `fresh`, the original prompt plus it.
+      second_prompt="$log.prompt"
+      if [ "$second" = --session-id ] && [ -n "${fresh:-}" ]
+      then printf '%s\n' "$fresh" >"$log.fresh" && second_prompt="$log.fresh"
+      fi
       turn "$first" "$session_id" <"$log.prompt" ||
-        { [ "$ran" = false ] && turn "$second" "$session_id" <"$log.prompt"; } || {
+        { [ "$ran" = false ] && turn "$second" "$session_id" <"$second_prompt"; } || {
         echo "agent turn failed — see $log" >&2
         exit 1
       }
@@ -770,7 +778,7 @@ while :; do
           exit 1
         }
       done
-      rm -f "$log.prompt" ;;
+      rm -f "$log.prompt" "$log.fresh" ;;
   esac
 
   # Read every value the landing needs BEFORE piping the script to `sh`:

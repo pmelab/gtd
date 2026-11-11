@@ -312,3 +312,46 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     Then it succeeds
     And stdout contains "judge me"
     And the last commit subject is "gtd(check): gtd:pin → gate"
+
+  Scenario: Starts a new session with the beat's fresh prompt when the retry's resume fails
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "Write DONE.md containing ok.", {
+          validate: async ({ changes }) =>
+            changes.get("DONE.md")?.after?.includes("ok") ? undefined : "DONE.md must contain ok",
+        })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      Build a calculator.
+      """
+    And gtd lands "gtd(human): idle → working"
+    And a stub agent script that responds to prompts with:
+      """
+      if [ "$GTD_LOOP_MEMORY_RESUME" = 1 ]; then
+        echo "no conversation found" >&2
+        exit 1
+      fi
+      case "$GTD_LOOP_PROMPT" in
+        *"DONE.md must contain ok"*)
+          echo "FRESH PROMPT: $GTD_LOOP_PROMPT"
+          echo ok > DONE.md
+          ;;
+        *)
+          echo "AGENT: first try"
+          echo bad > DONE.md
+          ;;
+      esac
+      """
+    And the driver pasted from docs/driver.md
+    When I run the pasted script
+    Then it succeeds
+    And the log file contains "AGENT: first try"
+    And the log file contains "FRESH PROMPT: Write DONE.md containing ok."
+    And the log file contains "DONE.md must contain ok"

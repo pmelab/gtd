@@ -42,6 +42,8 @@ export interface StepDef {
   readonly requireRevert?: boolean
   readonly allowEmpty?: boolean
   readonly keep?: boolean
+  /** A validator retry: the step's original prompt, `content` being the correction. */
+  readonly original?: string
   readonly onFail?: "rest"
   readonly acceptClean?: boolean
   readonly approve?: boolean

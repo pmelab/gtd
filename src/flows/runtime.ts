@@ -37,9 +37,25 @@ type SteeringFile =
 /** A steering-file declaration shared by the steps that rest on one. `mode` requires `file`. */
 export type SteeringOptions = SteeringCommon & SteeringFile
 
+/** What a validator is told about the work so far. */
+export interface ValidateTurn {
+  /** Every change since before the first try, minus the files the validator's own steps wrote. */
+  readonly changes: Changes
+}
+
+export type ValidateResult = string | readonly string[] | undefined
+
 interface AgentCommon {
   readonly model?: string | undefined
   readonly system?: string | undefined
+  /** Runs after each landed turn; errors it returns become the correction the next try gets. Only `check`, `run` and `judge` may run inside. */
+  readonly validate?: ((turn: ValidateTurn) => Promise<ValidateResult>) | undefined
+  /** Retries before `exhausted` runs. Default 3. */
+  readonly cap?: number | undefined
+  /** Runs once `cap` retries failed; default rests at a `<name>.invalid` gate. The validator then runs again. */
+  readonly exhausted?: ((errors: readonly string[]) => Promise<void>) | undefined
+  /** The retry's `content`, instead of the default lead-in plus the errors. */
+  readonly correction?: ((errors: readonly string[]) => string) | undefined
 }
 
 export type AgentOptions = SteeringOptions &
@@ -209,6 +225,8 @@ export type StepRequest =
       readonly name: string
       readonly prompt: string
       readonly options: AgentOptions
+      /** On a validator retry: the step's original prompt (`prompt` is then the correction). */
+      readonly original?: string
     }
   | { readonly kind: "human"; readonly name: string; readonly options: HumanOptions }
   | {
@@ -331,9 +349,84 @@ const ctx = (): FlowContext => {
 
 // ── Steps ───────────────────────────────────────────────────────────────────
 
+// While a validator runs: its step's name, and the paths its own steps changed. Keyed by the
+// replay's context: a validator suspended at a rest never unwinds, so a global would leak.
+type Validating = { readonly name: string; readonly paths: Set<string> }
+const validatingBy = new WeakMap<FlowContext, Validating>()
+
+const DEFAULT_CAP = 3
+
+const noValidatorStep = (kind: string, name: string): void => {
+  const validating = validatingBy.get(ctx())
+  if (validating !== undefined) {
+    throw new Error(
+      `gtd: step "${name}": ${kind}() cannot run inside the validator of "${validating.name}" — a validator may only run check, run and judge steps`,
+    )
+  }
+}
+
+const noteValidatorPaths = (): void => {
+  const validating = validatingBy.get(ctx())
+  if (validating !== undefined) for (const c of ctx().changes()) validating.paths.add(c.path)
+}
+
+const errorList = (result: ValidateResult): readonly string[] =>
+  result === undefined ? [] : typeof result === "string" ? [result] : result
+
 /** An agent turn: `prompt` is emitted, the driver lands the diff. */
-export const agent = (name: string, prompt: string, options: AgentOptions = {}): Promise<void> =>
-  ctx().step({ kind: "agent", name, prompt, options }) as Promise<void>
+export const agent = async (
+  name: string,
+  prompt: string,
+  options: AgentOptions = {},
+): Promise<void> => {
+  noValidatorStep("agent", name)
+  const context = ctx()
+  const { validate, cap = DEFAULT_CAP, exhausted, correction } = options
+  const base = typeof validate === "function" ? context.head() : ""
+  await context.step({ kind: "agent", name, prompt, options })
+  if (typeof validate !== "function") return
+
+  const own = new Set<string>()
+  // Paths an agent turn or a person changed. Whatever changed since the last validator returned
+  // is theirs — even on a path a validator `run` (lint --fix) wrote in an earlier round.
+  const agentPaths = new Set<string>()
+  let validated = base
+  const validateNow = async (): Promise<readonly string[]> => {
+    for (const c of context.changesSince(validated)) agentPaths.add(c.path)
+    const turn: ValidateTurn = {
+      get changes() {
+        return toChanges(
+          context.changesSince(base).filter((c) => !own.has(c.path) || agentPaths.has(c.path)),
+        )
+      },
+    }
+    validatingBy.set(context, { name, paths: own })
+    try {
+      return errorList(await scope(`${name}.validate`, () => validate(turn)))
+    } finally {
+      validatingBy.delete(context)
+      validated = context.head()
+    }
+  }
+
+  let errors = await validateNow()
+  let retries = 0
+  while (errors.length > 0) {
+    if (retries >= cap) {
+      if (exhausted !== undefined) await exhausted(errors)
+      else await human(`${name}.invalid`, errors.join("\n"), { acceptClean: true })
+      retries = 0
+    } else {
+      retries++
+      const text =
+        correction !== undefined
+          ? correction(errors)
+          : `The result did not pass validation. Fix these errors:\n\n${errors.join("\n")}\n`
+      await context.step({ kind: "agent", name, prompt: text, options, original: prompt })
+    }
+    errors = await validateNow()
+  }
+}
 
 // `Omit` over a union collapses it; this keeps each member's own rules.
 type OmitEach<T, K extends PropertyKey> = T extends unknown ? Omit<T, K> : never
@@ -349,8 +442,9 @@ export const human: Human = (
   name: string,
   messageOrOptions?: string | HumanOptions,
   options?: OmitEach<HumanOptions, "message">,
-): Promise<void> =>
-  ctx().step({
+): Promise<void> => {
+  noValidatorStep("human", name)
+  return ctx().step({
     kind: "human",
     name,
     options:
@@ -358,10 +452,13 @@ export const human: Human = (
         ? { ...options, message: messageOrOptions }
         : (messageOrOptions ?? {}),
   }) as Promise<void>
+}
 
 /** A check: `body` runs at the edge and its effect on the tree is committed. */
-export const run = (name: string, body: string, options: RunOptions = {}): Promise<void> =>
-  ctx().step({ kind: "run", name, body, options }) as Promise<void>
+export const run = async (name: string, body: string, options: RunOptions = {}): Promise<void> => {
+  await ctx().step({ kind: "run", name, body, options })
+  noteValidatorPaths()
+}
 
 /**
  * Squashes HEAD's tree, with `.gtd/` as the user's branch has it, into one commit on the user's branch
@@ -372,8 +469,10 @@ export const ship = (
   name: string,
   message: string,
   options: ShipOptions = {},
-): Promise<string | undefined> =>
-  ctx().step({ kind: "ship", name, message, options }) as Promise<string | undefined>
+): Promise<string | undefined> => {
+  noValidatorStep("ship", name)
+  return ctx().step({ kind: "ship", name, message, options }) as Promise<string | undefined>
+}
 
 /** A judge gate: resolves to what the judge answered, for the flow to decide on. */
 export const judge = <const Q extends readonly JudgeQuestionInput[] = readonly JudgeQuestion[]>(
@@ -385,17 +484,25 @@ export const judge = <const Q extends readonly JudgeQuestionInput[] = readonly J
   const canonical = questions.map((q) =>
     q.primitive === "yesno" ? { ...q, primitive: "noul" as const } : (q as JudgeQuestion),
   )
-  return ctx().step({
-    kind: "judge",
-    name,
-    questions: canonical,
-    evidence,
-    options,
-  }) as Promise<Judgment<Q[number]["id"]>>
+  return ctx()
+    .step({
+      kind: "judge",
+      name,
+      questions: canonical,
+      evidence,
+      options,
+    })
+    .then((judgment) => {
+      noteValidatorPaths()
+      return judgment as Judgment<Q[number]["id"]>
+    })
 }
 
 /** End the episode from any depth. The next episode starts the flow afresh. */
-export const restart = (): Promise<never> => ctx().step({ kind: "restart" }) as Promise<never>
+export const restart = (): Promise<never> => {
+  noValidatorStep("restart", "restart")
+  return ctx().step({ kind: "restart" }) as Promise<never>
+}
 
 /** Refuse the pending turn: nothing lands, the process stays where it rests. */
 export const refuse = (message: string): never => ctx().refuse(message)

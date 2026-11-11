@@ -31,6 +31,7 @@ interface DocumentInput {
   readonly log?: string
   readonly session?: { readonly id: string; readonly resume: boolean }
   readonly validate?: string
+  readonly fresh?: string | null
   readonly changes?: readonly StatusChange[]
   readonly next?: NextMatch | null
   readonly cost?: number
@@ -47,6 +48,7 @@ const demandInput = (
   kind: input.kind,
   ...(input.session !== undefined ? { session: input.session } : {}),
   ...(input.validate !== undefined ? { validate: input.validate } : {}),
+  ...(input.fresh !== undefined ? { fresh: input.fresh } : {}),
 })
 
 /** `statusOf`'s own input, isolated for the same reason as `demandInput` above. */
@@ -84,6 +86,7 @@ describe("beatDocument / renderBeatJson", () => {
       content: "fix it",
       idle: false,
       initial: false,
+      fresh: null,
       log: ".git/gtd-loop.log",
       state: "build.fixing",
       actor: "agent",
@@ -136,6 +139,16 @@ describe("beatDocument / renderBeatJson", () => {
     const parsed = JSON.parse(line) as Record<string, unknown>
     expect(parsed.session).toEqual({ id: "8f2c", resume: true })
     expect(parsed.validate).toBe("gtd check qa 'TODO.md'")
+  })
+
+  it("carries fresh at kind prompt and null at every other kind", () => {
+    const parsed = JSON.parse(renderJsonLine({ kind: "prompt", fresh: "p\n\nc" })) as {
+      fresh: unknown
+    }
+    expect(parsed.fresh).toBe("p\n\nc")
+    for (const kind of BEAT_KINDS.filter((k) => k !== "prompt")) {
+      expect((JSON.parse(renderJsonLine({ kind })) as { fresh: unknown }).fresh).toBeNull()
+    }
   })
 
   it("omits session/validate at kind prompt when the caller supplied none, never emitting null", () => {
@@ -256,6 +269,7 @@ describe("beatDocument / renderBeatJson", () => {
       "model",
       "system",
       "validate",
+      "fresh",
       "log",
       "state",
       "actor",
@@ -395,6 +409,7 @@ describe("golden bytes", () => {
         content: "fix it",
         idle: false,
         initial: false,
+        fresh: null,
         log: ".git/gtd-loop.log",
         state: "build.fixing",
         actor: "agent",

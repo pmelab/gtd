@@ -761,6 +761,7 @@ const promptDef = (
   ...optional("system", request.options.system),
   ...optional("allowEmpty", request.options.allowEmpty),
   ...optional("keep", request.options.keep),
+  ...optional("original", request.original),
   ...optional("skills", skills),
   ...optional("access", access),
 })
@@ -1288,6 +1289,7 @@ export interface RenderedRest extends RestHints {
   readonly content: string
   readonly memory?: string
   readonly memoryResumed: boolean
+  readonly original?: string
   readonly pin?: PinChange
   readonly failure?: string
   readonly blocked?: string
@@ -1306,6 +1308,7 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
     ...(rest.shipBlocked !== undefined ? { blocked: rest.shipBlocked } : {}),
     ...(rest.memory !== undefined ? { memory: rest.memory } : {}),
     memoryResumed: rest.memoryResumed,
+    ...(rest.stepDef.original !== undefined ? { original: rest.stepDef.original } : {}),
     ...(rest.pin !== undefined ? { pin: rest.pin } : {}),
   })
 

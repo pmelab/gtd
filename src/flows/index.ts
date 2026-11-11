@@ -48,6 +48,8 @@ export {
   type JudgeQuestion,
   type JudgeQuestionInput,
   type JudgeSpec,
+  type ValidateResult,
+  type ValidateTurn,
   type Judgment,
   type KeptTip,
   type Mark,
