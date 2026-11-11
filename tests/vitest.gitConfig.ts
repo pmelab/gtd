@@ -26,6 +26,8 @@ export const isolateGitConfig = (): void => {
       "\tdefaultBranch = main",
       "[commit]",
       "\tgpgsign = false",
+      "[core]",
+      "\teditor = true",
       "[tag]",
       "\tgpgsign = false",
       "",
@@ -35,4 +37,5 @@ export const isolateGitConfig = (): void => {
   rmSync(stage, { recursive: true, force: true })
   process.env["GIT_CONFIG_GLOBAL"] = path
   process.env["GIT_CONFIG_NOSYSTEM"] = "1"
+  delete process.env["GIT_EDITOR"]
 }

@@ -27,7 +27,10 @@ const spawnAsync = (command: string, args: string[], options: SpawnOptions) =>
 
 // An exported GIT_DIR/GIT_WORK_TREE would send these commits to the real repo.
 const cleanEnv = Object.fromEntries(
-  Object.entries(process.env).filter(([key]) => !key.startsWith("GIT_")),
+  Object.entries(process.env).filter(
+    ([key]) =>
+      !key.startsWith("GIT_") || key === "GIT_CONFIG_GLOBAL" || key === "GIT_CONFIG_NOSYSTEM",
+  ),
 )
 
 const git = (cwd: string, ...args: string[]) =>
@@ -227,7 +230,12 @@ describe("semantic-release bump from a squash commit", () => {
         cwd: work,
         // On a CI runner semantic-release takes the branch from the CI's env
         // (env-ci), not from git, and skips the test branch.
-        env: { PATH: process.env.PATH, HOME: process.env.HOME },
+        env: {
+          PATH: process.env.PATH,
+          HOME: process.env.HOME,
+          GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
+          GIT_CONFIG_NOSYSTEM: process.env.GIT_CONFIG_NOSYSTEM,
+        },
       },
     )
     expect(status).toBe(0)

@@ -7,5 +7,6 @@ describe("suite git config", () => {
       execFileSync("git", ["config", "--global", key], { encoding: "utf8" }).trim()
     expect(read("commit.gpgsign")).toBe("false")
     expect(read("tag.gpgsign")).toBe("false")
+    expect(read("core.editor")).toBe("true")
   })
 })
