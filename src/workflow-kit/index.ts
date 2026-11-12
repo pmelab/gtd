@@ -23,6 +23,7 @@ export {
 } from "./quality.js"
 export {
   assertionLines,
+  assertionErrors,
   removedAssertions,
   type Assertion,
   type RemovedAssertions,

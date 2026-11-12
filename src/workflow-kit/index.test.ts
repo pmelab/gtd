@@ -5,6 +5,7 @@ describe("@pmelab/gtd/workflow-kit", () => {
   it("publishes its helpers by name", () => {
     expect(Object.keys(kit).sort()).toEqual(
       [
+        "assertionErrors",
         "assertionLines",
         "escalation",
         "fixFindings",

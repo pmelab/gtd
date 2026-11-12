@@ -428,6 +428,21 @@ whose turn they check:
 - `requireRevert(edited, base)` — refuses a turn that left any of the `edited`
   changes differing from their content before them
 
+Each of `requireProgress`, `requireReplies` and `requireRevert` has a validator
+form to pass to `agent(…, { validate })`, so a failing check retries the turn
+with a correction instead of refusing the landing. Each returns `undefined` when
+the turn is valid, or an error addressed to the agent:
+
+- `progressErrors(file, changes)` — judges `turn.changes`
+- `repliesErrors(file)` — reads the threads in the tree
+- `revertErrors(edited, base)` — reads the tree, not the turn's changes
+
+```ts
+await agent("fix", prompt, {
+  validate: async ({ changes }) => progressErrors("FEEDBACK.md", changes),
+})
+```
+
 `@pmelab/gtd/workflow-kit` has larger building blocks — health loops, quality
 laps, review rounds; see [Workflow kit](./workflow-kit.md).
 

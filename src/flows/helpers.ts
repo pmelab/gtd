@@ -12,6 +12,7 @@ import {
   settings,
   threads,
   type Change,
+  type Changes,
   type JudgeAnswer,
   type Judgment,
 } from "./runtime.js"
@@ -78,15 +79,19 @@ const isCode = (path: string): boolean => path !== ".gtd" && !path.startsWith(".
 /** The last step's changes outside `.gtd/`. */
 export const codeChanges = (): readonly Change[] => changes().filter((c) => isCode(c.path))
 
+/** Validator form of `requireProgress`: the agent-addressed error, or `undefined` when the turn is valid. */
+export const progressErrors = (file: string, turnChanges: Changes): string | undefined => {
+  const change = turnChanges.get(file)
+  if (change?.status !== "deleted") return undefined
+  if (turnChanges.some((c) => isCode(c.path))) return undefined
+  if ((change.before ?? "").trim().startsWith("NOTHING ACTIONABLE")) return undefined
+  return `${file} was deleted without addressing its instructions — implement the changes it lists (then delete it), don't just remove the file. Its content was:\n${change.before ?? ""}`
+}
+
 /** Refuse a turn whose only change deletes `file` — unless it says it found nothing to do. */
 export const requireProgress = (file: string): void => {
-  const change = changes().get(file)
-  if (change?.status !== "deleted") return
-  if (codeChanges().length > 0) return
-  if ((change.before ?? "").trim().startsWith("NOTHING ACTIONABLE")) return
-  refuse(
-    `gtd land: feedback-progress: ${file} was deleted without addressing its instructions — implement the changes it lists (then delete it), don't just remove the file.`,
-  )
+  const error = progressErrors(file, changes())
+  if (error !== undefined) refuse(`gtd land: feedback-progress: ${error}`)
 }
 
 /** Refuse a turn that leaves a question in `file` unanswered. An untouched tree is silence, and allowed. */
@@ -135,23 +140,36 @@ export const requireThreadsClosed = (file: string): void => {
   )
 }
 
+/** Validator form of `requireReplies`: the agent-addressed error, or `undefined` when every thread is answered. */
+export const repliesErrors = (file: string): string | undefined => {
+  const open = [...threadLines(file, "agent"), ...codeThreadLines("agent")]
+  if (open.length === 0) return undefined
+  return `${countOf(open)} thread(s) in ${file} or code comments still wait on the agent — append one "- A:" reply to each (one "A:" comment line, same token and indentation, directly below a code thread's last line), or fold a concluded thread and delete it:\n${open.join("\n")}`
+}
+
 /** Refuse an agent turn that leaves a thread in `file`, or a code thread in a changed file, waiting on the agent (its last entry is `H:`) or with a syntax fault. */
 export const requireReplies = (file: string): void => {
-  const open = [...threadLines(file, "agent"), ...codeThreadLines("agent")]
-  if (open.length === 0) return
-  refuse(
-    `gtd land: unanswered-threads: ${countOf(open)} thread(s) in ${file} or code comments still wait on the agent — append one "- A:" reply to each (one "A:" comment line, same token and indentation, directly below a code thread's last line), or fold a concluded thread and delete it:\n${open.join("\n")}`,
-  )
+  const error = repliesErrors(file)
+  if (error !== undefined) refuse(`gtd land: unanswered-threads: ${error}`)
+}
+
+const revertFix = (edited: readonly Change[], base: string): string | undefined => {
+  const residue = edited.filter((c) => read(c.path) !== c.before).map((c) => c.path)
+  if (residue.length === 0) return undefined
+  const quoted = residue.map((path) => `'${path.replace(/'/g, "'\\''")}'`).join(" ")
+  return `${residue.join(", ")} still differ from ${base}~1 — the revert did not take. Run \`git checkout ${base}~1 -- ${quoted}\``
+}
+
+/** Validator form of `requireRevert`: reads the tree, not the turn's changes. */
+export const revertErrors = (edited: readonly Change[], base: string): string | undefined => {
+  const fix = revertFix(edited, base)
+  return fix === undefined ? undefined : `${fix}.`
 }
 
 /** Refuse a turn that did not undo the code edits `edited` recorded, back to their content before `base`. */
 export const requireRevert = (edited: readonly Change[], base: string): void => {
-  const residue = edited.filter((c) => read(c.path) !== c.before).map((c) => c.path)
-  if (residue.length === 0) return
-  const quoted = residue.map((path) => `'${path.replace(/'/g, "'\\''")}'`).join(" ")
-  refuse(
-    `gtd land: require-revert: ${residue.join(", ")} still differ from ${base}~1 — the revert did not take. Run \`git checkout ${base}~1 -- ${quoted}\`, then \`gtd land\` again.`,
-  )
+  const fix = revertFix(edited, base)
+  if (fix !== undefined) refuse(`gtd land: require-revert: ${fix}, then \`gtd land\` again.`)
 }
 
 const SHAPES = ["land", "refactor-first", "reject"] as const
