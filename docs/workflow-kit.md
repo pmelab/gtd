@@ -185,6 +185,18 @@ if (weakened.length > 0) {
 }
 ```
 
+### `assertionErrors(changes)`
+
+The validator form of `removedAssertions`: for `agent(…, { validate })`. Lists
+each lost line by path and scenario for the agent to restore, or returns
+`undefined` when none was lost.
+
+```ts
+await agent("rewrite", prompt, {
+  validate: async ({ changes }) => assertionErrors(changes),
+})
+```
+
 ## Review rounds
 
 ### `review(base, policy)`

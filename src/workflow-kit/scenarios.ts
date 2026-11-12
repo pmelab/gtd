@@ -68,3 +68,11 @@ export const removedAssertions = (changes: readonly Change[]): readonly RemovedA
       return { path: c.path, lines }
     })
     .filter((r) => r.lines.length > 0)
+
+/** Validator form of `removedAssertions`: lists each lost line by path and scenario, or `undefined` when none. */
+export const assertionErrors = (changes: readonly Change[]): string | undefined => {
+  const lost = removedAssertions(changes)
+  if (lost.length === 0) return undefined
+  const lines = lost.flatMap((r) => r.lines.map((a) => `  - ${r.path}: ${a.scenario}: ${a.line}`))
+  return `Restore the assertions these .feature files lost:\n${lines.join("\n")}`
+}
