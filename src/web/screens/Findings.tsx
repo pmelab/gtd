@@ -302,7 +302,7 @@ const FindingsInner = ({
   )
 }
 
-/** The finding gate's screen: reads `.gtd/QUALITY.md` as the `findings` format and writes each decision back. */
+/** The finding gate's screen: reads the step's steering file as the `findings` format and writes each decision back. */
 export const Findings = ({ filePath }: { readonly filePath: string }) => {
   const utils = trpc.useUtils()
   const query = trpc.readSteeringFile.useQuery({ filePath, mode: MODE })

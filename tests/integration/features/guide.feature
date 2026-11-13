@@ -3,8 +3,8 @@ Feature: gtd guide — the driver-building briefing, and where to get a workflow
   `gtd guide` prints a complete, self-contained briefing that teaches an
   agent (or a human) to build a gtd driver in any shell or runtime. It writes
   nothing: gtd ships no workflow, so at a repository root no `gtd.config.ts`
-  governs yet it warns on stderr where to get one. Its `needs: "none"` (like
-  `gtd lsp`) means it runs from any directory, in or out of a repository, and
+  governs yet it warns on stderr that gtd ships no workflow. Its
+  `needs: "none"` (like `gtd lsp`) means it runs from any directory, in or out of a repository, and
   takes no argument.
 
   @inmem
@@ -14,7 +14,7 @@ Feature: gtd guide — the driver-building briefing, and where to get a workflow
     When I run gtd with args "guide"
     Then it succeeds
     And stdout contains "gtd start"
-    And stderr contains "gtd guide: no gtd.config.ts governs here, and gtd ships no workflow — get one from https://github.com/pmelab/gtd-workflows or write your own (step 2 of the briefing above)"
+    And stderr contains "gtd guide: no gtd.config.ts governs here, and gtd ships no workflow — write your own (step 2 of the briefing above)"
     And stderr does not contain "wrote gtd.config.ts"
     And "gtd.config.ts" does not exist
     And the commit count is unchanged

@@ -81,9 +81,6 @@ git add -A && git commit -qm "chore: initial commit"
 - **Write the smallest workflow that reaches the behaviour under test.** gtd
   ships none; add the steps (`run`, `check`, `judge`, doors, …) the criterion
   needs.
-- **A real workflow:** import a bundle from a pinned checkout of
-  pmelab/gtd-workflows (`gtd-wf config default` prints the config) when the
-  behaviour only shows in one.
 - **A fake `origin`** where pushing or a base branch matters:
   `git init -q --bare "$repo.git" && git remote add origin "$repo.git" && git push -q -u origin main`.
 

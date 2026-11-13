@@ -38,23 +38,12 @@ Git history; keep secrets in an environment setting (see
 `GTD_FLAG_<NAME>` variables toggle experimental features — see
 [Feature flags](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#feature-flags).
 
-gtd ships no workflow. Get one from
-[gtd-workflows](https://github.com/pmelab/gtd-workflows) — a pinned checkout
-whose `default` workflow is the feature → review → fix workflow gtd used to
-bundle:
-
-```bash
-git clone https://github.com/pmelab/gtd-workflows ~/.local/share/gtd/workflows
-~/.local/share/gtd/workflows/bin/gtd-wf pin origin/main
-~/.local/share/gtd/workflows/bin/gtd-wf config default > gtd.config.ts
-```
-
-The config imports the workflow by absolute path, so each machine needs its own
-checkout. Its README covers pinning, upgrading and the skills its prompts name.
-Or write your own workflow: see
+gtd ships no workflow: you write your own, as a plain TypeScript function in
+`gtd.config.ts`. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
-and
-[Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md).
+for its syntax and
+[Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md)
+for how to test it.
 
 A workflow's scopes may also declare which files their agent turns may read and
 write; `gtd land` refuses a turn that wrote outside its scope, and a driver can
@@ -74,7 +63,7 @@ Put a `gtd.config.ts` at your repository's root (see [Install](#install)) and
 commit it; gtd refuses to run without one. The repository need not be a
 JavaScript project: gtd resolves the config's `@pmelab/gtd/*` imports itself, so
 a Python, Rust or notes repository needs no `package.json` and no install. Then
-run `gtd guide`: it writes nothing and prints a briefing (and where to get a
+run `gtd guide`: it writes nothing and prints a briefing (and how to write a
 workflow, if you have none yet). Pipe that briefing into your coding agent and
 answer its questions. It should build you a script that will autonomously run
 the process for you. Ask your agent if you have any questions.
@@ -110,11 +99,26 @@ Two commands make up the whole cycle. **`gtd next` says what to do now.
 `gtd land` records that it is done — as a commit.** Everything else follows from
 that.
 
-The fastest way to understand it is to drive a few beats by hand. The beats
-below are those of gtd-workflows' `default` workflow. Any git repository with at
-least one commit will do once its `gtd.config.ts` is committed — the first two
-beats need nothing else. Later beats run your test command, set as the
-`testCommand` workflow option in `gtd.config.ts`.
+The fastest way to understand it is to drive a few beats by hand. Take this
+workflow — you sketch, an agent builds, you approve, gtd ships:
+
+```ts
+// gtd.config.ts
+import { agent, human, ship } from "@pmelab/gtd/flows"
+
+export default async () => {
+  await human("idle", "Sketch the change in .gtd/TODO.md.", {
+    file: ".gtd/TODO.md",
+  })
+  await agent("build", "Build what .gtd/TODO.md asks for.")
+  await human("approve", "Review the build. Land a clean tree to approve it.", {
+    approve: true,
+  })
+  await ship("ship", "feat: build the sketch")
+}
+```
+
+Any git repository will do once this file is committed on a branch, here `main`.
 
 ### Beat 1 — `gtd next` says whose turn it is
 
@@ -123,19 +127,21 @@ gtd next
 ```
 
 ```
-No active gtd process.
+State: idle
+Awaits: human
+Workflow: default
+File: .gtd/TODO.md
+Pending: (clean)
+Next: (nothing would land)
 
-To start one, make ANY change — a hand-edit to real code, a scratch
-note, anything at all. .gtd/TODO.md is a good default
-place to start sketching.
+Sketch the change in .gtd/TODO.md.
 ```
 
-This means its your turn. Add a `.gtd/TODO.md` file with a detailed, well
-articulated idea:
+`Awaits: human` means it is your turn. Write the sketch:
 
 ```bash
 mkdir -p .gtd
-echo "Make a billion dollar SaaS. Make no mistakes." > .gtd/TODO.md
+echo "Add hello.sh that prints hello." > .gtd/TODO.md
 ```
 
 Ask again, and gtd leads with what to do, then reports what it sees:
@@ -144,13 +150,15 @@ Ask again, and gtd leads with what to do, then reports what it sees:
 The edit is already made — run `gtd land` to land it.
 State: idle
 Awaits: human
-Label: Idle
+Workflow: default
 File: .gtd/TODO.md
+Pending:
+  A .gtd/TODO.md
+Next: → build
 ```
 
-At `idle`, any change at all starts a process, and the next step is `unwind`.
-For the moment its not important what that is. Important is the fact that what
-you leave in the tree controls what is going to happen next.
+At `idle`, any change at all starts a process. What you leave in the tree
+decides what happens next.
 
 ### Beat 2 — `gtd land` records it as a commit
 
@@ -161,7 +169,7 @@ gtd land
 ```
 
 ```
-commit everything with this message: gtd(human): idle → unwind
+commit everything with this message: gtd(human): idle → build
 (to land it: s=$(gtd land --json=script) && sh -c "$s")
 ```
 
@@ -173,17 +181,19 @@ s=$(gtd land --json=script) && sh -c "$s"
 ```
 
 ```
--> idle → unwind
+-> idle → build
 ```
 
 ```bash
 $ git log --oneline
-0fb0300 gtd(human): idle → unwind
-75b6836 chore: initial commit
+6b3eab6 gtd(human): idle → build
+013003e chore: initial commit
 ```
 
 One beat, one commit. That commit **is** the state — nothing is stored anywhere
 else, which is why the process survives a reboot and travels with the branch.
+The process runs on its own branch, `gtd/main`; `main` stays untouched until the
+workflow ships.
 
 ### Beat 3 — the same two commands, now for a machine
 
@@ -193,26 +203,29 @@ gtd next
 
 ```
 Run this script:
-State: unwind
+State: gtd:pin
 Awaits: check
-Label: Unwinding your input
+Workflow: default
+Pending: (clean)
+Next: (nothing would land)
 
-#!/usr/bin/env sh
-set +e
-if ! git diff --quiet '<sketch commit>^' '<sketch commit>' --; then
-  mkdir -p "$(dirname '.gtd/FEEDBACK.md')"
-  git diff --binary '<sketch commit>^' '<sketch commit>' -- | git apply -R 2> …
-  …
+mkdir -p '.gtd'
+gtd bundle >'.gtd/process.gtdpin' || { rm -f -- '.gtd/process.gtdpin'; exit 1; }
 ```
 
-`Awaits: check` means this beat is not yours: it is a script, here one that
-reverts your sketch out of the working tree. gtd never runs anything itself,
-never commits and never touches the index, so run it and land it exactly as
-before:
+`Awaits: check` means this beat is not yours: it is a script. Every process
+starts with this one — it pins the engine and workflow the process runs on, so
+editing `gtd.config.ts` later does not change a process already underway. gtd
+never runs anything itself, never commits and never touches the index, so run it
+and land it exactly as before:
 
 ```bash
 sh -c "$(gtd next --json=content)"
 s=$(gtd land --json=script) && sh -c "$s"
+```
+
+```
+-> gtd:pin → build
 ```
 
 `--json=<field>` is how a script reads one value out of a beat. Bare `--json`
@@ -220,48 +233,29 @@ prints the whole document; `--json=content` prints just that field, raw, with no
 quoting to strip and no `jq` to install. Plain `gtd next` is for you to read —
 the leading `Run this script:` line makes it prose, not something to pipe.
 
-Keep going and the beats keep arriving. The next one checks that your test
-baseline is green:
-
-```
-State: start-gate.check
-Awaits: check
-Label: Checking the baseline
-```
-
-A green suite leaves the tree clean, so the process moves on to triage. A red
-suite instead writes `.gtd/FEEDBACK.md`; the process runs it once more at
-`start-gate.recheck`, and only a second red goes to `start-gate.blocked` — same
-two commands, different outcome, decided entirely by what the beat left in the
-tree.
-
-Land the green one, and the beat after it belongs to an agent.
-
 ### Beat 4 — handing a beat to Claude
 
 ```bash
-gtd next | head -2
+gtd next 2>/dev/null
 ```
 
 ```
-This file is a deliverable, not a chat reply — size follows the work, and
-padding is the target of any cut. Lead with the answer immediately; never ...
+Build what .gtd/TODO.md asks for.
 ```
 
-No header at all this time. That is the prompt itself — those bytes are the
-agent's input, so gtd prints nothing around them. Selectors are how you find out
-whose turn it is:
+No header on stdout this time. That is the prompt itself — those bytes are the
+agent's input, so gtd prints the header to stderr instead. Selectors are how you
+find out whose turn it is:
 
 ```bash
 gtd next --json=kind    # prompt
-gtd next --json=state   # design.triage
-gtd next --json=file    # .gtd/REQUIREMENTS.md
+gtd next --json=state   # build
 ```
 
-Now hand it over. Pipe plain `gtd next` straight in — at a prompt rest that
-output already **is** the bare content, so it costs one render instead of two,
-and it keeps a full diff off the command line, which is capped at 4 KB by POSIX
-and around 1 MB on macOS:
+Now hand it over. Pipe plain `gtd next` straight in — at a prompt rest its
+stdout already **is** the bare content, so it costs one render instead of two,
+and it keeps a long prompt off the command line, which is capped at 4 KB by
+POSIX and around 1 MB on macOS:
 
 ```bash
 gtd next | claude -p --dangerously-skip-permissions
@@ -281,17 +275,51 @@ export BASH_MAX_TIMEOUT_MS=7200000     # 2 h
 Reading a value twice is free: **`gtd next` never mutates**, so a peek and a
 dispatch are the same call.
 
-The prompt tells the agent to asses your request and write
-`.gtd/REQUIREMENTS.md`, and that file is the turn. Land it like any other beat:
+Whatever the agent left in the tree — here a new `hello.sh` — is the turn. Land
+it like any other beat:
 
 ```bash
 s=$(gtd land --json=script) && sh -c "$s"
 ```
 
-`gtd next --json=validate` is there if you want to check the agent's work first:
-a ready-to-run script that validates the file the prompt asked for and prints a
-complete fix prompt on failure, ready to pipe straight back into the same
-session.
+```
+-> build → approve
+```
+
+### Beat 5 — your approval, and the ship
+
+```bash
+gtd next
+```
+
+```
+State: approve
+Awaits: human
+…
+
+Review the build. Land a clean tree to approve it.
+```
+
+An `approve` gate takes a clean tree as the answer: review the diff, change
+nothing, and land. An edit here is refused:
+
+```
+gtd land: approval-gate: approve#1 approves exactly the judged diff — revert your edits and run `gtd land` on a clean tree to approve, or run `gtd abandon`
+```
+
+The approval commit records who approved in a `Gtd-Approved:` trailer. Two more
+script beats follow, run and landed the same way: `ship` puts the process's work
+on `main` as one commit, and `gtd:unpin` closes the process and switches back to
+`main`:
+
+```bash
+$ git log --oneline
+9a2ddf7 feat: build the sketch
+013003e chore: initial commit
+```
+
+The beats are not lost: the shipped commit names their history in a
+`Gtd-History:` trailer, and `gtd history list` lists it.
 
 ### Then automate the beats
 
@@ -353,23 +381,21 @@ The requirements go to the top of `.gtd/TODO.md`, above whatever it already
 holds. A long, multi-line requirements paste still starts a process; if Claude
 Code never expanded the paste, gtd says it could not read it, and you add the
 requirements to the top of `.gtd/TODO.md` and run `/gtd`. `/gtd <door> [args]`
-takes one of the doors a bare `gtd start` lists (gtd-workflows' `default` brings
-`fix`, `review [base]`, and `rollout <flag>` and `cleanup <flag>` where the
-config exports them); text whose word count does not fit a door's args (bare
-`/gtd rollout` included) starts a process from that text as requirements. At
-every human rest Claude itself takes over: it walks you through the open
-questions one at a time, answers your own questions about the plan or the diff,
-records what you decide in the steering file the way the step asks, and moves
-the process on only when you say so; a review you leave untouched signs off.
-While a step runs you can keep asking; requests for changes wait for the next
-rest. A process can change hands at any gate: ask Claude to hand it off (or run
-`/gtd throw @dev`) and it opens a draft pull request assigned to them, and
-`/gtd catch <pr>` picks it up exactly where it waits, so whoever wrote the
-requirements can hand the build to someone else. `/gtd pr` brings a pull
-request's unresolved review threads into the review: each becomes a note in
-`.gtd/REVIEW.md` ticked "fix as suggested" (untick it for "won't fix" plus a
-reason, or your own answer), the review door fixes them in place, and each
-thread then gets a reply naming the fixing commit (or your reason) and is
+takes one of the doors a bare `gtd start` lists — those your workflows declare;
+text whose word count does not fit a door's args starts a process from that text
+as requirements. At every human rest Claude itself takes over: it walks you
+through the open questions one at a time, answers your own questions about the
+plan or the diff, records what you decide in the steering file the way the step
+asks, and moves the process on only when you say so; a review you leave
+untouched signs off. While a step runs you can keep asking; requests for changes
+wait for the next rest. A process can change hands at any gate: ask Claude to
+hand it off (or run `/gtd throw @dev`) and it opens a draft pull request
+assigned to them, and `/gtd catch <pr>` picks it up exactly where it waits, so
+whoever wrote the requirements can hand the build to someone else. `/gtd pr`
+brings a pull request's unresolved review threads into the review: each becomes
+a note in `.gtd/REVIEW.md` ticked "fix as suggested" (untick it for "won't fix"
+plus a reason, or your own answer), the review door fixes them in place, and
+each thread then gets a reply naming the fixing commit (or your reason) and is
 resolved. Hand-off and throw answer at once and run in the background, with
 progress on the status line; they report by waking Claude, a toast, a transcript
 line and a push notification, and a failed push or `gh` call reports as a
@@ -393,20 +419,19 @@ state name to choose. The four commands: **`gtd-build`** drives beats until the
 process rests; **`gtd-edit`** opens the steering file the process is waiting on
 right now — falling back to `.gtd/TODO.md` when the resting state declares none;
 **`gtd-door <name> [args...]`** starts a process through one of the doors a bare
-`gtd start` lists (`gtd-door fix`, `gtd-door review [base]` with gtd-workflows'
-`default`) and drives it. The `.gtd/TODO.md` fallback is also how you begin: on
-a clean repository the edit command opens the empty `.gtd/TODO.md`, and whatever
-you write there is the first sketch the whole process gets planned from. As a
-final step, if it finds an LSP-capable editor, the briefing also offers to wire
-up live diagnostics and review actions in it — asking first and naming the exact
-file, and merging rather than overwriting your editor's config. That editor
-integration also adds a footnote at the exact cursor position with one code
-action, landing the cursor in the new, empty definition ready to type, and jumps
-between a footnote's marker and its definition both ways — so leaving a comment
-for the next agent turn never means hand-typing the `[^name]` syntax yourself.
-In a review file, a `./path#42-70` hunk pointer is also a clickable link
-straight to that file and range, no go-to-definition required. A footnote can
-also hold a `H:`/`A:` conversation (a thread — see
+`gtd start` lists and drives it. The `.gtd/TODO.md` fallback is also how you
+begin: on a clean repository the edit command opens the empty `.gtd/TODO.md`,
+and whatever you write there is the first sketch the whole process gets planned
+from. As a final step, if it finds an LSP-capable editor, the briefing also
+offers to wire up live diagnostics and review actions in it — asking first and
+naming the exact file, and merging rather than overwriting your editor's config.
+That editor integration also adds a footnote at the exact cursor position with
+one code action, landing the cursor in the new, empty definition ready to type,
+and jumps between a footnote's marker and its definition both ways — so leaving
+a comment for the next agent turn never means hand-typing the `[^name]` syntax
+yourself. In a review file, a `./path#42-70` hunk pointer is also a clickable
+link straight to that file and range, no go-to-definition required. A footnote
+can also hold a `H:`/`A:` conversation (a thread — see
 [configuration](docs/configuration.md)); the editor outlines threads, flags the
 open ones, and a `gtd: reply` code action adds your empty `- H:` entry and puts
 the cursor there; `gtd check <mode> <file> --open-threads` lists the ones still
@@ -418,12 +443,9 @@ does not show them).
 ### The workflow
 
 gtd decides nothing about _what_ a process does: the workflow in your
-`gtd.config.ts` does. gtd-workflows' `default` has four moments for you — you
-sketch, you answer the planning questions in `.gtd/REQUIREMENTS.md`, you wait
-while it builds, checks and runs its quality lenses, and you review — with every
-exchange a file in `.gtd/` that you edit in your own editor, and every answer a
-commit. Its guide is
-[The default workflow](https://github.com/pmelab/gtd-workflows/blob/main/docs/default.md).
+`gtd.config.ts` does. Its `human` steps are the moments for you — a sketch, a
+question to answer, a review — and every exchange is a file in `.gtd/` that you
+edit in your own editor, every answer a commit.
 
 Prefer a phone or another device over your editor? `gtd ui` opens the file whose
 turn it is as a small web app, over Tailscale — including a step that names no
@@ -546,9 +568,8 @@ are not process history: `gtd history` does not list them, and the
 `refs/gtd/history/*` refspecs above neither push nor fetch them.
 
 A workflow can rest at an approval gate (`human(name, { approve: true })`; the
-`seamGate` helper does this for a `refactor-first` diff-shape judgment;
-gtd-workflows' `default` does not use it). Only a clean `gtd land` approves it,
-and the commit records who in a
+`seamGate` helper does this for a `refactor-first` diff-shape judgment). Only a
+clean `gtd land` approves it, and the commit records who in a
 `Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}` trailer;
 a landing with any edit is refused (as is a script run after the tree changed —
 revert and land again), and `gtd abandon` is the only other way out. `approve`

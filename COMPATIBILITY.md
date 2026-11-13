@@ -120,8 +120,7 @@ Anything not listed above, e.g.:
 
 **Workflows.** gtd ships none. A workflow's names, step names, the order its
 steps are reached in, its settings, doors, prompts and steering files are not
-gtd's public API: they belong to whichever repository the workflow comes from —
-[gtd-workflows](https://github.com/pmelab/gtd-workflows) for `default`. gtd's
+gtd's public API: they belong to the repository that writes the workflow. gtd's
 promise ends at the engine that replays them.
 
 ## Non-goals

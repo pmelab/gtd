@@ -9,13 +9,7 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { createRequire } from "node:module"
 import { describe, expect, it } from "vitest"
-import {
-  EDIT_COMMAND,
-  DOOR_COMMAND,
-  MINIMAL_DRIVER,
-  renderBriefing,
-  WORKFLOWS_REPO,
-} from "./Install.js"
+import { EDIT_COMMAND, DOOR_COMMAND, MINIMAL_DRIVER, renderBriefing } from "./Install.js"
 
 const SUITE_PATHS = ["gtd-build", "gtd-edit", "gtd-door"]
 const SUPERSEDED_PATHS = ["gtd-fix", "gtd-review"]
@@ -115,11 +109,11 @@ describe("renderBriefing", () => {
     expect(briefing).not.toContain(".gtdrc")
   })
 
-  it("says gtd ships no workflow, offering gtd-workflows or the user's own", () => {
+  it("says gtd ships no workflow, so the user writes their own", () => {
     const briefing = renderBriefing()
     expect(briefing).toContain("gtd ships no")
-    expect(briefing).toContain(`git clone ${WORKFLOWS_REPO}`)
-    expect(briefing).toMatch(/\*\*Their own workflow\.\*\*/)
+    expect(briefing).toContain("the user writes their own")
+    expect(briefing).toContain("docs/testing.md")
   })
 
   it("instructs committing the config before the first drive", () => {
@@ -167,14 +161,6 @@ describe("renderBriefing", () => {
     expect(briefing).toContain('gtd start "$@"')
     expect(briefing).toMatch(/bare `gtd start` lists/i)
     expect(briefing).toMatch(/exec.{0,20}GTD_BUILD/s)
-  })
-
-  it("states gtd-door fix on a green suite is a no-op straight back to idle", () => {
-    expect(renderBriefing()).toMatch(/gtd-door fix.{0,80}green.{0,80}no-op.{0,40}idle/is)
-  })
-
-  it("states gtd-door review on a red baseline hands off to the loop, halting at the blocked gate", () => {
-    expect(renderBriefing()).toMatch(/gtd-door review.{0,120}red.{0,120}blocked gate/is)
   })
 
   it("states the door command execs the RESOLVED loop path, not the literal string gtd-build", () => {

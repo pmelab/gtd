@@ -5,8 +5,7 @@ module that says which steps a process goes through, with which settings, plus
 the repository settings in its [`config` export](#the-config-export) —
 steering-file modes, `gtd ui` settings, per-scope skills and access. It is
 required: without one, every command that resolves workflow state fails, saying
-to run `gtd guide`, which says where to get one. gtd ships no workflow: use one
-from [gtd-workflows](https://github.com/pmelab/gtd-workflows) or write your own.
+to run `gtd guide`. gtd ships no workflow: you write your own.
 
 Settings that belong to a machine rather than a repository live outside it: the
 judge `gtd judge run` uses (see [Judge settings](#judge-settings)), plus
@@ -35,17 +34,14 @@ filesystem root when the current directory is outside home) and uses the
 **innermost** `gtd.config.ts` it finds. There is no merging: one file is the
 whole workflow. A `gtd.config.ts` found nowhere is an error naming `gtd guide`.
 
-gtd ships no workflow and `gtd guide` writes no config. Get one from
-[gtd-workflows](https://github.com/pmelab/gtd-workflows), a pinned checkout
-whose `gtd-wf config default` prints a `gtd.config.ts` importing its `default`
-workflow by absolute path (see its README), or write your own (see
+gtd ships no workflow and `gtd guide` writes no config. Write your own (see
 [Shape](#shape) below and [Testing a workflow](./testing.md)).
 
 **Upgrading from a gtd that shipped workflows:** `@pmelab/gtd/workflows`,
 `@pmelab/gtd/workflow` and `@pmelab/gtd/workflows/<name>` no longer resolve, so
-a config importing them fails to load. Replace it with the one
-`gtd-wf config default` prints: gtd-workflows' `default` keeps the same step
-names, so a process already underway keeps replaying.
+a config importing them fails to load. Replace it with your own workflow; a
+process already underway keeps replaying only if your workflow reaches the same
+step names.
 
 ### Shape
 
@@ -689,8 +685,7 @@ export const review = workflow(reviewFlow, {
 A door starts whatever name the config exports its workflow under. `args` is a
 static list of positional arguments (required ones first); `vars` is a pure
 function of the args returning a record of process settings — no git runs while
-it is evaluated. gtd-workflows' `fix` builds `fix`, its `review` builds
-`review [base]`, so a config exporting only `fix` offers only the `fix` door.
+it is evaluated. A config offers only the doors of the workflows it exports.
 
 A config's doors are those of every workflow it exports. A door several exported
 workflows build belongs to the one exported under the door's own name (the
@@ -1190,16 +1185,15 @@ export const config = defineConfig({
 })
 ```
 
-Which scope names exist is the workflow's: gtd-workflows' `default` lists its
-own in its reference. A nested scope with no entry of its own inherits its
-parent's list, so a key on a parent reaches every scope beneath it that sets
-none. A scope that only groups others runs no turn and carries no key. A
-workflow's scopes are addressable through its `skills` option (a factory build
-carries it, so a config exporting the workflow gets it too); the option may be a
-function of the resolved vars, and must list every scope holding an agent step.
-The type can check an entry's VALUE (an array of strings) but never its KEY,
-since scope names come from the workflow actually in play — there is no editor
-autocompletion of scope names here.
+Which scope names exist is the workflow's. A nested scope with no entry of its
+own inherits its parent's list, so a key on a parent reaches every scope beneath
+it that sets none. A scope that only groups others runs no turn and carries no
+key. A workflow's scopes are addressable through its `skills` option (a factory
+build carries it, so a config exporting the workflow gets it too); the option
+may be a function of the resolved vars, and must list every scope holding an
+agent step. The type can check an entry's VALUE (an array of strings) but never
+its KEY, since scope names come from the workflow actually in play — there is no
+editor autocompletion of scope names here.
 
 A key that is not a scope running a turn is a load error, exit 1 — a group
 scope, or a step name rather than its scope. The message lists the known scope

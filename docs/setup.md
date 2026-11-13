@@ -1,8 +1,7 @@
 # Setup
 
-The skills an agent turn loads are the workflow's: gtd-workflows' `default`
-lists the ones it names in its
-[setup](https://github.com/pmelab/gtd-workflows/blob/main/docs/setup.md).
+The skills an agent turn loads are the workflow's: it names them, and the
+machine running the agent must have them installed.
 
 ## Repository requirements
 

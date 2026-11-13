@@ -15,7 +15,3 @@
   package SemVer, which carry no promise
 - [Commit messages](./commits.md) — the squash-commit convention
   semantic-release and the PR check read
-
-The `default` workflow (feature → review → fix, plus release-flag rollout and
-cleanup) lives in [gtd-workflows](https://github.com/pmelab/gtd-workflows), with
-its own guide, reference and delivery model.

@@ -228,7 +228,7 @@ describe("ConfigService", () => {
     rmSync(join(projectDir, "gtd.config.ts"))
 
     await expect(getConfig()).rejects.toThrow(
-      /no workflows configured: no gtd\.config\.ts here or above — gtd ships no workflow; `gtd guide` says where to get one/,
+      /no workflows configured: no gtd\.config\.ts here or above — gtd ships no workflow; write your own — `gtd guide` says how/,
     )
   })
 
@@ -720,7 +720,7 @@ describe("ConfigService", () => {
         [header, `export const hotfix = ${flow("hot")}`, ``].join("\n"),
       )
       await expect(getConfig()).rejects.toThrow(
-        /no default export — export the workflow an ordinary start runs; `gtd guide` says where to get one, or write your own/,
+        /no default export — export the workflow an ordinary start runs; write one — `gtd guide` says how/,
       )
     })
 

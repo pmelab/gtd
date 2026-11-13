@@ -1,8 +1,6 @@
 // `MINIMAL_DRIVER` is pinned equal to https://github.com/pmelab/gtd/blob/main/docs/driver.md's "A complete minimal driver" fenced bash block by `Install.test.ts`, so the two can never drift.
 import { GTD_VERSION } from "./Version.js"
 
-export const WORKFLOWS_REPO = "https://github.com/pmelab/gtd-workflows"
-
 export const MINIMAL_DRIVER = `#!/usr/bin/env sh
 set -eu
 
@@ -85,7 +83,7 @@ while :; do
       validate="$(gtd next --json=validate)"
       fresh="$(gtd next --json=fresh)"
       log="$(gtd next --json=log)"
-      # \`model\` is a hint, not a model name — gtd-workflows' default ships
+      # \`model\` is a hint, not a model name — a workflow may use hints like
       # \`smart\` and \`base\`, which \`claude --model\` rejects. Resolve them
       # from your environment; unset, the hint is dropped and the agent runs
       # its own default. Any other value is a real model name.
@@ -437,31 +435,10 @@ follow in the same numbered list.
    they're trying to accomplish with gtd here — don't assume a fresh
    install or silently start a process on their behalf.
 2. **Make sure a \`gtd.config.ts\` governs the repository.** gtd ships no
-   workflow: the config imports the workflows it runs. Ask the user which
-   way they want:
-   - **A workflow from ${WORKFLOWS_REPO}.** Its \`default\` is a feature →
-     review → fix workflow. It is used from a checkout pinned on this
-     machine:
-
-     \`\`\`sh
-     git clone ${WORKFLOWS_REPO} ~/.local/share/gtd/workflows
-     ~/.local/share/gtd/workflows/bin/gtd-wf pin origin/main   # or a tag
-     ~/.local/share/gtd/workflows/bin/gtd-wf config default > gtd.config.ts
-     \`\`\`
-
-     \`pin\` checks the ref out and bundles each workflow; \`config\` prints a
-     config importing the bundle by its ABSOLUTE path. Tell the user what
-     that means: the committed config works only where the checkout sits at
-     that same path, so a teammate or CI needs their own checkout there (or
-     their own config). If a checkout exists already, \`gtd-wf status\`
-     shows its pin — reuse it rather than cloning again. Read the
-     repository's README for the workflows it offers and their options.
-   - **Their own workflow.** A workflow is TypeScript the config exports,
-     written against \`@pmelab/gtd/flows\` — see
-     https://github.com/pmelab/gtd/blob/main/docs/configuration.md, and
-     https://github.com/pmelab/gtd/blob/main/docs/testing.md to test it. A
-     copy of a gtd-workflows workflow (\`gtd-wf new <name> --from default\`
-     in a clone of it) is a good start.
+   workflow: the user writes their own. A workflow is TypeScript the config
+   exports, written against \`@pmelab/gtd/flows\` — see
+   https://github.com/pmelab/gtd/blob/main/docs/configuration.md, and
+   https://github.com/pmelab/gtd/blob/main/docs/testing.md to test it.
 
    Repository settings — steering-file modes, \`gtd ui\`, per-scope skills
    and access — go in the config's \`config\` export; workflow settings are
@@ -492,8 +469,7 @@ follow in the same numbered list.
    from every prompt line and writing no model exports, so every turn runs
    on the chosen CLI's own default tier.
 6. **If model hints are honored, resolve them to real model identifiers.**
-   A workflow may declare model hints — gtd-workflows' \`default\` ships
-   \`plannerModel: smart\` and \`coderModel: base\`.
+   A workflow may declare model hints, such as \`smart\` and \`base\`.
    **Those are opaque hints, not model names** — gtd never interprets them,
    and passing \`--model smart\` to a real CLI fails on the first prompt
    beat. Derive the chosen CLI's own available models at install time — its
@@ -585,13 +561,10 @@ pipe: a pipeline reports only its LAST command's exit status, so
 loop over a process that was never started. It runs the captured script, then
 \`exec\`s the suite's RESOLVED \`gtd-build\` path — never the literal string
 \`gtd-build\`. This is one invocation that carries the process all the way to
-its next human gate, not just a starter: \`gtd-door review\` on a RED baseline
-hands off to \`gtd-build\`, which halts at the blocked gate and prints it,
-rather than starting the review; \`gtd-door fix\` on a GREEN suite is a no-op
-straight back to \`idle\` — the exec'd \`gtd-build\` exits immediately on it.
+its next human gate, not just a starter: a door that ends at once leaves
+\`gtd-build\` nothing to do, and it exits immediately.
 A bare \`gtd start\` lists what a repository can start: its workflows, and
-the doors those workflows bring (gtd-workflows' \`default\` brings \`fix\`
-and \`review [base]\`) plus any the config declares. Refuses with
+the doors those workflows bring, plus any the config declares. Refuses with
 \`usage: gtd-door <name> [args...]\` on stderr and exit \`2\` when the name is
 missing — nothing was even attempted. Default path: \`~/.local/bin/gtd-door\`.
 

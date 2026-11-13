@@ -109,7 +109,7 @@ const configModule: Effect.Effect<WorkflowModule, Error, Host | ConfigDiscovery>
     const missing: Diagnostic = {
       severity: "error",
       path: [],
-      message: `no workflows configured: no ${WORKFLOW_MODULE} here or above — gtd ships no workflow; \`gtd guide\` says where to get one`,
+      message: `no workflows configured: no ${WORKFLOW_MODULE} here or above — gtd ships no workflow; write your own — \`gtd guide\` says how`,
       origin: host.root,
     }
     return yield* Effect.fail(configError([missing]))
@@ -923,7 +923,7 @@ const defaultExport = (exports: Record<string, unknown>): unknown => {
   const value = exports.default
   if (value === undefined) {
     throw new Error(
-      "no default export — export the workflow an ordinary start runs; `gtd guide` says where to get one, or write your own",
+      "no default export — export the workflow an ordinary start runs; write one — `gtd guide` says how",
     )
   }
   if (typeof value !== "function" && !isFactoryWorkflow(value)) {

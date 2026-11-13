@@ -112,7 +112,7 @@ import {
   abandonNoopOutcome,
   restoredOutcome,
 } from "../emit/index.js"
-import { GTD_VERSION, renderBriefing, WORKFLOWS_REPO } from "../install/index.js"
+import { GTD_VERSION, renderBriefing } from "../install/index.js"
 import { ToolCommands } from "./ToolCommands.js"
 import {
   normalizeScriptNewline,
@@ -242,7 +242,7 @@ const runGuideCommand = (
     if ((yield* host.realPath(topLevel.success)) !== (yield* host.realPath(host.root))) return
     if ((yield* (yield* ConfigDiscovery).workflowModule(host.root, host.home)) !== undefined) return
     yield* (yield* Narrator).warn(
-      `gtd guide: no ${WORKFLOW_MODULE} governs here, and gtd ships no workflow — get one from ${WORKFLOWS_REPO} or write your own (step 2 of the briefing above)`,
+      `gtd guide: no ${WORKFLOW_MODULE} governs here, and gtd ships no workflow — write your own (step 2 of the briefing above)`,
     )
   })
 

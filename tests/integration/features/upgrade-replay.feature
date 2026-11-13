@@ -31,7 +31,7 @@ Feature: a process gtd started without a gtd.config.ts continues once one exists
       """
     When I run gtd next
     Then it fails
-    And stderr contains "`gtd guide` says where to get one"
+    And stderr contains "`gtd guide` says how"
 
   Scenario: an ordinary start replays on the default export and lands its next turn
     Given a test project

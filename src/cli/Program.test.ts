@@ -34,7 +34,6 @@ import {
   restoredOutcome,
 } from "../emit/index.js"
 import { GitService, HISTORY_REF, Host } from "../platform/index.js"
-import { WORKFLOWS_REPO } from "../install/index.js"
 
 const run = async (
   repo: InMemRepo,
@@ -219,7 +218,7 @@ export const hotfix = workflow(
 })
 
 describe("gtd guide", () => {
-  it("where no gtd.config.ts governs, prints the briefing and warns where to get a workflow — writing nothing", async () => {
+  it("where no gtd.config.ts governs, prints the briefing and warns that it ships no workflow — writing nothing", async () => {
     const repo = new InMemRepo()
     repo.writeFile("README.md", "# test project\n")
     repo.seedCommit("chore: init")
@@ -228,7 +227,7 @@ describe("gtd guide", () => {
     expect(exitCode).toBe(0)
     expect(stdout).toMatch(/Make sure a .gtd\.config\.ts. governs the repository/)
     expect(stderr).toContain("gtd guide: no gtd.config.ts governs here, and gtd ships no workflow")
-    expect(stderr).toContain(WORKFLOWS_REPO)
+    expect(stderr).toContain("write your own")
     expect(repo.hasPath("gtd.config.ts")).toBe(false)
     expect(repo.snapshot()).toBe(before)
   })
@@ -238,7 +237,7 @@ describe("gtd guide", () => {
     const { stdout, stderr, exitCode } = await run(repo, "guide")
     expect(exitCode).toBe(0)
     expect(stdout).toMatch(/Make sure a .gtd\.config\.ts. governs the repository/)
-    expect(stderr).not.toContain(WORKFLOWS_REPO)
+    expect(stderr).not.toContain("ships no workflow")
   })
 })
 

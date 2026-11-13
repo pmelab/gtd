@@ -268,11 +268,9 @@ falls back to the `gtd` on your `PATH`.
   as it was.
 - `/gtd <door> [args]` starts a process through one of the doors a bare
   `gtd start` lists, runs the script `gtd start <door>` prints, then drives like
-  `/gtd`. Which doors exist is the config's: gtd-workflows' `default` brings
-  `fix`, `review [base]`, and, where the config exports them, `rollout <flag>`
-  and `cleanup <flag>`. `/gtd <verb> …` enters a door only when one by that name
-  exists and the word count fits its args; otherwise the text, bare
-  `/gtd rollout` included, starts a process as requirements.
+  `/gtd`. Which doors exist is the config's. `/gtd <verb> …` enters a door only
+  when one by that name exists and the word count fits its args; otherwise the
+  text, bare `/gtd rollout` included, starts a process as requirements.
 - `/gtd pr` reads the unresolved review threads of the branch's pull request
   (`gh api`, the first 100 threads with up to 50 comments each) and adds each to
   `.gtd/REVIEW.md` as a note headed `<path>:<line> (thread <id>)`, the comments
@@ -385,8 +383,8 @@ Every script gtd emits — `gtd land --json=script`, `gtd start <name>`,
 `gtd abandon`, `gtd restore`, `gtd repin`, `gtd judge answer --json=script`, and
 the format/validate script `gtd validate` prints — is POSIX `sh`, portable to
 `dash`: a driver may run any of them with any POSIX-compliant shell, not
-specifically bash. The same convention extends to a workflow's test command
-(gtd-workflows' `testCommand`, run through `sh -c`): it is expected to be POSIX
+specifically bash. The same convention extends to a workflow's test command (a
+setting the workflow defines, run through `sh -c`): it is expected to be POSIX
 sh-compatible too, but this is a DOCUMENTED CONVENTION only — gtd never inspects
 or validates its shell dialect.
 
@@ -716,7 +714,7 @@ while :; do
       validate="$(gtd next --json=validate)"
       fresh="$(gtd next --json=fresh)"
       log="$(gtd next --json=log)"
-      # `model` is a hint, not a model name — gtd-workflows' default ships
+      # `model` is a hint, not a model name — a workflow may use hints like
       # `smart` and `base`, which `claude --model` rejects. Resolve them
       # from your environment; unset, the hint is dropped and the agent runs
       # its own default. Any other value is a real model name.
