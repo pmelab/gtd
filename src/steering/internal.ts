@@ -12,4 +12,3 @@ export {
 export { formatFromSpec } from "./Declared.js"
 export { steeringStepFindings } from "./SteeringStep.js"
 export { personEditNote, steeringPreamble } from "./Preamble.js"
-export { widgetFormat } from "./widget.js"

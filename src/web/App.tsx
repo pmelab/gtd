@@ -1,5 +1,6 @@
 import type { StepRead } from "../ui/index.js"
 import { Notice } from "./Notice.js"
+import { Document } from "./screens/Document.js"
 import { Findings } from "./screens/Findings.js"
 import { FreeForm } from "./screens/FreeForm.js"
 import { Plan } from "./screens/Plan.js"
@@ -84,6 +85,8 @@ export const App = () => {
         <Plan filePath={step.file} mode="qa" />
       ) : step.mode === "findings" ? (
         <Findings filePath={step.file} />
+      ) : step.mode === undefined ? (
+        <Document filePath={step.file} />
       ) : (
         <FreeForm filePath={step.file} mode={step.mode} />
       )}

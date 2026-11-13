@@ -315,12 +315,12 @@ When(
 )
 
 When(
-  "I tick the box on line {int} of {string} via a spawned gtd ui",
-  async (world: GtdWorld, line: number, filePath: string) => {
+  "I pick option {int} of widget {int} in {string} via a spawned gtd ui",
+  async (world: GtdWorld, option: number, widget: number, filePath: string) => {
     await world.spawnGtdUiAndSetValue(
       filePath,
       undefined,
-      { kind: "paragraph", line },
+      { kind: "option", questionIndex: widget - 1, index: option - 1 },
       { checked: true },
     )
   },

@@ -14,7 +14,6 @@ import { PassThrough } from "node:stream"
 import { Effect } from "effect"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import {
-  basenameFallbackFormat,
   bindSteeringServer,
   diagnosticsFor,
   formatForDocument,
@@ -42,18 +41,10 @@ import {
   TextDocumentSyncKind,
   type Diagnostic,
 } from "vscode-languageserver/node"
-import { steeringFormatFor } from "../steering/index.js"
+import { steeringFormatFor, widgetFormat } from "../steering/index.js"
 
 const QA_FORMAT = steeringFormatFor("qa")!
 const REVIEW_FORMAT = steeringFormatFor("review")!
-
-describe("basenameFallbackFormat", () => {
-  it("maps REVIEW.md to the built-in `review` format, and anything else (including TODO.md) to undefined", () => {
-    expect(basenameFallbackFormat("REVIEW.md")).toBe(REVIEW_FORMAT)
-    expect(basenameFallbackFormat("TODO.md")).toBeUndefined()
-    expect(basenameFallbackFormat("NOTES.md")).toBeUndefined()
-  })
-})
 
 describe("formatForDocument", () => {
   const rest = (file?: string, mode?: string): CurrentRest => ({ state: "s", file, mode })
@@ -64,16 +55,15 @@ describe("formatForDocument", () => {
     )
   })
 
-  it("falls back to basename dispatch for any other path", () => {
+  it("gives no format to any path the rest does not name", () => {
     const r = rest("PLAN.md", "qa")
-    expect(formatForDocument("file:///repo/.gtd/REVIEW.md", r, "/repo")).toBe(REVIEW_FORMAT)
-    expect(formatForDocument("file:///repo/.gtd/TODO.md", r, "/repo")).toBeUndefined()
+    expect(formatForDocument("file:///repo/.gtd/REVIEW.md", r, "/repo")).toBeUndefined()
     expect(formatForDocument("file:///repo/NOTES.md", undefined, "/repo")).toBeUndefined()
   })
 
-  it("gives no format to a mode with no built-in format, or a rest with no mode", () => {
+  it("reads a mode-less steering file as widgets, and gives an unknown mode no format", () => {
+    expect(formatForDocument("file:///repo/PLAN.md", rest("PLAN.md"), "/repo")).toBe(widgetFormat)
     expect(formatForDocument("file:///repo/adr.md", rest("adr.md", "adr"), "/repo")).toBeUndefined()
-    expect(formatForDocument("file:///repo/PLAN.md", rest("PLAN.md"), "/repo")).toBeUndefined()
   })
 })
 
@@ -564,10 +554,9 @@ describe("makeSteeringLanguageService", () => {
     expect(unmapped).toEqual([])
   })
 
-  it("dispatches an unmapped REVIEW.md via the basename fallback", async () => {
+  it("gives a REVIEW.md no rest names no format", async () => {
     const service = makeSteeringLanguageService(fakeEnv(), () => {})
-    const symbols = await service.documentSymbol("file:///repo/REVIEW.md", reviewDoc)
-    expect(symbols.map((s) => s.name)).toContain("Chunk (0/1)")
+    expect(await service.documentSymbol("file:///repo/REVIEW.md", reviewDoc)).toEqual([])
   })
 
   it("initialize records the workspace root and advertises the server's capabilities", () => {
@@ -801,7 +790,7 @@ describe("makeSteeringLanguageService", () => {
     expect(links).toEqual([])
   })
 
-  it("degrades to basename dispatch (and warns once) when currentRest rejects, instead of rejecting the request", async () => {
+  it("serves no format (and warns once) when currentRest rejects, instead of rejecting the request", async () => {
     const warnings: string[] = []
     const env = fakeEnv({
       gitTopLevel: async () => "/repo",
@@ -809,7 +798,7 @@ describe("makeSteeringLanguageService", () => {
     })
     const service = makeSteeringLanguageService(env, (m) => warnings.push(m))
     expect(await service.documentSymbol("file:///repo/PLAN.md", questionsDoc)).toEqual([])
-    expect(await service.documentSymbol("file:///repo/REVIEW.md", reviewDoc)).not.toEqual([])
+    expect(await service.documentSymbol("file:///repo/REVIEW.md", reviewDoc)).toEqual([])
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain("no commits yet")
   })
@@ -826,7 +815,6 @@ describe("makeSteeringLanguageService", () => {
     const service = makeSteeringLanguageService(env, () => {})
     service.initialize({ rootUri: "file:///repo", capabilities: {} } as never)
     expect(await service.documentSymbol("file:///untrusted/PLAN.md", questionsDoc)).toEqual([])
-    expect(await service.documentSymbol("file:///untrusted/REVIEW.md", reviewDoc)).not.toEqual([])
     expect(roots).toEqual([])
   })
 

@@ -197,7 +197,7 @@ export const StepQueryInFlightShowsALoadingSkeleton: Story = {
 }
 
 /** Package 01's own dispatch branch: an ABSENT `mode` falls through to `FreeForm`, never `Plan`/`Review` — the one case that used to refuse to start entirely (Task 9). */
-export const NoModeOpensDirectlyOnTheFreeFormScreen: Story = {
+export const NoModeOpensTheDocumentScreen: Story = {
   decorators: [
     (Story) => (
       <TrpcTestProvider
@@ -226,7 +226,7 @@ export const NoModeOpensDirectlyOnTheFreeFormScreen: Story = {
   ],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("freeform-screen")).toBeInTheDocument())
+    await waitFor(() => expect(canvas.getByTestId("document-screen")).toBeInTheDocument())
     await expect(canvas.queryByTestId("plan-screen")).not.toBeInTheDocument()
     await expect(canvas.queryByTestId("review-screen")).not.toBeInTheDocument()
   },

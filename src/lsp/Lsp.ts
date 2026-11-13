@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process"
-import { basename, dirname, resolve as resolvePath } from "node:path"
+import { dirname, resolve as resolvePath } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { Effect } from "effect"
 import {
@@ -31,6 +31,7 @@ import {
   openThreadFindings,
   steeringFormatFor,
   viewOf,
+  widgetFormat,
   type SteeringAction,
   type SteeringFinding,
   type SteeringFormat,
@@ -192,10 +193,6 @@ export const documentLinksFor = (
 
 // ── Path → format dispatch (pure) ───────────────────────────────────────────
 
-/** Fallback for any path the current rest doesn't name. `TODO.md` is intentionally not mapped — the bundled `idle` step declares no `mode` for it. */
-export const basenameFallbackFormat = (name: string): SteeringFormat | undefined =>
-  name === "REVIEW.md" ? steeringFormatFor("review") : undefined
-
 export type CurrentRest = Pick<BeatDocument, "state" | "file" | "mode">
 
 export const formatForDocument = (
@@ -204,14 +201,8 @@ export const formatForDocument = (
   root: string,
 ): SteeringFormat | undefined => {
   const path = fileURLToPath(uri)
-  if (
-    rest?.file !== undefined &&
-    rest.mode !== undefined &&
-    resolvePath(root, rest.file) === path
-  ) {
-    return steeringFormatFor(rest.mode)
-  }
-  return basenameFallbackFormat(basename(path))
+  if (rest?.file === undefined || resolvePath(root, rest.file) !== path) return undefined
+  return rest.mode === undefined ? widgetFormat : steeringFormatFor(rest.mode)
 }
 
 export const resolveWorkspaceRoot = (params: {
@@ -307,7 +298,7 @@ const revealPositionArgs = (
 /**
  * Builds the whole `SteeringLanguageService` over `env`. Every `env` call is
  * wrapped in a try/catch that degrades gracefully — a failed lookup behaves
- * like a document no rest names (basename dispatch), never a rejected request.
+ * like a document no rest names (no format), never a rejected request.
  */
 export const makeSteeringLanguageService = (
   env: LspEnv,
@@ -352,7 +343,7 @@ export const makeSteeringLanguageService = (
       return formatForDocument(uri, await env.currentRest(root), root)
     } catch (e) {
       warnOnce(
-        `failed to read the current rest at "${root}" — falling back to basename dispatch: ${errorText(e)}`,
+        `failed to read the current rest at "${root}" — no steering file is known: ${errorText(e)}`,
       )
       return formatForDocument(uri, undefined, root)
     }

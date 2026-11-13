@@ -101,3 +101,4 @@ export {
   type AgentRuleOptions,
   type ChangedRange,
 } from "./WidgetRules.js"
+export { widgetFormat } from "./widget.js"

@@ -316,7 +316,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the file ".gtd/TODO.md" contains "Appended paragraph."
 
   @inmem
-  Scenario: ticking a box in a mode-less steering file moves the pick on disk and leaves every other byte alone
+  Scenario: picking a single select's option moves the pick on disk and leaves every other byte alone
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -335,12 +335,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And I run the pin beat
     And a file ".gtd/TODO.md" with:
       """
-      Pick one:
+      ## 🔘 Pick one
 
       - [x] APPROVE
       - [ ] REJECT
       """
-    When I tick the box on line 3 of ".gtd/TODO.md" via a spawned gtd ui
+    When I pick option 2 of widget 1 in ".gtd/TODO.md" via a spawned gtd ui
     Then the file ".gtd/TODO.md" contains "- [ ] APPROVE"
     And the file ".gtd/TODO.md" contains "- [x] REJECT"
 

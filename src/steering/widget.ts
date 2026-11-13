@@ -21,7 +21,7 @@ import {
   type Widget,
 } from "./Widgets.js"
 
-export const ANNOTATE_ACTION_TITLE = "gtd: add an annotation"
+const ANNOTATE_ACTION_TITLE = "gtd: add an annotation"
 
 const SAMPLE = `# Plan
 
@@ -87,6 +87,30 @@ const done = (edits: readonly (SteeringEdit | undefined)[]): SteeringAnnotateRes
     : { ok: true, edits: edits as SteeringEdit[] }
 
 /** Ticking a single select's box unticks every other; any other box only changes itself. */
+/** Whether box `index` of `widget` is its ✏️ custom answer. */
+const isCustomBox = (widget: InputWidget, index: number): boolean =>
+  (widget.kind === "single-select" || widget.kind === "multi-select") &&
+  widget.custom !== undefined &&
+  index === widget.options.length
+
+/** The ticks a single select drops when another of its boxes is ticked. */
+const radioOff = (
+  lines: readonly string[],
+  widget: InputWidget,
+  index: number,
+): (SteeringEdit | undefined)[] =>
+  widget.kind !== "single-select"
+    ? []
+    : boxesOf(widget)
+        .filter((box, i) => i !== index && box.checked)
+        .map((box) => boxEdit(lines, box.line, false))
+
+const currentCustomText = (widget: InputWidget): string =>
+  (widget.kind === "single-select" || widget.kind === "multi-select"
+    ? widget.custom?.text
+    : undefined) ?? ""
+
+/** Ticking a single select's box unticks every other; any other box only changes itself. */
 const setBox = (
   content: string,
   widget: InputWidget,
@@ -94,30 +118,19 @@ const setBox = (
   opts: { readonly checked?: boolean; readonly text?: string },
 ): SteeringAnnotateResult => {
   const lines = content.split("\n")
-  const boxes = boxesOf(widget)
-  const target = boxes[index]
+  const target = boxesOf(widget)[index]
   if (target === undefined) return { ok: false, reason: "anchor-not-found" }
   const checked = opts.checked ?? target.checked
-  const isCustom =
-    (widget.kind === "single-select" || widget.kind === "multi-select") &&
-    widget.custom !== undefined &&
-    index === boxes.length - 1
-  const own = isCustom
+  const own = isCustomBox(widget, index)
     ? customEdit(
         lines,
         target.line,
         checked,
-        opts.text ?? widget.custom?.text ?? "",
+        opts.text ?? currentCustomText(widget),
         eolOf(content),
       )
     : boxEdit(lines, target.line, checked)
-  const others =
-    widget.kind === "single-select" && checked
-      ? boxes
-          .filter((box, i) => i !== index && box.checked)
-          .map((box) => boxEdit(lines, box.line, false))
-      : []
-  return done([own, ...others])
+  return done([own, ...(checked ? radioOff(lines, widget, index) : [])])
 }
 
 const widgetAt = (content: string, index: number): InputWidget | undefined =>
@@ -158,22 +171,31 @@ const applyParagraph = (
   return { ok: true, edits: [appendEdit(content, opts.text)] }
 }
 
+const NOT_FOUND: SteeringAnnotateResult = { ok: false, reason: "anchor-not-found" }
+
+/** Every hunk of a review checklist at once. */
+const setAllHunks = (content: string, index: number, checked: boolean): SteeringAnnotateResult => {
+  const widget = widgetAt(content, index)
+  if (widget?.kind !== "review-checklist") return NOT_FOUND
+  const lines = content.split("\n")
+  return done(widget.hunks.map((hunk) => boxEdit(lines, hunk.line, checked)))
+}
+
 const apply: SteeringFormat["apply"] = (content, anchor, opts) => {
-  if (anchor.kind === "paragraph") return applyParagraph(content, anchor.line, opts)
-  if (anchor.kind === "option" || anchor.kind === "hunk") {
-    const index = anchor.kind === "option" ? anchor.questionIndex : anchor.chunkIndex
-    const widget = widgetAt(content, index)
-    return widget === undefined
-      ? { ok: false, reason: "anchor-not-found" }
-      : setBox(content, widget, anchor.index, opts)
+  switch (anchor.kind) {
+    case "paragraph":
+      return applyParagraph(content, anchor.line, opts)
+    case "question":
+    case "chunk":
+      return setAllHunks(content, anchor.index, opts.checked ?? true)
+    default: {
+      const widget = widgetAt(
+        content,
+        anchor.kind === "option" ? anchor.questionIndex : anchor.chunkIndex,
+      )
+      return widget === undefined ? NOT_FOUND : setBox(content, widget, anchor.index, opts)
+    }
   }
-  if (anchor.kind === "question" || anchor.kind === "chunk") {
-    const widget = widgetAt(content, anchor.index)
-    if (widget?.kind !== "review-checklist") return { ok: false, reason: "anchor-not-found" }
-    const lines = content.split("\n")
-    return done(widget.hunks.map((hunk) => boxEdit(lines, hunk.line, opts.checked ?? true)))
-  }
-  return { ok: false, reason: "anchor-not-found" }
 }
 
 /** The 0-based line an anchor names, or `undefined` when it names nothing in `content`. */
@@ -329,63 +351,61 @@ const action = (title: string, result: SteeringAnnotateResult): SteeringAction[]
   result.ok && result.edits.length > 0 ? [{ title, edits: result.edits }] : []
 
 /** The tick actions for the checkbox or widget heading on `line`. */
+const boxAnchor = (widget: InputWidget, index: number, at: number): SteeringAnchor =>
+  widget.kind === "review-checklist"
+    ? { kind: "hunk", chunkIndex: index, index: at }
+    : { kind: "option", questionIndex: index, index: at }
+
+/** The one action a checkbox offers: its title and the value it writes. */
+const boxChoice = (
+  widget: InputWidget,
+  at: number,
+  checked: boolean,
+): { title: string; checked: boolean } | undefined => {
+  if (isCustomBox(widget, at)) return { title: "gtd: write a custom answer", checked: true }
+  if (widget.kind === "single-select")
+    return checked ? undefined : { title: "gtd: pick this option", checked: true }
+  return { title: checked ? "gtd: untick" : "gtd: tick", checked: !checked }
+}
+
+/** The tick actions for the checkbox or review checklist heading on `line`. */
 const boxActions = (content: string, line: number): SteeringAction[] => {
   const all = inputs(parseWidgets(content).widgets)
   const index = all.findIndex((w) => line >= w.line && line <= w.endLine)
   const widget = all[index]
   if (widget === undefined) return []
-  if (line === widget.line && widget.kind === "review-checklist") {
-    return action(
-      "gtd: tick every hunk",
-      apply(content, { kind: "chunk", index }, { checked: true }),
-    )
-  }
-  const boxes = boxesOf(widget)
-  const at = boxes.findIndex((box) => box.line === line)
-  const box = boxes[at]
-  if (box === undefined) return []
-  const anchor: SteeringAnchor =
-    widget.kind === "review-checklist"
-      ? { kind: "hunk", chunkIndex: index, index: at }
-      : { kind: "option", questionIndex: index, index: at }
-  const isCustom =
-    widget.kind !== "review-checklist" &&
-    widget.kind !== "boolean" &&
-    widget.custom !== undefined &&
-    at === boxes.length - 1
-  if (isCustom)
-    return action("gtd: write a custom answer", apply(content, anchor, { checked: true }))
-  if (widget.kind === "single-select")
-    return box.checked
-      ? []
-      : action("gtd: pick this option", apply(content, anchor, { checked: true }))
+  if (line === widget.line && widget.kind === "review-checklist")
+    return action("gtd: tick every hunk", setAllHunks(content, index, true))
+  const at = boxesOf(widget).findIndex((box) => box.line === line)
+  const box = boxesOf(widget)[at]
+  const choice = box === undefined ? undefined : boxChoice(widget, at, box.checked)
+  if (choice === undefined) return []
   return action(
-    box.checked ? "gtd: untick" : "gtd: tick",
-    apply(content, anchor, { checked: !box.checked }),
+    choice.title,
+    apply(content, boxAnchor(widget, index, at), { checked: choice.checked }),
   )
 }
 
-const actions: SteeringFormat["actions"] = (content, range) => {
-  const tree = parseMarkdown(content)
-  const block = blockNodeAt(tree, range.start.line)
-  const annotation: SteeringAction[] =
-    block?.position === undefined || block.type === "footnoteDefinition"
-      ? []
-      : [
-          {
-            title: ANNOTATE_ACTION_TITLE,
-            edits: footnoteAdditionEdits(
-              content,
-              {
-                line: range.start.line,
-                character: (content.split(/\r?\n/)[range.start.line] ?? "").length,
-              },
-              toLspPosition(block.position.end).line,
-            ),
-          },
-        ]
-  return [...boxActions(content, range.start.line), ...annotation]
+/** A marker at the end of the cursor's line and an empty note after its block; the cursor lands in the note. */
+const annotationAction = (content: string, line: number): SteeringAction[] => {
+  const block = blockNodeAt(parseMarkdown(content), line)
+  if (block?.position === undefined || block.type === "footnoteDefinition") return []
+  const blockEnd = toLspPosition(block.position.end).line
+  const at = { line: blockEnd + 2, character: `[^${nextFootnoteName(content)}]:`.length }
+  const end = { line, character: (content.split(/\r?\n/)[line] ?? "").length }
+  return [
+    {
+      title: ANNOTATE_ACTION_TITLE,
+      edits: footnoteAdditionEdits(content, end, blockEnd),
+      select: { start: at, end: at },
+    },
+  ]
 }
+
+const actions: SteeringFormat["actions"] = (content, range) => [
+  ...boxActions(content, range.start.line),
+  ...annotationAction(content, range.start.line),
+]
 
 const documentLinks: SteeringFormat["documentLinks"] = (content) => {
   const lines = content.split(/\r?\n/)
