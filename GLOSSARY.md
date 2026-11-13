@@ -1,19 +1,67 @@
 # gtd
 
-gtd derives an agentic workflow — capture, plan, build, check, review — from a
-repository's git state, and prints what should happen next for whatever agent
-you point at it. The workflow lives in commits and files, never in chat
-scrollback.
+gtd reads a repository's git history, replays a workflow over it, and prints
+what should happen next for whatever driver you point at it. The workflow lives
+in commits and files, never in chat scrollback.
 
 ## Language
 
-### Engine
+### Fundamentals
 
-**Workflow**: A named [flow](#flow) a `gtd.config.ts` exports through
-`workflow(flow, options?)` — or a [workflow factory](#workflow-factory) —
-started by `gtd start <name>`. gtd ships none; `feature`, `review` and `fix`
-come from gtd-workflows' `default`, and their own words are in its glossary.
-_Avoid_: state machine, config, pipeline, entry
+**Workflow**: A named [flow](#flow) that a repository offers to start. Given
+what a process has already committed, it decides which [step](#step) comes next.
+gtd ships none: every workflow is written in the repository that uses it.
+_Avoid_: state machine, pipeline, config
+
+**Step**: One named place a process can rest, where one [actor](#actor) is
+expected to act. A commit lands at a step by name, so [history](#history) reads
+as a sequence of steps. _Avoid_: state, node, phase
+
+**History**: The first-parent commits of a process's branch. The only state gtd
+has: everything it knows about a process, it reads back from here. _Avoid_:
+state file, log
+
+**Replay**: How gtd finds the [rest](#rest): run the flow again from its start,
+answering each step from the next commit in [history](#history), until a step
+has no commit left. Every command replays, so flow code must be pure. _Avoid_:
+fold, resume, reconstruct
+
+**Driver**: Whatever runs what gtd prints and lands the result — a loop, a CI
+job, an editor, or a person at a terminal. gtd is indifferent to which. _Avoid_:
+harness, runner, client
+
+**Content kind**: What a step hands over when a process rests there: a
+[message](#message), a [script](#script) or a [prompt](#prompt).
+
+**Message**: Text for a person. The driver shows it and stops, because only a
+human can move the process on.
+
+**Script**: A shell script the driver runs as the turn itself — a check step's
+command. The script `gtd land` prints is a **landing script** and the one
+`validate` carries is a **validation script**; never say bare "script" for
+either.
+
+**Prompt**: Text for an agent, with the model, [memory scope](#memory-scope) and
+validation that go with it. The driver hands it to the agent and lands what the
+agent left in the tree. _Avoid_: task, instruction
+
+**Beat kind**: What a driver is told to do at a rest — the content kind, unless
+the tree or history overrides it: `capture`, `message`, `script`, `prompt` or
+`stalled`. Every rest resolves to exactly one, and the set is closed.
+
+**Capture**: The beat kind of a [message](#message) rest on a dirty tree: the
+person already acted, so the driver lands at once. Making the commit is
+[landing](#land), never capturing.
+
+**Stall**: The beat kind of an agent step whose last turn changed nothing, on a
+clean tree. Dispatching again would only repeat it, so the driver stops. Derived
+from history, never stored, and sticky until something changes.
+
+**Judgment**: The questions a judge step asks about a turn. A **verdict**
+answers them, from a model or a person. A judge step rests as a message, never
+as a prompt. _Avoid_: prompt, review
+
+### Engine
 
 **Default workflow**: The workflow an ordinary start (no `gtd start`) runs — the
 config's required `default` export, which may be a plain flow. It goes by the
@@ -62,12 +110,6 @@ process setting that `GTD_FLAG_<NAME>` pins at process start.
 over what the last step left in the tree. The workflow's one kind of logic.
 _Avoid_: machine, state table, graph
 
-**Step**: One named position a process can rest at, reached by awaiting
-`agent()`, `human()`, `run()` or `judge()`. Its name is the `<to>` of the commit
-subject that lands it and, up to its last dot, its
-[memory scope](#memory-scope). A name starting with `gtd:` is reserved for gtd's
-own beats. _Avoid_: state, node, phase
-
 **Workflow module**: A TypeScript module in which every export passed through
 `workflow()` and every [workflow factory](#workflow-factory) (bar `default` and
 `config`) is a workflow named by its export; any other exported function is a
@@ -84,17 +126,10 @@ config. _Avoid_: preset, template, builder
 step, executed by the driver) or `judge`. gtd itself executes nothing. _Avoid_:
 role, party, runner
 
-**Driver**: Whatever executes what gtd prints — a driver (the README's minimal
-driver, or your own), a loop harness, a CI job, or a person reading it aloud.
-gtd is indifferent to which. _Avoid_: harness, runner, client
-
 **Outcome line**: The human-facing line an emitted script prints for what it
-just landed — a transition, a bare capture, an abandon, a restore. It reads the
-same whether a driver runs the script or a person pastes it into a terminal.
-_Avoid_: report, log line
-
-**Content kind**: What a rest hands the driver: `capture`, `message`, `script`,
-`prompt` or `stalled`. Every rest resolves to exactly one.
+just landed — a transition, a landing at the same step, an abandon, a restore.
+It reads the same whether a driver runs the script or a person pastes it into a
+terminal. _Avoid_: report, log line
 
 **Rest**: Where a process currently waits, fully resolved — the step plus its
 content, its model, and its memory key. What `gtd next` prints. _Avoid_: current
@@ -107,10 +142,6 @@ session
 **Episode**: The commits one run of the flow answers — first-parent history
 since the episode began. It ends when the flow returns or calls `restart()`; the
 next begins at the flow's first step on an ordinary start. _Avoid_: session, run
-
-**Replay**: How gtd finds the rest: run the flow again, answering each step from
-the episode's next commit, until a step has no commit left. Pure over history,
-so flow code must be pure too. _Avoid_: fold, resume, reconstruct
 
 **Divergence**: History that no longer replays — a commit naming a step the
 current workflow does not reach there. gtd refuses loudly and points at
@@ -133,7 +164,7 @@ the package version. _Avoid_: schema version, gtd version
 naming which side to upgrade. Independent of the package version. _Avoid_: API
 version, facade version
 
-**Turn**: What an actor actually did — the work sitting in the tree, captured as
+**Turn**: What an actor actually did — the work sitting in the tree, landed as
 one commit. _Avoid_: action, move
 
 **Attempt**: An agent turn that changed nothing, committed anyway as an empty
@@ -163,17 +194,7 @@ removed or renamed, never for an added one. Not the
 [history format](#history-format) and not the package version. _Avoid_: wire
 version, protocol version
 
-**Stall**: HEAD is an empty [attempt](#attempt) at the resting agent step, the
-tree is clean, and another dispatch would just repeat it — derived from history,
-not tracked by any marker, so it survives a restart and reads the same whether
-polled, peeked, or dispatched. Sticky until something actually changes.
-
-**Capture**: Turning a dirty tree into one turn commit, subject
-`gtd(<actor>): <from> → <to>` with a `Gtd-Step: <name>#<n>` trailer. What the
-flow does next is decided by replaying it over that commit, never re-derived
-from the subject.
-
-**Refusal**: A landing rejected before anything is captured — a guard saying no,
+**Refusal**: A landing rejected before anything is recorded — a guard saying no,
 or the flow calling `refuse()` because nothing it branches on explains the turn.
 
 **No-op**: A landing that authors nothing: a clean tree at a human step without
@@ -243,7 +264,7 @@ commit is rewritten), merge, release
 **Memory scope**: The span of a process over which one agent conversation
 persists — a step name up to its last dot, i.e. its `scope()` prefixes (`root`
 when there are none). One scope, one model, system prompt and skill list.
-_Avoid_: session, context window, conversation, history
+_Avoid_: session, context window, conversation
 
 **Session id**: The agent CLI's own conversation handle — DERIVED from a memory
 scope's key (a `uuidv5` hash), never stored anywhere, so the same scope-run
