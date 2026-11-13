@@ -72,3 +72,32 @@ export { openQuestions, sectionBodies, sections, threads } from "./reads.js"
 // Line-comment `H:`/`A:` threads in changed code files: a flow's `codeThreads()`
 // and `gtd check --open-threads` are the callers outside this package.
 export { parseCodeThreads, stripCodeThreads } from "./CodeThreads.js"
+
+export {
+  CUSTOM_ANSWER_EMOJI,
+  parseWidgets,
+  WIDGET_EMOJI,
+  type Annotation,
+  type BooleanWidget,
+  type CustomAnswer,
+  type Hunk,
+  type InputWidget,
+  type InputWidgetKind,
+  type MultiSelectWidget,
+  type ReviewChecklistWidget,
+  type SingleSelectWidget,
+  type StaticWidget,
+  type Widget,
+  type WidgetDocument,
+  type WidgetKind,
+  type WidgetOption,
+} from "./Widgets.js"
+export { LINE_WIDTH, serialize } from "./Serialize.js"
+export {
+  agentFindings,
+  answerFindings,
+  isAnnotated,
+  unansweredWidgets,
+  type AgentRuleOptions,
+  type ChangedRange,
+} from "./WidgetRules.js"

@@ -34,7 +34,7 @@ Driver plumbing:
   judge                     Print the pending judgment
   judge answer              Land a verdict read from stdin
   judge run                 Answer a judgment with a model
-  check <mode> <file>       Check a steering file's format
+  check [mode] <file>       Check a steering file
   uncheck <file>            Untick a review file's boxes
   lsp                       Start the steering-file language server
   help [command]            Print help for gtd or one command
@@ -675,13 +675,14 @@ Options:
 ### `gtd check`
 
 ```
-Usage: gtd check <mode> <file> [options]
+Usage: gtd check [mode] <file> [options]
 
-Run the steering format <mode> (qa, review or findings, or the declared format
---spec describes) over <file> and print each finding on a line of its own; exits
-1 when there are any, or when <file> does not exist. An unknown <mode> is a
-usage error (exit 2). Reads no workflow and runs from any directory — emitted
-validation scripts call it.
+Read <file> as widgets and print each structural finding on a line of its own;
+exits 1 when there are any, or when <file> does not exist. --write first
+rewrites <file> in its canonical form. With a <mode>, run that steering format
+(qa, review or findings, or the declared format --spec describes) instead; an
+unknown <mode> is a usage error (exit 2). Reads no workflow and runs from any
+directory — emitted scripts call it.
 
 Options:
   --open-questions    Instead of <mode>'s findings, list the unanswered
@@ -690,6 +691,7 @@ Options:
                       <file>; exits 1 when any are open. Alone, lists the open
                       code-comment threads in the files the current process
                       changed
+  --write             Rewrite <file> in its canonical form before checking it
   --spec=<json>       Check against the declared format this spec describes,
                       named <mode>, instead of a built-in one; validation
                       scripts pass it for a step whose mode is a declared format

@@ -517,12 +517,13 @@ describe("parseArgv — gtd check <mode> <file>", () => {
     }
   })
 
-  it("missing the file argument (mode only) is a usage error naming file", () => {
-    const plan = parseArgv(["node", "gtd.js", "check", "qa"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") {
-      expect(plan.message).toContain("missing file argument")
-    }
+  it("one argument is the widget form: a file, with --write", () => {
+    const plan = parseArgv(["node", "gtd.js", "check", "PLAN.md", "--write"])
+    expect(plan.kind === "command" && plan.command).toEqual({
+      kind: "check",
+      file: "PLAN.md",
+      write: true,
+    })
   })
 
   it("too many arguments is a usage error", () => {
@@ -1089,7 +1090,7 @@ describe("renderHelp", () => {
       expect(help).toContain(`\n${heading}\n`)
     }
     expect(help).toContain("start [name] [args...]")
-    expect(help).toContain("check <mode> <file>")
+    expect(help).toContain("check [mode] <file>")
     expect(help).toContain("-V, --version")
     expect(help).toContain("-h, --help")
     expect(help).toContain("Examples:")

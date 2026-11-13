@@ -85,6 +85,8 @@ import {
   parseCodeThreads,
   unansweredQuestions,
   formatFinding,
+  parseWidgets,
+  serialize,
   type SteeringFormat,
 } from "../steering/internal.js"
 import {
@@ -182,6 +184,7 @@ export type Command =
       readonly file?: string
       readonly openQuestions?: boolean
       readonly openThreads?: boolean
+      readonly write?: boolean
       /** A declared format's spec: `mode` names it, and no built-in is looked up. */
       readonly spec?: string
     }
@@ -1163,6 +1166,26 @@ const runCheckCommand = (
     )
   })
 
+/**
+ * `gtd check <file>`: the widget format's structural findings; `--write`
+ * first rewrites the file in its canonical form (landing scripts call this).
+ */
+const runWidgetCheckCommand = (
+  file: string,
+  write: boolean,
+): Effect.Effect<void, Error, Workspace> =>
+  Effect.gen(function* () {
+    const workspace = yield* Workspace
+    const content = yield* existingFile(file)
+    const canonical = write ? serialize(content) : content
+    if (canonical !== content) yield* workspace.writeAtPath(file, canonical)
+    const errors = parseWidgets(canonical).findings.map((finding) => formatFinding(file, finding))
+    if (errors.length === 0) return
+    return yield* Effect.fail(
+      new Error(`gtd check: ${file} has ${errors.length} finding(s):\n` + errors.join("\n")),
+    )
+  })
+
 const declaredFormat = (spec: string): Effect.Effect<SteeringFormat, GtdUsageError> =>
   Effect.try({
     try: () => formatFromSpec(spec),
@@ -1489,6 +1512,9 @@ const dispatchVoidCommand = (
     case "validate":
       return runValidateCommand(json, out)
     case "check":
+      if (command.mode === undefined && command.file !== undefined) {
+        return runWidgetCheckCommand(command.file, command.write ?? false)
+      }
       if (command.mode === undefined || command.file === undefined) {
         return runCodeThreadsCheckCommand()
       }

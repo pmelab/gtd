@@ -312,6 +312,16 @@ const FLAGS: readonly FlagRow[] = [
     help: "Instead of <mode>'s findings, list the open threads in <file>; exits 1 when any are open. Alone, lists the open code-comment threads in the files the current process changed",
   },
   {
+    name: "--write",
+    arity: 0,
+    repeatable: false,
+    scope: (kind) => kind === "check",
+    decode: () => Result.succeed(true),
+    scopeError: "gtd: --write is only valid for `gtd check`",
+    valueHint: "",
+    help: "Rewrite <file> in its canonical form before checking it",
+  },
+  {
     name: "--spec",
     arity: 1,
     repeatable: false,
@@ -357,7 +367,7 @@ const flagByToken = (token: string): FlagRow | undefined => {
 type Arity =
   | "none"
   | { readonly name: string }
-  | { readonly names: readonly [string, string] }
+  | { readonly names: readonly [string, string]; readonly firstOptional?: true }
   // One required leading positional, then any number the command itself judges.
   | { readonly name: string; readonly variadic: string }
   // The same, the leading one optional too.
@@ -562,10 +572,10 @@ The fixed answerer reads --answers and leaves out the questions it does not cove
   {
     token: "check",
     kind: "check",
-    arity: { names: ["mode", "file"] },
+    arity: { names: ["mode", "file"], firstOptional: true },
     group: "Driver plumbing",
-    summary: "Check a steering file's format",
-    details: `Run the steering format <mode> (qa, review or findings, or the declared format --spec describes) over <file> and print each finding on a line of its own; exits 1 when there are any, or when <file> does not exist. An unknown <mode> is a usage error (exit 2). Reads no workflow and runs from any directory — emitted validation scripts call it.`,
+    summary: "Check a steering file",
+    details: `Read <file> as widgets and print each structural finding on a line of its own; exits 1 when there are any, or when <file> does not exist. --write first rewrites <file> in its canonical form. With a <mode>, run that steering format (qa, review or findings, or the declared format --spec describes) instead; an unknown <mode> is a usage error (exit 2). Reads no workflow and runs from any directory — emitted scripts call it.`,
   },
   {
     token: "uncheck",
@@ -603,7 +613,10 @@ const OPTION_COLUMN = 22
 const synopsis = (row: CommandRow): string => {
   const { token, arity } = row
   if (arity === "none") return token
-  if ("names" in arity) return `${token} <${arity.names[0]}> <${arity.names[1]}>`
+  if ("names" in arity)
+    return arity.firstOptional === true
+      ? `${token} [${arity.names[0]}] <${arity.names[1]}>`
+      : `${token} <${arity.names[0]}> <${arity.names[1]}>`
   if ("bare" in arity) return `${token} [${arity.name}] [${arity.variadic}...]`
   if ("variadic" in arity) return `${token} <${arity.name}> [${arity.variadic}...]`
   if ("optional" in arity) return `${token} [${arity.name}]`
@@ -897,7 +910,10 @@ const tooMany = (
 
 const arityError = (cmd: string, rest: readonly string[], arity: Arity): string | undefined => {
   if (arity === "none") return tooMany(cmd, rest, "none", 0)
-  if ("names" in arity) return pairArityError(cmd, rest, arity.names)
+  if ("names" in arity) {
+    if (arity.firstOptional === true && rest.length === 1) return undefined
+    return pairArityError(cmd, rest, arity.names)
+  }
   if ("bare" in arity) return undefined
   if ("optional" in arity) return tooMany(cmd, rest, `at most one ${arity.name}`, 1)
   if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
@@ -1078,6 +1094,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--model"?: string
     readonly "--var"?: Readonly<Record<string, string>>
     readonly "--open-questions"?: boolean
+    readonly "--write"?: boolean
     readonly "--open-threads"?: boolean
     readonly "--spec"?: string
     readonly "--host"?: string
@@ -1153,8 +1170,13 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       kind: "command",
       command: {
         kind: "check",
-        ...(restPositionals[0] !== undefined ? { mode: restPositionals[0] } : {}),
-        ...(restPositionals[1] !== undefined ? { file: restPositionals[1] } : {}),
+        ...(restPositionals.length === 1
+          ? { file: restPositionals[0]! }
+          : {
+              ...(restPositionals[0] !== undefined ? { mode: restPositionals[0] } : {}),
+              ...(restPositionals[1] !== undefined ? { file: restPositionals[1] } : {}),
+            }),
+        ...(bag["--write"] !== undefined ? { write: bag["--write"] } : {}),
         ...(bag["--open-questions"] !== undefined
           ? { openQuestions: bag["--open-questions"] }
           : {}),
