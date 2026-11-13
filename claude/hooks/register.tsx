@@ -2,7 +2,7 @@ import { atom, read, update } from "claude-code"
 import type { EngineInterface, Register } from "claude-code"
 
 import type { Run, Stop } from "../types"
-import { accessDenial, mainDenial } from "./access"
+import { accessDenial, mainDenial, steeringDenial } from "./access"
 import type { AccessDef } from "./access"
 import { jobPrompt, wakePrompt, wakes } from "./assist"
 import { afterReload, drive, isTrue } from "./drive"
@@ -79,6 +79,12 @@ const ours = new Set<string>()
 const accesses = new Map<string, AccessDef>()
 const setAccess = (id: string, a: AccessDef | undefined) =>
   void (a ? accesses.set(id, a) : accesses.delete(id))
+// Each turn agent's steering file, when its step is a steering step.
+const steerings = new Map<string, string>()
+const setTurn = (id: string, t: { access?: AccessDef; steering?: string }) => {
+  setAccess(id, t.access)
+  void (t.steering ? steerings.set(id, t.steering) : steerings.delete(id))
+}
 async function workerModel($: $, hint: string | undefined) {
   return subagentModel(hint, {
     smart: await $.env.get("GTD_PLANNERMODEL"),
@@ -207,7 +213,7 @@ function io($: $): Io {
       const known = resumable(entry, name)
       if (t.resume && entry && !known) $.ui.log(restartLine(t.scope))
       if (t.resume && known) {
-        setAccess(known, t.access)
+        setTurn(known, t)
         const end = send($, known, t.prompt)
         await update($, run, (r) => ({ ...r, inflight: { agentId: known, memory: t.memory } }))
         const ended = await end
@@ -226,7 +232,7 @@ function io($: $): Io {
       const id = spawned.agentId
       if (!id) return settle($, { ok: false, why: spawned.deny ?? "subagent spawn refused" })
       ours.add(id)
-      setAccess(id, t.access)
+      setTurn(id, t)
       await update($, agents, (list) => [...list, id].slice(-200))
       await update($, scopes, (s) => ({ ...s, [t.memory]: { agentId: id, persona: name } }))
       await update($, run, (r) => ({ ...r, inflight: { agentId: id, memory: t.memory } }))
@@ -1024,6 +1030,9 @@ function subagentDenial(agentId: string, e: Record<string, unknown>) {
   const access = accesses.get(agentId)
   const denial = access && accessDenial(String(e.tool), e, access, root)
   if (denial) return denial
+  const steering = steerings.get(agentId)
+  const steered = steering && steeringDenial(String(e.tool), e, steering)
+  if (steered) return steered
   const delegated = delegates.get(agentId)
   if (!delegated) return undefined
   if ((e.tool === "Write" && e.file_path !== delegated.file) || e.tool === "Bash") {

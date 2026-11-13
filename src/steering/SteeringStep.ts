@@ -3,13 +3,13 @@ import { formatFinding } from "./SteeringFormat.js"
 import { agentFindings, type ChangedRange } from "./WidgetRules.js"
 import { parseWidgets, type WidgetKind } from "./Widgets.js"
 
-export interface ReviewChange {
+interface ReviewChange {
   readonly path: string
   readonly before: string | undefined
   readonly after: string | undefined
 }
 
-export interface SteeringStepOptions {
+interface SteeringStepOptions {
   readonly widgets?: readonly WidgetKind[] | undefined
   readonly coverage?: boolean | undefined
 }
@@ -17,7 +17,7 @@ export interface SteeringStepOptions {
 const isProcessPath = (path: string): boolean => path === ".gtd" || path.startsWith(".gtd/")
 
 /** The review base diff as changed ranges, `.gtd/` left out. */
-export const reviewRanges = (changes: readonly ReviewChange[]): readonly ChangedRange[] =>
+const reviewRanges = (changes: readonly ReviewChange[]): readonly ChangedRange[] =>
   changes
     .filter((c) => !isProcessPath(c.path) && c.after !== undefined)
     .flatMap((c) =>

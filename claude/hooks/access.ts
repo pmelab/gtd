@@ -88,3 +88,22 @@ export function mainDenial(
     ? undefined
     : `At this step only ${phase.file} may change: record the request there, as the step's instructions say.`
 }
+
+// A shell command that plainly writes: a redirect to a file, an in-place edit,
+// a file-moving tool or a git command that changes the tree. Best effort: `gtd
+// land` refuses whatever slips through.
+const WRITING_SHELL =
+  /(^|[^0-9&])>{1,2}\s*(?!\/dev\/null|&)[^\s]|\b(tee|touch|mv|cp|rm|mkdir|rmdir|ln|truncate|patch)\b|\bsed\s+(-[a-zA-Z]*i|--in-place)|\bperl\s+-[a-zA-Z]*i|\bgit\s+(add|commit|apply|checkout|restore|reset|stash|rm|mv|merge|rebase|cherry-pick)\b/
+
+/** What a steering step's agent may not do: ask in chat, or write through the shell. */
+export function steeringDenial(
+  tool: string,
+  input: Record<string, unknown>,
+  file: string,
+): string | undefined {
+  if (tool === "AskUserQuestion")
+    return `This step talks to the person only through ${file}: put the question there as a widget, and end your turn.`
+  if (tool === "Bash" && typeof input.command === "string" && WRITING_SHELL.test(input.command))
+    return `This step writes only ${file}, and only with Write or Edit: run read-only commands.`
+  return undefined
+}

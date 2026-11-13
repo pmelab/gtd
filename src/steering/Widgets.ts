@@ -96,6 +96,8 @@ export interface BooleanWidget extends InputCommon {
   readonly kind: "boolean"
   readonly label: string
   readonly checked: boolean
+  /** The checkbox's own line. */
+  readonly itemLine: number
 }
 
 export interface ReviewChecklistWidget extends InputCommon {
@@ -225,7 +227,7 @@ const hunkOf = (ctx: InputContext, item: ListItem): Hunk | undefined => {
 const booleanOf = (
   ctx: InputContext,
   tasks: readonly ListItem[],
-): { label: string; checked: boolean } => {
+): { label: string; checked: boolean; itemLine: number } => {
   if (tasks.length !== 1)
     ctx.findings.push(
       finding(
@@ -237,7 +239,11 @@ const booleanOf = (
   const label = item === undefined ? "" : itemText(ctx.content, item)
   if (label.startsWith("✏"))
     ctx.findings.push(finding(ctx.line, `"${ctx.title}": a boolean widget has no custom answer`))
-  return { label, checked: item?.checked === true }
+  return {
+    label,
+    checked: item?.checked === true,
+    itemLine: item === undefined ? ctx.line : line0(item),
+  }
 }
 
 const choicesOf = (

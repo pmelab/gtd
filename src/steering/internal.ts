@@ -10,8 +10,6 @@ export {
   viewOf,
 } from "./registry.js"
 export { formatFromSpec } from "./Declared.js"
-export {
-  steeringStepFindings,
-  type ReviewChange,
-  type SteeringStepOptions,
-} from "./SteeringStep.js"
+export { steeringStepFindings } from "./SteeringStep.js"
+export { personEditNote, steeringPreamble } from "./Preamble.js"
+export { widgetFormat } from "./widget.js"

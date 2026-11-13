@@ -397,24 +397,27 @@ const WIDGET_KINDS = new Set([
   "static",
 ])
 
+const isWidgetList = (value: unknown): boolean =>
+  Array.isArray(value) && value.every((kind) => WIDGET_KINDS.has(kind as string))
+
+const widgetShapeFault = (widgets: unknown, coverage: unknown): string | undefined => {
+  if (widgets !== undefined && !isWidgetList(widgets))
+    return `widgets must list widget kinds (${[...WIDGET_KINDS].join(", ")}) in agent() options`
+  if (coverage !== undefined && typeof coverage !== "boolean")
+    return "coverage must be a boolean in agent() options"
+  return undefined
+}
+
 // `widgets` and `coverage` narrow what a steering file may hold; with no file they mean nothing.
 const widgetOptionsFault = (step: ReachedStep): string | undefined => {
   if (step.request.kind !== "agent") return undefined
   const { widgets, coverage, file, mode } = step.request.options
-  const prefix = `gtd: step "${step.name}": `
-  if (
-    (widgets !== undefined || coverage !== undefined) &&
-    (file === undefined || mode !== undefined)
-  )
-    return `${prefix}widgets and coverage require file, and no mode, in agent() options`
-  if (
-    widgets !== undefined &&
-    (!Array.isArray(widgets) || widgets.some((kind) => !WIDGET_KINDS.has(kind as string)))
-  )
-    return `${prefix}widgets must list widget kinds (${[...WIDGET_KINDS].join(", ")}) in agent() options`
-  if (coverage !== undefined && typeof coverage !== "boolean")
-    return `${prefix}coverage must be a boolean in agent() options`
-  return undefined
+  if (widgets === undefined && coverage === undefined) return undefined
+  const fault =
+    file === undefined || mode !== undefined
+      ? "widgets and coverage require file, and no mode, in agent() options"
+      : widgetShapeFault(widgets, coverage)
+  return fault === undefined ? undefined : `gtd: step "${step.name}": ${fault}`
 }
 
 // A mode names how a steering file is checked; with no file there is nothing to check.

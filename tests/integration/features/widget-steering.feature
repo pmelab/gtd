@@ -121,3 +121,103 @@ Feature: steering steps — an agent step with a file writes widgets and nothing
   Scenario: gtd next tells the driver the step writes only its steering file
     When I run gtd next with "--json"
     Then stdout contains "\"write\":[\".gtd/PLAN.md\"]"
+
+  Scenario: a turn that only reflows the steering file changes nothing
+    Given a file ".gtd/PLAN.md" with:
+      """
+      # Plan
+
+      One short paragraph.
+      """
+    And gtd lands "gtd(agent): plan → answer"
+    And I run gtd next
+    Given a file ".gtd/PLAN.md" with:
+      """
+      # Plan
+
+      One short
+      paragraph.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(agent): plan → answer"
+
+  Scenario: a person cannot land with a single select unanswered
+    Given a file ".gtd/PLAN.md" with:
+      """
+      # Plan
+
+      ## 🔘 Where is the counter stored?
+
+      - [ ] Redis
+      - [ ] Memory
+      """
+    And gtd lands "gtd(agent): plan → answer"
+    Given a file ".gtd/PLAN.md" with:
+      """
+      # Plan
+
+      Some more context from the person.
+
+      ## 🔘 Where is the counter stored?
+
+      - [ ] Redis
+      - [ ] Memory
+      """
+    When I run gtd land
+    Then it fails
+    And stderr contains ".gtd/PLAN.md:5: \"Where is the counter stored?\": pick one option"
+
+  Scenario: an annotation lets a person land without answering
+    Given a file ".gtd/PLAN.md" with:
+      """
+      # Plan
+
+      ## 🔘 Where is the counter stored?
+
+      - [ ] Redis
+      - [ ] Memory
+      """
+    And gtd lands "gtd(agent): plan → answer"
+    Given a file ".gtd/PLAN.md" with:
+      """
+      # Plan
+
+      ## 🔘 Where is the counter stored?[^1]
+
+      - [ ] Redis
+      - [ ] Memory
+
+      [^1]: Why store a counter at all?
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): answer → done"
+
+  Scenario: a person's answer lands in the file's canonical form
+    Given a file ".gtd/PLAN.md" with:
+      """
+      # Plan
+
+      ## 🔘 Where is the counter stored?
+
+      - [ ] Redis
+      - [ ] Memory
+      """
+    And gtd lands "gtd(agent): plan → answer"
+    Given a file ".gtd/PLAN.md" with:
+      """
+      # Plan
+
+      ## 🔘 Where is the counter stored?
+
+      - [x] Redis
+      - [ ] Memory
+
+      A note the person wrote
+      over two lines.
+      """
+    When I run gtd land
+    Then it succeeds
+    And the last commit subject is "gtd(human): answer → done"
+    And the file ".gtd/PLAN.md" contains "A note the person wrote over two lines."

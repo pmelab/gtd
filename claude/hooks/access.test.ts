@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest"
 
-import { accessDenial, mainDenial, RUNNING_DENIAL } from "./access"
+import { accessDenial, mainDenial, RUNNING_DENIAL, steeringDenial } from "./access"
 
 const root = "/repo"
 const access = { read: ["src/**", "docs/*.md"], write: [".gtd/REVIEW.md"] }
@@ -105,5 +105,35 @@ describe("mainDenial", () => {
     const review = { isRunning: false, mode: "review", file: ".gtd/REVIEW.md" }
     expect(mainDenial("Edit", edit("/repo/src/a.ts"), review, root)).toBeUndefined()
     expect(mainDenial("Edit", edit("/repo/src/a.ts"), { isRunning: false }, root)).toBeUndefined()
+  })
+})
+
+describe("steeringDenial", () => {
+  const file = ".gtd/PLAN.md"
+
+  test("sends a question to the steering file", () => {
+    expect(steeringDenial("AskUserQuestion", {}, file)).toContain(`only through ${file}`)
+  })
+
+  test.each([
+    "echo x > src/a.ts",
+    "cat a >> b",
+    "sed -i 's/a/b/' src/a.ts",
+    "rm -rf build",
+    "git checkout -- src",
+    "tee out.txt",
+  ])("denies the writing command %j", (command) => {
+    expect(steeringDenial("Bash", { command }, file)).toContain(`writes only ${file}`)
+  })
+
+  test.each(["rg foo src", "git diff HEAD~1", "npm test 2>&1", "ls > /dev/null", "cat a | grep b"])(
+    "allows the read-only command %j",
+    (command) => {
+      expect(steeringDenial("Bash", { command }, file)).toBeUndefined()
+    },
+  )
+
+  test("leaves Write and Edit to the access check", () => {
+    expect(steeringDenial("Write", { file_path: file }, file)).toBeUndefined()
   })
 })

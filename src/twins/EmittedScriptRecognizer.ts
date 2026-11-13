@@ -40,6 +40,7 @@ import {
   BUILT_IN_MODE_NAMES,
   formatFinding,
   formatFromSpec,
+  serialize,
   steeringFormatFor,
   type SteeringFormat,
 } from "../steering/internal.js"
@@ -695,6 +696,21 @@ const recognizeGtdUncheck = (repo: InMemRepo, block: string): BlockOutcome | und
   return { kind: "noop" }
 }
 
+const GTD_FORMAT_RE = /^gtd check --write (.+) >\/dev\/null 2>&1 \|\| :$/
+
+/** `gtd check --write <file> … || :` — a widget steering file serialized ahead of the commit; never fails. */
+const recognizeGtdFormat = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
+  const match = GTD_FORMAT_RE.exec(block)
+  if (!match) return undefined
+  const [file] = extractQuotedTokens(match[1]!)
+  if (file === undefined) return undefined
+  const content = repo.readFile(file)
+  if (content === undefined) return { kind: "noop" }
+  const canonical = serialize(content)
+  if (canonical !== content) repo.writeFile(file, canonical)
+  return { kind: "noop" }
+}
+
 /**
  * A block of nothing but comments is a no-op in `sh` too — `combinedScript`'s
  * leading `DID_NOT_RUN_COMMENT`, and the list of paths a start commits.
@@ -849,6 +865,7 @@ const recognizersFor = (
   (block) => recognizePresentationSubshell(repo, commands, block, git),
   (block) => recognizeModeContradictionSkipNotice(block),
   (block) => recognizeModeContradictionCheck(repo, commands, block),
+  (block) => recognizeGtdFormat(repo, block),
   (block) => recognizeGtdCheck(repo, block),
   (block) => recognizeGtdUncheck(repo, block),
   (block) => {

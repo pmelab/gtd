@@ -12,6 +12,7 @@ import { findingsDescriptor } from "./findings.js"
 // deliberately not a `REGISTRY` entry of its own, since it is never a mode a
 // `mode:` key names.
 import { freeFormFormat } from "./freeform.js"
+import { widgetFormat } from "./widget.js"
 
 /** The built-in registry: mode name → its format, in registry order. The single place the built-in formats are wired into names — everything else in this module dispatches over a resolved `SteeringFormat`, never a mode-name string. */
 const REGISTRY: ReadonlyMap<string, SteeringFormat> = new Map([
@@ -36,7 +37,7 @@ export const steeringFormatFor = (mode: string): SteeringFormat | undefined => R
  * document must still render and accept a paragraph note, never refuse.
  */
 export const steeringFormatOrFreeForm = (mode: string | undefined): SteeringFormat =>
-  (mode !== undefined ? REGISTRY.get(mode) : undefined) ?? freeFormFormat
+  mode === undefined ? widgetFormat : (REGISTRY.get(mode) ?? freeFormFormat)
 
 /**
  * `qa`-only: every OPEN question in `content` not yet answered, as

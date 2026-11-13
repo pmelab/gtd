@@ -45,6 +45,8 @@ export type Turn = {
   skills: readonly string[]
   scope: string
   access?: AccessDef
+  /** A steering step's file: the turn's only channel to the person (ADR 0010). */
+  steering?: string
 }
 
 // `isLost`: the scope's subagent no longer takes messages.
@@ -192,6 +194,8 @@ function turnOf(b: Beat): Turn {
     skills: b.skills ?? [],
     scope: memory.split("#")[0]!,
     access: b.access,
+    // A mode-less file is a widget steering file; a mode step still carries its validate script.
+    ...(b.file && !b.mode && !b.validate ? { steering: b.file } : {}),
   }
 }
 

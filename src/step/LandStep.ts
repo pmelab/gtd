@@ -44,5 +44,6 @@ export type Outcome =
 export type LandStep =
   | { readonly kind: "gitWrite"; readonly write: GitWrite }
   | { readonly kind: "uncheck"; readonly file: string }
+  | { readonly kind: "format"; readonly file: string }
   | { readonly kind: "command"; readonly command: string; readonly onFailure?: string }
   | { readonly kind: "outcome"; readonly outcome: Outcome }

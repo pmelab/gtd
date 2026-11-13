@@ -310,6 +310,9 @@ const renderLandStep = (step: LandStep): string => {
   if (step.kind === "gitWrite") return renderGitWrite(step.write)
   if (step.kind === "outcome") return renderOutcome(step.outcome)
   if (step.kind === "uncheck") return `gtd uncheck ${shellQuote(step.file)}`
+  // Its findings were decided before the script; here it only rewrites the file.
+  if (step.kind === "format")
+    return `gtd check --write ${shellQuote(step.file)} >/dev/null 2>&1 || :`
   return step.onFailure !== undefined
     ? failurePromptWrapper(step.command, step.onFailure)
     : step.command

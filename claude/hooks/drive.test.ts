@@ -271,6 +271,20 @@ describe("access refusal", () => {
     expect(turns[0]!.access).toEqual(access)
   })
 
+  test("a mode-less steering file makes the turn a steering turn; a mode does not", async () => {
+    const turns: Turn[] = []
+    const { io } = fake(
+      [
+        { kind: "prompt", memory: "m", file: ".gtd/PLAN.md" },
+        { kind: "prompt", memory: "n", file: ".gtd/QA.md", mode: "qa" },
+      ],
+      [],
+      { turn: async (t) => (turns.push(t), { ok: true }) },
+    )
+    await drive(io)
+    expect(turns.map((t) => t.steering)).toEqual([".gtd/PLAN.md", undefined])
+  })
+
   test("one re-prompt with the refusal text, then a successful land", async () => {
     const { io, calls } = fake([{ kind: "prompt", memory: "m" }], [], { land: refusing(1) })
     expect(await drive(io)).toMatchObject({ kind: "done" })

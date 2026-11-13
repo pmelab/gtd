@@ -51,7 +51,14 @@ import {
   type TreeView,
 } from "../replay/index.js"
 import type { Mark, ScopeAccess, SummaryContext } from "../flows/index.js"
-import { steeringFormatFor } from "../steering/index.js"
+import {
+  answerFindings,
+  formatFinding,
+  parseWidgets,
+  serialize,
+  steeringFormatFor,
+} from "../steering/index.js"
+import { personEditNote, steeringPreamble } from "../steering/internal.js"
 import { failRestScript, noteOutcome, pinScript, unpinScript } from "../emit/index.js"
 import {
   judgeJson,
@@ -1295,12 +1302,39 @@ export interface RenderedRest extends RestHints {
   readonly blocked?: string
 }
 
+/** The person's last turn on `file`, as the note the next steering step reads. */
+const personEdit = (rest: Rest, file: string): string | undefined => {
+  const trace = rest.run.trace
+  const index = trace.findLastIndex((entry) => entry.actor === "human")
+  const turn = trace[index]
+  if (turn === undefined) return undefined
+  const parent = trace[index - 1]?.hash ?? rest.run.startParentHash
+  const read = (hash: string): string => rest.setup.workspace.readCommittedSync(file, hash) ?? ""
+  return personEditNote(file, read(parent), read(turn.hash))
+}
+
+/** A steering step's prompt opens with gtd's own rules and what the person last changed in the file. */
+const steeringPrompt = (rest: Rest): { readonly content: string; readonly original?: string } => {
+  const def = rest.stepDef
+  const plain =
+    def.original === undefined
+      ? { content: def.content }
+      : { content: def.content, original: def.original }
+  if (def.kind !== "prompt" || !isWidgetStep(def)) return plain
+  const lead = [steeringPreamble(def.file), personEdit(rest, def.file)]
+    .filter((part) => part !== undefined)
+    .join("\n\n")
+  return def.original === undefined
+    ? { content: `${lead}\n\n${def.content}` }
+    : { content: def.content, original: `${lead}\n\n${def.original}` }
+}
+
 export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
   Effect.succeed({
     state: rest.state,
     actor: rest.actor,
     kind: rest.stepDef.kind,
-    content: rest.stepDef.content,
+    ...steeringPrompt(rest),
     ...rest.hints,
     ...(failedRunStalled(rest)
       ? { failure: rest.setup.workspace.readSync(RUN_FAILED_PATH) ?? "" }
@@ -1308,7 +1342,6 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
     ...(rest.shipBlocked !== undefined ? { blocked: rest.shipBlocked } : {}),
     ...(rest.memory !== undefined ? { memory: rest.memory } : {}),
     memoryResumed: rest.memoryResumed,
-    ...(rest.stepDef.original !== undefined ? { original: rest.stepDef.original } : {}),
     ...(rest.pin !== undefined ? { pin: rest.pin } : {}),
   })
 
@@ -1393,6 +1426,37 @@ const reviewGateRewrite = (def: StepDef): Rewrite | undefined => {
     return undefined
   }
   return { path: def.file, apply: (content) => reviewFormat.clearTicks(content) }
+}
+
+const isWidgetStep = (def: StepDef): def is StepDef & { readonly file: string } =>
+  def.file !== undefined && def.mode === undefined
+
+/** A widget steering file lands serialized; the review gate lands with its ticks cleared. */
+const landingRewrite = (def: StepDef): Rewrite | undefined =>
+  isWidgetStep(def) ? { path: def.file, apply: serialize } : reviewGateRewrite(def)
+
+/** A turn whose only change to the steering file is what serializing it undoes changed nothing. */
+const formattingOnly = (rest: Rest): boolean => {
+  const def = rest.stepDef
+  if (!isWidgetStep(def) || rest.changes.some((c) => c.path !== def.file)) return false
+  const pending = rest.setup.workspace.readSync(def.file)
+  const committed = rest.setup.workspace.readCommittedSync(def.file)
+  return pending !== undefined && committed !== undefined && serialize(pending) === committed
+}
+
+/** A person's landing on a widget file: broken widgets, then unanswered required ones, refuse it. */
+const humanWidgetRefusal = (rest: Rest): Landing | undefined => {
+  const def = rest.stepDef
+  if (rest.actor !== "human" || !isWidgetStep(def)) return undefined
+  const pending = rest.setup.workspace.readSync(def.file)
+  if (pending === undefined) return undefined
+  const doc = parseWidgets(serialize(pending))
+  const findings = doc.findings.length > 0 ? doc.findings : answerFindings(doc)
+  if (findings.length === 0) return undefined
+  return {
+    kind: "refusal",
+    message: `gtd land: ${def.file} is not ready to land:\n${findings.map((f) => formatFinding(def.file, f)).join("\n")}`,
+  }
 }
 
 /** Whether the pending review file differs from HEAD's once both have their ticks cleared. */
@@ -1570,6 +1634,10 @@ const decideLanding = (
     if (unapproved !== undefined) return unapproved
     const early = cleanLanding(rest)
     if (early !== undefined) return early
+    const unchanged = formattingOnly(rest) ? cleanLanding({ ...rest, changes: [] }) : undefined
+    if (unchanged !== undefined) return unchanged
+    const unready = humanWidgetRefusal(rest)
+    if (unready !== undefined) return unready
     if (rest.stepDef.kind === "prompt" && rest.stepDef.access?.write != null) {
       const message = accessRefusal(rest.changes, rest.stepDef.access.write)
       if (message !== undefined) return { kind: "refusal", message }
@@ -1577,7 +1645,7 @@ const decideLanding = (
     const landing = pendingTree(
       rest.setup.workspace,
       rest.setup.pendingWorktree(),
-      reviewGateRewrite(rest.stepDef),
+      landingRewrite(rest.stepDef),
     )
     // A recorded failure lands as an attempt: the process stays at the step.
     if (rest.stepDef.onFail === "rest" && landing.read(RUN_FAILED_PATH) !== undefined) {
