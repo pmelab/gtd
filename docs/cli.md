@@ -25,8 +25,6 @@ Inspect:
   strays <range> [glob...]  List changed files outside the globs
   history list              List finished processes
   history show <ref>        Replay one finished process
-  history metrics [ref...]  Report cost and rework of finished processes
-  history judges [ref...]   Calibrate the judges of finished processes
   history fetch [remote]    Print a script that fetches finished processes
   ui                        Serve the web and phone client
 
@@ -136,11 +134,10 @@ writes nothing.
 Each long option is valid only on the commands whose help lists it; any other
 `--` option (including a typo like `--jsn`) is rejected with a usage error
 rather than silently ignored, so a mistyped flag can never degrade a JSON caller
-to plain-text mode. A value takes the `--flag=value` form; `--var` and
-`--threshold` also take the space-separated `--flag value` form, and `--json`
-takes only `--json=<path>`. `--` ends the options: every word after it is an
-argument, even one starting with `-`, and `--help`/`--version` after it are no
-short-circuit.
+to plain-text mode. A value takes the `--flag=value` form; `--var` also takes
+the space-separated `--flag value` form, and `--json` takes only
+`--json=<path>`. `--` ends the options: every word after it is an argument, even
+one starting with `-`, and `--help`/`--version` after it are no short-circuit.
 
 `--model` means two things: on `gtd land` (with `--cost`) the model to record
 that cost against, on `gtd judge run` the model that answers. `--var` pins a
@@ -544,46 +541,6 @@ Options:
   --json[=<path>]     Print the JSON document, or with --json=<path> one field
                       of it (e.g. --json=kind): a scalar bare, a list one entry
                       per line, nothing for an absent field
-  -v, --verbose       Narrate on stderr what gtd resolved
-```
-
-### `gtd history metrics`
-
-```
-Usage: gtd history metrics [ref...] [options]
-
-Report how finished processes went: builds that landed first time or were
-rebuilt, cost by model and phase, review findings per lens, and red checks that
-passed when re-run — per process and in total. <ref> is read as by
-`gtd history show`, but a branch name means every process kept from it; no <ref>
-means all of them. Never replays, so a changed config is no reason to refuse.
---json prints { processes, total }. Writes nothing.
-
-Options:
-  --json[=<path>]     Print the JSON document, or with --json=<path> one field
-                      of it (e.g. --json=kind): a scalar bare, a list one entry
-                      per line, nothing for an absent field
-  -v, --verbose       Narrate on stderr what gtd resolved
-```
-
-### `gtd history judges`
-
-```
-Usage: gtd history judges [ref...] [options]
-
-Calibrate the judges of finished processes from their recorded verdicts: per
-judge and confidence bucket, how many verdicts later events overturned. <ref> is
-read as by `gtd history metrics`. Never replays and asks no model. --json prints
-{ processes, total, whatIf }. Writes nothing.
-
-Options:
-  --json[=<path>]     Print the JSON document, or with --json=<path> one field
-                      of it (e.g. --json=kind): a scalar bare, a list one entry
-                      per line, nothing for an absent field
-  --threshold <name>=<value>
-                      Re-decide every past verdict under this threshold:
-                      judgeIdenticalMinP or qualityTriageMinP (repeatable)
-  --jsonl             Print one JSON line per verdict instead of the report
   -v, --verbose       Narrate on stderr what gtd resolved
 ```
 

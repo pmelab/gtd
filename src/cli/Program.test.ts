@@ -1734,8 +1734,6 @@ describe("runCommand — refuses in a repository with no commits", () => {
     judgeRun: { kind: "judgeRun", provider: "fixed" },
     historyList: { kind: "historyList" },
     historyShow: { kind: "historyShow", ref: "x" },
-    historyMetrics: { kind: "historyMetrics", refs: [] },
-    historyJudges: { kind: "historyJudges", refs: [], vars: {}, jsonl: false },
     historyFetch: { kind: "historyFetch", remote: "origin" },
     strays: { kind: "strays", base: "HEAD", tip: "HEAD", globs: [] },
   }
@@ -1747,7 +1745,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
 
-  it("derives exactly the eighteen non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the sixteen non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
       [
         "abandon",
@@ -1765,8 +1763,6 @@ describe("runCommand — refuses in a repository with no commits", () => {
         "judgeAnswer",
         "historyList",
         "historyShow",
-        "historyMetrics",
-        "historyJudges",
         "historyFetch",
       ].sort(),
     )

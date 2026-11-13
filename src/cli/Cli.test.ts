@@ -37,7 +37,6 @@ const FLAG_NAMES = [
   "--cost",
   "--model",
   "--var",
-  "--threshold",
   "--open-questions",
   "--open-threads",
   "--verbose",
@@ -175,7 +174,7 @@ describe("parseArgv — scope", () => {
   it("--var outside `gtd start` is rejected", () => {
     for (const args of [
       ["land", "--var", "a=1"],
-      ["history", "judges", "--var", "qualityTriageMinP=0.9"],
+      ["history", "list", "--var", "a=1"],
     ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
       expect(plan.kind).toBe("usage")
@@ -897,69 +896,14 @@ describe("parseArgv — gtd history", () => {
     expect(parse("history", "fetch", "upstream")).toMatchObject({
       command: { kind: "historyFetch", remote: "upstream" },
     })
-    expect(parse("history", "metrics")).toMatchObject({
-      command: { kind: "historyMetrics", refs: [] },
-    })
-    expect(parse("history", "metrics", "a", "feat/b")).toMatchObject({
-      command: { kind: "historyMetrics", refs: ["a", "feat/b"] },
-    })
-    expect(parse("history", "judges", "a", "--threshold", "qualityTriageMinP=0.9")).toMatchObject({
-      command: {
-        kind: "historyJudges",
-        refs: ["a"],
-        vars: { qualityTriageMinP: "0.9" },
-        jsonl: false,
-      },
-    })
-    expect(parse("history", "judges", "--jsonl")).toMatchObject({
-      command: { kind: "historyJudges", refs: [], vars: {}, jsonl: true },
-    })
   })
 
-  it("judges takes only judge thresholds as --threshold, and --jsonl alone", () => {
-    expect(
-      parse(
-        "history",
-        "judges",
-        "--threshold=qualityTriageMinP=0.9",
-        "--threshold",
-        "judgeIdenticalMinP=0.5",
-      ),
-    ).toMatchObject({
-      command: { vars: { qualityTriageMinP: "0.9", judgeIdenticalMinP: "0.5" } },
-    })
-    expect(usage(parse("history", "judges", "--threshold", "reviewBase=main"))).toBe(
-      "gtd history judges: --threshold reviewBase is no judge threshold — use judgeIdenticalMinP or qualityTriageMinP",
-    )
-    expect(usage(parse("history", "judges", "--threshold", "toString=0.9"))).toContain(
-      "no judge threshold",
-    )
-    for (const value of ["x", "0,9"]) {
-      expect(usage(parse("history", "judges", "--threshold", `qualityTriageMinP=${value}`))).toBe(
-        `gtd history judges: --threshold qualityTriageMinP must be a number — got "${value}"`,
-      )
-    }
-    expect(usage(parse("history", "judges", "--jsonl", "--json"))).toContain("mutually exclusive")
-    expect(
-      usage(parse("history", "judges", "--jsonl", "--threshold", "qualityTriageMinP=1")),
-    ).toContain("mutually exclusive")
-    expect(usage(parse("history", "metrics", "--threshold", "qualityTriageMinP=1"))).toContain(
-      "only valid for `gtd history judges`",
-    )
-    expect(usage(parse("history", "metrics", "--jsonl"))).toContain("only valid for")
-    const help = helpFor("help", "history", "judges")
-    expect(help).toContain("--threshold <name>=<value>")
-    expect(help).not.toContain("--var")
-  })
-
-  it("bare history and an unknown subcommand are usage errors naming list, show, metrics, fetch", () => {
+  it("bare history and an unknown subcommand are usage errors naming list, show, fetch", () => {
     for (const args of [["history"], ["history", "nope"]]) {
       const message = usage(parse(...args))
       expect(message).toContain("list")
       expect(message).toContain("show")
       expect(message).toContain("fetch")
-      expect(message).toContain("metrics")
-      expect(message).toContain("judges")
     }
   })
 
@@ -970,26 +914,21 @@ describe("parseArgv — gtd history", () => {
     expect(usage(parse("history", "fetch", "a", "b"))).toContain("too many arguments")
   })
 
-  it("--json is accepted for list, show, metrics and fetch", () => {
+  it("--json is accepted for list, show and fetch", () => {
     expect(parse("history", "list", "--json")).toMatchObject({ json: { kind: "document" } })
     expect(parse("history", "show", "x", "--json=ended")).toMatchObject({
       json: { kind: "select", path: "ended" },
-    })
-    expect(parse("history", "metrics", "--json=total.refactorFirstRate")).toMatchObject({
-      json: { kind: "select", path: "total.refactorFirstRate" },
     })
     expect(parse("history", "fetch", "--json=script")).toMatchObject({
       json: { kind: "select", path: "script" },
     })
   })
 
-  it("help lists the four history rows", () => {
+  it("help lists the three history rows", () => {
     const help = renderHelp()
     expect(help).toMatch(/^ {2}history list\b/m)
     expect(help).toContain("history show <ref>")
     expect(help).toContain("history fetch [remote]")
-    expect(help).toContain("history metrics [ref...]")
-    expect(help).toContain("history judges [ref...]")
   })
 })
 
@@ -1126,8 +1065,6 @@ describe("standaloneKinds / needsOf", () => {
       "judgeAnswer",
       "historyList",
       "historyShow",
-      "historyMetrics",
-      "historyJudges",
       "historyFetch",
     ] as const) {
       expect(needsOf(kind)).toBe("state")

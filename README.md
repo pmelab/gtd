@@ -521,78 +521,8 @@ retry.
 ```sh
 gtd history list                 # one line per kept process
 gtd history show <ref>           # replay its steps, judge verdicts and approvals
-gtd history metrics [ref...]     # how the kept processes went, per process and in total
-gtd history judges [ref...]      # how often each judge's verdicts were overturned
 # pull every kept ref from origin
 s=$(gtd history fetch --json=script) && sh -c "$s"
-```
-
-`gtd history metrics` measures gtd-workflows' `default` `feature` workflow from
-the kept refs — every ref, or the ones named. It reads commit subjects and
-trailers only, so it never replays and a config changed since is no refusal:
-
-- **refactor-first rate** — of the builds whose naive pass was decided, the
-  share rebuilt rather than landed as it is; a landed pass that no longer
-  applies and is built afresh counts as rebuilt (`refactored` counts the
-  rebuilds a refactor came first for)
-- **cost** — the `Gtd-Cost` a driver recorded with `gtd land --cost --model`, by
-  model and by phase (`naive`, `refactor`, `implement`, `other`), and the
-  **double work** of a rebuild: its naive pass plus the implement turns that
-  rebuilt it. By-model costs make two coder models comparable over the same kind
-  of work
-- **findings** — the net count of `## ` findings each quality-lap lens added to
-  `.gtd/QUALITY.md`, keyed by the lap's lens path (`build.quality.correctness`,
-  `refactor.build.quality.correctness`, …)
-- **flaky** — red checks that passed on their re-check (`Gtd-Mark: flaky=…`),
-  keyed by the re-check's full step name (`start-gate.recheck`,
-  `build.health.recheck`, …)
-
-`--json` prints `{ processes, total }`; `--json=total.refactorFirstRate` prints
-one value. Model, phase and lens keys may hold dots a path cannot reach: select
-their record whole (`--json=total.cost.byModel`). A branch name selects every
-process kept from that branch. A rate is `null` without a decided build. Each
-process names its `workflow` (`null` for the default one); the total spans every
-ref measured, so name the refs to leave another workflow's processes out.
-
-`gtd history judges` calibrates three of gtd-workflows' `default` `feature`
-workflow's judges from the `Gtd-Judge` verdicts the kept refs recorded. It never
-replays and asks no model. A verdict is **overturned** when later history
-contradicts it:
-
-- **retry** (`health.judge`) — an `identical` verdict, when the next fix turn's
-  check went green anyway (no outcome when a person edited code in between)
-- **triage** (`quality.triage`) — a `mechanical` or `noise` verdict the review
-  listed under _Fixed automatically_ or _Dropped as noise_, when the human
-  edited that finding's line there or wrote under it
-- **clear** (`design.clear`) — a `yes` that skipped design (landed on
-  `design.normalise`), when a later human design step in the same process
-  changed the acceptance criteria
-
-Any other verdict has no outcome. The report counts verdicts, scored verdicts
-and overturns per judge and per `p` bucket (`0.8-0.9: 1/2` — one of two
-overturned). `--threshold <name>=<value>` (formerly `--var`) re-decides every
-past verdict under another threshold and prints the decisions that would change,
-against the threshold each process recorded (a process that recorded none is
-left out):
-
-```sh
-gtd history judges --threshold qualityTriageMinP=0.9
-# what-if qualityTriageMinP=0.9: 7 noise drops become notes (2 overturned)
-```
-
-The thresholds are `judgeIdenticalMinP` (retry) and `qualityTriageMinP`
-(triage). The judge's evidence-budget cut is not recorded, so a cut verdict is
-scored and re-decides as if it was whole. A retry verdict on an empty report is
-not scored, as the flow drops it. `--json` prints
-`{ processes, total, whatIf }`, each process and the total with its `judges`.
-`--jsonl` prints one line per verdict instead — `process`, `judge`, `commit`,
-`step`, `question`, `state` (the evidence the tree still shows: the finding, the
-two check reports, the sketch without its numbered criteria), `answer`, `p` and
-`outcome` (`overturned`, `held` or `null`) — ready to fine-tune a local model
-on:
-
-```sh
-gtd history judges --jsonl > judges.jsonl
 ```
 
 `gtd history fetch` only prints a fetch script; pipe it into `sh` to run it.
@@ -649,9 +579,8 @@ install for any of these but the testkit's: gtd resolves a `gtd.config.ts`'s
 
 The `gtd` bin's commands — `next`, `land`, `start`, `abandon`, `restore`,
 `repin`, `validate`, `check`, `uncheck`, `guide`, `bundle`, `summary`, `base`,
-`version`, `help`, `history list`, `history show`, `history metrics`,
-`history judges`, `history fetch`, `strays`, the tools `ui`, `lsp`, `judge`
-(`judge answer`, `judge run`) — are listed in the
+`version`, `help`, `history list`, `history show`, `history fetch`, `strays`,
+the tools `ui`, `lsp`, `judge` (`judge answer`, `judge run`) — are listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md). Every
 command that prints a script takes `--json=script`, and `--` ends the options.
 

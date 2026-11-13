@@ -28,14 +28,6 @@ Given("gtd lands {string}", async (world: GtdWorld, subject: string) => {
   expectSubject(world, subject)
 })
 
-Given(
-  "gtd lands {string} with {string}",
-  async (world: GtdWorld, subject: string, args: string) => {
-    await world.runGtd("land", ...args.trim().split(/\s+/))
-    expectSubject(world, subject)
-  },
-)
-
 Given("gtd lands {string} judging:", async (world: GtdWorld, subject: string, verdict: string) => {
   await world.runGtdJudgeAnswerWithStdin(String(verdict))
   expectSubject(world, subject)
