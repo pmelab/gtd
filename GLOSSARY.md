@@ -223,37 +223,29 @@ took it (`requireProgress`, `requireAnswers`, `requireRevert`, or any
 `refuse()`). The opposite of a gate: a gate waits for someone, a guard turns
 them away.
 
-**Steering file**: A file a step declares via `file` (+ `mode`) — how a human or
-an agent steers the process by editing prose rather than talking to it. _Avoid_:
-state file, gate file, doc
+**Steering file**: A file a step declares via `file`: an ordered list of
+[widgets](#widget), and the only channel between agent and human: the agent
+writes widgets; the human answers them, edits the file directly, or adds
+[annotations](#annotation). Every steering file has the same one format; gtd
+validates it, never a repository. _Avoid_: state file, gate file, doc, mode,
+steering format, declared format, document type
 
-**Mode**: A named pair of shell commands over one steering file — `format:` to
-normalize it in place, `validate:` to report findings. Zero findings means
-valid. Declared in the [config export](#config-export)'s `modes`
-(`qa`/`review`/`findings` are seeded automatically); a step naming an undeclared
-mode is a load-time error, never a silent fallback.
+**Widget**: One typed unit of a steering file that the agent places and the
+human reads or answers: review checklist, single select, multi select, boolean,
+or static content. A heading of any level marked with its kind's emoji starts an
+input widget; the prose between that heading and its input is the widget's
+**description**. Everything else is static content. The answer lives in the
+widget's own markdown, never beside it. A single select and a review checklist
+must be answered in full unless the human annotated the file. _Avoid_: block,
+control, component, field, id
 
-**Steering format**: What a steering file's CONTENT is — the shape a mode's NAME
-identifies (`qa`'s open-questions checkboxes, `review`'s hunk pointers,
-`findings`' fix boxes), independent of who validates it. A format is what the
-LSP outlines/offers actions over; a mode is that format plus the specific
-`format:`/`validate:` commands one repository plugs in for it. Overriding a
-built-in mode's `validate:` changes who validates, not what the file is.
+**Steering step**: An agent step that declares a steering file. Its turn writes
+that file and nothing else — it never implements — and the file is the only
+thing it says to the human. _Avoid_: planning step, doc step
 
-**Declared format**: A steering format a workflow declares in code with
-`listFormat`/`sectionFormat` and passes as a step's `mode` directly. Its rules
-bind only declared formats, never the built-in ones. _Avoid_: custom mode, list
-schema
-
-**Thread**: A footnote whose definition holds an alternating `H:`/`A:` exchange.
-_Avoid_: conversation, comment chain
-
-**Code thread**: A thread written as bare `H:`/`A:` line comments (`//`, `#`,
-`--`, `;`) in a file changed in the current process, anchored by its own
-position. _Avoid_: inline thread, comment thread
-
-**Open thread**: A thread whose last entry is the agent's — it waits on the
-human. _Avoid_: unanswered thread
+**Annotation**: A footnote the human attaches to any paragraph or widget of a
+steering file. The next steering step integrates it into the document and
+removes it; it is never answered in place. _Avoid_: thread, comment, note
 
 **Ship**: A `ship()` step: one commit on the user's branch `<b>` carrying the
 process's tree minus `.gtd/`, made while the process keeps every turn on
@@ -312,12 +304,8 @@ only where it cannot change the next step — the workflow's `envDefaults`, then
 workflow's data, not a key gtd interprets. Avoid: "Vars", `env` (removed name),
 "env var" (that is a shell variable).
 
-**Chunk**: One coherent group of changes in a `review`-mode steering file: a
+**Chunk**: One review checklist widget: a coherent group of changes, with a
 title, a sentence on what it changes and why, and its hunk pointers.
 
 **Hunk**: One `- [ ] ./path/to/file.ts#42-70` pointer inside a chunk — a place
 to look, and a box a reviewer ticks.
-
-**Open question**: A `###` heading under `## Open Questions` in a Q&A steering
-file, carrying candidate answers as checkboxes plus a free-text slot. It becomes
-an **answered question** by moving under `## Answered Questions` as prose.
