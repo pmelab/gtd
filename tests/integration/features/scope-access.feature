@@ -9,7 +9,7 @@ Feature: file access is declared per scope
   access wholesale. `gtd land` refuses a turn that changed a path outside the
   step's `write` globs. `agent()` takes no `access` option.
 
-  Scenario: a scope's access rides on the wire with the steering file folded in
+  Scenario: a steering step reads its scope's access and writes only its steering file
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -24,7 +24,7 @@ Feature: file access is declared per scope
     When I run gtd next with "--json=access"
     Then it succeeds
     And stdout contains "\"read\":[\"docs/**\",\".gtd/NOTES.md\"]"
-    And stdout contains "\"write\":[\"out/**\",\".gtd/NOTES.md\"]"
+    And stdout contains "\"write\":[\".gtd/NOTES.md\"]"
 
   Scenario: an unrestricted turn carries null on both sides
     Given a test project

@@ -1020,12 +1020,24 @@ describe("replay: access resolution", () => {
   it("reads a scope() access, adding the step's steering file to each restricted side", async () => {
     const flow: Flow = async () => {
       await scope({ name: "a", access: { read: ["docs/**"] } }, async () => {
-        await agent("step", "prompt", { file: ".gtd/NOTES.md" })
+        await agent("step", "prompt", { file: ".gtd/NOTES.md", mode: "qa" })
       })
     }
     expect(await wireAccess(flow)).toEqual({
       read: ["docs/**", ".gtd/NOTES.md"],
       write: null,
+    })
+  })
+
+  it("lets a steering step write its steering file and nothing else", async () => {
+    const flow: Flow = async () => {
+      await scope({ name: "a", access: { read: ["docs/**"], write: ["src/**"] } }, async () => {
+        await agent("step", "prompt", { file: ".gtd/NOTES.md" })
+      })
+    }
+    expect(await wireAccess(flow)).toEqual({
+      read: ["docs/**", ".gtd/NOTES.md"],
+      write: [".gtd/NOTES.md"],
     })
   })
 
@@ -1114,7 +1126,10 @@ describe("replay: access resolution", () => {
       })
     }
     const history = new History()
-    history.land("agent", "a.first", 1, "a.second", { "x.txt": "x" })
+    history.land("agent", "a.first", 1, "a.second", {
+      "README.md": "# x\n",
+      ".gtd/ONE.md": "# One\n",
+    })
     const outcome = await restOf(flow, {}, history)
     expect(outcome.kind).toBe("rest")
     if (outcome.kind === "rest") expect(outcome.rest.access?.write).toEqual([".gtd/TWO.md"])
@@ -1185,12 +1200,32 @@ describe("human({ approve })", () => {
   it.each([
     ["human", async () => human("gate", { mode: "qa" } as never)],
     ["agent", async () => agent("gate", "p", { mode: "qa" } as never)],
-    ["run", async () => run("gate", "true", { mode: "qa" } as never)],
   ] as const)("refuses a %s step's mode without a file", async (kind, flow) => {
     expect(await replayOf(flow, new History())).toEqual({
       kind: "failed",
       message: `gtd: step "gate": mode requires file in ${kind}() options — name the steering file the mode checks`,
     })
+  })
+
+  it("refuses a steering file on a run step", async () => {
+    const flow = async () => run("gate", "true", { file: ".gtd/A.md" } as never)
+    expect(await replayOf(flow, new History())).toEqual({
+      kind: "failed",
+      message: 'gtd: step "gate": unknown key(s) file in run() options',
+    })
+  })
+
+  it.each([
+    [
+      { widgets: ["boolean"] },
+      "widgets and coverage require file, and no mode, in agent() options",
+    ],
+    [{ file: ".gtd/A.md", widgets: ["select"] }, "widgets must list widget kinds"],
+    [{ file: ".gtd/A.md", coverage: "yes" }, "coverage must be a boolean in agent() options"],
+  ])("refuses agent options %j", async (options, message) => {
+    const flow = async () => agent("gate", "p", options as never)
+    const outcome = await replayOf(flow, new History())
+    expect(outcome.kind === "failed" && outcome.message).toContain(message)
   })
 
   describe("refuses mode and file", () => {

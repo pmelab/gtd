@@ -31,7 +31,7 @@ Feature: History format — replay reads only the history formats it knows
     When I run gtd land
     Then it succeeds
     And the last commit subject is "gtd(human): idle → building"
-    And the last commit body contains "Gtd-Format: 4"
+    And the last commit body contains "Gtd-Format: 5"
 
   Scenario: a history written before the trailer existed replays as format 1
     Given a file "NOTE.md" with:
@@ -69,7 +69,7 @@ Feature: History format — replay reads only the history formats it knows
     And stdout contains "\"pin\":\"add\""
     When I run the pin beat
     Then the last commit subject is "gtd(check): gtd:pin → building"
-    And the last commit body contains "Gtd-Format: 4"
+    And the last commit body contains "Gtd-Format: 5"
     When I run gtd next
     Then it succeeds
     And stdout contains "build it"
@@ -130,9 +130,9 @@ Feature: History format — replay reads only the history formats it knows
       gtd(agent): elsewhere → review
 
       Gtd-Step: elsewhere#1
-      Gtd-Format: 5
+      Gtd-Format: 6
       """
     When I run gtd next
     Then the exit code is 1
-    And stderr contains "is written in history format 5, but this gtd reads formats 1 to 4"
+    And stderr contains "is written in history format 6, but this gtd reads formats 1 to 5"
     And stderr does not contain "the workflow changed under this process"

@@ -10,3 +10,8 @@ export {
   viewOf,
 } from "./registry.js"
 export { formatFromSpec } from "./Declared.js"
+export {
+  steeringStepFindings,
+  type ReviewChange,
+  type SteeringStepOptions,
+} from "./SteeringStep.js"

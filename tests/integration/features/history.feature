@@ -35,7 +35,7 @@ Feature: gtd history — every finished process keeps its turns behind refs/gtd/
     And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
     And the branch "gtd/main" tip message contains "Gtd-Branch: main"
     And the branch "gtd/main" tip message contains "Gtd-Version: "
-    And the branch "gtd/main" tip message contains "Gtd-Format: 4"
+    And the branch "gtd/main" tip message contains "Gtd-Format: 5"
     Given I mark the branch "gtd/main" tip as "tip"
     Then the history ref of "entry" points at "tip"
 

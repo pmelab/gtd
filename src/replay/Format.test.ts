@@ -18,11 +18,11 @@ describe("the history format", () => {
   it("names the first foreign commit, the found and readable formats, and what to do", () => {
     const fault = formatFault([
       { hash: "a".repeat(40), format: 1 },
-      { hash: "b".repeat(40), format: 5 },
-      { hash: "c".repeat(40), format: 6 },
+      { hash: "b".repeat(40), format: 6 },
+      { hash: "c".repeat(40), format: 7 },
     ])
     expect(fault).toBe(
-      "gtd: commit bbbbbbb is written in history format 5, but this gtd reads formats 1 to 4 — run a gtd release that reads format 5 to continue this process",
+      "gtd: commit bbbbbbb is written in history format 6, but this gtd reads formats 1 to 5 — run a gtd release that reads format 6 to continue this process",
     )
   })
 })
@@ -37,8 +37,8 @@ describe("Gtd-Approved and the history format", () => {
     expect(message).toContain(
       'Gtd-Approved: {"step":"seam#1","name":"Test","email":"test@test.com"}',
     )
-    expect(message).toContain("Gtd-Format: 4")
-    expect(parseCommitMessage(message).format).toBe(4)
+    expect(message).toContain("Gtd-Format: 5")
+    expect(parseCommitMessage(message).format).toBe(5)
   })
 })
 
@@ -52,7 +52,7 @@ describe("Gtd-Pin", () => {
       branch: "main",
     })
     expect(message).toBe(
-      "gtd(check): gtd:unpin → idle\n\nGtd-Pin: remove\nGtd-Branch: main\nGtd-Format: 4",
+      "gtd(check): gtd:unpin → idle\n\nGtd-Pin: remove\nGtd-Branch: main\nGtd-Format: 5",
     )
     expect(parseCommitMessage(message).pin).toBe("remove")
     expect(parseCommitMessage("gtd(check): gtd:pin → a\n\nGtd-Pin: add").pin).toBe("add")
@@ -74,7 +74,7 @@ describe("Gtd-Anchor", () => {
       anchor,
     })
     expect(message).toBe(
-      `gtd(check): gtd:pin → b\n\nGtd-Pin: add\nGtd-Anchor: ${anchor}\nGtd-Format: 4`,
+      `gtd(check): gtd:pin → b\n\nGtd-Pin: add\nGtd-Anchor: ${anchor}\nGtd-Format: 5`,
     )
     expect(parseCommitMessage(message).anchor).toBe(anchor)
     expect(

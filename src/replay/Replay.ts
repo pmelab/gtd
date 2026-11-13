@@ -19,6 +19,8 @@ import {
   sections,
   threads,
 } from "../steering/index.js"
+import { steeringStepFindings } from "../steering/internal.js"
+import { flowWidgets } from "./FlowWidgets.js"
 import { accessShapeFault, foldAccess, sameAccess } from "./Access.js"
 import { globMatches, PIN_PATH, RUN_FAILED_PATH } from "../wire/index.js"
 import { refNameFault } from "./RefName.js"
@@ -332,11 +334,13 @@ const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
     "cap",
     "exhausted",
     "correction",
+    "widgets",
+    "coverage",
   ]),
   human: new Set([...STEERING_OPTIONS, "message", "acceptClean", "approve"]),
-  run: new Set([...STEERING_OPTIONS, "onFail"]),
+  run: new Set(["label", "base", "onFail"]),
   ship: new Set(["label", "base"]),
-  judge: new Set([...STEERING_OPTIONS, "message"]),
+  judge: new Set(["label", "base", "message"]),
 }
 
 const validatorOptionFault = (
@@ -383,6 +387,34 @@ const approveConflict = (step: ReachedStep): string | undefined => {
   const keys = (["mode", "file"] as const).filter((key) => request.options[key] !== undefined)
   if (keys.length === 0) return undefined
   return `gtd: step "${step.name}": approve cannot be combined with ${keys.join(", ")} in human() options — an approval records exactly the judged tree, and a steering file is rewritten on landing`
+}
+
+const WIDGET_KINDS = new Set([
+  "review-checklist",
+  "single-select",
+  "multi-select",
+  "boolean",
+  "static",
+])
+
+// `widgets` and `coverage` narrow what a steering file may hold; with no file they mean nothing.
+const widgetOptionsFault = (step: ReachedStep): string | undefined => {
+  if (step.request.kind !== "agent") return undefined
+  const { widgets, coverage, file, mode } = step.request.options
+  const prefix = `gtd: step "${step.name}": `
+  if (
+    (widgets !== undefined || coverage !== undefined) &&
+    (file === undefined || mode !== undefined)
+  )
+    return `${prefix}widgets and coverage require file, and no mode, in agent() options`
+  if (
+    widgets !== undefined &&
+    (!Array.isArray(widgets) || widgets.some((kind) => !WIDGET_KINDS.has(kind as string)))
+  )
+    return `${prefix}widgets must list widget kinds (${[...WIDGET_KINDS].join(", ")}) in agent() options`
+  if (coverage !== undefined && typeof coverage !== "boolean")
+    return `${prefix}coverage must be a boolean in agent() options`
+  return undefined
 }
 
 // A mode names how a steering file is checked; with no file there is nothing to check.
@@ -580,6 +612,15 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
     return foldAccess(scopeAccess, file, threadPaths)
   }
 
+  // A steering step writes its steering file and nothing else (ADR 0010).
+  const steeringAccess = (
+    access: AccessDef,
+    options: { readonly file?: string | undefined; readonly mode?: unknown },
+  ): AccessDef =>
+    options.file === undefined || options.mode !== undefined
+      ? access
+      : { read: access.read, write: [options.file] }
+
   const scopeAccessFault = (): string | undefined => {
     for (const [i, s] of scopes.entries()) {
       if (s.access === undefined) continue
@@ -633,7 +674,10 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
       ...(resolved.kind === "agent"
         ? {
             skills: resolveSkills(memory),
-            access: foldedAccessFor(scopeAccess, resolved.options.file),
+            access: steeringAccess(
+              foldedAccessFor(scopeAccess, resolved.options.file),
+              resolved.options,
+            ),
           }
         : {}),
       enteredAt: position.hash,
@@ -693,6 +737,7 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
       onFailFault(step) ??
       approveConflict(step) ??
       modeWithoutFile(step) ??
+      widgetOptionsFault(step) ??
       checkIdentity(step)
     return error === undefined ? undefined : { kind: "failed", message: error }
   }
@@ -907,6 +952,20 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
               .map((f) => f.message),
           }))
         }),
+    widgets: flowWidgets,
+    steeringFindings: (file, options) =>
+      steeringStepFindings(
+        file,
+        position.tree.read(file),
+        changesBetween(
+          (options.base === undefined ? undefined : treeAt(options.base)) ??
+            treeAt(input.start) ??
+            input.startTree ??
+            input.episode.base.tree,
+          position.tree,
+        ),
+        options,
+      ),
     mark: (name, value) => {
       if (pendingUsed) marks.push({ name, value })
     },

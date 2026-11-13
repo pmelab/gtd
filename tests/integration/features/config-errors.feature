@@ -142,11 +142,11 @@ Feature: An invalid workflow config fails loudly at load time, naming where
       import { human } from "@pmelab/gtd/flows"
 
       export default async () => {
-        ;(globalThis as Record<symbol, unknown>)[Symbol.for("@pmelab/gtd/flow-protocol")] = 2
+        ;(globalThis as Record<symbol, unknown>)[Symbol.for("@pmelab/gtd/flow-protocol")] = 3
         await human("idle", { message: "start" })
       }
       """
     When I run gtd next
     Then it fails
-    And stderr contains "the workflow speaks flows protocol 1, but the engine installed protocol 2"
+    And stderr contains "the workflow speaks flows protocol 2, but the engine installed protocol 3"
     And stderr contains "upgrade the @pmelab/gtd the workflow imports"

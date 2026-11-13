@@ -369,7 +369,7 @@ printf '%s\n' 'a' '' 'it'\''s' '100%' '-x' 'a\b' '.gtd/packages/00-x.md' > '.gtd
 
     describe("shipCommit", () => {
       const HISTORY = "refs/gtd/history/0123456789012345678901234567890123456789"
-      const LANDING = "gtd(check): shipping → after\n\nGtd-Format: 4"
+      const LANDING = "gtd(check): shipping → after\n\nGtd-Format: 5"
       const git = <A>(f: (g: GitService["Service"]) => Effect.Effect<A, Error>) =>
         t.provide(Effect.flatMap(GitService, f))
       // As a landing renders it: under `set -eu`.
