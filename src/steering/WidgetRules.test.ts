@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { agentFindings, answerFindings } from "./WidgetRules.js"
-import { parseWidgets } from "./Widgets.js"
+import { parseWidgets } from "./index.js"
 
 const lines = (...ls: string[]): string => `${ls.join("\n")}\n`
 const answers = (content: string): string[] =>

@@ -2,7 +2,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { serialize } from "./Serialize.js"
-import { parseWidgets } from "./Widgets.js"
+import { parseWidgets } from "./index.js"
 
 const lines = (...ls: string[]): string => `${ls.join("\n")}\n`
 const long = (n: number): string => Array.from({ length: n }, (_, i) => `word${i}`).join(" ")

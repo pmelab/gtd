@@ -22,6 +22,9 @@ const ATOMIC = new Set([
  */
 const BLOCK_START = /^(?:[-+*]|\d{1,9}[.)]|#{1,6}|>.*|`{3,}.*|~{3,}.*|<[!/?A-Za-z].*|=+|-+|\*+|_+)$/
 
+/** Joins the words of an atomic node while the paragraph is split; never in markdown source. */
+const GLUE = "\u0000"
+
 const TASK_BOX = /^\[[ xX]\]\s+/
 
 const offsets = (node: Node): readonly [number, number] => [
@@ -48,27 +51,19 @@ const hasHardBreak = (node: Node): boolean =>
 /** The paragraph's words: whitespace splits them, except inside an atomic node, where it collapses to one space. */
 const words = (content: string, paragraph: Paragraph, start: number): string[] => {
   const end = offsets(paragraph)[1]
-  const atoms = atomicRanges(paragraph)
-  const result: string[] = []
-  let word = ""
-  let atom = 0
-  for (let i = start; i < end; i += 1) {
-    while (atom < atoms.length && (atoms[atom]?.[1] ?? 0) <= i) atom += 1
-    const inside = atom < atoms.length && (atoms[atom]?.[0] ?? Infinity) <= i
-    const char = content[i] ?? ""
-    if (!/\s/.test(char)) {
-      word += char
-      continue
-    }
-    if (inside) {
-      if (!word.endsWith(" ")) word += " "
-      continue
-    }
-    if (word !== "") result.push(word)
-    word = ""
+  let text = ""
+  let cursor = start
+  for (const [atomStart, atomEnd] of atomicRanges(paragraph)) {
+    if (atomEnd <= cursor) continue
+    const from = Math.max(atomStart, cursor)
+    text += content.slice(cursor, from) + content.slice(from, atomEnd).replace(/\s+/g, GLUE)
+    cursor = atomEnd
   }
-  if (word !== "") result.push(word)
-  return result
+  text += content.slice(cursor, end)
+  return text
+    .split(/\s+/)
+    .filter((word) => word !== "")
+    .map((word) => word.replaceAll(GLUE, " "))
 }
 
 /** Greedy fill; `width` is what is left of a line after `indent`, the same on the first line. */
@@ -93,28 +88,35 @@ interface Rewrap {
   readonly text: string
 }
 
+const isFirstOfTaskItem = (node: Node, parent: Node | undefined): boolean =>
+  parent?.type === "listItem" &&
+  typeof (parent as { checked?: unknown }).checked === "boolean" &&
+  (parent as Parent).children[0] === node
+
+const rewrap = (
+  content: string,
+  paragraph: Paragraph,
+  parent: Node | undefined,
+): Rewrap | undefined => {
+  const [start, end] = offsets(paragraph)
+  const source = content.slice(start, end)
+  if (hasHardBreak(paragraph) || source.trimStart().startsWith("|")) return undefined
+  const column = (paragraph.position?.start.column ?? 1) - 1
+  // A task item whose text opens with an inline node keeps its box inside the paragraph.
+  const box = isFirstOfTaskItem(paragraph, parent) ? (TASK_BOX.exec(source)?.[0] ?? "") : ""
+  const lead = box === "" ? "" : `${box.trimEnd()} `
+  const indent = " ".repeat(column + lead.length)
+  const body = words(content, paragraph, start + box.length)
+  return { start, end, text: lead + fill(body, LINE_WIDTH - indent.length, indent) }
+}
+
 const rewrapsOf = (content: string, tree: Root): Rewrap[] => {
   const result: Rewrap[] = []
   const visit = (node: Node, parent: Node | undefined): void => {
     if (node.type === "blockquote" || node.type === "table") return
     if (node.type === "paragraph") {
-      const paragraph = node as Paragraph
-      const [start, end] = offsets(paragraph)
-      const source = content.slice(start, end)
-      if (hasHardBreak(paragraph) || source.trimStart().startsWith("|")) return
-      const column = (paragraph.position?.start.column ?? 1) - 1
-      const box =
-        parent?.type === "listItem" &&
-        typeof (parent as { checked?: unknown }).checked === "boolean" &&
-        (parent as Parent).children[0] === node
-          ? (TASK_BOX.exec(source)?.[0] ?? "")
-          : ""
-      // A task item whose text opens with an inline node keeps its box inside the paragraph.
-      const lead = box === "" ? "" : `${box.trimEnd()} `
-      const indent = " ".repeat(column + lead.length)
-      const body = words(content, paragraph, start + box.length)
-      const text = lead + fill(body, LINE_WIDTH - indent.length, indent)
-      result.push({ start, end, text })
+      const found = rewrap(content, node as Paragraph, parent)
+      if (found !== undefined) result.push(found)
       return
     }
     for (const child of (node as Partial<Parent>).children ?? []) visit(child, node)

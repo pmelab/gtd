@@ -2,7 +2,7 @@
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
   gtd exposes `land` (with `--cost=<n>`/`--model=<name>`), `start`,
-  `abandon`, `restore`, `next`, `validate`, `check <mode> <file>`,
+  `abandon`, `restore`, `next`, `validate`, `check [mode] <file>`,
   `uncheck <file>`, `lsp`, `version`, and `help` among its subcommands.
   Bare `gtd` (no subcommand) is a usage error. `--help`/`help` and `--version`/`version`
   short-circuit before any repo-state work and exit 0 everywhere, including
@@ -42,7 +42,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     And stdout does not contain "--workflow"
     And stdout contains "abandon"
     And stdout contains "next"
-    And stdout contains "check <mode> <file>"
+    And stdout contains "check [mode] <file>"
     And stdout contains "uncheck <file>"
     And stdout contains "base "
 

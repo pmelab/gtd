@@ -61,57 +61,77 @@ export const answerFindings = (doc: WidgetDocument): readonly SteeringFinding[] 
   })
 }
 
+const annotationFindings = (doc: WidgetDocument): SteeringFinding[] => {
+  const defined = new Set(doc.annotations.map((a) => a.label))
+  return [
+    ...doc.annotations.map((annotation) => ({
+      line: annotation.line,
+      message: `annotation [^${annotation.label}] is still in the file: work what it says into the document, then remove the marker and its note`,
+    })),
+    ...doc.widgets.flatMap((widget) =>
+      widget.annotations
+        .filter((label) => !defined.has(label))
+        .map((label) => ({
+          line: widget.line,
+          message: `annotation marker [^${label}] is still in the file: remove it`,
+        })),
+    ),
+  ]
+}
+
+const allowFindings = (doc: WidgetDocument, allow: readonly WidgetKind[]): SteeringFinding[] => {
+  const allowed = allow.filter((k) => k !== "static").join(", ") || "static content only"
+  return doc.widgets.flatMap((widget) =>
+    widget.kind === "static" || allow.includes(widget.kind)
+      ? []
+      : [
+          {
+            line: widget.line,
+            message: `"${widget.title}": this step does not take a ${WIDGET_EMOJI[widget.kind]} ${widget.kind} widget; use ${allowed}`,
+          },
+        ],
+  )
+}
+
+const diffFindings = (
+  doc: WidgetDocument,
+  diff: readonly ChangedRange[],
+  coverage: boolean,
+): SteeringFinding[] => {
+  const hunks = doc.widgets.flatMap((w) => (w.kind === "review-checklist" ? w.hunks : []))
+  const listed = (range: ChangedRange): boolean =>
+    hunks.some((hunk) => normalizePath(hunk.path) === range.path && overlaps(range, hunk))
+  const outside = hunks
+    .filter(
+      (hunk) =>
+        !diff.some((range) => range.path === normalizePath(hunk.path) && overlaps(range, hunk)),
+    )
+    .map((hunk) => ({
+      line: hunk.line,
+      message: `${hunk.pointer} is not part of the change under review: point at lines the diff changes`,
+    }))
+  const unlisted = coverage
+    ? diff
+        .filter((range) => !listed(range))
+        .map((range) => ({
+          message: `./${range.path}#${range.start}-${range.end} is changed but no 🔍 widget lists it`,
+        }))
+    : []
+  return [...outside, ...unlisted]
+}
+
 /** What a steering step's turn must fix before the file reaches the human. Structural findings come from `parseWidgets`. */
 export const agentFindings = (
   doc: WidgetDocument,
   options: AgentRuleOptions = {},
-): readonly SteeringFinding[] => {
-  const findings: SteeringFinding[] = []
-  for (const annotation of doc.annotations) {
-    findings.push({
-      line: annotation.line,
-      message: `annotation [^${annotation.label}] is still in the file: work what it says into the document, then remove the marker and its note`,
-    })
-  }
-  const defined = new Set(doc.annotations.map((a) => a.label))
-  for (const widget of doc.widgets) {
-    for (const label of widget.annotations) {
-      if (!defined.has(label))
-        findings.push({
-          line: widget.line,
-          message: `annotation marker [^${label}] is still in the file: remove it`,
-        })
-    }
-  }
-  const allow = options.allow
-  if (allow !== undefined) {
-    for (const widget of doc.widgets) {
-      if (widget.kind === "static" || allow.includes(widget.kind)) continue
-      findings.push({
-        line: widget.line,
-        message: `"${widget.title}": this step does not take a ${WIDGET_EMOJI[widget.kind]} ${widget.kind} widget; use ${allow.filter((k) => k !== "static").join(", ") || "static content only"}`,
-      })
-    }
-  }
-  const diff = options.diff
-  if (diff !== undefined) {
-    const hunks = doc.widgets.flatMap((w) => (w.kind === "review-checklist" ? w.hunks : []))
-    for (const hunk of hunks) {
-      const path = normalizePath(hunk.path)
-      if (!diff.some((range) => range.path === path && overlaps(range, hunk)))
-        findings.push({
-          line: hunk.line,
-          message: `${hunk.pointer} is not part of the change under review: point at lines the diff changes`,
-        })
-    }
-    if (options.coverage === true) {
-      for (const range of diff) {
-        if (!hunks.some((hunk) => normalizePath(hunk.path) === range.path && overlaps(range, hunk)))
-          findings.push({
-            message: `./${range.path}#${range.start}-${range.end} is changed but no 🔍 widget lists it`,
-          })
-      }
-    }
-  }
-  return findings.sort((a, b) => (a.line ?? Infinity) - (b.line ?? Infinity))
-}
+): readonly SteeringFinding[] =>
+  [
+    ...annotationFindings(doc),
+    ...(options.allow === undefined ? [] : allowFindings(doc, options.allow)),
+    ...(options.diff === undefined
+      ? []
+      : diffFindings(doc, options.diff, options.coverage === true)),
+  ].sort(
+    (a: SteeringFinding, b: SteeringFinding) =>
+      (a.line ?? Number.MAX_SAFE_INTEGER) - (b.line ?? Number.MAX_SAFE_INTEGER),
+  )
