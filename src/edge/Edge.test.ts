@@ -10,6 +10,7 @@ import {
   renderRest,
   restAt,
   restIsIdle,
+  shipTip,
   reviewBaseFor,
   snapshotFromRest,
   stalledAt,
@@ -20,7 +21,7 @@ import {
   type RestRequirements,
 } from "./Edge.js"
 import { GTD_VERSION } from "../install/index.js"
-import { keptRef, processHistoryRef } from "../platform/index.js"
+import { keptRef, processHistoryRef, shippedRef } from "../platform/index.js"
 import { GitService, Workspace, type GitOperations, type WorkspaceOps } from "../platform/index.js"
 import type { Mark } from "../flows/index.js"
 import { formatCommitMessage, type CommitSpec } from "../replay/index.js"
@@ -1951,5 +1952,38 @@ export default async () => {
     repo.writeFile("a.txt", "a\n")
     const landing = await landingOf(repo)
     expect(landing.spec.marks).toBeUndefined()
+  })
+})
+
+describe("shipTip", () => {
+  const processTip = () => {
+    const repo = new InMemRepo()
+    repo.writeFile("a.txt", "a")
+    repo.seedCommit("chore: process tip")
+    return { repo, tip: repo.resolveRef("HEAD")! }
+  }
+  const shipOn = (repo: InMemRepo, message: string) => {
+    repo.writeFile("a.txt", "b")
+    repo.seedCommit(message)
+    return repo.resolveRef("HEAD")!
+  }
+  const tipOf = (repo: InMemRepo, ship: string) =>
+    Effect.runSync(shipTip(fakeGitOperations(repo), ship))
+
+  it("finds the process tip a ship's local ref points at", () => {
+    const { repo, tip } = processTip()
+    const ship = shipOn(repo, "feat: a thing")
+    repo.updateRef(shippedRef(ship), tip)
+    expect(tipOf(repo, ship)).toBe(tip)
+  })
+
+  it("reads the Gtd-Tip trailer of a ship an older gtd made", () => {
+    const { repo, tip } = processTip()
+    expect(tipOf(repo, shipOn(repo, `feat: a thing\n\nGtd-Tip: ${tip}`))).toBe(tip)
+  })
+
+  it("finds nothing for a commit that is no ship", () => {
+    const { repo } = processTip()
+    expect(tipOf(repo, shipOn(repo, "feat: by hand"))).toBeUndefined()
   })
 })

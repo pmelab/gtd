@@ -15,6 +15,9 @@ export const processHistoryRef = (hash: string): string => `${PROCESS_HISTORY_PR
 /** Directory of a step's turns set aside by `keep: true`, each at `<this>/<kept hash>`; own namespace, so history list/show/fetch never see it. */
 export const keptRef = (entry: string, step: string): string => `refs/gtd/kept/${entry}/${step}`
 
+/** A ship's process tip, kept locally so the commit on `<b>` carries no trace of gtd (ADR 0011). */
+export const shippedRef = (ship: string): string => `refs/gtd/shipped/${ship}`
+
 export const readRetainedHistory = (
   git: GitOperations,
 ): Effect.Effect<Option.Option<string>, Error> => git.readRefOption(HISTORY_REF)

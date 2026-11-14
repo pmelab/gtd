@@ -334,14 +334,19 @@ describe("reply on a process branch", () => {
   const SHIP = "5".repeat(40)
   const FIX = "f".repeat(40)
   const [fixed] = answers(withThreads(REVIEW, [thread]))
-  const shipped = (head: string) =>
+  const shipped = (head: string, tip: Record<string, Partial<Ran>>) =>
     repo({
       "git rev-parse --abbrev-ref HEAD": { out: `${head}\n` },
       "git log --reverse --first-parent --format=%H gate..": { out: `${FIX}\n` },
-      "git log --reverse --first-parent --grep": { out: `${SHIP}\n` },
-      "git show -s": { out: `feat: x\n\nGtd-Tip: ${FIX}\n` },
+      "git log --reverse --first-parent --format=%H refs/heads/feat": { out: `${SHIP}\n` },
       "git rev-parse --verify --quiet origin/feat": { code: 0 },
+      ...tip,
     })
+  const byRef = { [`git rev-parse --verify --quiet refs/gtd/shipped/${SHIP}`]: { out: `${FIX}\n` } }
+  const byTrailer = {
+    "git rev-parse --verify --quiet refs/gtd/shipped/": { code: 1 },
+    "git show -s": { out: `feat: x\n\nGtd-Tip: ${FIX}\n` },
+  }
 
   test("a review gate on gtd/<b> before the ship sends and pushes nothing", async () => {
     const { calls, io } = repo({
@@ -356,8 +361,11 @@ describe("reply on a process branch", () => {
     expect(calls.some((c) => c[0] === "gh" || c[1] === "push")).toBe(false)
   })
 
-  test("once shipped, <b> is pushed and the reply cites the ship commit", async () => {
-    const { calls, io } = shipped("feat")
+  test.each([
+    ["its local ref", byRef],
+    ["an older gtd's Gtd-Tip trailer", byTrailer],
+  ])("once shipped, found by %s, the reply cites the ship commit", async (_, tip) => {
+    const { calls, io } = shipped("feat", tip)
     expect(await reply(io, "github.com", "gate", [fixed!], true)).toMatchObject({
       isPushed: true,
       waiting: [],

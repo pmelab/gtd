@@ -306,18 +306,17 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
   }
 
   if (block.startsWith("gtd_ship_parent=")) {
-    const [parent, branch, history, shipMessage, message] = extractQuotedTokens(block)
+    const [parent, branch, shipMessage, message] = extractQuotedTokens(block)
     if (
       parent === undefined ||
       branch === undefined ||
-      history === undefined ||
       shipMessage === undefined ||
       message === undefined ||
-      shipCommit(branch, parent, shipMessage, history, message) !== block
+      shipCommit(branch, parent, shipMessage, message) !== block
     ) {
       return undefined
     }
-    const failure = repo.shipCommit(branch, parent, shipMessage, history, message)
+    const failure = repo.shipCommit(branch, parent, shipMessage, message)
     return failure === undefined
       ? { kind: "applied" }
       : { kind: "failed", error: failure, status: 1 }

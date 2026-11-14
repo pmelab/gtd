@@ -200,8 +200,9 @@ commit, while the process itself runs on `gtd/<b>`. It rests like a `run` step
 whose script only prints; landing it:
 
 1. commits the tree being landed, with `.gtd/` as `<b>` has it, as one commit on
-   `<b>`, with `message` followed by `Gtd-History: refs/gtd/history/<entry>` and
-   `Gtd-Tip: <HEAD>` trailers, and moves `<b>` there. HEAD stays on `gtd/<b>`;
+   `<b>` whose message is `message` alone — nothing on `<b>` names gtd — points
+   the local ref `refs/gtd/shipped/<commit>` at HEAD, and moves `<b>` there.
+   HEAD stays on `gtd/<b>`;
 2. lands the step with a `Gtd-Shipped: <commit>` trailer, writes
    `refs/gtd/history/<entry>` at it, and force-pushes that ref to
    `historyRemote` when one is set (a failed push exits non-zero after landing

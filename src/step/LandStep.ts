@@ -17,7 +17,7 @@ export type GitWrite =
   | { readonly kind: "pushRef"; readonly remote: string; readonly ref: string }
   | ({ readonly kind: "ship"; readonly message: string } & ShipSpec)
 
-/** A ship step's squash: `shipMessage` on `branch`, CAS against `parent`, its `Gtd-History` naming `historyRef`. */
+/** A ship step's squash: `shipMessage` on `branch`, CAS against `parent`, the landing keeping the process history at `historyRef`. */
 export interface ShipSpec {
   readonly branch: string
   readonly parent: string

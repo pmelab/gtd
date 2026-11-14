@@ -95,8 +95,15 @@ the process for you. Ask your agent if you have any questions.
 - **Any agent.** Nothing gtd prints or records names an agent; your driver picks
   one and maps the prompt, model and session onto it
   ([ADR 0012](https://github.com/pmelab/gtd/blob/main/docs/adr/0012-gtd-is-agent-agnostic.md)).
+- **No trace.** A ship puts a commit on your branch with your message and
+  nothing else; gtd's own refs stay local unless you set `historyRemote`, and
+  your `gtd.config.ts` can live outside the repository. Use gtd without your
+  team noticing
+  ([ADR 0011](https://github.com/pmelab/gtd/blob/main/docs/adr/0011-no-trace-on-shared-history.md)).
 - **Your environment.** gtd runs nothing and commits nothing itself: your driver
-  does, so secrets, commit signing, hooks and your shell work as usual
+  does, so secrets, commit signing and your shell work as usual. Git hooks run
+  on every landing except an approval and a ship, which gtd builds with
+  `git commit-tree`
   ([ADR 0001](https://github.com/pmelab/gtd/blob/main/docs/adr/0001-gtd-executes-nothing.md)).
 
 See [gtd --help](https://github.com/pmelab/gtd/blob/main/docs/cli.md) for the
@@ -331,8 +338,9 @@ $ git log --oneline
 013003e chore: initial commit
 ```
 
-The beats are not lost: the shipped commit names their history in a
-`Gtd-History:` trailer, and `gtd history list` lists it.
+The shipped commit carries your message and nothing else, so nobody reading
+`main` sees that gtd made it. The beats are not lost: `gtd history list` lists
+them.
 
 ### Then automate the beats
 
@@ -525,9 +533,9 @@ work uncommitted and deletes `gtd/<b>`; `gtd restore` recreates it, also when
 
 When a process finishes, the landing that closes it also keeps the whole run
 behind a ref, `refs/gtd/history/<entry>`, so a squash or a deleted branch
-doesn't lose it. A `ship()` step writes the ref too, and names it in a
-`Gtd-History: <ref>` trailer on the commit it puts on `<b>`. Recover the full
-trail with `s=$(gtd history fetch --json=script) && sh -c "$s"`, then
+doesn't lose it. A `ship()` step writes the ref too; the commit it puts on `<b>`
+does not name it. Recover the full trail with
+`s=$(gtd history fetch --json=script) && sh -c "$s"`, then
 `gtd history show <ref>`.
 
 `gtd abandon` keeps `refs/gtd/history/<entry>` at the abandoned tip too; history

@@ -302,24 +302,30 @@ export async function processTip(io: GitIo): Promise<ProcessTip> {
   return { branch, tip: has ? ref : "HEAD", isShipped: has }
 }
 
-// The oldest ship on `<b>` whose process tip holds `fix`.
+// The oldest ship on `<b>` whose process tip holds `fix`. A ship's tip is the
+// local `refs/gtd/shipped/<ship>` ref; an older gtd wrote a `Gtd-Tip` trailer.
 async function shipOf(io: GitIo, branch: string, fix: string) {
-  const ships = await io.run([
+  const commits = await io.run([
     "git",
     "log",
     "--reverse",
     "--first-parent",
-    "--grep=^Gtd-Tip:",
     "--format=%H",
     `refs/heads/${branch}`,
   ])
-  for (const ship of ships.out.split("\n").filter(Boolean)) {
-    const body = await io.run(["git", "show", "-s", "--format=%B", ship])
-    const tip = /^Gtd-Tip: ([0-9a-f]+)$/m.exec(body.out)?.[1]
+  for (const ship of commits.out.split("\n").filter(Boolean)) {
+    const tip = await shipTip(io, ship)
     if (tip && (await io.run(["git", "merge-base", "--is-ancestor", fix, tip])).code === 0)
       return ship
   }
   return undefined
+}
+
+async function shipTip(io: GitIo, ship: string) {
+  const ref = await io.run(["git", "rev-parse", "--verify", "--quiet", `refs/gtd/shipped/${ship}`])
+  if (ref.code === 0) return ref.out.trim()
+  const body = await io.run(["git", "show", "-s", "--format=%B", ship])
+  return /^Gtd-Tip: ([0-9a-f]+)$/m.exec(body.out)?.[1]
 }
 
 // Replies to each answered thread and resolves it. A process on `gtd/<b>` ships

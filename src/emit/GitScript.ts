@@ -1,4 +1,5 @@
 import type { GitWrite, LandStep, Outcome } from "../step/index.js"
+import { shippedRef } from "../platform/index.js"
 
 // POSIX single-quote escaping for a shell command; every builder below routes its interpolated values through this.
 export const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
@@ -84,7 +85,8 @@ export const unpinScript = (path: string): string => `rm -f -- ${shellQuote(path
  * An approval records exactly the judged tree: HEAD is pinned before the
  * clean check and the commit is built over its tree with `commit-tree`, so no
  * hook runs and none can add to it. A HEAD that moved fails the guarded
- * `update-ref`. `commit-tree` ignores `commit.gpgSign`, so it is read here.
+ * `update-ref`. `commit-tree` ignores `commit.gpgSign`, so it is read here. The squash carries the ship's message
+ * alone; its process tip goes to a local ref (ADR 0011).
  */
 export const commitClean = (message: string): string =>
   [
@@ -192,13 +194,11 @@ export const shipCommit = (
   branch: string,
   parent: string,
   shipMessage: string,
-  historyRef: string,
   message: string,
 ): string =>
   [
     `gtd_ship_parent=${shellQuote(parent)}`,
     `gtd_ship_branch=${shellQuote(branch)}`,
-    `gtd_ship_history=${shellQuote(historyRef)}`,
     `gtd_ship_message=${shellQuote(shipMessage)}`,
     `gtd_land_message=${shellQuote(message)}`,
     `git add -A || exit 1`,
@@ -213,8 +213,8 @@ export const shipCommit = (
     `git ls-tree -r "$gtd_ship_parent" -- .gtd | GIT_INDEX_FILE="$gtd_index" git update-index --index-info || exit 1`,
     `gtd_ship_tree=$(GIT_INDEX_FILE="$gtd_index" git write-tree) || exit 1`,
     `rm -f -- "$gtd_index"`,
-    `gtd_ship_trailers=$(printf "Gtd-History: %s\\nGtd-Tip: %s" "$gtd_ship_history" "$gtd_head")`,
-    `gtd_shipped=$(git commit-tree "$gtd_sign" "$gtd_ship_tree" -p "$gtd_ship_parent" -m "$gtd_ship_message" -m "$gtd_ship_trailers") || exit 1`,
+    `gtd_shipped=$(git commit-tree "$gtd_sign" "$gtd_ship_tree" -p "$gtd_ship_parent" -m "$gtd_ship_message") || exit 1`,
+    `git update-ref "${shippedRef("")}$gtd_shipped" "$gtd_head" || exit 1`,
     `git update-ref -m "gtd: ship" "refs/heads/$gtd_ship_branch" "$gtd_shipped" "$gtd_ship_parent" || exit 1`,
     `gtd_message=$(printf "%s\\nGtd-Shipped: %s" "$gtd_land_message" "$gtd_shipped")`,
     commitWordAllowEmpty(`"$gtd_message"`),
@@ -280,7 +280,7 @@ const GIT_WRITES: Renderers = {
   switchBranch: (w) => switchBranchTo(w.branch),
   switchTo: (w) => switchBack(w.branch),
   pushRef: (w) => pushRef(w.remote, w.ref),
-  ship: (w) => shipCommit(w.branch, w.parent, w.shipMessage, w.historyRef, w.message),
+  ship: (w) => shipCommit(w.branch, w.parent, w.shipMessage, w.message),
 }
 
 const renderGitWrite = (write: GitWrite): string =>
