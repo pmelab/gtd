@@ -14,10 +14,9 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
   This scenario points every `sh` gtd's emitted scripts resolve at real
   `dash` (via a PATH shim ahead of the test's own PATH — see `Given real
   dash runs every emitted script` in
-  `tests/integration/support/steps/common.steps.ts`), then proves the
-  mode-contradiction round-trip's printf/cat/pipe machinery
-  (`src/emit/ModeContradiction.ts`'s `buildModeContradictionCheck`) parses and
-  runs under `dash`, not just bash-flavored sh.
+  `tests/integration/support/steps/common.steps.ts`), then lands a steering
+  step's turn, whose script also rewrites the steering file in its canonical
+  form, through it.
 
   Prerequisite: `dash` must be on PATH (it ships at `/bin/dash` on macOS;
   install it on Debian/Ubuntu with `apt-get install dash` — most such
@@ -27,35 +26,31 @@ Feature: Emitted scripts actually run under a real POSIX shell (dash), not just 
     Given a test project
     And real dash runs every emitted script
 
-  Scenario: the mode-contradiction round-trip (package 2) also runs under dash, not just bash-flavored sh
-    # This scenario declares a built-in mode paired with a hostile format: —
-    # the round-trip's own printf/cat/pipe machinery must parse and run under
-    # a genuinely POSIX-only shell, exactly like every other emitted script
-    # in this file.
+  Scenario: a steering step's landing script runs under dash
     Given a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
 
       export default async () => {
         await human("idle", { message: "start" })
-        await agent("reviewing", "review", { file: ".gtd/REVIEW.md", mode: "review" })
-      }
-
-      export const config = {
-        modes: {
-          review: {
-            format: "sed -i.bak '1s/^# Review:.*/# Not a review header/' $GTD_FILE && rm -f $GTD_FILE.bak",
-          },
-        },
+        await agent("plan", "write the plan", { file: ".gtd/PLAN.md" })
+        await human("answer", { message: "answer the plan", file: ".gtd/PLAN.md" })
       }
       """
-    And a file "src/a.ts" with:
+    And a file "NOTE.md" with:
       """
-      export const a = 1
+      a note
       """
-    And gtd lands "gtd(human): idle → reviewing"
+    And gtd lands "gtd(human): idle → plan"
     And I run the pin beat
-    When I run gtd with args "validate"
-    Then it fails
-    And stderr contains "CONFIGURATION BUG"
-    And stderr contains "Do NOT edit the steering file"
+    And a file ".gtd/PLAN.md" with:
+      """
+      # Plan
+
+      ## ❔ Ship it?
+
+      - [ ] Yes
+      """
+    When I run gtd land --json=script piped to sh
+    Then the exit code is 0
+    And the last commit subject is "gtd(agent): plan → answer"

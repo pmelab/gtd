@@ -37,8 +37,7 @@ const FLAG_NAMES = [
   "--cost",
   "--model",
   "--var",
-  "--open-questions",
-  "--open-threads",
+  "--write",
   "--verbose",
 ]
 
@@ -111,7 +110,6 @@ describe("parseArgv — scope", () => {
       ["land", "--json"],
       ["judge", "--json"],
       ["judge", "answer", "--json"],
-      ["validate", "--json"],
       ["abandon", "--json"],
       ["restore", "--json"],
       ["repin", "--json"],
@@ -126,7 +124,7 @@ describe("parseArgv — scope", () => {
 
     for (const args of [
       ["lsp", "--json"],
-      ["check", "qa", "TODO.md", "--json"],
+      ["check", "TODO.md", "--json"],
       ["guide", "--json"],
       ["summary", "--json"],
       ["base", "--json"],
@@ -208,7 +206,7 @@ describe("parseArgv — scope", () => {
   it("--dispatch is gone: an unknown-option usage error everywhere, `gtd next` included", () => {
     for (const args of [
       ["land", "--dispatch"],
-      ["validate", "--dispatch"],
+      ["abandon", "--dispatch"],
       ["next", "--json", "--dispatch"],
     ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
@@ -475,49 +473,8 @@ describe("parseArgv — gtd start <name>", () => {
   })
 })
 
-describe("parseArgv — gtd check <mode> <file>", () => {
-  it("parses to a check command carrying mode and file", () => {
-    const plan = parseArgv(["node", "gtd.js", "check", "qa", ".gtd/TODO.md"])
-    expect(plan.kind).toBe("command")
-    if (plan.kind === "command") {
-      expect(plan.command).toEqual({ kind: "check", mode: "qa", file: ".gtd/TODO.md" })
-      expect(plan.json).toEqual({ kind: "off" })
-    }
-  })
-
-  it("--json is out of scope for check — next/land are the only structured surfaces", () => {
-    const plan = parseArgv(["node", "gtd.js", "check", "review", "REVIEW.md", "--json"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd next`")
-  })
-
-  it("bare --open-threads (no mode, no file) parses to a check command", () => {
-    const plan = parseArgv(["node", "gtd.js", "check", "--open-threads"])
-    expect(plan.kind).toBe("command")
-    if (plan.kind === "command") {
-      expect(plan.command).toEqual({ kind: "check", openThreads: true })
-    }
-  })
-
-  it("the <mode> <file> --open-threads form is unchanged", () => {
-    const plan = parseArgv(["node", "gtd.js", "check", "qa", "N.md", "--open-threads"])
-    expect(plan.kind === "command" && plan.command).toEqual({
-      kind: "check",
-      mode: "qa",
-      file: "N.md",
-      openThreads: true,
-    })
-  })
-
-  it("missing both arguments is a usage error naming mode and file", () => {
-    const plan = parseArgv(["node", "gtd.js", "check"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") {
-      expect(plan.message).toContain("missing mode and file arguments")
-    }
-  })
-
-  it("one argument is the widget form: a file, with --write", () => {
+describe("parseArgv — gtd check <file>", () => {
+  it("parses to a check command carrying the file, with --write", () => {
     const plan = parseArgv(["node", "gtd.js", "check", "PLAN.md", "--write"])
     expect(plan.kind === "command" && plan.command).toEqual({
       kind: "check",
@@ -526,88 +483,25 @@ describe("parseArgv — gtd check <mode> <file>", () => {
     })
   })
 
-  it("too many arguments is a usage error", () => {
-    const plan = parseArgv(["node", "gtd.js", "check", "qa", "TODO.md", "extra"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") {
-      expect(plan.message).toContain("too many arguments")
-      expect(plan.message).toContain("extra")
-    }
+  it("a missing file argument is a usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "check"])
+    expect(plan.kind === "usage" && plan.message).toContain("missing file argument")
   })
 
-  it("a scoped-out flag (e.g. --cost) is rejected on check", () => {
-    const plan = parseArgv(["node", "gtd.js", "check", "qa", "TODO.md", "--cost=5"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd land`")
-  })
-})
-
-describe("parseArgv — gtd uncheck <file>", () => {
-  it("parses to an uncheck command carrying file", () => {
-    const plan = parseArgv(["node", "gtd.js", "uncheck", ".gtd/REVIEW.md"])
-    expect(plan.kind).toBe("command")
-    if (plan.kind === "command") {
-      expect(plan.command).toEqual({ kind: "uncheck", file: ".gtd/REVIEW.md" })
-      expect(plan.json).toEqual({ kind: "off" })
-    }
+  it("a second argument is a usage error", () => {
+    const plan = parseArgv(["node", "gtd.js", "check", "qa", "TODO.md"])
+    expect(plan.kind === "usage" && plan.message).toContain("too many arguments")
   })
 
-  it("missing the file argument is a usage error", () => {
-    const plan = parseArgv(["node", "gtd.js", "uncheck"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("missing file argument")
+  it("--json and a scoped-out flag are rejected on check", () => {
+    expect(parseArgv(["node", "gtd.js", "check", "PLAN.md", "--json"]).kind).toBe("usage")
+    expect(parseArgv(["node", "gtd.js", "check", "PLAN.md", "--cost=5"]).kind).toBe("usage")
   })
 
-  it("too many arguments is a usage error", () => {
-    const plan = parseArgv(["node", "gtd.js", "uncheck", "REVIEW.md", "extra"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") {
-      expect(plan.message).toContain("too many arguments")
-      expect(plan.message).toContain("extra")
-    }
-  })
-
-  it("takes no mode argument — a second positional is rejected as extra, never accepted as mode", () => {
-    const plan = parseArgv(["node", "gtd.js", "uncheck", "qa", "REVIEW.md"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("too many arguments")
-  })
-
-  it("a scoped-out flag (e.g. --cost) is rejected on uncheck", () => {
-    const plan = parseArgv(["node", "gtd.js", "uncheck", "REVIEW.md", "--cost=5"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") expect(plan.message).toContain("only valid for `gtd land`")
-  })
-})
-
-describe("parseArgv — gtd check --open-questions", () => {
-  it("parses to a check command carrying openQuestions: true", () => {
-    const plan = parseArgv(["node", "gtd.js", "check", "qa", ".gtd/TODO.md", "--open-questions"])
-    expect(plan.kind).toBe("command")
-    if (plan.kind === "command") {
-      expect(plan.command).toEqual({
-        kind: "check",
-        mode: "qa",
-        file: ".gtd/TODO.md",
-        openQuestions: true,
-      })
-    }
-  })
-
-  it("omits openQuestions entirely when the flag is absent (unchanged shape)", () => {
-    const plan = parseArgv(["node", "gtd.js", "check", "qa", ".gtd/TODO.md"])
-    expect(plan.kind).toBe("command")
-    if (plan.kind === "command") {
-      expect(plan.command).toEqual({ kind: "check", mode: "qa", file: ".gtd/TODO.md" })
-      expect("openQuestions" in plan.command).toBe(false)
-    }
-  })
-
-  it("--open-questions on any other command is a usage error carrying its own scopeError", () => {
-    const plan = parseArgv(["node", "gtd.js", "land", "--open-questions"])
-    expect(plan.kind).toBe("usage")
-    if (plan.kind === "usage") {
-      expect(plan.message).toBe("gtd: --open-questions is only valid for `gtd check`")
+  it("the removed commands are unknown", () => {
+    for (const command of ["uncheck", "validate"]) {
+      const plan = parseArgv(["node", "gtd.js", command])
+      expect(plan.kind === "usage" && plan.message).toContain(`unknown command '${command}'`)
     }
   })
 })
@@ -679,7 +573,7 @@ describe("parseArgv — --verbose / -v (the -v/-V swap)", () => {
     for (const args of [
       ["land", "--verbose"],
       ["next", "--verbose", "--json"],
-      ["check", "qa", "TODO.md", "--verbose"],
+      ["check", "TODO.md", "--verbose"],
       ["start", "some-state", "--verbose"],
     ]) {
       const plan = parseArgv(["node", "gtd.js", ...args])
@@ -1043,13 +937,12 @@ describe("parseArgv — gtd strays", () => {
 
 describe("standaloneKinds / needsOf", () => {
   it("pins the standalone kinds", () => {
-    expect(standaloneKinds()).toEqual(["lsp", "check", "uncheck", "guide", "judgeRun", "strays"])
+    expect(standaloneKinds()).toEqual(["lsp", "check", "guide", "judgeRun", "strays"])
   })
 
   it("needsOf matches none/fs for the standalone kinds and state for everything else", () => {
     expect(needsOf("lsp")).toBe("none")
     expect(needsOf("check")).toBe("fs")
-    expect(needsOf("uncheck")).toBe("fs")
     expect(needsOf("guide")).toBe("none")
     expect(needsOf("judgeRun")).toBe("none")
     expect(needsOf("strays")).toBe("none")
@@ -1060,7 +953,6 @@ describe("standaloneKinds / needsOf", () => {
       "restore",
       "repin",
       "next",
-      "validate",
       "ui",
       "judge",
       "judgeAnswer",
@@ -1090,7 +982,7 @@ describe("renderHelp", () => {
       expect(help).toContain(`\n${heading}\n`)
     }
     expect(help).toContain("start [name] [args...]")
-    expect(help).toContain("check [mode] <file>")
+    expect(help).toContain("check <file>")
     expect(help).toContain("-V, --version")
     expect(help).toContain("-h, --help")
     expect(help).toContain("Examples:")
@@ -1447,13 +1339,13 @@ describe("runCli — stdout stays byte-empty on every failing surface", () => {
     // plain `FileSystem`-only failure inside the handler itself, distinct
     // from the "refusal" test above (which fails in the shared guard).
     const repo = new InMemRepo()
-    repo.writeFile(".gtd/TODO.md", "## Open Questions\n\n###\n\nno question text.\n")
+    repo.writeFile(".gtd/TODO.md", "## ❔ Ready?\n\nno checkbox.\n")
     const { io, captured } = capturingIo(() => testLayers(repo))
-    await Effect.runPromise(runCli(["node", "gtd.js", "check", "qa", ".gtd/TODO.md"], io))
+    await Effect.runPromise(runCli(["node", "gtd.js", "check", ".gtd/TODO.md"], io))
     const { stdout, stderr, exitCode } = captured()
     expect(exitCode).toBe(EXIT_RUNTIME_ERROR)
     expect(stdout).toBe("")
-    expect(stderr).toContain("has no question text")
+    expect(stderr).toContain("needs its checkbox list")
   })
 
   it("defect: an unchecked throw building the layer still leaves stdout byte-empty", async () => {

@@ -26,10 +26,6 @@ import {
 import { TextDocument } from "vscode-languageserver-textdocument"
 import type { BeatDocument } from "../wire/index.js"
 import {
-  FOOTNOTE_ACTION_TITLE,
-  THREAD_REPLY_ACTION_TITLE,
-  openThreadFindings,
-  steeringFormatFor,
   viewOf,
   widgetFormat,
   type SteeringAction,
@@ -52,52 +48,10 @@ export const toDocumentSymbol = (node: SteeringOutlineNode): DocumentSymbol => (
   ...(node.children !== undefined ? { children: node.children.map(toDocumentSymbol) } : {}),
 })
 
-/**
- * Matches the footnote action's own definition edit's `newText`: a leading
- * newline then the `[^name]:` label — the shape `footnoteAdditionEdits`
- * always writes. Group 1 is the label alone, whose length is the reveal
- * column (see `revealPositionFor`).
- */
-const FOOTNOTE_DEFINITION_RE = /^\r?\n(\[\^[^\s\]]+\]:)/
-
-/** The reply edit's `newText`: an EOL then the `- H: ` line; group 1 is that line, whose length is the reveal column. */
-const THREAD_REPLY_RE = /^\r?\n( *- H: )$/
-
-/**
- * Where `gtd.revealPosition` should land the cursor for `action`, or
- * `undefined` for anything but the footnote action (or a footnote action
- * whose edits carry no matching definition — never thrown, just no jump).
- * The line CLAMPS the definition edit's own start line to the document's
- * last line index before adding one: the edit's `newText` opens with one
- * `\n`, so the definition sits one line below wherever that start position
- * actually resolves, and at EOF that position is clamped by the protocol
- * itself. A flat `+2` is wrong there — see the package's own risk note.
- */
-const revealPositionFor = (text: string, action: SteeringAction): Position | undefined => {
-  if (action.title === THREAD_REPLY_ACTION_TITLE) {
-    const edit = action.edits[0]
-    const match = edit && THREAD_REPLY_RE.exec(edit.newText)
-    return edit && match
-      ? { line: edit.range.start.line + 1, character: match[1]!.length }
-      : undefined
-  }
-  if (action.title !== FOOTNOTE_ACTION_TITLE) return undefined
-  const lines = text.split(/\r?\n/)
-  for (const edit of action.edits) {
-    const match = FOOTNOTE_DEFINITION_RE.exec(edit.newText)
-    if (!match) continue
-    return {
-      line: Math.min(edit.range.start.line, lines.length - 1) + 1,
-      character: match[1]!.length,
-    }
-  }
-  return undefined
-}
-
 export const toCodeAction =
-  (uri: string, text: string) =>
+  (uri: string) =>
   (action: SteeringAction): CodeAction => {
-    const position = action.select?.start ?? revealPositionFor(text, action)
+    const position = action.select?.start
     return {
       title: action.title,
       kind: CodeActionKind.QuickFix,
@@ -167,13 +121,7 @@ export const diagnosticsFor = (
 ): Diagnostic[] => {
   if (format === undefined) return []
   const lines = content.split(/\r?\n/)
-  return [
-    ...format.validate(content).map(toDiagnostic(lines)),
-    ...openThreadFindings(content).map((f) => ({
-      ...toDiagnostic(lines)(f),
-      severity: DiagnosticSeverity.Information,
-    })),
-  ]
+  return format.validate(content).map(toDiagnostic(lines))
 }
 
 /** A `SteeringLink` → a `DocumentLink`, resolving its target file against `root` — same resolution `toLocation` already does for a foreign `pointerAt` jump. `line` is 0-based; the target URI's `#L<line+1>` fragment names the 1-based line, mirroring a familiar (GitHub-style) file-link convention. */
@@ -193,7 +141,7 @@ export const documentLinksFor = (
 
 // ── Path → format dispatch (pure) ───────────────────────────────────────────
 
-export type CurrentRest = Pick<BeatDocument, "state" | "file" | "mode">
+export type CurrentRest = Pick<BeatDocument, "state" | "file">
 
 export const formatForDocument = (
   uri: string,
@@ -202,7 +150,7 @@ export const formatForDocument = (
 ): SteeringFormat | undefined => {
   const path = fileURLToPath(uri)
   if (rest?.file === undefined || resolvePath(root, rest.file) !== path) return undefined
-  return rest.mode === undefined ? widgetFormat : steeringFormatFor(rest.mode)
+  return widgetFormat
 }
 
 export const resolveWorkspaceRoot = (params: {
@@ -375,7 +323,7 @@ export const makeSteeringLanguageService = (
     codeAction: async (uri, text, range) => {
       const format = await formatFor(uri)
       if (format === undefined) return []
-      return viewOf(format, text).actionsAt(range).map(toCodeAction(uri, text))
+      return viewOf(format, text).actionsAt(range).map(toCodeAction(uri))
     },
 
     definition: async (uri, text, position) => {
@@ -533,7 +481,7 @@ export const parseCurrentRest = (stdout: string): CurrentRest => {
   const parsed = JSON.parse(stdout) as Record<string, unknown> | null
   const state = optionalString(parsed?.["state"])
   if (state === undefined) throw new Error(`not a gtd next --json document: ${stdout}`)
-  return { state, file: optionalString(parsed?.["file"]), mode: optionalString(parsed?.["mode"]) }
+  return { state, file: optionalString(parsed?.["file"]) }
 }
 
 /**

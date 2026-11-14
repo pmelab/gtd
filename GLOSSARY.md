@@ -113,10 +113,10 @@ _Avoid_: machine, state table, graph
 **Workflow module**: A TypeScript module in which every export passed through
 `workflow()` and every [workflow factory](#workflow-factory) (bar `default` and
 `config`) is a workflow named by its export; any other exported function is a
-helper. A workflow's settings, doors, base, steering files, skills, access and
-summary are its **workflow options** — `workflow(flow, options)` or a factory
-build — never file-level exports; `config` configures the repository. _Avoid_:
-machine, sub-workflow, fragment, reserved export (for an option)
+helper. A workflow's settings, doors, base, skills, access and summary are its
+**workflow options** — `workflow(flow, options)` or a factory build — never
+file-level exports; `config` configures the repository. _Avoid_: machine,
+sub-workflow, fragment, reserved export (for an option)
 
 **Workflow factory**: A function, made with `defineWorkflow`, that returns a
 workflow configured by its options; gtd validates the options when it loads the
@@ -154,10 +154,10 @@ and the process rests at the step the new workflow reached there, on HEAD's tree
 — or ends, when the flow ended there. _Avoid_: migration, rebase, checkpoint
 
 **History format**: The version of everything replay reads back out of git —
-subject, `Gtd-*` trailers, committed steering formats, the retained tip —
-written as `Gtd-Format: <n>` on every gtd commit, 1 when absent. A history in a
-format gtd does not read is refused as such, never as divergence. Independent of
-the package version. _Avoid_: schema version, gtd version
+subject, `Gtd-*` trailers, committed steering files, the retained tip — written
+as `Gtd-Format: <n>` on every gtd commit, 1 when absent. A history in a format
+gtd does not read is refused as such, never as divergence. Independent of the
+package version. _Avoid_: schema version, gtd version
 
 **Flows protocol**: The version of the replay context a workflow's copy of
 `@pmelab/gtd/flows` and the running gtd share. A mismatch is refused as such,
@@ -214,14 +214,13 @@ approval, the bare "the gate"
 **Check**: Three things, never the bare word: a **check step** — a `run()` step,
 whose actor is `check` (the driver runs its script); `check()`, the flow helper
 that is one such step running a command and keeping a failure's output in a
-report file; and `gtd check`, which validates one steering file against its
-format and reads no workflow. Flow code turning a turn away is a
-[guard](#guard), not a check. _Avoid_: "check" alone
+report file; and `gtd check`, which checks one steering file's widgets and reads
+no workflow. Flow code turning a turn away is a [guard](#guard), not a check.
+_Avoid_: "check" alone
 
 **Guard**: A test in flow code that refuses a turn right after the step that
-took it (`requireProgress`, `requireAnswers`, `requireRevert`, or any
-`refuse()`). The opposite of a gate: a gate waits for someone, a guard turns
-them away.
+took it (`requireProgress`, `requireRevert`, or any `refuse()`). The opposite of
+a gate: a gate waits for someone, a guard turns them away.
 
 **Steering file**: A file a step declares via `file`: an ordered list of
 [widgets](#widget), and the only channel between agent and human: the agent

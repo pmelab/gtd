@@ -39,7 +39,7 @@ Feature: gtd next's three encodings (plain, --json, --json=<path>) describe the 
     Then it succeeds
     And stdout contains "write NOTE.md to start a process"
 
-  Scenario: a prompt rest, declaring no file/mode so next's self-validation suffix never applies
+  Scenario: a prompt rest
     Given a file "NOTE.md" with:
       """
       a note

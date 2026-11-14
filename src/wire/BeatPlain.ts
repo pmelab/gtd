@@ -50,7 +50,6 @@ const beatHeaderLines = (document: BeatDocument): string[] => {
     ["Model", document.model],
     ["Memory", document.memory],
     ["File", document.file],
-    ["Mode", document.mode],
   ])
   return [
     `State: ${document.state}`,
@@ -94,34 +93,17 @@ export const DEMAND_BRIEFING: Record<BeatKind, DemandBriefing> = {
 }
 
 /**
- * The self-validation instruction appended to a `prompt` beat's plain output
- * only — a structured (`--json`) driver runs the `validate` field
- * itself instead. Advisory either way: `gtd land` refuses a turn whose
- * steering file is invalid regardless of whether this was followed.
- */
-const selfValidateInstruction = (command: string, file: string): string =>
-  `\nBefore finishing your turn, run \`${command}\` — it checks ${file} — and fix ` +
-  `every violation it reports until it exits cleanly. Do not finish while it ` +
-  `still reports violations.\n`
-
-/**
  * `gtd next`'s plain-text encoding, driven by `DEMAND_BRIEFING`. At
- * `kind === "prompt"` the status header is suppressed and only `content`
- * plus the self-validation instruction is emitted — those bytes ARE the
- * agent's input, so gtd's own bookkeeping (state name, edges, pending
- * changes) must not be prefixed onto it. Every other kind gets the header
- * plus its instruction line, since its plain output is read by a human or
- * driver, never an agent. `selfValidateCommand` is already resolved; this
- * function never resolves it itself.
+ * `kind === "prompt"` the status header is suppressed and only `content` is
+ * emitted — those bytes ARE the agent's input, so gtd's own bookkeeping
+ * (state name, edges, pending changes) must not be prefixed onto it. Every
+ * other kind gets the header plus its instruction line, since its plain
+ * output is read by a human or driver, never an agent.
  */
-export const renderBeatPlain = (document: BeatDocument, selfValidateCommand?: string): string => {
+export const renderBeatPlain = (document: BeatDocument): string => {
   const content = document.content.endsWith("\n") ? document.content : document.content + "\n"
   const briefing = DEMAND_BRIEFING[document.kind]
-  if (briefing.suppressHeader) {
-    return selfValidateCommand !== undefined && document.file !== undefined
-      ? content + selfValidateInstruction(selfValidateCommand, document.file)
-      : content
-  }
+  if (briefing.suppressHeader) return content
   const body = beatHeaderLines(document).join("\n") + "\n\n" + content
   return briefing.instructionLine !== undefined ? `${briefing.instructionLine}\n` + body : body
 }

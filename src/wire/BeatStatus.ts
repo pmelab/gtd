@@ -1,11 +1,4 @@
-import type {
-  ApprovalEntry,
-  Actor,
-  ModelCost,
-  RenderedDemandSource,
-  StateMode,
-  StateName,
-} from "./types.js"
+import type { ApprovalEntry, Actor, ModelCost, RenderedDemandSource, StateName } from "./types.js"
 
 /** One pending change — `gtd next --json`'s `changes` entries. */
 export interface StatusChange {
@@ -40,7 +33,6 @@ export interface BeatStatus {
   readonly label: string | undefined
   readonly memory: string | undefined
   readonly file: string | undefined
-  readonly mode: StateMode | undefined
   readonly changes: readonly StatusChange[]
   readonly next: NextMatch | null
   readonly cost: number
@@ -81,7 +73,6 @@ export const statusOf = (input: {
     label: rendered.label,
     memory: rendered.memory,
     file: rendered.file,
-    mode: rendered.mode,
     changes,
     next,
     cost,

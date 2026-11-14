@@ -19,11 +19,8 @@ import {
   type AgentOptions,
   type HumanOptions,
   type Judgment,
-  type DeclaredMode,
-  type ModeName,
   type RunOptions,
   type Settings,
-  type SteeringOptions,
   type StepRequest,
 } from "./runtime.js"
 
@@ -295,23 +292,12 @@ describe("step options", () => {
   it("reject the combinations replay refuses", () => {
     // @ts-expect-error -- a run step rests on no steering file
     expectTypeOf<{ file: ".gtd/A.md" }>().toMatchTypeOf<RunOptions>()
-    expectTypeOf<{ file: ".gtd/A.md"; mode: "qa" }>().toMatchTypeOf<AgentOptions>()
-    // @ts-expect-error -- mode requires file
-    expectTypeOf<{ mode: "qa" }>().toMatchTypeOf<AgentOptions>()
+    expectTypeOf<{ file: ".gtd/A.md"; widgets: ["boolean"] }>().toMatchTypeOf<AgentOptions>()
     expectTypeOf<{ approve: true; message: "m" }>().toMatchTypeOf<HumanOptions>()
     // @ts-expect-error -- approve excludes file
     expectTypeOf<{ approve: true; file: ".gtd/A.md" }>().toMatchTypeOf<HumanOptions>()
     expectTypeOf<{ keep: true; allowEmpty: false }>().toMatchTypeOf<AgentOptions>()
     // @ts-expect-error -- keep excludes allowEmpty
     expectTypeOf<{ keep: true; allowEmpty: true }>().toMatchTypeOf<AgentOptions>()
-  })
-})
-
-describe("mode", () => {
-  it("names the built-in modes and still takes any string", () => {
-    expectTypeOf<"qa">().toMatchTypeOf<ModeName>()
-    expectTypeOf<string>().toMatchTypeOf<ModeName>()
-    expectTypeOf<ModeName>().toMatchTypeOf<string>()
-    expectTypeOf<SteeringOptions["mode"]>().toEqualTypeOf<ModeName | DeclaredMode | undefined>()
   })
 })

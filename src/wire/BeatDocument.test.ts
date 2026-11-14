@@ -30,7 +30,6 @@ interface DocumentInput {
   readonly initial?: boolean
   readonly log?: string
   readonly session?: { readonly id: string; readonly resume: boolean }
-  readonly validate?: string
   readonly fresh?: string | null
   readonly changes?: readonly StatusChange[]
   readonly next?: NextMatch | null
@@ -39,7 +38,7 @@ interface DocumentInput {
   readonly approvals?: readonly ApprovalEntry[]
 }
 
-/** `demandOf`'s own input, isolated so `documentFor` stays a flat two-call body — `session`/`validate` are only spread in when the caller actually passed one, since `demandOf`'s `prompt` variant forbids an explicit `undefined`. */
+/** `demandOf`'s own input, isolated so `documentFor` stays a flat two-call body — `session` is only spread in when the caller actually passed one, since `demandOf`'s `prompt` variant forbids an explicit `undefined`. */
 const demandInput = (
   input: DocumentInput,
   r: RenderedDemandSource,
@@ -47,7 +46,6 @@ const demandInput = (
   rendered: r,
   kind: input.kind,
   ...(input.session !== undefined ? { session: input.session } : {}),
-  ...(input.validate !== undefined ? { validate: input.validate } : {}),
   ...(input.fresh !== undefined ? { fresh: input.fresh } : {}),
 })
 
@@ -119,26 +117,23 @@ describe("beatDocument / renderBeatJson", () => {
     expect(parsed.content).not.toBe("fix it")
   })
 
-  it("gates session/validate to kind prompt, dropping them at every other kind", () => {
+  it("gates session to kind prompt, dropping them at every other kind", () => {
     const session = { id: "8f2c", resume: true }
     for (const kind of BEAT_KINDS.filter((k) => k !== "prompt")) {
       const line = renderJsonLine({
         kind,
         session,
-        validate: "gtd check qa 'TODO.md'",
       })
       const parsed = JSON.parse(line) as Record<string, unknown>
       expect(parsed.session).toBeUndefined()
-      expect(parsed.validate).toBeUndefined()
     }
   })
 
-  it("emits session and validate at kind prompt", () => {
+  it("emits session at kind prompt", () => {
     const session = { id: "8f2c", resume: true }
-    const line = renderJsonLine({ kind: "prompt", session, validate: "gtd check qa 'TODO.md'" })
+    const line = renderJsonLine({ kind: "prompt", session })
     const parsed = JSON.parse(line) as Record<string, unknown>
     expect(parsed.session).toEqual({ id: "8f2c", resume: true })
-    expect(parsed.validate).toBe("gtd check qa 'TODO.md'")
   })
 
   it("carries fresh at kind prompt and null at every other kind", () => {
@@ -151,20 +146,18 @@ describe("beatDocument / renderBeatJson", () => {
     }
   })
 
-  it("omits session/validate at kind prompt when the caller supplied none, never emitting null", () => {
+  it("omits session at kind prompt when the caller supplied none, never emitting null", () => {
     const line = renderJsonLine({ kind: "prompt" })
     const parsed = JSON.parse(line) as Record<string, unknown>
     expect("session" in parsed).toBe(false)
-    expect("validate" in parsed).toBe(false)
   })
 
-  it("emits model/system/memory/file/mode/label at every kind when present, never null", () => {
+  it("emits model/system/memory/file/label at every kind when present, never null", () => {
     const r = rendered({
       model: "opus",
       system: "You are a careful senior engineer.",
       memory: "build#a1b2c3d",
       file: "TODO.md",
-      mode: "qa",
       label: "Fixing",
     })
     for (const kind of BEAT_KINDS) {
@@ -174,7 +167,6 @@ describe("beatDocument / renderBeatJson", () => {
       expect(parsed.system).toBe("You are a careful senior engineer.")
       expect(parsed.memory).toBe("build#a1b2c3d")
       expect(parsed.file).toBe("TODO.md")
-      expect(parsed.mode).toBe("qa")
       expect(parsed.label).toBe("Fixing")
       expect(parsed).not.toHaveProperty("edges")
     }
@@ -218,11 +210,9 @@ describe("beatDocument / renderBeatJson", () => {
       "session",
       "model",
       "system",
-      "validate",
       "label",
       "memory",
       "file",
-      "mode",
       "edges",
       "cost",
       "costByModel",
@@ -240,7 +230,6 @@ describe("beatDocument / renderBeatJson", () => {
       system: "You are a careful senior engineer.",
       memory: "build#a1b2c3d",
       file: "TODO.md",
-      mode: "qa",
       label: "Fixing",
       judge: '{"state":"build.fixing","questions":[]}',
       skills: ["code-review"],
@@ -252,7 +241,6 @@ describe("beatDocument / renderBeatJson", () => {
       initial: false,
       log: ".git/gtd-loop.log",
       session: { id: "8f2c", resume: true },
-      validate: "gtd check qa 'TODO.md'",
       changes: [{ status: "M", path: "TODO.md" }],
       next: { target: "idle" },
       cost: 12,
@@ -268,7 +256,6 @@ describe("beatDocument / renderBeatJson", () => {
       "session",
       "model",
       "system",
-      "validate",
       "fresh",
       "log",
       "state",
@@ -277,7 +264,6 @@ describe("beatDocument / renderBeatJson", () => {
       "label",
       "memory",
       "file",
-      "mode",
       "changes",
       "next",
       "cost",

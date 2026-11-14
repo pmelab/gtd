@@ -384,23 +384,23 @@ requirements to the top of `.gtd/TODO.md` and run `/gtd`. `/gtd <door> [args]`
 takes one of the doors a bare `gtd start` lists — those your workflows declare;
 text whose word count does not fit a door's args starts a process from that text
 as requirements. At every human rest Claude itself takes over: it walks you
-through the open questions one at a time, answers your own questions about the
-plan or the diff, records what you decide in the steering file the way the step
-asks, and moves the process on only when you say so; a review you leave
+through the steering file's questions one at a time, answers your own questions
+about the plan or the diff, records what you decide in the steering file the way
+the step asks, and moves the process on only when you say so; a review you leave
 untouched signs off. While a step runs you can keep asking; requests for changes
 wait for the next rest. A process can change hands at any gate: ask Claude to
 hand it off (or run `/gtd throw @dev`) and it opens a draft pull request
 assigned to them, and `/gtd catch <pr>` picks it up exactly where it waits, so
 whoever wrote the requirements can hand the build to someone else. `/gtd pr`
 brings a pull request's unresolved review threads into the review: each becomes
-a note in `.gtd/REVIEW.md` ticked "fix as suggested" (untick it for "won't fix"
-plus a reason, or your own answer), the review door fixes them in place, and
-each thread then gets a reply naming the fixing commit (or your reason) and is
-resolved. Hand-off and throw answer at once and run in the background, with
-progress on the status line; they report by waking Claude, a toast, a transcript
-line and a push notification, and a failed push or `gh` call reports as a
-failure. While a hand-off runs or is queued, `/gtd catch`, the doors,
-`/gtd <requirements>` and bare `/gtd` wait for its report. See
+a 🔘 question in `.gtd/REVIEW.md` ticked "fix as suggested" (tick "won't fix"
+plus a reason, or write your own answer instead), the review door fixes them in
+place, and each thread then gets a reply naming the fixing commit (or your
+reason) and is resolved. Hand-off and throw answer at once and run in the
+background, with progress on the status line; they report by waking Claude, a
+toast, a transcript line and a push notification, and a failed push or `gh` call
+reports as a failure. While a hand-off runs or is queued, `/gtd catch`, the
+doors, `/gtd <requirements>` and bare `/gtd` wait for its report. See
 [Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
 
 ### Then let an agent build your own
@@ -425,50 +425,33 @@ and whatever you write there is the first sketch the whole process gets planned
 from. As a final step, if it finds an LSP-capable editor, the briefing also
 offers to wire up live diagnostics and review actions in it — asking first and
 naming the exact file, and merging rather than overwriting your editor's config.
-That editor integration also adds a footnote at the exact cursor position with
-one code action, landing the cursor in the new, empty definition ready to type,
-and jumps between a footnote's marker and its definition both ways — so leaving
-a comment for the next agent turn never means hand-typing the `[^name]` syntax
-yourself. In a review file, a `./path#42-70` hunk pointer is also a clickable
-link straight to that file and range, no go-to-definition required. A footnote
-can also hold a `H:`/`A:` conversation (a thread — see
-[configuration](docs/configuration.md)); the editor outlines threads, flags the
-open ones, and a `gtd: reply` code action adds your empty `- H:` entry and puts
-the cursor there; `gtd check <mode> <file> --open-threads` lists the ones still
-waiting on you. The same conversation works as bare `// H: …` / `// A: …` line
-comments (`#`, `--`, `;` by language) in files the process changed;
-`gtd check --open-threads` alone lists the open ones (editor-only — the phone UI
-does not show them).
+That editor integration also answers the steering file's widgets with code
+actions, adds an annotation — a footnote for the next agent turn — with one code
+action, landing the cursor in the new, empty note ready to type, and jumps
+between a footnote's marker and its note both ways. In a review checklist, a
+`./path#42-70` hunk pointer is also a clickable link straight to that file and
+range, no go-to-definition required.
 
 ### The workflow
 
 gtd decides nothing about _what_ a process does: the workflow in your
 `gtd.config.ts` does. Its `human` steps are the moments for you — a sketch, a
-question to answer, a review — and every exchange is a file in `.gtd/` that you
-edit in your own editor, every answer a commit.
+question to answer, a review — and every exchange is a
+[steering file](docs/steering.md) in `.gtd/`: a markdown document of widgets (🔘
+pick one, ☑️ pick any, ❔ yes or no, 🔍 review these hunks) that you answer in
+your own editor, every answer a commit. The agent writes it and says nothing
+anywhere else; you tick its boxes, edit it, or add footnote annotations that
+send it back.
 
 Prefer a phone or another device over your editor? `gtd ui` opens the file whose
-turn it is as a small web app, over Tailscale — including a step that names no
-format, or one nothing recognizes, which still opens as plain markdown structure
-instead of refusing to start: read, plus a note on any block and tickable
-task-list boxes (each list is pick-one: ticking a box unticks its siblings, and
-a ticked box can't be cleared from the phone). It also binds on an idle worktree
-— nothing pending yet — opening `.gtd/TODO.md` free-form with a bare textfield
-so you can sketch from your phone; the sketch stays un-triaged on disk until you
-run `gtd` again, from anywhere, to pick it up. A description renders inline
-markdown — bold, code, strikethrough, links, and images — instead of literal
-asterisks and backticks. A note you add from the phone starts a thread: a
-footnote holding a `H:`/`A:` conversation. Threads show as a conversation under
-their block, question, chunk, or hunk — or, in a review chunk with no file
-pointers, under each line of its lists, so a summary's entries take a note
-apiece — and one the agent answered last carries a "waiting on you" badge. Tap
-it to reply — your reply is added as a new `H:` entry; while the agent has yet
-to answer, reopening it edits your last entry instead. Tap an already-answered
-question to leave a note on it; the agent may overturn the answer. A `findings`
-file lists its findings, each with a fix checkbox and, once ticked, an optional
-line of guidance; Done stays disabled while the file holds anything its gate
-would refuse. Done saves and leaves the server running; it exits once the
-worktree moves on to another step. See
+turn it is as a small web app, over Tailscale: its prose to read, and one
+control per widget — radio buttons with an optional own answer, checkboxes, and
+a review checklist that shows each hunk's diff. Double-tap any block, or tap a
+widget's Note, to add an annotation. It also binds on an idle worktree, opening
+`.gtd/TODO.md` with a bare textfield so you can sketch from your phone; the
+sketch stays on disk until you run `gtd` again, from anywhere, to pick it up.
+Done saves and leaves the server running; it exits once the worktree moves on to
+another step. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 
@@ -484,12 +467,12 @@ and remember gtd evaluates that file on every command. A shared workflow package
 bundling its own `@pmelab/gtd` is checked against the running gtd and refused,
 naming which side to upgrade, on a flows protocol mismatch.
 
-Everything else a repository configures — steering-file modes, `gtd ui`
-settings, per-scope skills and file access — goes in the same file's `config`
-export, built with `defineConfig` from `@pmelab/gtd/flows`, which rejects an
-unknown key. `gtd.config.ts` is the only repository config: gtd 23 removed the
-`.gtdrc` files, and a leftover one — in the repository, above it, or in your
-home directory — fails every command until you delete it. See
+Everything else a repository configures — `gtd ui` settings, per-scope skills
+and file access — goes in the same file's `config` export, built with
+`defineConfig` from `@pmelab/gtd/flows`, which rejects an unknown key.
+`gtd.config.ts` is the only repository config: gtd 23 removed the `.gtdrc`
+files, and a leftover one — in the repository, above it, or in your home
+directory — fails every command until you delete it. See
 [Migrating from `.gtdrc`](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#migrating-from-gtdrc).
 
 ## Large untracked trees
@@ -499,7 +482,7 @@ worktree holds more than 1,000 untracked, un-ignored files (a landing would
 commit them all). The error names the count and the largest untracked
 directories; add them to `.gitignore` (or `.git/info/exclude`) or delete them,
 then run again. Fixed limit, no config key. Every other command — read-only ones
-like `gtd check --open-threads`, `gtd judge`, `gtd validate` — never refuses.
+like `gtd check`, `gtd judge` — never refuses.
 
 ## Checking a range for stray files
 
@@ -573,10 +556,10 @@ clean `gtd land` approves it, and the commit records who in a
 `Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}` trailer;
 a landing with any edit is refused (as is a script run after the tree changed —
 revert and land again), and `gtd abandon` is the only other way out. `approve`
-cannot be combined with `mode` or `file` (refused when replay reaches the step).
-Git hooks do not run on the approval commit; `commit.gpgSign` still applies, so
-a failing signer refuses the approval. `gtd next --json` lists the process's
-approvals as `approvals` (`[]` when none), and `gtd history show` prints each as
+cannot be combined with `file` (refused when replay reaches the step). Git hooks
+do not run on the approval commit; `commit.gpgSign` still applies, so a failing
+signer refuses the approval. `gtd next --json` lists the process's approvals as
+`approvals` (`[]` when none), and `gtd history show` prints each as
 `approved <step>#<n> by <name> <<email>>`. See
 [Step options](docs/configuration.md#step-options).
 
@@ -585,23 +568,23 @@ approvals as `approvals` (`[]` when none), and `gtd history show` prints each as
 gtd is one package, `@pmelab/gtd`, and every entrypoint shares its version and
 [SemVer promise](https://github.com/pmelab/gtd/blob/main/COMPATIBILITY.md).
 
-| Import                        | What it is                                                                                                                                                                                                                                                                                                               |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `@pmelab/gtd/flows`           | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, `workflow()`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                                                                                                                                           |
-| `@pmelab/gtd/wire`            | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                                                                                                                                                             |
-| `@pmelab/gtd/steering`        | The steering-file formats (`qa`, `review`, `findings`), `listFormat`/`sectionFormat` to [declare a format](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#declared-formats) a step's `mode` validates against, the review-note readers, and `sections`, `threads` and `openQuestions` as plain functions. |
-| `@pmelab/gtd/workflow-kit`    | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails. See [Workflow kit](https://github.com/pmelab/gtd/blob/main/docs/workflow-kit.md).                                                                                                                  |
-| `@pmelab/gtd/testkit`         | Runs any workflow against the real engine in an in-memory repository, under any test runner, plus a flow-context harness for rendering prompts. See [Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md).                                                                                       |
-| `@pmelab/gtd/testkit/gherkin` | The testkit as quickpickle steps for vitest. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                                                                                                                                                                               |
+| Import                        | What it is                                                                                                                                                                                                                         |
+| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@pmelab/gtd/flows`           | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, `workflow()`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                                                     |
+| `@pmelab/gtd/wire`            | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                                                                       |
+| `@pmelab/gtd/steering`        | The [steering-file](https://github.com/pmelab/gtd/blob/main/docs/steering.md) format as plain functions: `parseWidgets`, `serialize`, the answer rules, and `sections`/`sectionBodies`.                                            |
+| `@pmelab/gtd/workflow-kit`    | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails. See [Workflow kit](https://github.com/pmelab/gtd/blob/main/docs/workflow-kit.md).                            |
+| `@pmelab/gtd/testkit`         | Runs any workflow against the real engine in an in-memory repository, under any test runner, plus a flow-context harness for rendering prompts. See [Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md). |
+| `@pmelab/gtd/testkit/gherkin` | The testkit as quickpickle steps for vitest. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                                                                                         |
 
 Types come from the TypeScript sources the package ships. Configs never need an
 install for any of these but the testkit's: gtd resolves a `gtd.config.ts`'s
 `@pmelab/gtd/*` imports to its own copy.
 
 The `gtd` bin's commands — `next`, `land`, `start`, `abandon`, `restore`,
-`repin`, `validate`, `check`, `uncheck`, `guide`, `bundle`, `summary`, `base`,
-`version`, `help`, `history list`, `history show`, `history fetch`, `strays`,
-the tools `ui`, `lsp`, `judge` (`judge answer`, `judge run`) — are listed in the
+`repin`, `check`, `guide`, `bundle`, `summary`, `base`, `version`, `help`,
+`history list`, `history show`, `history fetch`, `strays`, the tools `ui`,
+`lsp`, `judge` (`judge answer`, `judge run`) — are listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md). Every
 command that prints a script takes `--json=script`, and `--` ends the options.
 

@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSyn
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it, vi } from "vitest"
-import { applySteeringEdits, steeringFormatFor } from "../steering/index.js"
+import { widgetFormat } from "../steering/index.js"
 import {
   contentHashOf,
   liveReadFile,
@@ -16,33 +16,20 @@ import type { ReadFileResult } from "./index.js"
 /** Shorthand for a `readFile` double returning `content` — the common case. */
 const content = (text: string): Promise<ReadFileResult> =>
   Promise.resolve({ kind: "content", content: text })
-/** Shorthand for a `readFile` double returning `absent` — a mode-less file gtd hasn't written yet. */
+/** Shorthand for a `readFile` double returning `absent` — a file gtd hasn't written yet. */
 const absent = (): Promise<ReadFileResult> => Promise.resolve({ kind: "absent" })
 
-const REVIEW_FORMAT = steeringFormatFor("review")!
-
 const WORKTREE = "/repo"
-const FILE = ".gtd/REVIEW.md"
-const CONTENT = [
-  "# Review: abc1234",
-  "<!-- base: abc1234def5678901234567890123456789abcd -->",
-  "",
-  "## Chunk",
-  "",
-  "- [ ] ./a.ts#1-1 hunk",
-  "",
-].join("\n")
+const FILE = ".gtd/PLAN.md"
+const CONTENT = ["# Plan", "", "## 🔍 Chunk", "", "- [ ] ./a.ts#1-1 hunk", ""].join("\n")
 
-/** A `qa`-mode fixture with an unfilled free-text slot — the LAST option — used only by the `checked`+`text` combined-write test below. */
-const QA_CONTENT = [
-  "Sample plan.",
+const SELECT_CONTENT = [
+  "# Plan",
   "",
-  "## Open Questions",
-  "",
-  "### Which option?",
+  "## 🔘 Which option?",
   "",
   "- [ ] Option A",
-  "- [ ] _your answer_",
+  "- [ ] ✏️",
   "",
 ].join("\n")
 
@@ -59,8 +46,7 @@ const baseRequest = () => ({
   filePath: FILE,
   expectedHeadSha: "sha1",
   expectedContentHash: contentHashOf(CONTENT),
-  mode: "review",
-  anchor: { kind: "chunk" as const, index: 0 },
+  anchor: { kind: "question" as const, index: 0 },
   text: "a note a human typed",
 })
 
@@ -69,7 +55,6 @@ const baseValueRequest = () => ({
   filePath: FILE,
   expectedHeadSha: "sha1",
   expectedContentHash: contentHashOf(CONTENT),
-  mode: "review",
   anchor: { kind: "hunk" as const, chunkIndex: 0, index: 0 },
   checked: true,
 })
@@ -113,8 +98,9 @@ describe("writeNote", () => {
     const result = await writeNote(baseRequest(), deps)
     expect(deps.writeFile).toHaveBeenCalledTimes(1)
     const [absPath, written] = (deps.writeFile as ReturnType<typeof vi.fn>).mock.calls[0]!
-    expect(absPath).toBe("/repo/.gtd/REVIEW.md")
-    expect(written).toContain("[^na")
+    expect(absPath).toBe("/repo/.gtd/PLAN.md")
+    expect(written).toContain("## 🔍 Chunk[^fn1]")
+    expect(written).toContain("[^fn1]: a note a human typed")
     expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
   })
 
@@ -174,7 +160,7 @@ describe("writeNote", () => {
   })
 
   it("the content hash is over the file's exact bytes, so a whitespace-only change invalidates it", async () => {
-    const withTrailingSpace = CONTENT.replace("## Chunk", "## Chunk ")
+    const withTrailingSpace = CONTENT.replace("## 🔍 Chunk", "## 🔍 Chunk ")
     const deps = fakeDeps({ readFile: vi.fn(() => content(withTrailingSpace)) })
     // `baseRequest()`'s `expectedContentHash` is over the ORIGINAL `CONTENT`
     // bytes — the file on disk now differs by one trailing space only.
@@ -236,17 +222,14 @@ describe("writeNote", () => {
     expect(notResting.reason).not.toBe(stale.reason)
   })
 
-  it("a served file absent at write time (a mode-less file gtd hasn't written yet) is treated as empty, not vanished — the anchor still has to resolve against that empty document", async () => {
+  it("a served file absent at write time is treated as empty, not vanished — the anchor still has to resolve against that empty document", async () => {
     const deps = fakeDeps({ readFile: vi.fn(() => absent()) })
     const request = {
       ...baseRequest(),
-      mode: undefined,
       expectedContentHash: contentHashOf(""),
       anchor: { kind: "paragraph" as const, line: 0 },
     }
-    // An empty document has no block at line 0 for `annotate` to attach a
-    // footnote to — free-form's `anchor-not-found`, never `file-vanished`.
-    // Proves `verifyForWrite` got past the "file exists?" question at all.
+    // An empty document has no block at line 0 to annotate: `anchor-unresolved`, never `file-vanished`.
     expect(await writeNote(request, deps)).toEqual({ ok: false, reason: "anchor-unresolved" })
   })
 
@@ -271,79 +254,9 @@ describe("writeNote", () => {
 
   it("an anchor that no longer resolves is rejected, not silently dropped", async () => {
     const deps = fakeDeps()
-    const request = { ...baseRequest(), anchor: { kind: "chunk" as const, index: 99 } }
+    const request = { ...baseRequest(), anchor: { kind: "question" as const, index: 99 } }
     expect(await writeNote(request, deps)).toEqual({ ok: false, reason: "anchor-unresolved" })
     expect(deps.writeFile).not.toHaveBeenCalled()
-  })
-
-  it("an unregistered mode falls back to free-form, which only resolves a paragraph anchor — a chunk anchor refuses anchor-unresolved, not a distinct unsupported-mode reason", async () => {
-    const deps = fakeDeps()
-    const request = { ...baseRequest(), mode: "not-a-real-mode" }
-    expect(await writeNote(request, deps)).toEqual({ ok: false, reason: "anchor-unresolved" })
-    expect(deps.writeFile).not.toHaveBeenCalled()
-  })
-
-  it("an absent mode falls back to free-form the same way — a paragraph anchor succeeds", async () => {
-    const deps = fakeDeps()
-    const request = {
-      ...baseRequest(),
-      mode: undefined,
-      anchor: { kind: "paragraph" as const, line: 0 },
-    }
-    const result = await writeNote(request, deps)
-    expect(deps.writeFile).toHaveBeenCalledTimes(1)
-    const [, written] = vi.mocked(deps.writeFile).mock.calls[0]!
-    expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
-  })
-
-  it("writing a SECOND note at an anchor that already has one EDITS it in place, rather than refusing (T6: 'offers editing it, not a second note')", async () => {
-    // Attach a note to the chunk anchor for REAL first (via the same
-    // `REVIEW_FORMAT.annotate` `writeNote` itself delegates to), so the
-    // derived id involved is the format's own, never a guessed literal.
-    const firstAttach = REVIEW_FORMAT.annotate(CONTENT, { kind: "chunk", index: 0 }, "first note")
-    expect(firstAttach.ok).toBe(true)
-    if (!firstAttach.ok) return
-    const alreadyNotedContent = applySteeringEdits(CONTENT, firstAttach.edits)
-
-    const deps = fakeDeps({
-      readFile: vi.fn(() => content(alreadyNotedContent)),
-      writeFile: vi.fn(async () => undefined),
-    })
-    const request = {
-      ...baseRequest(),
-      expectedContentHash: contentHashOf(alreadyNotedContent),
-      anchor: { kind: "chunk" as const, index: 0 },
-      text: "edited note",
-    }
-    const result = await writeNote(request, deps)
-    expect(deps.writeFile).toHaveBeenCalledTimes(1)
-    const [, written] = vi.mocked(deps.writeFile).mock.calls[0]!
-    expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
-    expect(written).toContain("edited note")
-    expect(written).not.toContain("first note")
-    // Still exactly one definition — an edit, never a second attach.
-    expect(REVIEW_FORMAT.validate(written)).toEqual([])
-  })
-
-  it("replying to an open thread through the compare-and-swap path appends a `- H:` entry", async () => {
-    const attach = REVIEW_FORMAT.annotate(CONTENT, { kind: "chunk", index: 0 }, "first note")
-    expect(attach.ok).toBe(true)
-    if (!attach.ok) return
-    const noted = applySteeringEdits(CONTENT, attach.edits)
-    // The agent answered: the thread is now waiting on the human.
-    const open = noted.replace(/\n*$/, "\n    - A: which file?\n")
-    const deps = fakeDeps({
-      readFile: vi.fn(() => content(open)),
-      writeFile: vi.fn(async () => undefined),
-    })
-    const result = await writeNote(
-      { ...baseRequest(), expectedContentHash: contentHashOf(open), text: "the first one" },
-      deps,
-    )
-    const [, written] = vi.mocked(deps.writeFile).mock.calls[0]!
-    expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
-    expect(written).toContain("    - A: which file?\n    - H: the first one")
-    expect(REVIEW_FORMAT.validate(written)).toEqual([])
   })
 
   it("no refusal path leaves a partially written file — writeFile is only ever called on a full success", async () => {
@@ -379,7 +292,7 @@ describe("writeNote", () => {
     const requestA = {
       ...baseRequest(),
       expectedContentHash: storedHash,
-      anchor: { kind: "chunk" as const, index: 0 },
+      anchor: { kind: "question" as const, index: 0 },
     }
     const requestB = {
       ...baseRequest(),
@@ -405,28 +318,25 @@ describe("writeValue", () => {
     const result = await writeValue(baseValueRequest(), deps)
     expect(deps.writeFile).toHaveBeenCalledTimes(1)
     const [absPath, written] = (deps.writeFile as ReturnType<typeof vi.fn>).mock.calls[0]!
-    expect(absPath).toBe("/repo/.gtd/REVIEW.md")
+    expect(absPath).toBe("/repo/.gtd/PLAN.md")
     expect(written).toContain("- [x] ./a.ts#1-1 hunk")
     expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
   })
 
-  it("commits checked and text together in ONE call for a qa free-text slot, landing the label change in the written bytes", async () => {
-    const deps = fakeDeps({ readFile: vi.fn(() => content(QA_CONTENT)) })
+  it("commits checked and text together in ONE call for a custom answer, landing the text in the written bytes", async () => {
+    const deps = fakeDeps({ readFile: vi.fn(() => content(SELECT_CONTENT)) })
     const request = {
       worktreePath: WORKTREE,
       filePath: FILE,
       expectedHeadSha: "sha1",
-      expectedContentHash: contentHashOf(QA_CONTENT),
-      mode: "qa",
-      // The free-text slot is always the LAST option (`OpenQuestions.ts`'s
-      // own positional convention) — index 1 here, the second of two.
+      expectedContentHash: contentHashOf(SELECT_CONTENT),
       anchor: { kind: "option" as const, questionIndex: 0, index: 1 },
       checked: true,
       text: "worth flagging",
     }
     const result = await writeValue(request, deps)
     const [, written] = (deps.writeFile as ReturnType<typeof vi.fn>).mock.calls[0]!
-    expect(written).toContain("[x] worth flagging")
+    expect(written).toContain("- [x] ✏️ worth flagging")
     expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
   })
 
@@ -465,19 +375,18 @@ describe("writeValue", () => {
       filePath: FILE,
       expectedHeadSha: "sha1",
       expectedContentHash: contentHashOf(""),
-      mode: undefined,
       anchor: { kind: "paragraph" as const, line: 0 },
       text: "first line ever written",
     }
     const result = await writeValue(request, deps)
     expect(deps.writeFile).toHaveBeenCalledTimes(1)
     const [absPath, written] = vi.mocked(deps.writeFile).mock.calls[0]!
-    expect(absPath).toBe("/repo/.gtd/REVIEW.md")
+    expect(absPath).toBe("/repo/.gtd/PLAN.md")
     expect(written).toContain("first line ever written")
     expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
   })
 
-  it("liveWriteFile creates the containing directory, real on-disk, when a worktree's .gtd/ doesn't exist yet — the exact shape a mode-less file's first write hits", async () => {
+  it("liveWriteFile creates the containing directory, real on-disk, when a worktree's .gtd/ doesn't exist yet — the exact shape a new file's first write hits", async () => {
     const root = mkdtempSync(join(tmpdir(), "gtd-write-mkdir-"))
     try {
       const deps: WriteDeps = {
@@ -492,7 +401,6 @@ describe("writeValue", () => {
         filePath: ".gtd/TODO.md",
         expectedHeadSha: "sha1",
         expectedContentHash: contentHashOf(""),
-        mode: undefined,
         anchor: { kind: "paragraph" as const, line: 0 },
         text: "first line ever written",
       }
@@ -517,140 +425,29 @@ describe("writeValue", () => {
     expect(deps.writeFile).not.toHaveBeenCalled()
   })
 
-  it("an unregistered mode falls back to free-form, which only resolves a paragraph anchor — a hunk anchor refuses anchor-unresolved", async () => {
-    const deps = fakeDeps()
-    const request = { ...baseValueRequest(), mode: "not-a-real-mode" }
-    expect(await writeValue(request, deps)).toEqual({ ok: false, reason: "anchor-unresolved" })
-    expect(deps.writeFile).not.toHaveBeenCalled()
-  })
-
-  it("a chunk anchor ticks every hunk beneath it in one write", async () => {
-    const nestedContent = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Chunk",
-      "",
-      "- [ ] ./a.ts#1-1 outer hunk",
-      "  - [ ] ./b.ts#2-2 nested hunk",
-      "",
-    ].join("\n")
-    const deps = fakeDeps({ readFile: vi.fn(() => content(nestedContent)) })
+  it("a question anchor on a review checklist ticks every hunk in one write", async () => {
+    const twoHunks = `${CONTENT}- [ ] ./b.ts#2-2 other hunk\n`
+    const deps = fakeDeps({ readFile: vi.fn(() => content(twoHunks)) })
     const request = {
       ...baseValueRequest(),
-      expectedContentHash: contentHashOf(nestedContent),
-      anchor: { kind: "chunk" as const, index: 0 },
-      checked: true,
+      expectedContentHash: contentHashOf(twoHunks),
+      anchor: { kind: "question" as const, index: 0 },
     }
     const result = await writeValue(request, deps)
     const [, written] = vi.mocked(deps.writeFile).mock.calls[0]!
-    expect(written).toContain("- [x] ./a.ts#1-1 outer hunk")
-    expect(written).toContain("- [x] ./b.ts#2-2 nested hunk")
-    expect(REVIEW_FORMAT.validate(written)).toEqual([])
+    expect(written).toContain("- [x] ./a.ts#1-1 hunk\n- [x] ./b.ts#2-2 other hunk")
+    expect(widgetFormat.validate(written)).toEqual([])
     expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
   })
-})
 
-describe("writeValue — ui.format's post-write formatCommand", () => {
-  /** A `deps.formatCommand` fake wired to a mutable in-memory "disk" — `stored` starts as whatever `writeFile` last wrote, and `formatCommand` mutates it to simulate a formatter rewriting the file in place. */
-  const withFormatter = (
-    onFormat: (current: string) => string,
-    outcome: { readonly ok: boolean; readonly exitCode: number | null },
-  ): { readonly deps: WriteDeps; readonly diskAfter: () => string } => {
-    let stored = CONTENT
-    const deps: WriteDeps = {
-      headSha: async () => "sha1",
-      actorAt: async () => "human",
-      readFile: async () => content(stored),
-      writeFile: async (_path, content) => {
-        stored = content
-      },
-      formatCommand: async () => {
-        stored = onFormat(stored)
-        return { ok: outcome.ok, command: "npx oxfmt --write x", exitCode: outcome.exitCode }
-      },
-    }
-    return { deps, diskAfter: () => stored }
-  }
-
-  it("runs formatCommand AFTER writeFile and BEFORE the mutation resolves, and the resolved contentHash reflects the post-format bytes on disk, not the pre-format ones", async () => {
-    const { deps, diskAfter } = withFormatter((current) => `${current}<!-- formatted -->\n`, {
-      ok: true,
-      exitCode: 0,
-    })
-    const request = { ...baseValueRequest(), expectedContentHash: contentHashOf(CONTENT) }
+  it("writes the file in its canonical form, refilling a long paragraph to 80 columns, and returns that form's hash", async () => {
+    const long = `${"word ".repeat(30).trim()}\n\n${CONTENT}`
+    const deps = fakeDeps({ readFile: vi.fn(() => content(long)) })
+    const request = { ...baseValueRequest(), expectedContentHash: contentHashOf(long) }
     const result = await writeValue(request, deps)
-    const onDisk = diskAfter()
-    expect(onDisk).toContain("<!-- formatted -->")
-    expect(result).toEqual({ ok: true, contentHash: contentHashOf(onDisk) })
-  })
-
-  it("finishWrite's post-format re-read is not hardened: an unreadable re-read falls back to hashing nextContent and still returns success", async () => {
-    // The FIRST readFile call is `verifyForWrite`'s own — real content, so the
-    // compare-and-swap passes. The SECOND is `finishWrite`'s post-format
-    // re-read, which comes back unreadable and must fall back to `nextContent`
-    // rather than turn into a refusal after the bytes already landed.
-    let calls = 0
-    const readFile: WriteDeps["readFile"] = async () => {
-      calls += 1
-      return calls === 1 ? { kind: "content", content: CONTENT } : { kind: "unreadable" }
-    }
-    const writeFile = vi.fn<WriteDeps["writeFile"]>(async () => undefined)
-    const deps: WriteDeps = {
-      headSha: async () => "sha1",
-      actorAt: async () => "human",
-      readFile,
-      writeFile,
-      formatCommand: async () => ({ ok: true, command: "npx oxfmt --write x", exitCode: 0 }),
-    }
-    const request = { ...baseValueRequest(), expectedContentHash: contentHashOf(CONTENT) }
-    const result = await writeValue(request, deps)
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    const [, written] = writeFile.mock.calls[0]!
-    expect(result.contentHash).toBe(contentHashOf(written))
-  })
-
-  it("unset ui.format (no formatCommand on deps) spawns no command at all — contentHash is just the pre-format bytes' own hash", async () => {
-    const deps = fakeDeps()
-    const result = await writeValue(baseValueRequest(), deps)
     const [, written] = vi.mocked(deps.writeFile).mock.calls[0]!
+    expect(written.split("\n").every((line) => line.length <= 80)).toBe(true)
+    expect(written).toContain("- [x] ./a.ts#1-1 hunk")
     expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
-  })
-
-  it("a non-zero formatCommand exit leaves the written bytes on disk, resolves ok, and reports a formatNotice naming the command and exit code — never a refusal", async () => {
-    const { deps, diskAfter } = withFormatter((current) => current, { ok: false, exitCode: 1 })
-    const request = { ...baseValueRequest(), expectedContentHash: contentHashOf(CONTENT) }
-    const result = await writeValue(request, deps)
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.formatNotice).toEqual({ command: "npx oxfmt --write x", exitCode: 1 })
-    expect(result.contentHash).toBe(contentHashOf(diskAfter()))
-  })
-
-  it("a missing formatter binary (no exit code at all) surfaces the same formatNotice shape with a null exitCode, never reverting or refusing", async () => {
-    const { deps } = withFormatter((current) => current, { ok: false, exitCode: null })
-    const request = { ...baseValueRequest(), expectedContentHash: contentHashOf(CONTENT) }
-    const result = await writeValue(request, deps)
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.formatNotice).toEqual({ command: "npx oxfmt --write x", exitCode: null })
-  })
-
-  it("a formatCommand that THROWS (defense-in-depth alongside Server.ts#buildFormatCommand's own catch) still resolves ok with a formatNotice, never rejecting the mutation after the bytes already landed", async () => {
-    const deps: WriteDeps = {
-      headSha: async () => "sha1",
-      actorAt: async () => "human",
-      readFile: async () => content(CONTENT),
-      writeFile: async () => {},
-      formatCommand: async () => {
-        throw new Error("boom")
-      },
-    }
-    const request = { ...baseValueRequest(), expectedContentHash: contentHashOf(CONTENT) }
-    const result = await writeValue(request, deps)
-    expect(result.ok).toBe(true)
-    if (!result.ok) return
-    expect(result.formatNotice?.exitCode).toBeNull()
   })
 })

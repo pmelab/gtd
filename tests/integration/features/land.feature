@@ -262,7 +262,7 @@ Feature: gtd land — the one landing verb, actorless
     And the commit count is unchanged
 
   @inmem
-  Scenario: gtd land refuses over 1000 untracked files; gtd check --open-threads does not
+  Scenario: gtd land refuses over 1000 untracked files
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -282,5 +282,3 @@ Feature: gtd land — the one landing verb, actorless
     Then it fails
     And stderr contains "1001 untracked files"
     And the commit count is unchanged
-    When I run gtd with args "check --open-threads"
-    Then the exit code is 0

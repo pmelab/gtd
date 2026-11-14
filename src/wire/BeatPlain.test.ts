@@ -74,22 +74,8 @@ describe("renderBeatPlain", () => {
     expect(plain).not.toContain("You are a careful senior engineer.")
   })
 
-  it("drops the header entirely at kind prompt, emitting bare content — no self-validate command given", () => {
+  it("drops the header entirely at kind prompt, emitting bare content", () => {
     expect(renderBeatPlain(documentFor("prompt", "fix the bug"))).toBe("fix the bug\n")
-  })
-
-  it("at kind prompt, appends the self-validation instruction when a command is given", () => {
-    const document = documentFor("prompt", "fix the bug", { file: "TODO.md", mode: "qa" })
-    expect(renderBeatPlain(document, "gtd check qa 'TODO.md'")).toBe(
-      "fix the bug\n\nBefore finishing your turn, run `gtd check qa 'TODO.md'` — it checks " +
-        "TODO.md — and fix every violation it reports until it exits cleanly. Do not finish " +
-        "while it still reports violations.\n",
-    )
-  })
-
-  it("is byte-identical to a bare prompt render when no self-validate command is given", () => {
-    const document = documentFor("prompt", "fix the bug")
-    expect(renderBeatPlain(document)).toBe(renderBeatPlain(document, undefined))
   })
 
   it("plain output at kind prompt is byte-identical whether or not the machine declares system:", () => {

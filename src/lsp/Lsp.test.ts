@@ -41,44 +41,48 @@ import {
   TextDocumentSyncKind,
   type Diagnostic,
 } from "vscode-languageserver/node"
-import { steeringFormatFor, widgetFormat } from "../steering/index.js"
+import { widgetFormat } from "../steering/index.js"
 
-const QA_FORMAT = steeringFormatFor("qa")!
-const REVIEW_FORMAT = steeringFormatFor("review")!
+const PLAN_DOC = ["# Plan", "", "## 🔘 Which API?", "", "- [ ] REST", "- [ ] GraphQL", ""].join(
+  "\n",
+)
+/** A review checklist whose one hunk pointer sits on line 4, from column 6. */
+const REVIEW_DOC = ["# Review", "", "## 🔍 Chunk", "", "- [ ] ./src/a.ts#1", ""].join("\n")
+/** A footnote marker on line 2 (columns 8–13) whose definition is on line 8. */
+const FOOTNOTE_DOC = [
+  "# Review",
+  "",
+  "Context.[^fn1]",
+  "",
+  "## 🔍 Chunk",
+  "",
+  "- [ ] ./src/a.ts#1",
+  "",
+  "[^fn1]: the reason",
+  "",
+].join("\n")
 
 describe("formatForDocument", () => {
-  const rest = (file?: string, mode?: string): CurrentRest => ({ state: "s", file, mode })
+  const rest = (file?: string): CurrentRest => ({ state: "s", file })
 
-  it("gives the rest's own file the built-in format its mode names", () => {
-    expect(formatForDocument("file:///repo/PLAN.md", rest("PLAN.md", "qa"), "/repo")).toBe(
-      QA_FORMAT,
-    )
+  it("gives the rest's own file the widget format", () => {
+    expect(formatForDocument("file:///repo/PLAN.md", rest("PLAN.md"), "/repo")).toBe(widgetFormat)
   })
 
   it("gives no format to any path the rest does not name", () => {
-    const r = rest("PLAN.md", "qa")
-    expect(formatForDocument("file:///repo/.gtd/REVIEW.md", r, "/repo")).toBeUndefined()
+    expect(
+      formatForDocument("file:///repo/.gtd/REVIEW.md", rest("PLAN.md"), "/repo"),
+    ).toBeUndefined()
     expect(formatForDocument("file:///repo/NOTES.md", undefined, "/repo")).toBeUndefined()
-  })
-
-  it("reads a mode-less steering file as widgets, and gives an unknown mode no format", () => {
-    expect(formatForDocument("file:///repo/PLAN.md", rest("PLAN.md"), "/repo")).toBe(widgetFormat)
-    expect(formatForDocument("file:///repo/adr.md", rest("adr.md", "adr"), "/repo")).toBeUndefined()
   })
 })
 
 describe("parseCurrentRest", () => {
-  it("reads state, file and mode off a gtd next --json document, ignoring the rest", () => {
+  it("reads state and file off a gtd next --json document, ignoring the rest", () => {
     expect(
-      parseCurrentRest(
-        '{"schema":1,"kind":"capture","state":"grilling","file":".gtd/TODO.md","mode":"qa"}',
-      ),
-    ).toEqual({ state: "grilling", file: ".gtd/TODO.md", mode: "qa" })
-    expect(parseCurrentRest('{"state":"idle"}')).toEqual({
-      state: "idle",
-      file: undefined,
-      mode: undefined,
-    })
+      parseCurrentRest('{"schema":1,"kind":"capture","state":"grilling","file":".gtd/TODO.md"}'),
+    ).toEqual({ state: "grilling", file: ".gtd/TODO.md" })
+    expect(parseCurrentRest('{"state":"idle"}')).toEqual({ state: "idle", file: undefined })
   })
 
   it("rejects a document with no state", () => {
@@ -138,111 +142,31 @@ describe("toDocumentSymbol", () => {
 })
 
 describe("toCodeAction", () => {
-  it("scopes a SteeringAction's edits to the given uri as a QuickFix", () => {
-    const edit = {
-      range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } },
-      newText: "x",
-    }
-    const action = toCodeAction(
-      "file:///repo/REVIEW.md",
-      "a\n",
-    )({
-      title: "gtd: check this hunk",
-      edits: [edit],
-    })
-    expect(action.title).toBe("gtd: check this hunk")
-    expect(action.edit?.changes?.["file:///repo/REVIEW.md"]).toEqual([edit])
-  })
+  const edit = {
+    range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } },
+    newText: "x",
+  }
 
-  it("every non-footnote action's CodeAction carries no command field at all", () => {
-    const edit = {
-      range: { start: { line: 1, character: 0 }, end: { line: 1, character: 1 } },
-      newText: "x",
-    }
-    const action = toCodeAction(
-      "file:///repo/REVIEW.md",
-      "a\n",
-    )({
-      title: "gtd: check this hunk",
-      edits: [edit],
-    })
+  it("scopes a SteeringAction's edits to the given uri as a QuickFix, with no command", () => {
+    const action = toCodeAction("file:///repo/PLAN.md")({ title: "gtd: tick", edits: [edit] })
+    expect(action.title).toBe("gtd: tick")
+    expect(action.edit?.changes?.["file:///repo/PLAN.md"]).toEqual([edit])
     expect(action.command).toBeUndefined()
-  })
-
-  it("attaches gtd.revealPosition to the footnote action, with content 'a' (no trailing newline) landing on line 1", () => {
-    const markerEdit = {
-      range: { start: { line: 0, character: 1 }, end: { line: 0, character: 1 } },
-      newText: "[^fn1]",
-    }
-    const definitionEdit = {
-      range: { start: { line: 1, character: 0 }, end: { line: 1, character: 0 } },
-      newText: "\n[^fn1]:\n",
-    }
-    const action = toCodeAction(
-      "file:///repo/REVIEW.md",
-      "a",
-    )({
-      title: "gtd: add a footnote",
-      edits: [markerEdit, definitionEdit],
-    })
-    expect(action.command).toEqual({
-      title: "gtd: add a footnote",
-      command: "gtd.revealPosition",
-      arguments: ["file:///repo/REVIEW.md", { line: 1, character: 7 }],
-    })
   })
 
   it("an action with a select reveals at its start and passes its end as a third argument", () => {
     const start = { line: 4, character: 6 }
     const end = { line: 4, character: 19 }
-    const action = toCodeAction(
-      "file:///repo/REVIEW.md",
-      "a",
-    )({ title: "gtd: answer", edits: [], select: { start, end } })
-    expect(action.command?.arguments).toEqual(["file:///repo/REVIEW.md", start, end])
-  })
-
-  it("with content 'a\\n' (a real trailing newline), the reveal position lands on line 2", () => {
-    const markerEdit = {
-      range: { start: { line: 0, character: 1 }, end: { line: 0, character: 1 } },
-      newText: "[^fn1]",
-    }
-    const definitionEdit = {
-      range: { start: { line: 1, character: 0 }, end: { line: 2, character: 0 } },
-      newText: "\n[^fn1]:\n\n",
-    }
-    const action = toCodeAction(
-      "file:///repo/REVIEW.md",
-      "a\n",
-    )({
-      title: "gtd: add a footnote",
-      edits: [markerEdit, definitionEdit],
+    const action = toCodeAction("file:///repo/PLAN.md")({
+      title: "gtd: add an annotation",
+      edits: [],
+      select: { start, end },
     })
-    expect(action.command?.arguments?.[1]).toEqual({ line: 2, character: 7 })
-  })
-
-  it("a footnote action whose edits carry no matching definition edit gains no command, rather than throwing", () => {
-    const edit = {
-      range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
-      newText: "unrelated",
-    }
-    expect(() =>
-      toCodeAction(
-        "file:///repo/REVIEW.md",
-        "a",
-      )({
-        title: "gtd: add a footnote",
-        edits: [edit],
-      }),
-    ).not.toThrow()
-    const action = toCodeAction(
-      "file:///repo/REVIEW.md",
-      "a",
-    )({
-      title: "gtd: add a footnote",
-      edits: [edit],
+    expect(action.command).toEqual({
+      title: "gtd: add an annotation",
+      command: "gtd.revealPosition",
+      arguments: ["file:///repo/PLAN.md", start, end],
     })
-    expect(action.command).toBeUndefined()
   })
 })
 
@@ -286,89 +210,37 @@ describe("toDocumentLink", () => {
 })
 
 describe("documentLinksFor", () => {
-  it("returns one link per hunk pointer for a review-mode document", () => {
-    const content = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Chunk",
-      "",
-      "- [ ] ./src/a.ts#1",
-      "",
-    ].join("\n")
-    const links = documentLinksFor(REVIEW_FORMAT, content, "/repo")
-    expect(links).toEqual([
+  it("returns one link per hunk pointer", () => {
+    expect(documentLinksFor(widgetFormat, REVIEW_DOC, "/repo")).toEqual([
       {
-        range: { start: { line: 5, character: 6 }, end: { line: 5, character: 18 } },
+        range: { start: { line: 4, character: 6 }, end: { line: 4, character: 18 } },
         target: "file:///repo/src/a.ts#L1",
       },
     ])
   })
 
-  it("does not turn a footnote marker inside a hunk's inline note into a document link", () => {
-    const content = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Chunk",
-      "",
-      "- [ ] ./src/a.ts#1 — see docs[^fn1]",
-      "",
-      "[^fn1]: details",
-      "",
-    ].join("\n")
-    const links = documentLinksFor(REVIEW_FORMAT, content, "/repo")
-    // Exactly one link — the pointer token itself, never the `[^fn1]` marker
-    // sitting later in the same note.
-    expect(links).toEqual([
+  it("does not turn a footnote marker inside a hunk's note into a document link", () => {
+    const content = REVIEW_DOC.replace("#1\n", "#1 — see docs[^fn1]\n") + "\n[^fn1]: details\n"
+    expect(documentLinksFor(widgetFormat, content, "/repo")).toEqual([
       {
-        range: { start: { line: 5, character: 6 }, end: { line: 5, character: 18 } },
+        range: { start: { line: 4, character: 6 }, end: { line: 4, character: 18 } },
         target: "file:///repo/src/a.ts#L1",
       },
     ])
   })
 
-  it("a bare pointer with no '#line' lands the link at line 0", () => {
-    const content = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Chunk",
-      "",
-      "- [ ] ./src/a.ts",
-      "",
-    ].join("\n")
-    const links = documentLinksFor(REVIEW_FORMAT, content, "/repo")
-    expect(links).toEqual([
+  it("a '#42-70' range pointer's link targets the START line, covering the whole token", () => {
+    const content = REVIEW_DOC.replace("#1\n", "#42-70\n")
+    expect(documentLinksFor(widgetFormat, content, "/repo")).toEqual([
       {
-        range: { start: { line: 5, character: 6 }, end: { line: 5, character: 16 } },
-        target: "file:///repo/src/a.ts#L1",
-      },
-    ])
-  })
-
-  it("a '#42-70' range pointer's link targets the START line, with a range covering the whole token including the '-70' tail", () => {
-    const content = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Chunk",
-      "",
-      "- [ ] ./src/a.ts#42-70",
-      "",
-    ].join("\n")
-    const links = documentLinksFor(REVIEW_FORMAT, content, "/repo")
-    expect(links).toEqual([
-      {
-        range: { start: { line: 5, character: 6 }, end: { line: 5, character: 22 } },
+        range: { start: { line: 4, character: 6 }, end: { line: 4, character: 22 } },
         target: "file:///repo/src/a.ts#L42",
       },
     ])
   })
 
-  it("returns none for a qa-mode document — qa declares no documentLinks member", () => {
-    const content = ["## Open Questions", "", "### Which API?", "", "- [ ] REST", ""].join("\n")
-    expect(documentLinksFor(QA_FORMAT, content, "/repo")).toEqual([])
+  it("returns none for a document with no review checklist", () => {
+    expect(documentLinksFor(widgetFormat, PLAN_DOC, "/repo")).toEqual([])
   })
 
   it("returns none for a document with no format", () => {
@@ -376,187 +248,45 @@ describe("documentLinksFor", () => {
   })
 })
 
-const messageOf = (d: Diagnostic): string =>
-  typeof d.message === "string" ? d.message : d.message.value
-
-describe("diagnosticsFor open threads", () => {
-  const doc = [
-    "## Open Questions",
-    "",
-    "### Which?",
-    "",
-    "- [ ] A [^t1]",
-    "",
-    "[^t1]:",
-    "    - H: why",
-    "    - A: because",
-    "",
-  ].join("\n")
-
-  it("one Information diagnostic on the last entry", () => {
-    const d = diagnosticsFor(QA_FORMAT, doc)
-    expect(d).toHaveLength(1)
-    expect(d[0]?.severity).toBe(DiagnosticSeverity.Information)
-    expect(d[0]?.range.start.line).toBe(8)
-  })
-
-  it("none while waiting on the agent", () => {
-    expect(diagnosticsFor(QA_FORMAT, doc.replace("    - A: because\n", ""))).toEqual([])
-  })
-
-  it("malformed thread findings stay Warnings", () => {
-    const bad = doc.replace("    - H: why", "    - A: why")
-    const d = diagnosticsFor(QA_FORMAT, bad)
-    expect(d.some((x) => x.severity === DiagnosticSeverity.Warning)).toBe(true)
-  })
-})
-
-describe("toCodeAction reply reveal", () => {
-  it("lands the cursor right after '- H: '", () => {
-    const action = toCodeAction(
-      "file:///x.md",
-      "a\nb",
-    )({
-      title: "gtd: reply",
-      edits: [
-        {
-          range: { start: { line: 5, character: 9 }, end: { line: 5, character: 9 } },
-          newText: "\r\n    - H: ",
-        },
-      ],
-    })
-    expect(action.command?.arguments).toEqual(["file:///x.md", { line: 6, character: 9 }])
-  })
-})
-
 describe("diagnosticsFor", () => {
-  it("publishes a built-in format's own validate findings", () => {
-    const malformed = ["## Open Questions", "", "###", "", "no question text.", ""].join("\n")
-    const diagnostics = diagnosticsFor(QA_FORMAT, malformed)
-    expect(diagnostics).toHaveLength(1)
-    expect(diagnostics[0]?.message).toContain("has no question text")
-    expect(diagnostics[0]?.severity).toBe(2) // DiagnosticSeverity.Warning
+  it("publishes the format's findings as Warnings on the widget's line", () => {
+    const diagnostics = diagnosticsFor(widgetFormat, REVIEW_DOC)
+    expect(diagnostics).toEqual([
+      {
+        range: { start: { line: 2, character: 0 }, end: { line: 2, character: 11 } },
+        message: '"Chunk": tick every hunk (1 unticked), or add an annotation to send it back',
+        severity: DiagnosticSeverity.Warning,
+        source: "gtd",
+      },
+    ])
   })
 
   it("publishes nothing for a document with no format", () => {
     expect(diagnosticsFor(undefined, "anything")).toEqual([])
   })
-
-  it("underlines exactly the second pointer token for a positioned review finding, not the whole line", () => {
-    const content = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Add thing.ts",
-      "",
-      "- [ ] ./src/thing.ts#1-1 — ./src/other.ts#2",
-      "",
-    ].join("\n")
-    const diagnostics = diagnosticsFor(REVIEW_FORMAT, content)
-    expect(diagnostics).toHaveLength(1)
-    expect(diagnostics[0]?.message).toContain("starts with a second pointer")
-    // The finding's own range (the second pointer token, `./src/other.ts#2`)
-    // hands straight through — never re-derived as the whole line.
-    expect(diagnostics[0]?.range).toEqual({
-      start: { line: 5, character: 27 },
-      end: { line: 5, character: 43 },
-    })
-  })
-
-  it("underlines the offending heading, not the whole document, for a section-order finding", () => {
-    const content = [
-      "## Answered Questions",
-      "",
-      "### Already resolved?",
-      "",
-      "Yes.",
-      "",
-      "## Notes",
-      "",
-      "some notes.",
-      "",
-    ].join("\n")
-    const diagnostics = diagnosticsFor(QA_FORMAT, content)
-    const ordering = diagnostics.find((d) => messageOf(d).includes("must come last"))
-    expect(ordering?.range).toEqual({
-      start: { line: 6, character: 0 },
-      end: { line: 6, character: "## Notes".length },
-    })
-  })
-
-  it("underlines the wrong first block node for a missing-header finding, when the document has one", () => {
-    const content = [
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Add thing.ts",
-      "",
-      "- [ ] ./src/thing.ts#1",
-      "",
-    ].join("\n")
-    const diagnostics = diagnosticsFor(REVIEW_FORMAT, content)
-    const headerFinding = diagnostics.find((d) => messageOf(d).includes("# Review: <hash>"))
-    expect(headerFinding?.range).toEqual({
-      start: { line: 0, character: 0 },
-      end: { line: 0, character: "<!-- base: abc1234def5678901234567890123456789abcd -->".length },
-    })
-  })
-
-  it("spans the whole document for a genuinely positionless finding (a missing base comment)", () => {
-    const content = [
-      "# Review: abc1234",
-      "",
-      "## Add thing.ts",
-      "",
-      "- [ ] ./src/thing.ts#1",
-      "",
-    ].join("\n")
-    const lines = content.split("\n")
-    const diagnostics = diagnosticsFor(REVIEW_FORMAT, content)
-    const baseFinding = diagnostics.find((d) => messageOf(d).includes("base: <hash>"))
-    expect(baseFinding?.range).toEqual({
-      start: { line: 0, character: 0 },
-      end: { line: lines.length - 1, character: lines[lines.length - 1]!.length },
-    })
-  })
 })
 
 const fakeEnv = (overrides: Partial<LspEnv> = {}): LspEnv => ({
-  currentRest: async () => ({ state: "idle", file: undefined, mode: undefined }),
+  currentRest: async () => ({ state: "idle", file: undefined }),
   gitTopLevel: async () => undefined,
   cwd: "/cwd",
   ...overrides,
 })
 
-/** A repository at `/repo` resting on a step that declares `file`/`mode`. */
-const mapped = (file: string, mode: string): Partial<LspEnv> => ({
-  currentRest: async () => ({ state: "working", file, mode }),
+/** A repository at `/repo` resting on a step that declares `file`. */
+const mapped = (file: string): Partial<LspEnv> => ({
+  currentRest: async () => ({ state: "working", file }),
   gitTopLevel: async () => "/repo",
 })
 
 describe("makeSteeringLanguageService", () => {
-  const questionsDoc = ["## Open Questions", "", "### Which API?", "", "- [ ] REST", ""].join("\n")
-  const reviewDoc = [
-    "# Review: abc1234",
-    "<!-- base: abc1234def5678901234567890123456789abcd -->",
-    "",
-    "## Chunk",
-    "",
-    "- [ ] ./src/a.ts#1",
-    "",
-  ].join("\n")
-
   it("returns outline symbols for a mapped document, and none for an unmapped one", async () => {
-    const env = fakeEnv({ ...mapped("PLAN.md", "qa") })
+    const env = fakeEnv({ ...mapped("PLAN.md") })
     const service = makeSteeringLanguageService(env, () => {})
-    const symbols = await service.documentSymbol("file:///repo/PLAN.md", questionsDoc)
+    const symbols = await service.documentSymbol("file:///repo/PLAN.md", PLAN_DOC)
     expect(symbols.length).toBeGreaterThan(0)
-    const unmapped = await service.documentSymbol("file:///repo/OTHER.md", questionsDoc)
+    const unmapped = await service.documentSymbol("file:///repo/OTHER.md", PLAN_DOC)
     expect(unmapped).toEqual([])
-  })
-
-  it("gives a REVIEW.md no rest names no format", async () => {
-    const service = makeSteeringLanguageService(fakeEnv(), () => {})
-    expect(await service.documentSymbol("file:///repo/REVIEW.md", reviewDoc)).toEqual([])
   })
 
   it("initialize records the workspace root and advertises the server's capabilities", () => {
@@ -577,25 +307,25 @@ describe("makeSteeringLanguageService", () => {
   })
 
   it("codeAction maps a mapped document's actions, and returns none for an unmapped one", async () => {
-    const env = fakeEnv({ ...mapped("REVIEW.md", "review") })
+    const env = fakeEnv({ ...mapped("REVIEW.md") })
     const service = makeSteeringLanguageService(env, () => {})
-    const range = { start: { line: 5, character: 0 }, end: { line: 5, character: 0 } }
-    const actions = await service.codeAction("file:///repo/REVIEW.md", reviewDoc, range)
+    const range = { start: { line: 4, character: 0 }, end: { line: 4, character: 0 } }
+    const actions = await service.codeAction("file:///repo/REVIEW.md", REVIEW_DOC, range)
     expect(actions.length).toBeGreaterThan(0)
     expect(actions[0]?.edit?.changes?.["file:///repo/REVIEW.md"]).toBeDefined()
-    const unmapped = await service.codeAction("file:///repo/OTHER.md", reviewDoc, range)
+    const unmapped = await service.codeAction("file:///repo/OTHER.md", REVIEW_DOC, range)
     expect(unmapped).toEqual([])
   })
 
   it("definition swallows a rejecting gitTopLevel and falls back to the workspace root", async () => {
     const env = fakeEnv({
-      ...mapped("REVIEW.md", "review"),
+      ...mapped("REVIEW.md"),
       gitTopLevel: () => Promise.reject(new Error("not a git repo")),
     })
     const service = makeSteeringLanguageService(env, () => {})
     service.initialize({ rootUri: "file:///repo", capabilities: {} } as never)
-    const locations = await service.definition("file:///repo/REVIEW.md", reviewDoc, {
-      line: 5,
+    const locations = await service.definition("file:///repo/REVIEW.md", REVIEW_DOC, {
+      line: 4,
       character: 0,
     })
     expect(locations).toEqual([{ uri: "file:///repo/src/a.ts", range: expect.anything() }])
@@ -603,12 +333,12 @@ describe("makeSteeringLanguageService", () => {
 
   it("definition returns nothing when neither gitTopLevel nor the workspace root resolves", async () => {
     const env = fakeEnv({
-      ...mapped("REVIEW.md", "review"),
+      ...mapped("REVIEW.md"),
       gitTopLevel: async () => undefined,
     })
     const service = makeSteeringLanguageService(env, () => {})
-    const locations = await service.definition("file:///repo/REVIEW.md", reviewDoc, {
-      line: 5,
+    const locations = await service.definition("file:///repo/REVIEW.md", REVIEW_DOC, {
+      line: 4,
       character: 0,
     })
     expect(locations).toEqual([])
@@ -616,12 +346,12 @@ describe("makeSteeringLanguageService", () => {
 
   it("definition resolves through gitTopLevel when it succeeds", async () => {
     const env = fakeEnv({
-      ...mapped("REVIEW.md", "review"),
+      ...mapped("REVIEW.md"),
       gitTopLevel: async () => "/repo",
     })
     const service = makeSteeringLanguageService(env, () => {})
-    const locations = await service.definition("file:///repo/REVIEW.md", reviewDoc, {
-      line: 5,
+    const locations = await service.definition("file:///repo/REVIEW.md", REVIEW_DOC, {
+      line: 4,
       character: 0,
     })
     expect(locations).toEqual([{ uri: "file:///repo/src/a.ts", range: expect.anything() }])
@@ -629,21 +359,13 @@ describe("makeSteeringLanguageService", () => {
 
   it("definition on a '#42-70' range pointer jumps to the START line, 0-based", async () => {
     const env = fakeEnv({
-      ...mapped("REVIEW.md", "review"),
+      ...mapped("REVIEW.md"),
       gitTopLevel: async () => "/repo",
     })
     const service = makeSteeringLanguageService(env, () => {})
-    const rangeDoc = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Chunk",
-      "",
-      "- [ ] ./src/a.ts#42-70",
-      "",
-    ].join("\n")
+    const rangeDoc = REVIEW_DOC.replace("#1\n", "#42-70\n")
     const locations = await service.definition("file:///repo/REVIEW.md", rangeDoc, {
-      line: 5,
+      line: 4,
       character: 0,
     })
     expect(locations).toEqual([
@@ -656,30 +378,19 @@ describe("makeSteeringLanguageService", () => {
 
   it("definition on a footnote marker jumps within the SAME document, asking gitTopLevel only to dispatch the format", async () => {
     const gitTopLevel = vi.fn(async () => "/repo")
-    const footnoteDoc = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Chunk",
-      "",
-      "- [ ] ./src/a.ts#1[^fn1]",
-      "",
-      "[^fn1]: the reason",
-      "",
-    ].join("\n")
     const env = fakeEnv({
-      ...mapped("REVIEW.md", "review"),
+      ...mapped("REVIEW.md"),
       gitTopLevel,
     })
     const service = makeSteeringLanguageService(env, () => {})
-    const locations = await service.definition("file:///repo/REVIEW.md", footnoteDoc, {
-      line: 5,
-      character: 19, // inside "[^fn1]"
+    const locations = await service.definition("file:///repo/REVIEW.md", FOOTNOTE_DOC, {
+      line: 2,
+      character: 10, // inside "[^fn1]"
     })
     expect(locations).toEqual([
       {
         uri: "file:///repo/REVIEW.md",
-        range: { start: { line: 7, character: 0 }, end: { line: 7, character: 0 } },
+        range: { start: { line: 8, character: 0 }, end: { line: 8, character: 0 } },
       },
     ])
     expect(gitTopLevel).toHaveBeenCalledTimes(1)
@@ -687,70 +398,41 @@ describe("makeSteeringLanguageService", () => {
 
   it("definition on a footnote definition line jumps to its first marker's line AND exact (non-zero) column, within the SAME document", async () => {
     const gitTopLevel = vi.fn(async () => "/repo")
-    const footnoteDoc = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Chunk",
-      "",
-      "- [ ] ./src/a.ts#1[^fn1]",
-      "",
-      "[^fn1]: the reason",
-      "",
-    ].join("\n")
     const env = fakeEnv({
-      ...mapped("REVIEW.md", "review"),
+      ...mapped("REVIEW.md"),
       gitTopLevel,
     })
     const service = makeSteeringLanguageService(env, () => {})
-    const locations = await service.definition("file:///repo/REVIEW.md", footnoteDoc, {
-      line: 7,
+    const locations = await service.definition("file:///repo/REVIEW.md", FOOTNOTE_DOC, {
+      line: 8,
       character: 0,
     })
     expect(locations).toEqual([
       {
         uri: "file:///repo/REVIEW.md",
-        range: { start: { line: 5, character: 18 }, end: { line: 5, character: 18 } },
+        range: { start: { line: 2, character: 8 }, end: { line: 2, character: 8 } },
       },
     ])
     expect(gitTopLevel).toHaveBeenCalledTimes(1)
   })
 
   it("definition on an orphan marker (no matching definition) returns [], never throwing", async () => {
-    const env = fakeEnv({ ...mapped("REVIEW.md", "review") })
+    const env = fakeEnv({ ...mapped("REVIEW.md") })
     const service = makeSteeringLanguageService(env, () => {})
-    const orphanDoc = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Chunk",
-      "",
-      "- [ ] ./src/a.ts#1 orphan marker[^missing]",
-      "",
-    ].join("\n")
+    const orphanDoc = FOOTNOTE_DOC.replace("[^fn1]: the reason\n", "").replace("fn1", "missing")
     const locations = await service.definition("file:///repo/REVIEW.md", orphanDoc, {
-      line: 5,
-      character: 34, // inside "[^missing]"
+      line: 2,
+      character: 10, // inside "[^missing]"
     })
     expect(locations).toEqual([])
   })
 
   it("definition on an orphan definition (no marker references it) returns [], never throwing", async () => {
-    const env = fakeEnv({ ...mapped("REVIEW.md", "review") })
+    const env = fakeEnv({ ...mapped("REVIEW.md") })
     const service = makeSteeringLanguageService(env, () => {})
-    const orphanDoc = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Chunk",
-      "",
-      "- [ ] ./src/a.ts#1",
-      "",
-      "[^missing]: nobody points here",
-      "",
-    ].join("\n")
+    const orphanDoc = `${REVIEW_DOC}\n[^missing]: nobody points here\n`
     const locations = await service.definition("file:///repo/REVIEW.md", orphanDoc, {
-      line: 7,
+      line: 6,
       character: 0,
     })
     expect(locations).toEqual([])
@@ -758,35 +440,25 @@ describe("makeSteeringLanguageService", () => {
 
   it("documentLink resolves each hunk pointer to a link covering exactly the token, resolved against gitTopLevel", async () => {
     const env = fakeEnv({
-      ...mapped("REVIEW.md", "review"),
+      ...mapped("REVIEW.md"),
       gitTopLevel: async () => "/repo",
     })
     const service = makeSteeringLanguageService(env, () => {})
-    const links = await service.documentLink("file:///repo/REVIEW.md", reviewDoc)
+    const links = await service.documentLink("file:///repo/REVIEW.md", REVIEW_DOC)
     expect(links).toHaveLength(1)
     expect(links[0]).toEqual({
-      range: { start: { line: 5, character: 6 }, end: { line: 5, character: 18 } },
+      range: { start: { line: 4, character: 6 }, end: { line: 4, character: 18 } },
       target: "file:///repo/src/a.ts#L1",
     })
   })
 
-  it("documentLink returns none for a qa-mode document — qa declares no documentLinks member", async () => {
-    const env = fakeEnv({
-      ...mapped("PLAN.md", "qa"),
-      gitTopLevel: async () => "/repo",
-    })
-    const service = makeSteeringLanguageService(env, () => {})
-    const links = await service.documentLink("file:///repo/PLAN.md", questionsDoc)
-    expect(links).toEqual([])
-  })
-
   it("documentLink returns none when neither gitTopLevel nor the workspace root resolves", async () => {
     const env = fakeEnv({
-      ...mapped("REVIEW.md", "review"),
+      ...mapped("REVIEW.md"),
       gitTopLevel: async () => undefined,
     })
     const service = makeSteeringLanguageService(env, () => {})
-    const links = await service.documentLink("file:///repo/REVIEW.md", reviewDoc)
+    const links = await service.documentLink("file:///repo/REVIEW.md", REVIEW_DOC)
     expect(links).toEqual([])
   })
 
@@ -797,8 +469,8 @@ describe("makeSteeringLanguageService", () => {
       currentRest: () => Promise.reject(new Error("no commits yet")),
     })
     const service = makeSteeringLanguageService(env, (m) => warnings.push(m))
-    expect(await service.documentSymbol("file:///repo/PLAN.md", questionsDoc)).toEqual([])
-    expect(await service.documentSymbol("file:///repo/REVIEW.md", reviewDoc)).toEqual([])
+    expect(await service.documentSymbol("file:///repo/PLAN.md", PLAN_DOC)).toEqual([])
+    expect(await service.documentSymbol("file:///repo/REVIEW.md", REVIEW_DOC)).toEqual([])
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain("no commits yet")
   })
@@ -809,12 +481,12 @@ describe("makeSteeringLanguageService", () => {
       gitTopLevel: async (dir) => (dir.startsWith("/untrusted") ? "/untrusted" : "/repo"),
       currentRest: async (root) => {
         roots.push(root)
-        return { state: "working", file: "PLAN.md", mode: "qa" }
+        return { state: "working", file: "PLAN.md" }
       },
     })
     const service = makeSteeringLanguageService(env, () => {})
     service.initialize({ rootUri: "file:///repo", capabilities: {} } as never)
-    expect(await service.documentSymbol("file:///untrusted/PLAN.md", questionsDoc)).toEqual([])
+    expect(await service.documentSymbol("file:///untrusted/PLAN.md", PLAN_DOC)).toEqual([])
     expect(roots).toEqual([])
   })
 
@@ -824,12 +496,12 @@ describe("makeSteeringLanguageService", () => {
       gitTopLevel: async () => "/repo",
       currentRest: async (root) => {
         roots.push(root)
-        return { state: "working", file: "PLAN.md", mode: "qa" }
+        return { state: "working", file: "PLAN.md" }
       },
     })
     const service = makeSteeringLanguageService(env, () => {})
     service.initialize({ rootUri: "file:///repo/packages/app", capabilities: {} } as never)
-    expect(await service.documentSymbol("file:///repo/PLAN.md", questionsDoc)).not.toEqual([])
+    expect(await service.documentSymbol("file:///repo/PLAN.md", PLAN_DOC)).not.toEqual([])
     expect(roots).toEqual(["/repo"])
   })
 
@@ -842,7 +514,7 @@ describe("makeSteeringLanguageService", () => {
     it("resolves to 'show' when the current state has a file, and 'inform' when it doesn't", async () => {
       const withFile = makeSteeringLanguageService(
         fakeEnv({
-          currentRest: async () => ({ state: "grilling", file: ".gtd/TODO.md", mode: "qa" }),
+          currentRest: async () => ({ state: "grilling", file: ".gtd/TODO.md" }),
         }),
         () => {},
       )
@@ -865,7 +537,7 @@ describe("makeSteeringLanguageService", () => {
           gitTopLevel: async () => "/repo",
           currentRest: async (root) => {
             roots.push(root)
-            return { state: "grilling", file: ".gtd/TODO.md", mode: "qa" }
+            return { state: "grilling", file: ".gtd/TODO.md" }
           },
         }),
         () => {},
@@ -1172,7 +844,7 @@ describe("makeLspEnv over nodeLspIo", () => {
       [
         "#!/bin/sh",
         `echo "$@" >> '${calls}'`,
-        `echo '{"schema":1,"state":"working","file":".gtd/PLAN.md","mode":"qa"}'`,
+        `echo '{"schema":1,"state":"working","file":".gtd/PLAN.md"}'`,
       ].join("\n"),
     )
     chmodSync(join(bin, "gtd"), 0o755)
@@ -1194,11 +866,7 @@ describe("makeLspEnv over nodeLspIo", () => {
     const link = join(bin, "link")
     symlinkSync(dir, link)
     expect(await env.gitTopLevel(join(link, "sub"))).toBe(link)
-    expect(await env.currentRest(dir)).toEqual({
-      state: "working",
-      file: ".gtd/PLAN.md",
-      mode: "qa",
-    })
+    expect(await env.currentRest(dir)).toEqual({ state: "working", file: ".gtd/PLAN.md" })
     expect(readFileSync(calls, "utf8")).toBe("next --json\n")
   })
 

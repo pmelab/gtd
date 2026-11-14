@@ -22,28 +22,16 @@ import {
   shellQuote,
   softResetTo,
   updateRef,
-  binaryGuard,
   failurePromptWrapper,
-  fileExistsGuard,
   PRESENTATION_FAILURE_WARNING,
   PRESENTATION_ONLY_COMMENT,
-  buildModeContradictionCheck,
-  contradictionMessage,
-  modeContradictionSkipNotice,
   OUTCOME_MARKER,
   pinScript,
   failRestScript,
   repinScript,
   unpinScript,
 } from "../emit/index.js"
-import {
-  BUILT_IN_MODE_NAMES,
-  formatFinding,
-  formatFromSpec,
-  serialize,
-  steeringFormatFor,
-  type SteeringFormat,
-} from "../steering/internal.js"
+import { serialize } from "../steering/internal.js"
 import { refNameFault } from "../replay/index.js"
 import { PIN_PATH, renderFormat } from "../wire/index.js"
 import { applyFlowScript, rewritten } from "./FlowScripts.js"
@@ -95,9 +83,6 @@ const extractQuotedTokens = (text: string): string[] => {
   }
   return tokens
 }
-
-/** What the in-memory tier prints for `$PATH` — there is none to name. */
-const IN_MEMORY_PATH = "(in-memory: no PATH)"
 
 type BlockOutcome =
   | { readonly kind: "noop"; readonly output?: string }
@@ -375,28 +360,6 @@ const recognizePinScripts = (repo: InMemRepo, block: string): BlockOutcome | und
   return undefined
 }
 
-/** The REAL `fileExistsGuard` block, re-derived from the extracted path and string-compared. The one recognizer that can report `{ kind: "stopped" }`: a real `exit 0` there ends the script successfully. */
-const recognizeFileExistsGuard = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
-  const [file] = extractQuotedTokens(block)
-  if (file === undefined || fileExistsGuard(file) !== block) return undefined
-  return repo.readFile(file) !== undefined ? { kind: "noop" } : { kind: "stopped" }
-}
-
-/** `binaryGuard`. The in-memory tier has no `$PATH`: a binary is present unless declared `missing`. */
-const BINARY_GUARD_MESSAGE_RE = /^gtd: mode "([^"]+)": "(format|validate)" command not found: (.+)$/
-
-const recognizeBinaryGuard = (commands: CommandTable, block: string): BlockOutcome | undefined => {
-  const [binary, , message] = extractQuotedTokens(block)
-  if (binary === undefined || message === undefined) return undefined
-  const match = BINARY_GUARD_MESSAGE_RE.exec(message)
-  if (!match) return undefined
-  const [, mode, key, messageBinary] = match
-  if (messageBinary !== binary) return undefined
-  if (binaryGuard(binary, mode!, key as "format" | "validate") !== block) return undefined
-  if (commands.get(binary)?.kind !== "missing") return { kind: "noop" }
-  return { kind: "failed", error: `${message}\n$PATH: ${IN_MEMORY_PATH}`, status: 127 }
-}
-
 /** Recognized by `OUTCOME_MARKER` rather than re-derived and string-compared: an outcome only prints, so no git effect a loose match could miss — unlike `recognizeGitBuilders`, where a near-miss would silently skip a real mutation. */
 const recognizeOutcome = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
   if (!block.startsWith(`${OUTCOME_MARKER}\nprintf `)) return undefined
@@ -416,52 +379,6 @@ const shellWords = (repo: InMemRepo, text: string): string[] =>
     const hash = repo.resolveRef(m[3]!) ?? ""
     return m[2] === "rev-parse --short" ? hash.slice(0, 7) : (repo.lastCommitSubject(hash) ?? "")
   })
-
-/**
- * `failurePromptWrapper`. The constants below bracket the template's one
- * variable part; the extracted pair is confirmed by RE-RUNNING the real
- * builder and string-comparing. On a failing inner outcome it prefixes the
- * prompt onto the error — the fake's stand-in for what the real wrapper
- * prints before exiting non-zero.
- */
-const FILE_VAR_PREFIX_RE = /^export GTD_FILE=('(?:[^']|'\\'')*')\n/
-
-/** The command after `withFileVar`'s `export GTD_FILE=…` line, `$GTD_FILE` expanded the way the shell would. */
-const expandFileVar = (text: string): string | undefined => {
-  const match = FILE_VAR_PREFIX_RE.exec(text)
-  if (match === null) return undefined
-  const [file] = extractQuotedTokens(match[1]!)
-  if (file === undefined) return undefined
-  return text
-    .slice(match[0].length)
-    .replace(/"\$GTD_FILE"|"\$\{GTD_FILE\}"/g, shellQuote(file))
-    .replace(/\$\{GTD_FILE\}|\$GTD_FILE\b/g, file)
-}
-
-/**
- * A mode's `format:`/`validate:` command, under `withFileVar` or not:
- * `gtd check`, or a scripted command — keyed by the command as expanded, or
- * as written in the config (`fmt $GTD_FILE`), which is the only key a command
- * run on a scratch path can have.
- */
-const recognizeModeCommand = (
-  repo: InMemRepo,
-  commands: CommandTable,
-  block: string,
-): BlockOutcome | undefined => {
-  const command = expandFileVar(block) ?? block
-  const exact =
-    recognizeGtdCheck(repo, command) ?? recognizeScriptedCommand(repo, commands, command)
-  if (exact !== undefined) return exact
-  const match = FILE_VAR_PREFIX_RE.exec(block)
-  if (match === null) return undefined
-  const scripted = commands.get(block.slice(match[0].length))
-  const [file] = extractQuotedTokens(match[1]!)
-  if (scripted === undefined || file === undefined) return undefined
-  const bound =
-    scripted.kind === "rewrite" && scripted.file === "$GTD_FILE" ? { ...scripted, file } : scripted
-  return recognizeScriptedCommand(repo, new Map([[command, bound]]), command)
-}
 
 const FAIL_REST_MIDDLE = '\n} 2>&1 )" || gtd_run_status=$?\n'
 
@@ -492,6 +409,13 @@ const recognizeFailRest = (
   return { kind: "noop", output: result.output }
 }
 
+/**
+ * `failurePromptWrapper`. The constants below bracket the template's one
+ * variable part; the extracted pair is confirmed by RE-RUNNING the real
+ * builder and string-comparing. On a failing inner outcome it prefixes the
+ * prompt onto the error — the fake's stand-in for what the real wrapper
+ * prints before exiting non-zero.
+ */
 const FAILURE_PROMPT_HEADER = 'gtd_validate_status=0\ngtd_validate_out="$( {\n'
 const FAILURE_PROMPT_MIDDLE =
   '\n} 2>&1 )" || gtd_validate_status=$?\n' +
@@ -518,7 +442,7 @@ const recognizeFailurePromptWrapper = (
   const [prompt] = extractQuotedTokens(promptQuoted)
   if (prompt === undefined || failurePromptWrapper(inner, prompt) !== block) return undefined
 
-  const innerOutcome = recognizeModeCommand(repo, commands, inner)
+  const innerOutcome = recognizeScriptedCommand(repo, commands, inner)
   if (innerOutcome === undefined) return undefined
   if (innerOutcome.kind === "failed") {
     // `"$( … )"` strips the captured output's trailing newlines.
@@ -526,174 +450,6 @@ const recognizeFailurePromptWrapper = (
     return { kind: "failed", error: `${prompt}\n\n${captured}`, status: innerOutcome.status ?? 1 }
   }
   return innerOutcome
-}
-
-/** `modeContradictionSkipNotice` — a mode whose validator is EXTERNAL. Re-derived from the mode name embedded in its own decoded message, keeping the "call the real builder, never hand-copy its template" discipline. */
-const SKIP_NOTICE_MODE_RE = /mode "([^"]+)" has an external validate:/
-
-const recognizeModeContradictionSkipNotice = (block: string): BlockOutcome | undefined => {
-  // Two quoted tokens: the literal `printf` format string `'%s\n'` first,
-  // then the message itself.
-  const [, message] = extractQuotedTokens(block)
-  if (message === undefined) return undefined
-  const match = SKIP_NOTICE_MODE_RE.exec(message)
-  if (!match) return undefined
-  const mode = match[1]!
-  if (modeContradictionSkipNotice(mode) !== block) return undefined
-  return { kind: "noop", output: `${message}\n` }
-}
-
-/** Everything `parseModeContradictionCheck` recovers from a matched block — enough for `simulateModeContradictionCheck` to run it, with no further parsing. */
-interface ParsedModeContradictionCheck {
-  readonly mode: string
-  readonly samplePath: string
-  readonly sample: string
-  readonly formatCommand: string
-  readonly format: SteeringFormat
-}
-
-/** The printf line's own pieces — the sample bytes, the scratch path, and the literal PREFIX text (up to and including that path) — or `undefined` when `block` doesn't open with `printf '%s' ...`. */
-const parsePrintfPrefix = (
-  block: string,
-):
-  | { readonly sample: string; readonly samplePath: string; readonly prefix: string }
-  | undefined => {
-  if (!block.startsWith("printf '%s' ")) return undefined
-  // Three leading quoted tokens: the literal printf format string `'%s'`
-  // first, then the sample, then the scratch path.
-  const [, sample, samplePath] = extractQuotedTokens(block)
-  if (sample === undefined || samplePath === undefined) return undefined
-  const prefix = `printf '%s' ${shellQuote(sample)} > ${shellQuote(samplePath)}`
-  if (!block.startsWith(`${prefix}\n`)) return undefined
-  return { sample, samplePath, prefix }
-}
-
-/** The mode name and `format:` command sandwiched between the printf `prefix` and the fixed `gtd check <mode> <pathQ> >/dev/null ...` line, or `undefined` when that line isn't there right after it. */
-const parseModeAndFormatCommand = (
-  block: string,
-  prefix: string,
-  pathQ: string,
-): { readonly mode: string; readonly formatCommand: string } | undefined => {
-  const suffix = ` ${pathQ} >/dev/null 2>&1 || {\n`
-  const suffixIndex = block.indexOf(suffix, prefix.length + 1)
-  if (suffixIndex === -1) return undefined
-  const lineStart = block.lastIndexOf("\ngtd check ", suffixIndex)
-  if (lineStart === -1) return undefined
-  const mode = block.slice(lineStart + "\ngtd check ".length, suffixIndex)
-  if (mode.length === 0 || /\s/.test(mode)) return undefined
-  return { mode, formatCommand: block.slice(prefix.length + 1, lineStart) }
-}
-
-/** Parses `block` back into the real builder's inputs. Split from the simulation so extraction (many guards, no effects) and simulation (few guards, all effects) stay separate. A wrong guess fails to parse rather than mis-simulating. */
-const parseModeContradictionCheck = (block: string): ParsedModeContradictionCheck | undefined => {
-  const prefixParts = parsePrintfPrefix(block)
-  if (prefixParts === undefined) return undefined
-  const { sample, samplePath, prefix } = prefixParts
-
-  const modeParts = parseModeAndFormatCommand(block, prefix, shellQuote(samplePath))
-  if (modeParts === undefined) return undefined
-  const { mode, formatCommand } = modeParts
-
-  const format = steeringFormatFor(mode)
-  if (format === undefined) return undefined
-  if (buildModeContradictionCheck({ mode, samplePath, sample, formatCommand }) !== block) {
-    return undefined
-  }
-  return { mode, samplePath, sample, formatCommand, format }
-}
-
-/**
- * One parsed round-trip: write the sample, run its `format:` through the
- * scripted-command table (real bash is unreachable in this tier), re-validate,
- * and clean up on every path out, mirroring the real script's `rm -f` on both
- * branches. An unscripted `format:` fails loudly rather than succeeding.
- */
-const simulateModeContradictionCheck = (
-  repo: InMemRepo,
-  commands: CommandTable,
-  parsed: ParsedModeContradictionCheck,
-): BlockOutcome => {
-  const { mode, samplePath, sample, formatCommand, format } = parsed
-  repo.writeFile(samplePath, sample)
-  const command = expandFileVar(formatCommand) ?? formatCommand
-  const formatOutcome = recognizeModeCommand(repo, commands, formatCommand)
-  if (formatOutcome === undefined) {
-    repo.deleteFile(samplePath)
-    return {
-      kind: "failed",
-      error: `unscripted command "${command}" — declare it with a Given step`,
-    }
-  }
-  if (formatOutcome.kind === "failed") {
-    repo.deleteFile(samplePath)
-    return formatOutcome
-  }
-  const formatted = repo.readFile(samplePath) ?? sample
-  const findings = format.validate(formatted)
-  repo.deleteFile(samplePath)
-  if (findings.length === 0) return { kind: "noop" }
-  return {
-    kind: "failed",
-    error: `${contradictionMessage(mode, formatCommand)}\n${formatted}`,
-  }
-}
-
-/**
- * `src/emit/ModeContradiction.ts`'s `buildModeContradictionCheck` — the
- * contradiction round-trip block `resolveValidateScript` (`src/cli/Program.ts`)
- * emits ahead of `fileExistsGuard` for a mode with a live built-in validator
- * and a declared `format:`. Carries no blank line of its own, so it always
- * arrives here as ONE block.
- */
-const recognizeModeContradictionCheck = (
-  repo: InMemRepo,
-  commands: CommandTable,
-  block: string,
-): BlockOutcome | undefined => {
-  const parsed = parseModeContradictionCheck(block)
-  return parsed === undefined ? undefined : simulateModeContradictionCheck(repo, commands, parsed)
-}
-
-const GTD_CHECK_RE = /^gtd check (\S+) (.+)$/
-
-/** `gtd check <mode> <file> [--spec <json>]` — a non-empty findings array fails the script, mirroring a real invocation's non-zero exit under `set -e`. */
-const recognizeGtdCheck = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
-  const match = GTD_CHECK_RE.exec(block)
-  if (!match) return undefined
-  const mode = match[1]!
-  const [file, spec] = extractQuotedTokens(match[2]!)
-  const declared = / --spec '/.test(match[2]!)
-  const format = declared && spec !== undefined ? formatFromSpec(spec) : steeringFormatFor(mode)
-  if (format === undefined || file === undefined) {
-    const known = BUILT_IN_MODE_NAMES.join(", ")
-    return { kind: "failed", error: `gtd check: unknown mode "${mode}" — known modes: ${known}` }
-  }
-  const content = repo.readFile(file)
-  if (content === undefined) return { kind: "failed", error: `gtd check: no such file: ${file}` }
-  const findings = format.validate(content).map((finding) => formatFinding(file, finding))
-  if (findings.length === 0) return { kind: "noop" }
-  return {
-    kind: "failed",
-    error:
-      `gtd check: ${file} is not valid under mode "${mode}" (${findings.length} finding(s)):\n` +
-      findings.join("\n"),
-  }
-}
-
-const GTD_UNCHECK_RE = /^gtd uncheck (.+)$/
-
-/** `gtd uncheck <file>` — the review-gate reset prepended ahead of the human's commit, absent when the next step is an agent turn. Re-runs the REAL `clearTicks`, writing back only on an actual change. */
-const recognizeGtdUncheck = (repo: InMemRepo, block: string): BlockOutcome | undefined => {
-  const match = GTD_UNCHECK_RE.exec(block)
-  if (!match) return undefined
-  const [file] = extractQuotedTokens(match[1]!)
-  if (file === undefined) return undefined
-  const content = repo.readFile(file)
-  if (content === undefined) return { kind: "noop" }
-  const format = steeringFormatFor("review")
-  const cleared = format === undefined ? content : format.clearTicks(content)
-  if (cleared !== content) repo.writeFile(file, cleared)
-  return { kind: "noop" }
 }
 
 const GTD_FORMAT_RE = /^gtd check --write (.+) >\/dev\/null 2>&1 \|\| :$/
@@ -855,22 +611,13 @@ const recognizersFor = (
   (block) => recognizeSetFlags(block),
   (block) => recognizeCommentBlock(block),
   (block) => recognizePrecondition(repo, block),
-  (block) => recognizeFileExistsGuard(repo, block),
-  (block) => recognizeBinaryGuard(commands, block),
   (block) => (git ? recognizeGitBuilders(repo, block) : undefined),
   (block) => recognizeWriteLines(repo, block),
   (block) => recognizePinScripts(repo, block),
   (block) => recognizeFailRest(repo, commands, block),
   (block) => recognizeFailurePromptWrapper(repo, commands, block),
   (block) => recognizePresentationSubshell(repo, commands, block, git),
-  (block) => recognizeModeContradictionSkipNotice(block),
-  (block) => recognizeModeContradictionCheck(repo, commands, block),
   (block) => recognizeGtdFormat(repo, block),
-  (block) => recognizeGtdCheck(repo, block),
-  (block) => recognizeGtdUncheck(repo, block),
-  (block) => {
-    return FILE_VAR_PREFIX_RE.test(block) ? recognizeModeCommand(repo, commands, block) : undefined
-  },
   (block) => recognizeOutcome(repo, block),
   (block) => recognizeScriptedCommand(repo, commands, block),
 ]

@@ -1,32 +1,19 @@
 import type { StepRead } from "../ui/index.js"
 import { Notice } from "./Notice.js"
 import { Document } from "./screens/Document.js"
-import { Findings } from "./screens/Findings.js"
-import { FreeForm } from "./screens/FreeForm.js"
-import { Plan } from "./screens/Plan.js"
-import { Review } from "./screens/Review.js"
 import { trpc } from "./api.js"
 
-/** The one shape a screen can open: a clean read resting on a steering file — package 01 dropped the `mode` requirement, since an absent or unregistered mode now falls through to `FreeForm` rather than refusing. */
+/** The one shape a screen can open: a clean read resting on a steering file. */
 const openable = (step: StepRead | undefined): step is StepRead & { status: "ok"; file: string } =>
   step?.status === "ok" && step.file !== undefined
 
 /**
  * The whole phone's navigation: `gtd ui` serves exactly one worktree resting
- * on exactly one step (package 02's own refuse-to-start gate — the server
- * never binds on a step this client can't render), so there is no fleet list
- * and no route back to one. `trpc.step`'s own `mode` picks the screen —
- * `"review"` always means `Review` (that screen's own `readSteeringFile` call
- * is hardcoded to `mode: "review"`, matching `.gtd/REVIEW.md`'s one format);
- * `"qa"` means `Plan`; `"findings"` means `Findings`; anything else (absent, or an unregistered mode name)
- * falls through to `FreeForm`, which reads the file as plain markdown and
- * offers only a note per block, plus a textfield when it's empty. Neither
- * screen offers a way back to a list — `done` hands the turn back (the
- * server keeps running until the outer loop moves on).
+ * on exactly one step, so there is no list to go back to — the document
+ * screen opens the step's steering file, and `done` hands the turn back.
  *
- * Never returns `null`: a blank white screen was package 03's own regression
- * (a phone over a tailnet with nothing on-screen to explain why) — every
- * branch below renders SOMETHING, even the in-flight and error ones.
+ * Never returns `null`: a blank screen on a phone over a tailnet explains
+ * nothing, so every branch below renders something.
  */
 // fallow-ignore-next-line complexity
 export const App = () => {
@@ -79,17 +66,7 @@ export const App = () => {
 
   return (
     <div className="relative mx-auto flex h-dvh max-w-[430px] flex-col">
-      {step.mode === "review" ? (
-        <Review filePath={step.file} />
-      ) : step.mode === "qa" ? (
-        <Plan filePath={step.file} mode="qa" />
-      ) : step.mode === "findings" ? (
-        <Findings filePath={step.file} />
-      ) : step.mode === undefined ? (
-        <Document filePath={step.file} />
-      ) : (
-        <FreeForm filePath={step.file} mode={step.mode} />
-      )}
+      <Document filePath={step.file} />
     </div>
   )
 }

@@ -1,14 +1,6 @@
 import type { BeatKind, Demand, DemandSession } from "./Demand.js"
 import type { BeatStatus, NextMatch, StatusChange } from "./BeatStatus.js"
-import type {
-  Actor,
-  ApprovalEntry,
-  ModelCost,
-  PinMark,
-  StateMode,
-  StateName,
-  StepAccess,
-} from "./types.js"
+import type { Actor, ApprovalEntry, ModelCost, PinMark, StateName, StepAccess } from "./types.js"
 import { WIRE_SCHEMA } from "./constants.js"
 
 /** `gtd next --json`'s `next` key — `null` when landing would commit nothing. */
@@ -22,7 +14,7 @@ const assertNeverDemand = (demand: never): never => {
 
 /**
  * The ONE exhaustive switch translating a `Demand` into its wire
- * `session`/`validate`/`skills`/`access` set — only the `prompt` variant carries
+ * `session`/`skills`/`access` set — only the `prompt` variant carries
  * any of them, and every other member is listed explicitly (not a
  * `default:` fallthrough) so adding a sixth `BeatKind` without adding its
  * case here fails `tsc` at the `assertNeverDemand` call, not silently
@@ -32,7 +24,6 @@ const dispatchFieldsOf = (
   demand: Demand,
 ): {
   readonly session: DemandSession | undefined
-  readonly validate: string | undefined
   readonly fresh: string | null
   readonly skills: readonly string[] | undefined
   readonly access: StepAccess | undefined
@@ -40,7 +31,6 @@ const dispatchFieldsOf = (
 } => {
   const none = {
     session: undefined,
-    validate: undefined,
     fresh: null,
     skills: undefined,
     access: undefined,
@@ -51,7 +41,6 @@ const dispatchFieldsOf = (
       return {
         ...none,
         session: demand.session,
-        validate: demand.validate,
         fresh: demand.fresh,
         skills: demand.skills,
         access: demand.access,
@@ -77,7 +66,6 @@ export interface BeatDocument {
   readonly session: DemandSession | undefined
   readonly model: string | undefined
   readonly system: string | undefined
-  readonly validate: string | undefined
   /** A validator retry with `session.resume`: the original prompt plus the correction, for a driver that starts a new session. `null` otherwise. */
   readonly fresh: string | null
   /** On a pin or unpin beat only: what its script does to `.gtd/process.gtdpin`. */
@@ -89,7 +77,6 @@ export interface BeatDocument {
   readonly label: string | undefined
   readonly memory: string | undefined
   readonly file: string | undefined
-  readonly mode: StateMode | undefined
   readonly changes: readonly StatusChange[]
   readonly next: { readonly target: string } | null
   readonly cost: number | undefined
@@ -107,7 +94,7 @@ export interface BeatDocument {
  * (`cost <= 0`).
  */
 export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument => {
-  const { session, validate, fresh, skills, access, pin } = dispatchFieldsOf(demand)
+  const { session, fresh, skills, access, pin } = dispatchFieldsOf(demand)
   const hasCost = status.cost > 0
   return {
     schema: WIRE_SCHEMA,
@@ -118,7 +105,6 @@ export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument =
     session,
     model: status.model,
     system: status.system,
-    validate,
     fresh,
     pin,
     log: status.log,
@@ -128,7 +114,6 @@ export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument =
     label: status.label,
     memory: status.memory,
     file: status.file,
-    mode: status.mode,
     changes: status.changes,
     next: nextField(status.next),
     cost: hasCost ? status.cost : undefined,

@@ -6,7 +6,7 @@ Feature: workflow() makes an exported function a workflow
   other exported function is a plain helper: never startable, never warned
   about. `workflow()`'s options are the keys a factory build returns
   (`defaults`, `envDefaults`, `doors`, `base`, `skills`, `access`,
-  `steering`, `summary`), checked the same way. The file-level exports of
+  `summary`), checked the same way. The file-level exports of
   those names are gone: exporting one fails the load, naming the
   replacement.
 
@@ -70,12 +70,27 @@ Feature: workflow() makes an exported function a workflow
         async () => {
           await human("idle")
         },
-        { steering: { ".gtd/PLAN.md": 1 }, defualts: {} },
+        { defualts: {} },
       )
       """
     When I run gtd next
     Then it fails
     And stderr contains "workflow \"default\" has unknown option(s) \"defualts\""
+
+  Scenario: a file-level steering export fails the load: a step's file is enough
+    Given a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle")
+      }
+
+      export const steering = { ".gtd/PLAN.md": "qa" }
+      """
+    When I run gtd next
+    Then it fails
+    And stderr contains "steering: the \"steering\" export is no longer read — a step's `file` is all gtd needs to know a steering file"
 
   Scenario Outline: a file-level <name> export fails the load, naming its replacement
     Given a gtd config file at "gtd.config.ts" with:
@@ -96,7 +111,6 @@ Feature: workflow() makes an exported function a workflow
       | name        | value                                 |
       | defaults    | { ticket: "none" }                    |
       | envDefaults | { testCommand: "npm test" }           |
-      | steering    | { ".gtd/PLAN.md": "qa" }              |
       | skills      | { build: ["tdd"] }                    |
       | access      | { build: { write: [] } }              |
       | doors       | { go: { workflow: "default" } }       |

@@ -1,7 +1,7 @@
 @inmem
-Feature: a workflow factory's build carries skills, access, steering and summary
+Feature: a workflow factory's build carries skills, access and summary
 
-  A factory's build may return `skills`, `access`, `steering` and `summary`
+  A factory's build may return `skills`, `access` and `summary`
   beside its flow, so `export default feature()` is a whole config. They are
   checked when the config loads, like every other build key.
 
@@ -89,23 +89,3 @@ Feature: a workflow factory's build carries skills, access, steering and summary
     When I run gtd next
     Then it fails
     And stderr contains "workflow \"default\"'s \"access\": scope \"work\": access.write must be an array of glob strings"
-
-  Scenario: a build-carried steering map must map paths to mode names
-    Given a gtd config file at "gtd.config.ts" with:
-      """
-      import { defineWorkflow, human } from "@pmelab/gtd/flows"
-
-      const any = { "~standard": { version: 1, vendor: "test", validate: (value) => ({ value }) } }
-
-      const feature = defineWorkflow(any, () => ({
-        flow: async () => {
-          await human("idle")
-        },
-        steering: { ".gtd/PLAN.md": 1 },
-      }))
-
-      export default feature()
-      """
-    When I run gtd next
-    Then it fails
-    And stderr contains "workflow \"default\"'s \"steering\" is not a record of strings"

@@ -6,7 +6,7 @@
  * when a field is removed or renamed — never for an added one — and never tied
  * to the package version, since a driver can be installed apart from gtd.
  */
-export const WIRE_SCHEMA = 1
+export const WIRE_SCHEMA = 2
 
 /** The bucket a cost with no `--model` tag is grouped under, kept distinct so a mixed history still totals correctly. */
 export const UNATTRIBUTED_MODEL = "unspecified"

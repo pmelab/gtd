@@ -1,9 +1,5 @@
 export {
   type EmitStep,
-  fileExistsGuard,
-  withFileVar,
-  commandForFile,
-  binaryGuard,
   failurePromptWrapper,
   emitScripts,
   DID_NOT_RUN_COMMENT,
@@ -48,9 +44,3 @@ export {
   abandonNoopOutcome,
   restoredOutcome,
 } from "./OutcomeScript.js"
-export {
-  contradictionMessage,
-  buildModeContradictionCheck,
-  modeContradictionSkipNotice,
-} from "./ModeContradiction.js"
-export { resolveMode, validateScriptFor } from "./SteeringMode.js"

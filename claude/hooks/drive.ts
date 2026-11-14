@@ -11,14 +11,12 @@ export type Beat = {
   state?: string
   label?: string
   file?: string
-  mode?: string
   content?: string
   log?: string
   memory?: string
   model?: string
   system?: string
   skills?: string[]
-  validate?: string
   fresh?: string | null
   access?: AccessDef
   judge?: unknown
@@ -57,15 +55,12 @@ export type Io = {
   plain(): Promise<string>
   land(verdict?: string): Promise<Landing>
   sh(script: string, log?: string): Promise<number>
-  check(script: string): Promise<{ ok: boolean; out: string }>
   judge(): Promise<string | undefined>
   turn(t: Turn): Promise<TurnEnd>
   resume(memory: string, text: string): Promise<TurnEnd>
   progress(beat: number, b: Beat): void
   stopped(): boolean
 }
-
-const MAX_FIXES = 3
 
 export const isTrue = (v: unknown) => v === true || v === "true"
 
@@ -139,7 +134,6 @@ async function message(io: Io, b: Beat, beat: number, judged: string | undefined
   const stop: Stop = { kind: "gate", text: b.content ?? "", ...where(b) }
   if (b.judge) stop.isJudge = true
   if (b.file) stop.file = b.file
-  if (b.mode) stop.mode = b.mode
   return { stop }
 }
 
@@ -147,19 +141,7 @@ async function agent(io: Io, b: Beat, landTurn: string | undefined): Promise<Act
   const turn = turnOf(b)
   const t = landTurn === turn.memory ? ({ ok: true } as const) : await io.turn(turn)
   if (!t.ok) return failed(b, t.why)
-  return b.validate ? validated(io, b, b.validate) : {}
-}
-
-// The step's own validator; its findings go back to the same conversation.
-async function validated(io: Io, b: Beat, validate: string): Promise<Acted> {
-  for (let fixes = 0; ; fixes++) {
-    const v = await io.check(validate)
-    if (v.ok) return {}
-    if (fixes >= MAX_FIXES)
-      return failed(b, `validation still failing after ${fixes} fixes\n${v.out}`)
-    const f = await followUp(io, b, v.out)
-    if (!f.ok) return failed(b, f.why)
-  }
+  return {}
 }
 
 // A conversation whose subagent is gone starts over with the step's prompt
@@ -194,8 +176,7 @@ function turnOf(b: Beat): Turn {
     skills: b.skills ?? [],
     scope: memory.split("#")[0]!,
     access: b.access,
-    // A mode-less file is a widget steering file; a mode step still carries its validate script.
-    ...(b.file && !b.mode && !b.validate ? { steering: b.file } : {}),
+    ...(b.file ? { steering: b.file } : {}),
   }
 }
 
@@ -231,10 +212,6 @@ async function recover(
 ): Promise<Stop | undefined> {
   const r = await followUp(io, b, text)
   if (!r.ok) return { kind: "error", text: r.why, ...where(b) }
-  if (b.validate) {
-    const v = await validated(io, b, b.validate)
-    if (v.stop) return v.stop
-  }
   return land(io, b, verdict, false)
 }
 

@@ -31,11 +31,7 @@ export {
 export {
   review,
   reviewToHandOff,
-  type CollectRound,
   type HandOffPolicy,
-  type Requested,
   type ReviewOutcome,
   type ReviewPolicy,
-  type ReviewRisk,
-  type Verdict,
 } from "./review.js"

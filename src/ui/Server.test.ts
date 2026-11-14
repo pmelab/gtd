@@ -85,9 +85,7 @@ import { Host, NodeServices } from "../platform/index.js"
 import { liveUiHost, UiError, UiShell, UiUsageError, type UiHandler } from "./index.js"
 import { liveUiShell } from "./Ports.fixture.js"
 import type { UiConfig } from "./Server.js"
-import type { RunInWorktree } from "./index.js"
 import {
-  buildFormatCommand,
   UiListener,
   resolveBindHost,
   resolveCertPair,
@@ -148,11 +146,10 @@ const renderablePromptJson = JSON.stringify({
   label: "answer the questions",
   state: "build.review.await-review",
   file: "NOTES.md",
-  mode: "qa",
 })
 
 /**
- * Package 02's own idle rest: `idle: true`, no `mode` (free-form), and a
+ * Package 02's own idle rest: `idle: true`, and a
  * `state` that stays fixed across a `kind` flip — `readServedStep`'s own
  * moved-on gate reads `state`, never `kind`, so these two fixtures let a
  * test dirty the tree (flipping `message` → `capture`, the same flip a real
@@ -168,47 +165,6 @@ const idleBeatJson = (kind: "message" | "capture"): string =>
     state: "idle",
     file: ".gtd/TODO.md",
   })
-
-describe("buildFormatCommand", () => {
-  it("undefined ui.format yields no formatCommand at all — no command is ever spawned", () => {
-    expect(
-      buildFormatCommand(undefined, "/repo", () => Promise.reject(new Error("never"))),
-    ).toBeUndefined()
-  })
-
-  it("runs the command in the worktree root with $GTD_FILE set to the absolute path it's called with", async () => {
-    const calls: [string, string][] = []
-    const run: RunInWorktree = async (cwd, command) => {
-      calls.push([cwd, command])
-      return { status: 0, stdout: "", stderr: "" }
-    }
-    const formatCommand = buildFormatCommand('npx oxfmt --write "$GTD_FILE"', "/repo", run)
-    const outcome = await formatCommand!("/repo/.gtd/NOTES.md")
-    expect(calls).toEqual([
-      ["/repo", "export GTD_FILE='/repo/.gtd/NOTES.md'\nnpx oxfmt --write \"$GTD_FILE\""],
-    ])
-    expect(outcome).toEqual({ ok: true, command: 'npx oxfmt --write "$GTD_FILE"', exitCode: 0 })
-  })
-
-  it("a non-zero exit reports ok: false with the exit code — never thrown", async () => {
-    const run: RunInWorktree = async () => ({ status: 1, stdout: "", stderr: "bad" })
-    const formatCommand = buildFormatCommand("false", "/repo", run)
-    const outcome = await formatCommand!("/repo/x.md")
-    expect(outcome).toEqual({ ok: false, command: "false", exitCode: 1 })
-  })
-
-  it("a missing binary (spawnError, no exit code) reports ok: false with a null exit code", async () => {
-    const run: RunInWorktree = async () => ({
-      status: null,
-      stdout: "",
-      stderr: "",
-      spawnError: "ENOENT",
-    })
-    const formatCommand = buildFormatCommand("nonexistent-binary", "/repo", run)
-    const outcome = await formatCommand!("/repo/x.md")
-    expect(outcome).toEqual({ ok: false, command: "nonexistent-binary", exitCode: null })
-  })
-})
 
 describe("resolveBindHost", () => {
   it("prefers an explicit --host over everything else", async () => {
@@ -2514,7 +2470,7 @@ describe("runUiCommand", () => {
       expect((error as UiUsageError).message).not.toContain("stalled")
     })
 
-    it("starts on a human, non-idle rest with file/mode even when the beat reports kind message — kind is never read", async () => {
+    it("starts on a human, non-idle rest with a file even when the beat reports kind message — kind is never read", async () => {
       const { listenCalled, error } = await attemptStart(
         JSON.stringify({
           kind: "message",
@@ -2522,7 +2478,6 @@ describe("runUiCommand", () => {
           actor: "human",
           label: "answer the questions",
           file: "NOTES.md",
-          mode: "qa",
         }),
       )
       expect(listenCalled).toBe(true)
@@ -2536,36 +2491,6 @@ describe("runUiCommand", () => {
           idle: true,
           actor: "human",
           label: "nothing pending",
-          file: "NOTES.md",
-          mode: "qa",
-        }),
-      )
-      expect(listenCalled).toBe(true)
-      expect(error).toBeUndefined()
-    })
-
-    it("starts on a prompt step whose mode resolves to no registered format — falls back to free-form", async () => {
-      const { listenCalled, error } = await attemptStart(
-        JSON.stringify({
-          kind: "prompt",
-          idle: false,
-          actor: "human",
-          label: "custom mode",
-          file: "NOTES.md",
-          mode: "not-a-real-mode",
-        }),
-      )
-      expect(listenCalled).toBe(true)
-      expect(error).toBeUndefined()
-    })
-
-    it("starts on a prompt step with no mode at all — falls back to free-form", async () => {
-      const { listenCalled, error } = await attemptStart(
-        JSON.stringify({
-          kind: "prompt",
-          idle: false,
-          actor: "human",
-          label: "no mode",
           file: "NOTES.md",
         }),
       )
@@ -2605,8 +2530,6 @@ const refusalDataFrom = async <T>(promise: Promise<unknown>): Promise<T | undefi
  */
 const startRealServer = async (
   dir: string,
-  /** `ui.format`'s own value for this server, `undefined` (the default) meaning no formatter configured — the same field a real `config.ui` would carry. */
-  format?: string,
   /** The fake `gtd`'s own beat JSON — `renderablePromptJson` (the default) unless a test needs a different rest (an idle one, for package 02). */
   beatJson: string = renderablePromptJson,
 ): Promise<{ readonly boundUrl: string; readonly fiber: Fiber.Fiber<void, unknown> }> => {
@@ -2632,7 +2555,7 @@ const startRealServer = async (
   const fiber = Effect.runFork(
     runUiCommand(
       { selfSigned: false, dev: false, port: 0 },
-      { host: "127.0.0.1", cert: certPath, key: keyPath, port: 0, ...(format ? { format } : {}) },
+      { host: "127.0.0.1", cert: certPath, key: keyPath, port: 0 },
       out,
       dir,
     ).pipe(
@@ -2685,15 +2608,11 @@ describe("the tRPC API surface mounted under /trpc", () => {
         links: [httpBatchLink({ url: `${boundUrl}trpc` })],
       })
 
-      // Package 01's Task 3: `view` is now total — an unregistered mode
-      // falls back to free-form rendering rather than a typed refusal, so a
-      // REAL client dialing a REAL server gets a real view back, not an
-      // error at all.
-      const viewResult = await client.view.query({ mode: "not-a-real-mode", content: "x" })
+      const viewResult = await client.view.query({ content: "x" })
       expect(viewResult.view.nodes).not.toEqual([])
 
       const readData = await refusalDataFrom<{ readRefusal?: { reason: string } }>(
-        client.readSteeringFile.query({ filePath: "does-not-exist.md", mode: "qa" }),
+        client.readSteeringFile.query({ filePath: "does-not-exist.md" }),
       )
       expect(readData?.readRefusal?.reason).toBe("file-vanished")
     })
@@ -2713,7 +2632,7 @@ describe("the tRPC API surface mounted under /trpc", () => {
       // is the confinement gate, not just resolveWithinRoot's "vanished"),
       // is refused identically.
       const readData = await refusalDataFrom<{ readRefusal?: { reason: string } }>(
-        client.readSteeringFile.query({ filePath: ".git/config", mode: "qa" }),
+        client.readSteeringFile.query({ filePath: ".git/config" }),
       )
       expect(readData?.readRefusal?.reason).toBe("file-vanished")
     })
@@ -2730,7 +2649,6 @@ describe("the tRPC API surface mounted under /trpc", () => {
         filePath: "seed.txt",
         expectedHeadSha: "whatever",
         expectedContentHash: "whatever",
-        mode: "qa",
         anchor: { kind: "paragraph" as const, line: 0 },
       }
       const writeData = await refusalDataFrom<{ writeRefusal?: { reason: string } }>(
@@ -2752,7 +2670,7 @@ describe("the tRPC API surface mounted under /trpc", () => {
         links: [httpBatchLink({ url: `${boundUrl}trpc` })],
       })
       const step = await client.step.query()
-      expect(step).toMatchObject({ status: "ok", kind: "prompt", file: "NOTES.md", mode: "qa" })
+      expect(step).toMatchObject({ status: "ok", kind: "prompt", file: "NOTES.md" })
     })
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
@@ -2777,7 +2695,6 @@ describe("the tRPC API surface mounted under /trpc", () => {
           label: "a different rest",
           state: "build.review.closing",
           file: "NOTES.md",
-          mode: "qa",
         }),
       )
 
@@ -2815,15 +2732,11 @@ describe("done saves without ending the server", () => {
           filePath,
           expectedHeadSha: headSha,
           expectedContentHash: contentHashOf(content),
-          mode: "qa",
           anchor: { kind: "paragraph", line: 0 },
           text: "handed back",
         },
       })
-      // No `ui.format` is configured for this server, so `contentHash` is
-      // just the written bytes' own hash — read straight off disk here
-      // rather than hand-computed, so this also proves `done` actually wrote
-      // through to the real file before resolving.
+      // Read off disk, so this also proves `done` wrote through before resolving.
       const written = readFileSync(absPath, "utf8")
       expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
       expect(written).toContain("handed back")
@@ -2836,76 +2749,6 @@ describe("done saves without ending the server", () => {
     })
 
     expect(fiber.pollUnsafe()).toBeUndefined()
-    await Effect.runPromise(Fiber.interrupt(fiber))
-  })
-
-  it("Task 5/6: a configured ui.format runs after the write lands, and the resolved contentHash reflects the FORMATTED bytes on disk", async () => {
-    const filePath = "NOTES.md"
-    const content = "Paragraph zero here.\n\nParagraph two here.\n"
-    // `$GTD_FILE` is the note's absolute path — appends a marker in place,
-    // the shape a real `oxfmt --write "$GTD_FILE"` rewrites a file through.
-    const { boundUrl, fiber } = await startRealServer(
-      tmpDir,
-      "printf -- '<!-- formatted -->\\n' >> \"$GTD_FILE\"",
-    )
-    const absPath = join(tmpDir, filePath)
-    writeFileSync(absPath, content)
-    execFileSync("git", ["add", "-A"], { cwd: tmpDir })
-    execFileSync("git", ["commit", "-q", "-m", "add notes"], { cwd: tmpDir })
-    const headSha = await liveHeadSha(tmpDir)
-    if (headSha === undefined) throw new Error("liveHeadSha resolved to undefined")
-
-    await withInsecureTls(async () => {
-      const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
-      })
-      const result = await client.writeNote.mutate({
-        filePath,
-        expectedHeadSha: headSha,
-        expectedContentHash: contentHashOf(content),
-        mode: "qa",
-        anchor: { kind: "paragraph", line: 0 },
-        text: "handed back",
-      })
-      const onDisk = readFileSync(absPath, "utf8")
-      expect(onDisk).toContain("<!-- formatted -->")
-      expect(result).toEqual({ ok: true, contentHash: contentHashOf(onDisk) })
-    })
-
-    await Effect.runPromise(Fiber.interrupt(fiber))
-  })
-
-  it("Task 5: a failing ui.format command leaves the written bytes on disk, resolves ok, and reports a formatNotice naming the command and its exit code", async () => {
-    const filePath = "NOTES.md"
-    const content = "Paragraph zero here.\n\nParagraph two here.\n"
-    const { boundUrl, fiber } = await startRealServer(tmpDir, "exit 3")
-    const absPath = join(tmpDir, filePath)
-    writeFileSync(absPath, content)
-    execFileSync("git", ["add", "-A"], { cwd: tmpDir })
-    execFileSync("git", ["commit", "-q", "-m", "add notes"], { cwd: tmpDir })
-    const headSha = await liveHeadSha(tmpDir)
-    if (headSha === undefined) throw new Error("liveHeadSha resolved to undefined")
-
-    await withInsecureTls(async () => {
-      const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
-      })
-      const result = await client.writeNote.mutate({
-        filePath,
-        expectedHeadSha: headSha,
-        expectedContentHash: contentHashOf(content),
-        mode: "qa",
-        anchor: { kind: "paragraph", line: 0 },
-        text: "handed back",
-      })
-      // The write itself is never reverted or refused by a failing formatter.
-      expect(readFileSync(absPath, "utf8")).toContain("handed back")
-      expect(result).toMatchObject({
-        ok: true,
-        formatNotice: { command: "exit 3", exitCode: 3 },
-      })
-    })
-
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
 
@@ -2928,7 +2771,6 @@ describe("done saves without ending the server", () => {
             filePath: "NOTES.md",
             expectedHeadSha: "not-the-real-sha",
             expectedContentHash: "not-the-real-hash",
-            mode: "qa",
             anchor: { kind: "paragraph", line: 0 },
             text: "should not land",
           },
@@ -2951,13 +2793,13 @@ describe("done saves without ending the server", () => {
 
 describe("package 02: gtd ui binds on an idle worktree", () => {
   it("the bind itself creates no file — nothing writes .gtd/TODO.md until the human's own write does", async () => {
-    const { fiber } = await startRealServer(tmpDir, undefined, idleBeatJson("message"))
+    const { fiber } = await startRealServer(tmpDir, idleBeatJson("message"))
     expect(existsSync(join(tmpDir, ".gtd/TODO.md"))).toBe(false)
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
 
   it("a write that dirties the tree at idle does not trip the moved-on detection — the server keeps serving", async () => {
-    const { boundUrl, fiber } = await startRealServer(tmpDir, undefined, idleBeatJson("message"))
+    const { boundUrl, fiber } = await startRealServer(tmpDir, idleBeatJson("message"))
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
         links: [httpBatchLink({ url: `${boundUrl}trpc` })],
@@ -2967,17 +2809,12 @@ describe("package 02: gtd ui binds on an idle worktree", () => {
 
       const headSha = await liveHeadSha(tmpDir)
       if (headSha === undefined) throw new Error("liveHeadSha resolved to undefined")
-      // `setValue` (`freeform.ts#freeFormApply`), not `writeNote`/`annotate` —
-      // an anchor at line 0 against genuinely empty content has no existing
-      // block to attach a footnote to, so only `apply`'s own append fallback
-      // (an `anchor.line` at/beyond the document's last line) can create the
-      // sketch from scratch, exactly what a phone's first-ever write to a
-      // never-yet-written `.gtd/TODO.md` needs.
+      // `setValue`, not `writeNote`: empty content has no block to annotate,
+      // only `apply`'s paragraph append can write the first line.
       const result = await client.setValue.mutate({
         filePath: ".gtd/TODO.md",
         expectedHeadSha: headSha,
         expectedContentHash: contentHashOf(""),
-        mode: undefined,
         anchor: { kind: "paragraph", line: 0 },
         text: "a sketch from the phone",
       })
@@ -2998,7 +2835,7 @@ describe("package 02: gtd ui binds on an idle worktree", () => {
   })
 
   it("a kind flip from message to capture (the same flip a dirtied idle worktree reports) does not trip the moved-on detection either", async () => {
-    const { boundUrl, fiber } = await startRealServer(tmpDir, undefined, idleBeatJson("message"))
+    const { boundUrl, fiber } = await startRealServer(tmpDir, idleBeatJson("message"))
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
         links: [httpBatchLink({ url: `${boundUrl}trpc` })],
@@ -3017,7 +2854,7 @@ describe("package 02: gtd ui binds on an idle worktree", () => {
   })
 
   it("hand-off at idle is the existing done with no note: no write happens and the server keeps running", async () => {
-    const { boundUrl, fiber } = await startRealServer(tmpDir, undefined, idleBeatJson("message"))
+    const { boundUrl, fiber } = await startRealServer(tmpDir, idleBeatJson("message"))
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
         links: [httpBatchLink({ url: `${boundUrl}trpc` })],

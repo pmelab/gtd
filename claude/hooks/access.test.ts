@@ -92,8 +92,8 @@ describe("mainDenial", () => {
     expect(mainDenial("Bash", { command: "rm -rf src" }, running, root)).toBeUndefined()
   })
 
-  test("a qa rest allows only its steering file", () => {
-    const qa = { isRunning: false, mode: "qa", file: ".gtd/REQUIREMENTS.md" }
+  test("a gate with a steering file allows only that file", () => {
+    const qa = { isRunning: false, file: ".gtd/REQUIREMENTS.md" }
     expect(mainDenial("Edit", edit("/repo/.gtd/REQUIREMENTS.md"), qa, root)).toBeUndefined()
     expect(mainDenial("Write", edit(".gtd/REQUIREMENTS.md"), qa, root)).toBeUndefined()
     expect(mainDenial("Edit", edit("/repo/src/a.ts"), qa, root)).toContain(
@@ -101,9 +101,7 @@ describe("mainDenial", () => {
     )
   })
 
-  test("a review rest, or no rest, writes freely", () => {
-    const review = { isRunning: false, mode: "review", file: ".gtd/REVIEW.md" }
-    expect(mainDenial("Edit", edit("/repo/src/a.ts"), review, root)).toBeUndefined()
+  test("a rest with no steering file writes freely", () => {
     expect(mainDenial("Edit", edit("/repo/src/a.ts"), { isRunning: false }, root)).toBeUndefined()
   })
 })

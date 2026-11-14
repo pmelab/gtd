@@ -62,7 +62,6 @@ const beat = (kind: BeatKind): string => {
     system: "You are a careful senior engineer.",
     memory: "build#a1b2c3d",
     file: "TODO.md",
-    mode: "qa",
     label: "Fixing",
     judge: JUDGE,
     skills: ["code-review"],
@@ -74,7 +73,6 @@ const beat = (kind: BeatKind): string => {
           rendered,
           kind,
           session: { id: "8f2c", resume: true },
-          validate: "gtd check qa 'TODO.md'",
         }
       : { rendered, kind },
   )
@@ -134,7 +132,7 @@ describe(`wire schema ${WIRE_SCHEMA}`, () => {
   }
 
   it("approvals is an additive field: present on every beat, WIRE_SCHEMA unchanged", () => {
-    expect(WIRE_SCHEMA).toBe(1)
+    expect(WIRE_SCHEMA).toBe(2)
     for (const kind of BEAT_KINDS) {
       expect(JSON.parse(documents[`beat-${kind}.json`]!)).toHaveProperty("approvals", [
         { step: "gate#1", name: "Ada", email: "ada@x.io", commit: "a".repeat(40) },

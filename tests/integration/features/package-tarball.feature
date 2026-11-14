@@ -40,13 +40,13 @@ Feature: the packed package — gtd installed from its own tarball
       """
       import { FLOWS_PROTOCOL } from "@pmelab/gtd/flows"
       import { WIRE_SCHEMA } from "@pmelab/gtd/wire"
-      import { reviewNotes } from "@pmelab/gtd/steering"
+      import { parseWidgets } from "@pmelab/gtd/steering"
       import { lensesOf } from "@pmelab/gtd/workflow-kit"
       import { verdict } from "@pmelab/gtd/testkit"
 
       // @ts-expect-error each export is typed, never `any`
       export const typed: string = WIRE_SCHEMA
-      export const all = [FLOWS_PROTOCOL, reviewNotes, lensesOf, verdict]
+      export const all = [FLOWS_PROTOCOL, parseWidgets, lensesOf, verdict]
       """
     # `./testkit/gherkin` registers steps with the consumer's quickpickle.
     And a file "check.mjs" with:
@@ -134,7 +134,7 @@ Feature: the packed package — gtd installed from its own tarball
       """
     When I run gtd next
     Then it succeeds
-    And stdout contains "wire schema 1"
+    And stdout contains "wire schema 2"
 
   Scenario: the installed gtd refuses a history in an unsupported Gtd-Format
     Given a gtd config file at "gtd.config.ts" with:

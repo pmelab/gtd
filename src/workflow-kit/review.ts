@@ -1,520 +1,89 @@
 import {
-  changes,
+  annotations,
   changesSince,
-  hasThreadFor,
   head,
-  mark,
   read,
   refuse,
-  requireReplies,
-  requireThreadsClosed,
+  widgets,
   type Change,
 } from "../flows/index.js"
-import {
-  parseThreads,
-  reviewDecisions,
-  reviewNotes,
-  reviewRisks,
-  stripCodeThreads,
-  unansweredNotes,
-  type ReviewDecision,
-  type ReviewNote,
-} from "../steering/index.js"
 
-/** How a review round ended. `feedback` carries what the human edited, for the re-unwind to undo. */
+/** How a review round ended. `feedback`: the person annotated the review; `edited` are the code paths they changed at the gate. */
 export type ReviewOutcome =
   | { readonly verdict: "signoff" }
   | {
       readonly verdict: "feedback"
-      /** The last round's commit, the re-plan base. */
+      /** The commit the round reviewed from. */
       readonly base: string
-      /** The commit the review file was written at; edits are restored from it. */
+      /** The commit the reviewer's own review was written at. */
       readonly restoreFrom: string
-      /** The code paths the rounds changed, with their content before. */
       readonly edited: readonly Change[]
     }
 
-export type CollectRound = "reply" | "edits" | "notes" | "triaged"
-
-/** What a round asked to change: the notes judged `edit` and the code paths the human hand-edited. */
-export interface Requested {
-  /** Empty on a hand-edit round: that path runs no triage. */
-  readonly notes: readonly ReviewNote[]
-  readonly paths: readonly string[]
-}
-
-export type Verdict = "edit" | "question" | "nit" | "praise"
-
-export type ReviewRisk = ReturnType<typeof reviewRisks>[number]
-
-/** Everything a review round decides or says, passed in: its files, steps, judge and texts. */
+/** Everything a review round runs or says, passed in: its file, steps and refusal. */
 export interface ReviewPolicy {
-  /** The review steering file the reviewer writes and the human annotates. */
+  /** The review steering file: 🔍 widgets the reviewer writes, which the person ticks or annotates. */
   readonly file: string
-  /** The file a collecting turn folds feedback into; its presence means feedback. */
-  readonly feedback: string
   /** Whether a path is code, as opposed to steering state. */
   readonly isCode: (path: string) => boolean
-  /** Write `file` over everything since `base`, carrying the answers of commit `carry` when given. */
-  readonly reviewing: (base: string, carry?: string) => Promise<void>
-  readonly fixRisks: (risks: readonly ReviewRisk[]) => Promise<void>
-  readonly keepGreen: () => Promise<void>
+  /** A steering step that writes `file` over everything since `base`. */
+  readonly reviewing: (base: string) => Promise<void>
+  /** The person's gate on `file`. */
   readonly awaitReview: (base: string) => Promise<void>
-  /** The round at commit `round` left no `file`. */
-  readonly reviewMissing: (round: string) => Promise<void>
-  /** Turn the round `capture` describes into `feedback`, or change nothing. */
-  readonly collecting: (capture: string, round: CollectRound) => Promise<void>
-  /** One verdict per note, keyed by note id; a note without one is an edit. */
-  readonly triage: (notes: readonly ReviewNote[]) => Promise<ReadonlyMap<string, Verdict>>
-  readonly answerQuestions: (notes: readonly ReviewNote[]) => Promise<void>
-  readonly fixNits: (notes: readonly ReviewNote[]) => Promise<void>
-  /** Told every note the human answered this round, before any of them is routed. */
-  readonly decided?: (decisions: readonly ReviewDecision[]) => void
-  /** An answer the policy settles in `learn` itself: never routed, recorded or told to `decided`. */
-  readonly settles?: (decision: ReviewDecision) => boolean
-  /** Reads every answer of the round once it is recorded, before any is routed. */
-  readonly learn?: (decisions: readonly ReviewDecision[]) => Promise<void>
-  /** Something still waits on the human's answer: a sign-off writes the review again instead. */
-  readonly pending?: () => boolean
+  /** Runs when the person signed off after editing code at the gate. */
+  readonly keepGreen: () => Promise<void>
   /** Remove `file` at the end of a round at commit `round`. */
   readonly close: (round: string) => Promise<void>
-  /** What a collecting turn reads. */
-  readonly captures: {
-    /** `from` set: the hand-edits landed in an earlier commit than `round`, so name the range. */
-    readonly edits: (round: string, from?: string) => string
-    readonly notes: (round: string) => string
-    readonly editNotes: (
-      round: string,
-      edits: readonly ReviewNote[],
-      answeredAt: string | undefined,
-    ) => string
-  }
-  readonly refusals: {
-    /** `file` was deleted at the gate. */
-    readonly deleted: string
-    /** The collecting turn changed something without writing `feedback`. */
-    readonly unmatched: string
-    /**
-     * The collecting turn changed nothing though the round carried an `edit`
-     * note or a code hand-edit. Absent: that round signs off.
-     */
-    readonly dropped?: (requested: Requested) => string
+  /** The refusal when the person deleted `file` at the gate. */
+  readonly deleted: string
+}
+
+type Round = {
+  readonly reviewed: string
+  readonly annotated: boolean
+  readonly edited: readonly Change[]
+}
+
+const reviewRound = async (base: string, p: ReviewPolicy): Promise<Round> => {
+  await p.reviewing(base)
+  const reviewed = head()
+  await p.awaitReview(base)
+  if (read(p.file) === undefined) refuse(p.deleted)
+  return {
+    reviewed,
+    annotated: annotations(widgets(p.file)).length > 0,
+    edited: changesSince(reviewed).filter((c) => p.isCode(c.path)),
   }
 }
 
-const collect = async (
-  p: ReviewPolicy,
-  capture: string,
-  round: CollectRound,
-  requested?: Requested,
-): Promise<"signoff" | "feedback"> => {
-  await p.collecting(capture, round)
-  if (read(p.feedback) !== undefined) return "feedback"
-  if (changes().length === 0) {
-    if (
-      p.refusals.dropped !== undefined &&
-      requested !== undefined &&
-      requested.notes.length + requested.paths.length > 0
-    )
-      return refuse(p.refusals.dropped(requested))
-    return "signoff"
-  }
-  return refuse(p.refusals.unmatched)
-}
-
-/** Refuse while a note's answer boxes hold anything but exactly one tick, or a note's boxes were deleted. */
-const requireDecisions = (file: string, reviewed: string): void => {
-  const open = unansweredNotes(read(file) ?? "", changesSince(reviewed).get(file)?.before)
-  if (open.length === 0) return
-  const list = open
-    .map((n) => `  - ${file}${n.line > 0 ? `:${n.line}` : ""}: ${n.title} — ${n.reason}`)
-    .join("\n")
-  refuse(
-    `gtd land: answer-completeness: ${open.length} note(s) in ${file} not answered — tick exactly one box per note: fix as suggested, won't fix, or your own answer written over _your answer_:\n${list}`,
-  )
-}
-
-const escapeRe = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
-
-/**
- * A review with ticks and THREAD footnotes (definition plus markers) removed:
- * what is left is line notes and one-shot footnotes, which the triage judges.
- */
-const notesOf = (text: string): string => {
-  let out = text
-  for (const { name } of parseThreads(text)) {
-    const n = escapeRe(name)
-    out = out
-      .replace(
-        new RegExp(
-          `^\\[\\^${n}\\]:[^\\n]*(\\n(?: {2,}|\\t)[^\\n]*|\\n(?=\\s*\\n(?: {2,}|\\t)))*`,
-          "gim",
-        ),
-        "",
-      )
-      .replace(new RegExp(`\\[\\^${n}\\]`, "gi"), "")
-  }
-  return out.replace(/\[x\]/gi, "[ ]").replace(/\s+/g, " ").trim()
+const signOff = async (p: ReviewPolicy, round: Round): Promise<void> => {
+  if (round.edited.length > 0) await p.keepGreen()
+  await p.close(head())
 }
 
 /**
- * The human gate and its reply rounds: a question gets an answer inside
- * the review file and rests at the gate again, without a lap. Resolves the
- * commit of the last collecting turn, `"missing"` when the round left no
- * review, or `undefined` when no such turn ran.
- */
-const converse = async (
-  p: ReviewPolicy,
-  base: string,
-  reviewed: string,
-  collectedBefore?: string,
-): Promise<string | undefined> => {
-  let collectedAt = collectedBefore
-  for (;;) {
-    await p.awaitReview(base)
-    if (changes(p.file).some((c) => c.status === "deleted")) refuse(p.refusals.deleted)
-    if (read(p.file) === undefined) {
-      await p.reviewMissing(head())
-      return "missing"
-    }
-    requireThreadsClosed(p.file)
-    if (!hasThreadFor("agent", p.file)) {
-      requireDecisions(p.file, reviewed)
-      return collectedAt
-    }
-    await p.collecting(p.captures.edits(head()), "reply")
-    collectedAt = head()
-    requireReplies(p.file)
-    // A reply that folds the last thread away still leaves the notes to answer at the gate.
-    if (
-      !hasThreadFor("human", p.file) &&
-      unansweredNotes(read(p.file) ?? "", changesSince(reviewed).get(p.file)?.before).length === 0
-    )
-      return collectedAt
-  }
-}
-
-/** What `finish` hands back to `review`: an outcome, or another lap at the gate. */
-export type Finish =
-  | ReviewOutcome
-  | { readonly next: "await"; readonly reviewed: string }
-  | { readonly next: "rereview"; readonly carry: string | undefined }
-
-/** What a round's routing needs from `finish`: its closing step and the ways it ends. */
-export interface Round {
-  readonly round: string
-  readonly close: () => Promise<void>
-  readonly outcome: (verdict: "signoff" | "feedback") => ReviewOutcome
-  readonly unfolded: () => Promise<Finish>
-}
-
-const decisionNote = (d: ReviewDecision, id: string, text: string): ReviewNote => ({
-  id,
-  kind: "chunk",
-  anchor: d.anchor,
-  before: d.body,
-  text,
-  forced: /^!(\s|$)/.test(text),
-})
-
-/** One `Gtd-Mark` value per line: a control character would make mark() throw on every replay. */
-const oneLine = (text: string): string =>
-  // eslint-disable-next-line no-control-regex -- the control range IS the point
-  text.replace(/[\s\x00-\x1f\x7f-\x9f\u2028\u2029]+/g, " ").trim() || "untitled"
-
-/** Tell the policy, and mark each won't-fix on the gate's commit. */
-const record = (p: ReviewPolicy, decisions: readonly ReviewDecision[]): void => {
-  p.decided?.(decisions)
-  for (const d of decisions) if (d.choice === "wontfix") mark("wontfix", oneLine(d.anchor))
-}
-
-const routed = (p: ReviewPolicy, answers: readonly ReviewDecision[]): readonly ReviewDecision[] =>
-  answers.filter((d) => p.settles?.(d) !== true)
-
-/** Record the routed answers on the gate's commit, then hand every answer to `learn`. */
-const recordAndLearn = async (
-  p: ReviewPolicy,
-  decisions: readonly ReviewDecision[],
-  answers: readonly ReviewDecision[],
-): Promise<void> => {
-  record(p, decisions)
-  if (answers.length > 0 && p.learn !== undefined) await p.learn(answers)
-}
-
-/**
- * Judge every note, then run each verdict's route: answers, then nit fixes,
- * then the edits' lap. Of the human's `decisions`, a fix joins the nit batch
- * unjudged, an own answer is judged like a note, and a won't-fix is dropped
- * with a `Gtd-Mark` on the gate's commit.
- */
-export const routeNotes = async (
-  p: ReviewPolicy,
-  notes: readonly ReviewNote[],
-  r: Round,
-  decisions: readonly ReviewDecision[] = [],
-  answers: readonly ReviewDecision[] = decisions,
-): Promise<Finish> => {
-  await recordAndLearn(p, decisions, answers)
-  const of = (c: ReviewDecision["choice"]) => decisions.filter((d) => d.choice === c)
-  const fixes = of("fix").map((d, i) => decisionNote(d, `fix-${i + 1}`, d.body))
-  const judged = [
-    ...notes,
-    ...of("answer").map((d, i) => decisionNote(d, `answer-${i + 1}`, d.text)),
-  ]
-  const verdicts = judged.length === 0 ? new Map<string, Verdict>() : await p.triage(judged)
-  const ofVerdict = (v: Verdict): ReviewNote[] =>
-    judged.filter((n) => (verdicts.get(n.id) ?? "edit") === v)
-  const [edits, questions] = [ofVerdict("edit"), ofVerdict("question")]
-  const nits = [...ofVerdict("nit"), ...fixes]
-  if (edits.length + questions.length + nits.length === 0) return r.unfolded()
-
-  let answeredAt: string | undefined
-  if (questions.length > 0) {
-    await p.answerQuestions(questions)
-    answeredAt = head()
-  }
-  if (nits.length > 0) {
-    await p.fixNits(nits)
-    await p.keepGreen()
-  }
-  if (edits.length > 0) {
-    await r.close()
-    return r.outcome(
-      await collect(p, p.captures.editNotes(r.round, edits, answeredAt), "triaged", {
-        notes: edits,
-        paths: [],
-      }),
-    )
-  }
-  if (nits.length > 0) {
-    await r.close()
-    return { next: "rereview", carry: answeredAt }
-  }
-  return { next: "await", reviewed: answeredAt ?? r.round }
-}
-
-/** A code edit, not a thread-only change: lines that only add, answer or remove code threads don't count. */
-const isCodeEdit = (p: ReviewPolicy, c: Change): boolean =>
-  p.isCode(c.path) &&
-  stripCodeThreads(c.path, c.before ?? "") !== stripCodeThreads(c.path, c.after ?? "")
-
-/** Whether a note or an answer, not just thread edits and pointer ticks, landed in the review file since `commit`. */
-const notedSince = (p: ReviewPolicy, commit: string): boolean =>
-  changesSince(commit).some(
-    (c) =>
-      c.path === p.file &&
-      (notesOf(c.before ?? "") !== notesOf(read(p.file) ?? "") ||
-        reviewDecisions(c.before ?? "", read(p.file) ?? "").length > 0),
-  )
-
-/**
- * What the in-loop collecting turn left: `folded` when it wrote `feedback`
- * (those folds need their lap whatever is judged later), `settled` when only
- * thread edits and ticks landed after it.
- */
-const afterCollect = (
-  p: ReviewPolicy,
-  collectedAt: string | undefined,
-): { folded: boolean; settled: boolean } =>
-  // While the collecting turn is still pending its commit has no hash, so no
-  // range can start there; the flow rests at the close before it matters.
-  collectedAt === "" ? { folded: false, settled: false } : settledAfter(p, collectedAt)
-
-const settledAfter = (
-  p: ReviewPolicy,
-  collectedAt: string | undefined,
-): { folded: boolean; settled: boolean } => ({
-  folded: collectedAt !== undefined && read(p.feedback) !== undefined,
-  settled:
-    collectedAt !== undefined &&
-    changesSince(collectedAt).every((c) => !isCodeEdit(p, c)) &&
-    !notedSince(p, collectedAt),
-})
-
-const finishNotes = async (
-  p: ReviewPolicy,
-  notes: readonly ReviewNote[],
-  answers: readonly ReviewDecision[],
-  reopened: boolean,
-  ctx: Parameters<typeof routeNotes>[2],
-): Promise<Finish> => {
-  // An answer the policy settles still routes, if only to learn: there is nothing to collect.
-  if (notes.length + answers.length > 0)
-    return routeNotes(p, notes, ctx, routed(p, answers), answers)
-  if (reopened) return ctx.unfolded()
-  await ctx.close()
-  return ctx.outcome(await collect(p, p.captures.notes(ctx.round), "notes"))
-}
-
-const toOutcome = (
-  verdict: "signoff" | "feedback",
-  rest: { base: string; restoreFrom: string; edited: ReadonlyArray<Change> },
-): ReviewOutcome => (verdict === "signoff" ? { verdict } : { verdict, ...rest })
-
-const isReopened = (p: ReviewPolicy, r: { settled: boolean; folded: boolean }): boolean =>
-  r.settled && !r.folded && p.refusals.dropped !== undefined
-
-/** A carried answer is unchanged, never routed twice; one ticked beside a thread still routes once the thread has settled. */
-const decisionsSince = (
-  p: ReviewPolicy,
-  since: ReturnType<typeof changesSince>,
-): readonly ReviewDecision[] => {
-  const after = read(p.file) ?? ""
-  return reviewDecisions(since.get(p.file)?.before ?? after, after)
-}
-
-// An unchanged review file has no baseline entry, which would read as all-new.
-const notesSince = (
-  p: ReviewPolicy,
-  since: ReturnType<typeof changesSince>,
-): readonly ReviewNote[] => reviewNotes(since.get(p.file)?.before ?? "", read(p.file) ?? "")
-
-const finish = async (
-  p: ReviewPolicy,
-  reviewed: string,
-  collectedAt: string | undefined,
-): Promise<Finish> => {
-  // Everything the human did is read before any agent turn runs, so a nit fix
-  // is never counted as a hand-edit.
-  const round = head()
-  const since = changesSince(reviewed)
-  const edited = since.filter((c) => isCodeEdit(p, c))
-  const { folded, settled } = afterCollect(p, collectedAt)
-  // The review gate clears every tick before its commit, so a changed
-  // review file is a note, never a tick.
-  const noted = since.some((c) => c.path === p.file)
-  const close = (): Promise<void> => p.close(round)
-  const outcome = (verdict: "signoff" | "feedback"): ReviewOutcome =>
-    toOutcome(verdict, { base: round, restoreFrom: reviewed, edited })
-  const unfolded = async (): Promise<Finish> => {
-    await close()
-    return outcome(folded ? "feedback" : "signoff")
-  }
-
-  // Thread-only edits settled the round, but a change note or hand-edit since
-  // `reviewed` must still reach a collecting turn when a dropped edit is refused.
-  const reopened = isReopened(p, { settled, folded })
-  const answers = decisionsSince(p, since)
-  if ((settled && !reopened && answers.length === 0) || (edited.length === 0 && !noted))
-    return unfolded()
-  // Read before `learn`, which may add to the review file.
-  const notes = notesSince(p, since)
-  if (edited.length > 0) {
-    // A hand-edit plans a lap; its collecting turn reads the answers in the review.
-    await recordAndLearn(p, routed(p, answers), answers)
-    await close()
-    return outcome(
-      await collect(p, p.captures.edits(round, reopened ? reviewed : undefined), "edits", {
-        notes: [],
-        paths: edited.map((c) => c.path),
-      }),
-    )
-  }
-  return finishNotes(p, notes, answers, reopened, {
-    round,
-    close,
-    outcome,
-    unfolded,
-  })
-}
-
-/** A sign-off while something waits on the human writes the review again instead. */
-const unlessPending = (p: ReviewPolicy, result: Finish): Finish =>
-  "verdict" in result && result.verdict === "signoff" && p.pending?.() === true
-    ? { next: "rereview", carry: undefined }
-    : result
-
-/** Write the review; if it marks risks, fix them, keep green, and write it again — once, so the re-review's own risks reach the human unfixed. */
-const reviewOnce = async (
-  p: Pick<ReviewPolicy, "file" | "reviewing" | "fixRisks" | "keepGreen">,
-  base: string,
-  carry: string | undefined,
-) => {
-  await p.reviewing(base, carry)
-  const risks = reviewRisks(read(p.file) ?? "")
-  if (risks.length === 0) return
-  await p.fixRisks(risks)
-  await p.keepGreen()
-  await p.reviewing(base, carry)
-}
-
-/**
- * A reviewer writes the review over everything since `base`, a human
- * reviews and signs off or comments, and each note is judged: edits go to
- * another lap, questions are answered in place, nits fixed in one batch,
- * praise dropped.
+ * A reviewer writes the review over everything since `base` and a person
+ * reviews it: ticking every hunk signs off, an annotation is feedback for the
+ * caller to act on.
  */
 export const review = async (base: string, p: ReviewPolicy): Promise<ReviewOutcome> => {
-  let carry: string | undefined
-  for (;;) {
-    await reviewOnce(p, base, carry)
-    carry = undefined
-    let reviewed = head()
-    let collectedAt: string | undefined
-    for (;;) {
-      collectedAt = await converse(p, base, reviewed, collectedAt)
-      if (collectedAt === "missing") break
-      const result = unlessPending(p, await finish(p, reviewed, collectedAt))
-      if (!("next" in result)) return result
-      if (result.next === "rereview") {
-        carry = result.carry
-        break
-      }
-      reviewed = result.reviewed
-    }
+  const round = await reviewRound(base, p)
+  if (!round.annotated) {
+    await signOff(p, round)
+    return { verdict: "signoff" }
   }
+  return { verdict: "feedback", base, restoreFrom: round.reviewed, edited: round.edited }
 }
 
-/** What a review round that hands its notes on decides or says, passed in. */
-export interface HandOffPolicy extends Pick<
-  ReviewPolicy,
-  "file" | "reviewing" | "fixRisks" | "keepGreen" | "awaitReview" | "reviewMissing" | "close"
-> {
-  /** Keep `file` with the human's notes for another workflow; `reviewed` holds the reviewer's own version. */
+/** A review round whose feedback another workflow acts on. */
+export interface HandOffPolicy extends ReviewPolicy {
+  /** Keep `file` with the person's annotations for another workflow; `reviewed` holds the reviewer's own version. */
   readonly handOff: (reviewed: string) => Promise<void>
-  /** `file` was deleted at the gate. */
-  readonly deleted: string
-  /** A thread waits on the agent at the gate, and no turn here answers it. */
-  readonly threadsPending: string
-  /** The review was edited but the edit parses to no note, so `fix` would have nothing to act on. */
-  readonly unparsed: string
 }
 
-/**
- * A reviewer writes the review over everything since `base` and a human
- * reviews it. No note signs off and closes; any note ends the round with the
- * review left in place, for another workflow to read its notes — nothing is
- * judged or re-planned here.
- */
+/** The same round as `review`: a sign-off closes, an annotation hands the review on through `handOff`. */
 export const reviewToHandOff = async (base: string, p: HandOffPolicy): Promise<void> => {
-  for (;;) {
-    await reviewOnce(p, base, undefined)
-    const reviewed = head()
-    await p.awaitReview(base)
-    if (changes(p.file).some((c) => c.status === "deleted")) refuse(p.deleted)
-    const record = read(p.file)
-    if (record === undefined) {
-      await p.reviewMissing(head())
-      continue
-    }
-    // `fix` runs in a new process, where a code thread is no longer "changed"
-    // and nothing answers it — so none may be left waiting on the agent.
-    requireThreadsClosed(p.file)
-    if (hasThreadFor("agent", p.file)) refuse(p.threadsPending)
-    const since = changesSince(reviewed)
-    const before = since.get(p.file)?.before ?? record
-    if (notesOf(before) === notesOf(record)) {
-      // A hand edit in a sign-off round was never checked or reviewed.
-      if (since.paths.some((f) => !f.startsWith(".gtd/"))) {
-        await p.keepGreen()
-      }
-      await p.close(head())
-      return
-    }
-    // `fix` acts only on parsed notes: an edit with none (a deleted chunk,
-    // stray prose) would be closed away unread, so it is refused here.
-    if (reviewNotes(before, record).length === 0) refuse(p.unparsed)
-    await p.handOff(reviewed)
-    return
-  }
+  const round = await reviewRound(base, p)
+  if (round.annotated) return p.handOff(round.reviewed)
+  return signOff(p, round)
 }

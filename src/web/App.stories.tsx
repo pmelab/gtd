@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, waitFor, within } from "storybook/test"
-import { BUILT_IN_MODE_NAMES, steeringFormatFor } from "../steering/internal.js"
 import { App } from "./App.js"
 import { TrpcTestProvider } from "./testing/TrpcTestProvider.js"
 
@@ -25,13 +24,13 @@ export default meta
 
 type Story = StoryObj<typeof App>
 
-/** `gtd ui` never binds on a step this client can't render (package 02's own refuse-to-start gate), so `App` always opens directly on the served worktree's one step — `mode: "qa"` picks `Plan`. */
+/** `gtd ui` never binds on a step this client can't render, so `App` opens directly on the served worktree's one step: its steering file on the document screen. */
 export const Default: Story = {
   decorators: [
     (Story) => (
       <TrpcTestProvider
         resolvers={{
-          step: () => okStep({ file: ".gtd/PLAN.md", mode: "qa" }),
+          step: () => okStep({ file: ".gtd/PLAN.md" }),
           readSteeringFile: () => ({
             ok: true,
             content: "A paragraph worth reading.",
@@ -51,37 +50,11 @@ export const Default: Story = {
   ],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("plan-screen")).toBeInTheDocument())
+    await waitFor(() => expect(canvas.getByTestId("document-screen")).toBeInTheDocument())
   },
 }
 
-/** `mode: "review"` picks `Review`, never `Plan` — the one place this file switches on the mode string, to choose a SCREEN rather than a format. */
-export const ReviewModeOpensDirectlyOnTheReviewScreen: Story = {
-  decorators: [
-    (Story) => (
-      <TrpcTestProvider
-        resolvers={{
-          step: () => okStep({ file: ".gtd/REVIEW.md", mode: "review" }),
-          readSteeringFile: () => ({
-            ok: true,
-            content: "",
-            headSha: "abc123",
-            contentHash: "deadbeef",
-            view: { nodes: [] },
-          }),
-        }}
-      >
-        <Story />
-      </TrpcTestProvider>
-    ),
-  ],
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("review-screen")).toBeInTheDocument())
-  },
-}
-
-/** A step with no steering `file`/`mode` (a `script`/`stalled` rest) is defensive, not a reachable production shape (the server itself never binds on one — package 02's refuse-to-start gate) — but must still render something legible, never a blank screen. */
+/** A step with no steering `file` (a `script`/`stalled` rest) is defensive, not a reachable production shape (the server itself never binds on one — package 02's refuse-to-start gate) — but must still render something legible, never a blank screen. */
 export const StepWithNoSteeringFileRendersAMessage: Story = {
   decorators: [
     (Story) => (
@@ -93,8 +66,7 @@ export const StepWithNoSteeringFileRendersAMessage: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("app-unrenderable")).toBeInTheDocument())
-    await expect(canvas.queryByTestId("plan-screen")).not.toBeInTheDocument()
-    await expect(canvas.queryByTestId("review-screen")).not.toBeInTheDocument()
+    await expect(canvas.queryByTestId("document-screen")).not.toBeInTheDocument()
   },
 }
 
@@ -170,7 +142,7 @@ export const StepQueryInFlightShowsALoadingSkeleton: Story = {
     (Story) => (
       <TrpcTestProvider
         resolvers={{
-          step: () => okStep({ file: ".gtd/PLAN.md", mode: "qa" }),
+          step: () => okStep({ file: ".gtd/PLAN.md" }),
           readSteeringFile: () => ({
             ok: true,
             content: "A paragraph worth reading.",
@@ -192,124 +164,6 @@ export const StepQueryInFlightShowsALoadingSkeleton: Story = {
     const canvas = within(canvasElement)
     await expect(canvas.getByTestId("app-loading")).toBeInTheDocument()
     await expect(canvasElement.textContent?.length).toBeGreaterThan(0)
-    await waitFor(() => expect(canvas.getByTestId("plan-screen")).toBeInTheDocument())
-  },
-}
-
-/** Package 01's own dispatch branch: an ABSENT `mode` falls through to `FreeForm`, never `Plan`/`Review` — the one case that used to refuse to start entirely (Task 9). */
-export const NoModeOpensTheDocumentScreen: Story = {
-  decorators: [
-    (Story) => (
-      <TrpcTestProvider
-        resolvers={{
-          step: () => okStep({ file: ".gtd/TODO.md", mode: undefined }),
-          readSteeringFile: () => ({
-            ok: true,
-            content: "A paragraph worth editing.",
-            headSha: "abc123",
-            contentHash: "deadbeef",
-            view: {
-              nodes: [
-                {
-                  title: "A paragraph worth editing.",
-                  anchor: { kind: "paragraph", line: 0 },
-                  block: { kind: "paragraph", text: "A paragraph worth editing." },
-                },
-              ],
-            },
-          }),
-        }}
-      >
-        <Story />
-      </TrpcTestProvider>
-    ),
-  ],
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("document-screen")).toBeInTheDocument())
-    await expect(canvas.queryByTestId("plan-screen")).not.toBeInTheDocument()
-    await expect(canvas.queryByTestId("review-screen")).not.toBeInTheDocument()
-  },
-}
-
-/** A `findings` rest — the finding gate — opens on the `Findings` screen. */
-export const FindingsModeOpensDirectlyOnTheFindingsScreen: Story = {
-  decorators: [
-    (Story) => {
-      const content = "# Quality\n\n## a\n\nBody.\n\n- [ ] fix\n"
-      return (
-        <TrpcTestProvider
-          resolvers={{
-            step: () => okStep({ file: ".gtd/QUALITY.md", mode: "findings" }),
-            readSteeringFile: () => ({
-              ok: true,
-              content,
-              headSha: "abc123",
-              contentHash: "deadbeef",
-              view: steeringFormatFor("findings")!.view(content),
-            }),
-          }}
-        >
-          <Story />
-        </TrpcTestProvider>
-      )
-    },
-  ],
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("findings-screen")).toBeInTheDocument())
-    await expect(canvas.queryByTestId("freeform-screen")).not.toBeInTheDocument()
-  },
-}
-
-/** Package 01's own dispatch branch: an UNREGISTERED `mode` (not "review"/"qa", and not in `steeringFormatFor`'s registry) also falls through to `FreeForm`. */
-export const UnregisteredModeOpensDirectlyOnTheFreeFormScreen: Story = {
-  decorators: [
-    (Story) => (
-      <TrpcTestProvider
-        resolvers={{
-          step: () => okStep({ file: ".gtd/PLAN.md", mode: "custom-mode" }),
-          readSteeringFile: () => ({
-            ok: true,
-            content: "A paragraph worth editing.",
-            headSha: "abc123",
-            contentHash: "deadbeef",
-            view: {
-              nodes: [
-                {
-                  title: "A paragraph worth editing.",
-                  anchor: { kind: "paragraph", line: 0 },
-                  block: { kind: "paragraph", text: "A paragraph worth editing." },
-                },
-              ],
-            },
-          }),
-        }}
-      >
-        <Story />
-      </TrpcTestProvider>
-    ),
-  ],
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByTestId("freeform-screen")).toBeInTheDocument())
-    await expect(
-      canvas.getByText('"custom-mode" has no screen — editing as plain markdown'),
-    ).toBeInTheDocument()
-  },
-}
-
-/**
- * A pinning test for the assumption `App.tsx`'s own dispatch hardcodes:
- * `"qa"`/`"review"`/`"findings"` are the only names with their own dedicated
- * screen. If the built-in registry (`steering/index.ts#REGISTRY`) ever grows
- * another entry, THIS test breaks — loudly, at the source of truth — rather than
- * that new format silently rendering `FreeForm` while nothing here notices
- * `App.tsx`'s dispatch and the registry have quietly diverged.
- */
-export const TheBuiltInRegistryStillHasExactlyTheModesAppDispatchesByName: Story = {
-  render: () => <></>,
-  play: async () => {
-    await expect(BUILT_IN_MODE_NAMES).toEqual(["qa", "review", "findings"])
   },
 }

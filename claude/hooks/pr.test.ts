@@ -119,19 +119,17 @@ describe("import", () => {
   test("a thread becomes a note tagged with its id, pre-ticked fix as suggested", () => {
     expect(threadNote(thread)).toBe(
       [
-        "## src/calc.ts:3 (thread PRRT_1)",
+        "## 🔘 src/calc.ts:3 (thread PRRT_1)",
         "",
         "**@alice** ([comment](https://c/1)):",
         "",
         "> Annotate the return type.",
         "",
-        "From the pull request. To decline it, tick won't fix and write your reason after it on that line.",
-        "",
-        "Tick exactly one:",
+        "From the pull request. To decline it, tick won't fix and write your reason after it on that line; to reply instead, write your answer after ✏️.",
         "",
         "- [x] fix as suggested",
         "- [ ] won't fix",
-        "- [ ] _your answer_",
+        "- [ ] ✏️",
       ].join("\n"),
     )
   })
@@ -219,6 +217,19 @@ describe("won't fix", () => {
     expect(replyText(a!, "abc")).toBe("Won't fix: out of scope")
     // a gate landed outside the mod skipped its reason check
     expect(replyText({ ...a!, text: "" }, undefined)).toBe("Won't fix.")
+  })
+})
+
+describe("own answer", () => {
+  const imported = withThreads(REVIEW, [thread])
+
+  test("a written ✏️ answer is the pick, ticked or not", () => {
+    const own = decide(
+      decide(imported, "- [x] fix as suggested", "- [ ] fix as suggested"),
+      "- [ ] ✏️",
+      "- [ ] ✏️ renamed it instead",
+    )
+    expect(answers(own)[0]).toMatchObject({ choice: "answer", text: "renamed it instead" })
   })
 })
 

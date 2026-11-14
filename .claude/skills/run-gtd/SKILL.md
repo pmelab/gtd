@@ -45,8 +45,8 @@ command -v gtd                # must print this checkout's bin/gtd
 ```
 
 `bin/gtd` runs this checkout's `dist/`. The `gtd` already on `PATH` may be
-another checkout's build. Emitted scripts and steering validation call `gtd`
-from `PATH`, so putting `bin/` first is required, not a convenience.
+another checkout's build. Emitted landing scripts call `gtd` from `PATH`, so
+putting `bin/` first is required, not a convenience.
 
 ## A scratch repository
 
@@ -252,9 +252,7 @@ test "$(gtd next --json=state)" = design.triage
 
 # Stand in for the triage agent: one open product question.
 cat >.gtd/REQUIREMENTS.md <<'EOF'
-## Open Questions
-
-### What should hello.sh print?
+## 🔘 What should hello.sh print?
 
 The greeting is user-visible.
 
@@ -262,7 +260,7 @@ The greeting is user-visible.
   - matches the sketch
 - [ ] `Hello, world!`
   - the classic
-- [ ] _your answer_
+- [ ] ✏️
 
 ## Concerns
 
@@ -276,7 +274,6 @@ The greeting is user-visible.
 
 - AC-1: `sh hello.sh` prints the chosen greeting.
 EOF
-sh -c "$(gtd next --json=validate)"
 land
 
 # A human rest: read it, answer by editing the steering file, land.

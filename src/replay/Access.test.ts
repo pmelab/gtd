@@ -3,33 +3,26 @@ import { accessShapeFault, foldAccess } from "./Access.js"
 
 describe("foldAccess", () => {
   it("adds the steering file to each restricted side, after the scope globs", () => {
-    expect(foldAccess({ read: ["docs/**"], write: ["src/**"] }, ".gtd/X.md", [])).toEqual({
+    expect(foldAccess({ read: ["docs/**"], write: ["src/**"] }, ".gtd/X.md")).toEqual({
       read: ["docs/**", ".gtd/X.md"],
       write: ["src/**", ".gtd/X.md"],
     })
   })
 
-  it("adds the paths of waiting code threads after the steering file", () => {
-    expect(foldAccess({ write: [] }, ".gtd/X.md", ["src/a.ts"])).toEqual({
-      read: null,
-      write: [".gtd/X.md", "src/a.ts"],
-    })
-  })
-
-  it("dedupes against scope globs and across additions", () => {
-    expect(foldAccess({ write: ["src/a.ts", ".gtd/X.md"] }, ".gtd/X.md", ["src/a.ts"])).toEqual({
+  it("dedupes against scope globs", () => {
+    expect(foldAccess({ write: ["src/a.ts", ".gtd/X.md"] }, ".gtd/X.md")).toEqual({
       read: null,
       write: ["src/a.ts", ".gtd/X.md"],
     })
   })
 
   it("leaves an unrestricted side null, whatever is added", () => {
-    expect(foldAccess({}, ".gtd/X.md", ["src/a.ts"])).toEqual({ read: null, write: null })
-    expect(foldAccess(undefined, ".gtd/X.md", [])).toEqual({ read: null, write: null })
+    expect(foldAccess({}, ".gtd/X.md")).toEqual({ read: null, write: null })
+    expect(foldAccess(undefined, ".gtd/X.md")).toEqual({ read: null, write: null })
   })
 
   it("adds nothing for a missing file", () => {
-    expect(foldAccess({ read: ["a"], write: ["b"] }, undefined, [])).toEqual({
+    expect(foldAccess({ read: ["a"], write: ["b"] }, undefined)).toEqual({
       read: ["a"],
       write: ["b"],
     })

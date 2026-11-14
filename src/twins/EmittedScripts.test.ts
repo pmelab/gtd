@@ -1,7 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import {
   abandonedOutcome,
-  binaryGuard,
   combinedScript,
   commitAll,
   commitAsIs,
@@ -9,35 +8,28 @@ import {
   emitScripts,
   failRestScript,
   failurePromptWrapper,
-  fileExistsGuard,
-  modeContradictionSkipNotice,
   switchBranchTo,
   switchBack,
   switchTo,
   transitionOutcome,
-  withFileVar,
   type EmitStep,
 } from "../emit/index.js"
 import { Effect, Option } from "effect"
 import { ScriptSurface } from "../emit/index.js"
 import { GitService } from "../platform/index.js"
-import { listFormat } from "../steering/index.js"
-import { declaredValidateCommand } from "../workflow/index.js"
 import { gitTiers, type GitTier, type ScriptedCommand } from "./index.js"
 
 // Every case runs through real `sh` — with this build's `gtd` on PATH — and
 // through `applyEmittedScript`. A command a case runs is declared for the
 // in-memory twin; Live runs it for real, so a declaration that lies fails here.
 const FILE = ".gtd/a.md"
-const COPY = 'cp "$GTD_FILE" copy.md'
-const FAILING = 'printf "bad: %s\\n" "$GTD_FILE"; exit 2'
-const MISSING = "gtd-test-no-such-binary"
+const COPY = `cp '${FILE}' copy.md`
+const FAILING = `printf "bad: %s\\n" '${FILE}'; exit 2`
 
 const commands = new Map<string, ScriptedCommand>([
   [`cp '${FILE}' copy.md`, { kind: "rewrite", file: "copy.md", content: "a\n" }],
   [`printf "bad: %s\\n" '${FILE}'; exit 2`, { kind: "exit", status: 2, output: `bad: ${FILE}\n` }],
   ["false", { kind: "exit", status: 1, output: "" }],
-  [MISSING, { kind: "missing" }],
 ])
 
 const commandSteps = (...cmds: string[]): EmitStep[] =>
@@ -60,31 +52,16 @@ for (const makeTier of gitTiers) {
       t.dispose()
     })
 
-    describe("fileExistsGuard", () => {
-      it("ends the script successfully when the file is absent", () => {
-        expect(run(script(fileExistsGuard(FILE), withFileVar(COPY, FILE)))).toMatchObject({
-          ok: true,
-        })
-        expect(read("copy.md")).toBeUndefined()
-      })
-
-      it("runs on, with $GTD_FILE naming the file, when it is present", () => {
-        t.seed.writeFile(FILE, "a\n")
-        expect(run(script(fileExistsGuard(FILE), withFileVar(COPY, FILE))).ok).toBe(true)
-        expect(read("copy.md")).toBe("a\n")
-      })
-    })
-
     it("stops at the first failing step, with its status", () => {
       t.seed.writeFile(FILE, "a\n")
-      const result = run(script("false", withFileVar(COPY, FILE)))
+      const result = run(script("false", COPY))
       expect(result).toMatchObject({ ok: false, status: 1 })
       expect(read("copy.md")).toBeUndefined()
     })
 
     describe("failurePromptWrapper", () => {
       it("prints the prompt and the captured output, and exits with the command's status", () => {
-        const wrapped = failurePromptWrapper(withFileVar(FAILING, FILE), "Fix the file.")
+        const wrapped = failurePromptWrapper(FAILING, "Fix the file.")
         expect(run(script(wrapped))).toEqual({
           ok: false,
           status: 2,
@@ -94,22 +71,8 @@ for (const makeTier of gitTiers) {
 
       it("is silent when the command passes", () => {
         t.seed.writeFile(FILE, "a\n")
-        const wrapped = failurePromptWrapper(withFileVar(COPY, FILE), "Fix the file.")
+        const wrapped = failurePromptWrapper(COPY, "Fix the file.")
         expect(run(script(wrapped))).toEqual({ ok: true, status: 0, output: "" })
-      })
-    })
-
-    describe("binaryGuard", () => {
-      it("passes a binary on PATH", () => {
-        expect(run(script(binaryGuard("sh", "adr", "validate"))).ok).toBe(true)
-      })
-
-      it("names a missing binary and exits 127", () => {
-        const result = run(script(binaryGuard(MISSING, "adr", "validate")))
-        expect(result).toMatchObject({ ok: false, status: 127 })
-        expect(result.output).toMatch(
-          new RegExp(`^gtd: mode "adr": "validate" command not found: ${MISSING}\\n\\$PATH: `),
-        )
       })
     })
 
@@ -140,58 +103,12 @@ for (const makeTier of gitTiers) {
       })
     })
 
-    it("prints the contradiction-check skip notice", () => {
-      expect(run(script(modeContradictionSkipNotice("adr"))).output).toBe(
-        'gtd: mode "adr" has an external validate: command — skipping the format/validate contradiction check\n',
-      )
-    })
-
-    describe("gtd check", () => {
-      it("refuses an absent file, and passes a valid one", () => {
-        const absent = run(script(`gtd check qa '${FILE}'`))
-        expect(absent).toMatchObject({ ok: false, status: 1 })
-        expect(absent.output).toContain(`gtd check: no such file: ${FILE}`)
-        t.seed.writeFile(FILE, "## Open Questions\n")
-        expect(run(script(`gtd check qa '${FILE}'`))).toEqual({ ok: true, status: 0, output: "" })
+    describe("gtd check --write", () => {
+      it("rewrites a steering file in its canonical form", () => {
+        t.seed.writeFile(FILE, "One\nparagraph.\n")
+        expect(run(script(`gtd check --write '${FILE}' >/dev/null 2>&1 || :`)).ok).toBe(true)
+        expect(read(FILE)).toBe("One paragraph.\n")
       })
-
-      it("prints each finding and fails", () => {
-        t.seed.writeFile(FILE, "## Open Questions\n\n### \n")
-        const result = run(script(`gtd check qa '${FILE}'`))
-        expect(result).toMatchObject({ ok: false, status: 1 })
-        expect(result.output).toMatch(
-          new RegExp(
-            `^gtd check: ${FILE} is not valid under mode "qa" \\(1 finding\\(s\\)\\):\\n${FILE}:3:1: `,
-          ),
-        )
-      })
-
-      it("checks a declared format from the spec on its command line", () => {
-        const ids = listFormat({
-          name: "ids",
-          item: { id: /^A-\d+$/, separator: ":", example: "A-1" },
-          ids: { unique: true },
-        })
-        const check = declaredValidateCommand("ids", ids.spec).replace('"$GTD_FILE"', `'${FILE}'`)
-        t.seed.writeFile(FILE, "- A-1: it's\n")
-        expect(run(script(check))).toEqual({ ok: true, status: 0, output: "" })
-        t.seed.writeFile(FILE, "- A-1: a\n- A-1: b\n")
-        const result = run(script(check))
-        expect(result).toMatchObject({ ok: false, status: 1 })
-        expect(result.output).toBe(
-          `gtd check: ${FILE} is not valid under mode "ids" (1 finding(s)):\n${FILE}:2: duplicate ID A-1 — first on line 1\n`,
-        )
-      })
-    })
-
-    it("gtd uncheck clears a review file's ticks", () => {
-      const review = ".gtd/REVIEW.md"
-      t.seed.writeFile(
-        review,
-        "# Review: abc1234\n\n## calc\n- [x] ./src/calc.ts#1-1\nnew add function\n",
-      )
-      expect(run(script(`gtd uncheck '${review}'`)).ok).toBe(true)
-      expect(read(review)).toContain("- [ ] ./src/calc.ts#1-1")
     })
 
     // The hook output carries the marker the emitted case retries on.
@@ -439,14 +356,14 @@ printf '%s\n' 'a' '' 'it'\''s' '100%' '-x' 'a\b' '.gtd/packages/00-x.md' > '.gtd
       const wrapped = (body: string) => failRestScript(body, FAIL_PATH)
 
       it("records the status and output, without the output's trailing newline, and succeeds", () => {
-        expect(run(wrapped(withFileVar(FAILING, FILE))).ok).toBe(true)
+        expect(run(wrapped(FAILING)).ok).toBe(true)
         expect(read(FAIL_PATH)).toBe(`exit 2\nbad: ${FILE}\n`)
       })
 
       it("leaves no record when the body passes, and clears an earlier one", () => {
         t.seed.writeFile(FAIL_PATH, "exit 1\nold\n")
         t.seed.writeFile(FILE, "a\n")
-        expect(run(wrapped(withFileVar(COPY, FILE))).ok).toBe(true)
+        expect(run(wrapped(COPY)).ok).toBe(true)
         expect(read(FAIL_PATH)).toBeUndefined()
       })
     })

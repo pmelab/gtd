@@ -1,7 +1,7 @@
 Feature: gtd in a repository with no commits yet
 
   A gtd process derives workflow state from git history, so every
-  state-deriving command — `land`, `next`, `validate`, `abandon`,
+  state-deriving command — `land`, `next`, `abandon`,
   `restore`, and `start <name>` — requires a repository with at least one
   commit and refuses immediately, before emitting any script or touching
   anything, when there isn't one yet. The refusal states the requirement and
@@ -23,14 +23,6 @@ Feature: gtd in a repository with no commits yet
   Scenario: gtd next refuses in a repository with no commits
     Given a git repository with no commits
     When I run gtd next
-    Then it fails
-    And the exit code is 1
-    And stderr contains "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
-
-  @inmem
-  Scenario: gtd validate refuses in a repository with no commits
-    Given a git repository with no commits
-    When I run gtd with args "validate"
     Then it fails
     And the exit code is 1
     And stderr contains "gtd: the repository has no commits yet — make an initial commit, then run gtd again"

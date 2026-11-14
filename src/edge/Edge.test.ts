@@ -836,7 +836,7 @@ describe("restAt", () => {
     expect(lines).toContain("rest resolved: building (awaits agent)\n")
   })
 
-  it("refuses a rest whose step names a mode no layer declares", async () => {
+  it("refuses the removed mode option", async () => {
     const repo = repoWith(`import { human } from "@pmelab/gtd/flows"
 
 export default async () => {
@@ -845,7 +845,7 @@ export default async () => {
 `)
     const exit = await provideExit(currentRest, repo)
     expect(Exit.isFailure(exit) && String(exit.cause)).toContain(
-      'step "idle": mode "adr" is not a mode this workflow knows (qa, review, findings)',
+      'step "idle": unknown key(s) mode in human() options',
     )
   })
 

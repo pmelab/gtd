@@ -12,13 +12,10 @@ import {
   updateRef,
   combinedScript,
   emitScripts,
-  fileExistsGuard,
   type EmitStep,
   commitOutcome,
   noteOutcome,
   transitionOutcome,
-  buildModeContradictionCheck,
-  modeContradictionSkipNotice,
 } from "../emit/index.js"
 import { applyEmittedScript, preconditionHeadEquals } from "./EmittedScriptRecognizer.js"
 import { InMemRepo, type ScriptedCommand } from "./index.js"
@@ -199,155 +196,6 @@ describe("applyEmittedScript — the 8 GitScript builders", () => {
     expect(result).toMatchObject({ ok: true })
     expect(repo.resolveRef("refs/gtd/base")).toBeNull()
     expect(snapshot(repo)).toEqual(snapshot(twin))
-  })
-})
-
-describe("applyEmittedScript — gtd check <mode> <file>", () => {
-  it("passes on valid qa-mode content", () => {
-    const repo = new InMemRepo()
-    repo.writeFile(
-      ".gtd/TODO.md",
-      ["## Open Questions", "", "### What color?", "", "- [ ] Red", "- [ ] Blue"].join("\n"),
-    )
-
-    const result = applyEmittedScript(repo, NO_COMMANDS, "gtd check qa '.gtd/TODO.md'")
-
-    expect(result).toMatchObject({ ok: true })
-  })
-
-  it("fails on invalid qa-mode content (a bare ### heading with no question text)", () => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gtd/TODO.md", ["## Open Questions", "", "### "].join("\n"))
-
-    const result = applyEmittedScript(repo, NO_COMMANDS, "gtd check qa '.gtd/TODO.md'")
-
-    expect(result.ok).toBe(false)
-    expect(result.output).toContain('.gtd/TODO.md is not valid under mode "qa"')
-  })
-})
-
-describe("applyEmittedScript — Emit.ts's fileExistsGuard", () => {
-  it("is a no-op continuation when the file is present", () => {
-    const repo = new InMemRepo()
-    repo.writeFile(".gtd/PLAN.md", "content")
-
-    const result = applyEmittedScript(repo, NO_COMMANDS, fileExistsGuard(".gtd/PLAN.md"))
-
-    expect(result).toMatchObject({ ok: true })
-  })
-
-  it("stops the whole script (successfully) when the file is absent — unlike every other guard, it does not fail", () => {
-    const repo = new InMemRepo()
-
-    const script = [fileExistsGuard(".gtd/PLAN.md"), "gtd check qa '.gtd/PLAN.md'"].join("\n\n")
-    const result = applyEmittedScript(repo, NO_COMMANDS, script)
-
-    expect(result).toMatchObject({ ok: true })
-  })
-
-  it("a subsequent block after the guard trips is never applied", () => {
-    const repo = new InMemRepo()
-    const commands: ReadonlyMap<string, ScriptedCommand> = new Map([
-      ["./should-not-run.sh", { kind: "rewrite", file: "MARKER.md", content: "ran" }],
-    ])
-
-    const script = [fileExistsGuard(".gtd/PLAN.md"), "./should-not-run.sh"].join("\n\n")
-    applyEmittedScript(repo, commands, script)
-
-    expect(repo.readFile("MARKER.md")).toBeUndefined()
-  })
-})
-
-describe("applyEmittedScript — ModeContradiction.ts's skip notice", () => {
-  it("is an inert no-op — a mode with an external validator prints a notice and continues", () => {
-    const repo = new InMemRepo()
-
-    const result = applyEmittedScript(repo, NO_COMMANDS, modeContradictionSkipNotice("adr"))
-
-    expect(result).toMatchObject({ ok: true })
-  })
-})
-
-describe("applyEmittedScript — ModeContradiction.ts's contradiction round-trip", () => {
-  const samplePath = "/fixture-scratch/gtd-mode-sample-qa-1234.md"
-  const sample = "Sample plan.\n\n## Open Questions\n\n### Which?\n\n- [ ] A\n- [ ] B\n"
-
-  it("passes (and cleans up the scratch file) when the formatter leaves the sample valid", () => {
-    const repo = new InMemRepo()
-    const commands: ReadonlyMap<string, ScriptedCommand> = new Map([
-      ["my-formatter " + samplePath, { kind: "exit", status: 0, output: "" }],
-    ])
-    const block = buildModeContradictionCheck({
-      mode: "qa",
-      samplePath,
-      sample,
-      formatCommand: `my-formatter ${samplePath}`,
-    })
-
-    const result = applyEmittedScript(repo, commands, block)
-
-    expect(result).toMatchObject({ ok: true })
-    expect(repo.readFile(samplePath)).toBeUndefined()
-  })
-
-  it("fails (and cleans up the scratch file) when the formatter breaks the sample under its own parser", () => {
-    const repo = new InMemRepo()
-    const commands: ReadonlyMap<string, ScriptedCommand> = new Map([
-      [
-        "my-formatter " + samplePath,
-        {
-          kind: "rewrite",
-          file: samplePath,
-          content: "## Open Questions\n\n### \n\nblank heading, invalid",
-        },
-      ],
-    ])
-    const block = buildModeContradictionCheck({
-      mode: "qa",
-      samplePath,
-      sample,
-      formatCommand: `my-formatter ${samplePath}`,
-    })
-
-    const result = applyEmittedScript(repo, commands, block)
-
-    expect(result.ok).toBe(false)
-    expect(result.error).toContain("CONFIGURATION BUG")
-    expect(result.error).toContain("### ")
-    expect(repo.readFile(samplePath)).toBeUndefined()
-  })
-
-  it("fails loudly on an unscripted format: command rather than silently passing", () => {
-    const repo = new InMemRepo()
-    const block = buildModeContradictionCheck({
-      mode: "qa",
-      samplePath,
-      sample,
-      formatCommand: "unregistered-formatter " + samplePath,
-    })
-
-    const result = applyEmittedScript(repo, NO_COMMANDS, block)
-
-    expect(result.ok).toBe(false)
-    expect(result.error).toContain("unscripted command")
-    expect(repo.readFile(samplePath)).toBeUndefined()
-  })
-
-  it("leaves nothing in the repo either way — no untracked path for changedPaths to report", () => {
-    const repo = new InMemRepo()
-    const commands: ReadonlyMap<string, ScriptedCommand> = new Map([
-      ["my-formatter " + samplePath, { kind: "exit", status: 0, output: "" }],
-    ])
-    const block = buildModeContradictionCheck({
-      mode: "qa",
-      samplePath,
-      sample,
-      formatCommand: `my-formatter ${samplePath}`,
-    })
-
-    applyEmittedScript(repo, commands, block)
-
-    expect(repo.pathsUnder("").includes(samplePath)).toBe(false)
   })
 })
 

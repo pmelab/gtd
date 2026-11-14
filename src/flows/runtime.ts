@@ -5,15 +5,6 @@
 // gtd binary drive the same replay.
 import type { WorkflowBuild } from "./factory.js"
 
-/** A steering-file mode: a built-in format's name or a `config.modes` entry. */
-export type ModeName = "qa" | "review" | "findings" | (string & {})
-
-/** A format declared with `listFormat`/`sectionFormat` from `@pmelab/gtd/steering`, used as a step's mode. */
-export interface DeclaredMode {
-  readonly name: string
-  readonly spec: string
-}
-
 interface SteeringCommon {
   /** Display name for drivers and viewers. */
   readonly label?: string | undefined
@@ -21,20 +12,13 @@ interface SteeringCommon {
   readonly base?: string | undefined
 }
 
-/** A step's steering file: none, or a file with an optional mode. */
-type SteeringFile =
-  | {
-      /** The steering file — a repository path under `.gtd/`. */
-      readonly file?: string | undefined
-      readonly mode?: undefined
-    }
-  | {
-      readonly file: string
-      /** The steering file's mode — a built-in name, a `modes:` entry, or a declared format. Requires `file`. */
-      readonly mode: ModeName | DeclaredMode
-    }
+/** A step's steering file, read as widgets. */
+type SteeringFile = {
+  /** The steering file — a repository path under `.gtd/`. */
+  readonly file?: string | undefined
+}
 
-/** A steering-file declaration shared by the steps that rest on one. `mode` requires `file`. */
+/** A steering-file declaration shared by the steps that rest on one. */
 export type SteeringOptions = SteeringCommon & SteeringFile
 
 /** What a validator is told about the work so far. */
@@ -100,17 +84,16 @@ export type HumanOptions = HumanCommon &
         /**
          * A sign-off gate: only a clean landing completes it, and that commit
          * carries `Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}`.
-         * A dirty landing is refused. Implies `acceptClean`. Excludes `mode` and
-         * `file`: an approval records exactly the judged tree.
+         * A dirty landing is refused. Implies `acceptClean`. Excludes `file`:
+         * an approval records exactly the judged tree.
          */
         readonly approve: true
         readonly file?: undefined
-        readonly mode?: undefined
       })
   )
 
 /** A step that rests on no steering file. */
-type NoSteeringFile = { readonly file?: undefined; readonly mode?: undefined }
+type NoSteeringFile = { readonly file?: undefined }
 
 export type RunOptions = SteeringCommon &
   NoSteeringFile & {
@@ -123,10 +106,7 @@ export type RunOptions = SteeringCommon &
   }
 
 /** A ship step rests on no steering file. */
-export type ShipOptions = SteeringCommon & {
-  readonly file?: undefined
-  readonly mode?: undefined
-}
+export type ShipOptions = SteeringCommon & NoSteeringFile
 
 export type JudgePrimitive = "noul" | "choice" | "score"
 
@@ -203,9 +183,6 @@ export type SkillsExport =
   | Readonly<Record<string, readonly string[]>>
   | ((vars: Settings) => Readonly<Record<string, readonly string[]>>)
 
-/** A workflow's `steering` option: steering file path -> its mode. */
-export type Steering = Readonly<Record<string, ModeName>>
-
 /** Settings as flow code reads them; `K` narrows to the names a workflow declares. */
 export type Settings<K extends string = string> = Readonly<Record<K, string>>
 
@@ -274,9 +251,6 @@ export interface FlowContext {
   readonly matches: (path: string, pattern: string) => boolean
   readonly sections: (text: string) => readonly string[]
   readonly sectionBodies: (text: string) => readonly Section[]
-  readonly openQuestions: (text: string) => readonly OpenQuestion[]
-  readonly threads: (text: string) => readonly ThreadInfo[]
-  readonly codeThreads: () => readonly CodeThreadInfo[]
   readonly widgets: (text: string) => readonly Widget[]
   /** Everything a steering step's turn must still fix in `file`, as `file:line: message` lines. */
   readonly steeringFindings: (file: string, options: SteeringCheck) => readonly string[]
@@ -391,7 +365,7 @@ const errorList = (result: ValidateResult): readonly string[] =>
  */
 const withSteeringCheck = (options: AgentOptions): AgentOptions["validate"] => {
   const { file, validate } = options
-  if (file === undefined || options.mode !== undefined || options.keep === true) return validate
+  if (file === undefined || options.keep === true) return validate
   return async (turn) => {
     const others = turn.changes.paths.filter((path) => path !== file)
     const errors = [
@@ -797,43 +771,6 @@ export const unanswered = (list: readonly Widget[]): readonly Widget[] =>
 /** The labels of every annotation marker in the widgets. */
 export const annotations = (list: readonly Widget[]): readonly string[] =>
   list.flatMap((w) => w.annotations)
-
-export interface OpenQuestion {
-  readonly question: string
-  /** The 1-based line of the question's heading. */
-  readonly line: number
-}
-
-export interface ThreadInfo {
-  readonly name: string
-  /** The 1-based line of the thread's `[^name]:` definition. */
-  readonly line: number
-  /** `"human"` means the last entry is the agent's: the thread is open. */
-  readonly waitingOn: "human" | "agent"
-  /** Syntax faults, each already prefixed `Footnote thread "[^name]":`. */
-  readonly faults: readonly string[]
-}
-
-/** Every `H:`/`A:` thread (a footnote) in `text`. */
-export const threads = (text: string): readonly ThreadInfo[] => ctx().threads(text)
-
-export interface CodeThreadInfo {
-  readonly path: string
-  /** The 1-based line of the thread's first comment line. */
-  readonly line: number
-  /** `"human"` means the last entry is the agent's: the thread is open. */
-  readonly waitingOn: "human" | "agent"
-  /** The text of the opening `H:` entry. */
-  readonly first: string
-  /** Syntax faults, each already prefixed `Code thread at <path>:<line>:`. */
-  readonly faults: readonly string[]
-}
-
-/** Every `H:`/`A:` thread in line comments of the files changed since the process's diff base. */
-export const codeThreads = (): readonly CodeThreadInfo[] => ctx().codeThreads()
-
-/** The qa-format questions in `text` that are still unanswered. */
-export const openQuestions = (text: string): readonly OpenQuestion[] => ctx().openQuestions(text)
 
 // ── The workflow ────────────────────────────────────────────────────────────
 

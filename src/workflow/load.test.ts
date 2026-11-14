@@ -12,7 +12,6 @@ import {
   refuseLegacyRc,
   resolveScopeSkills,
   resolveVars,
-  seededValidateCommand,
 } from "./index.js"
 
 // Every real port `ConfigService.Live` needs, scoped to `dir` — `home` is a
@@ -333,17 +332,6 @@ describe("ConfigService", () => {
     await expect(getConfig()).rejects.toThrow(`"x" declared in both "defaults" and "envDefaults"`)
   })
 
-  it("layers `config.modes` over the built-in modes, per half", async () => {
-    withConfig(`{ modes: { qa: { format: "adr-fmt $GTD_FILE" } } }`)
-
-    const cfg = await getConfig()
-
-    expect(cfg.workflow.modes["qa"]).toEqual({
-      format: "adr-fmt $GTD_FILE",
-      validate: seededValidateCommand("qa"),
-    })
-  })
-
   it("accepts a config built with defineConfig", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
@@ -395,13 +383,13 @@ describe("ConfigService", () => {
     expect(cfg.workflow.initial).toBe("custom-idle")
   })
 
-  it("reads `defaults`, `summary`, `base` and `steering` off workflow()'s options and ignores other exports", async () => {
+  it("reads `defaults`, `summary` and `base` off workflow()'s options and ignores other exports", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
       [
         optionedWorkflow(
           "first",
-          `{ defaults: { greeting: "hi" }, summary: () => "sum", base: () => undefined, steering: { ".gtd/PLAN.md": "qa" } }`,
+          `{ defaults: { greeting: "hi" }, summary: () => "sum", base: () => undefined }`,
         ),
         `export const helper = 42`,
         `export const plain = async () => {}`,
@@ -415,11 +403,10 @@ describe("ConfigService", () => {
     expect(cfg.defaultWorkflow.vars).toEqual({ greeting: "hi" })
     expect(typeof cfg.workflow.summary).toBe("function")
     expect(typeof cfg.workflow.base).toBe("function")
-    expect(cfg.workflow.steering).toEqual({ ".gtd/PLAN.md": "qa" })
     expect(cfg.workflowNames).toEqual([])
   })
 
-  it.each(["defaults", "envDefaults", "steering", "skills", "access", "doors", "summary", "base"])(
+  it.each(["defaults", "envDefaults", "skills", "access", "doors", "summary", "base"])(
     "refuses a file-level %s export, naming its replacement",
     async (name) => {
       writeFileSync(
@@ -436,18 +423,18 @@ describe("ConfigService", () => {
   it("the fingerprint covers gtd.config.ts AND a sibling module it imports from", async () => {
     writeFileSync(
       join(projectDir, "steps.ts"),
-      [`export const steering = { ".gtd/PLAN.md": "qa" }`, ``].join("\n"),
+      [`export const defaults = { probe: "steps" }`, ``].join("\n"),
     )
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
-      [`import { steering } from "./steps.js"`, optionedWorkflow("first", "{ steering }")].join(
+      [`import { defaults } from "./steps.js"`, optionedWorkflow("first", "{ defaults }")].join(
         "\n",
       ),
     )
 
     const cfg = await getConfig()
 
-    expect(cfg.workflow.steering[".gtd/PLAN.md"]).toBe("qa")
+    expect(cfg.defaultWorkflow.vars["probe"]).toBe("steps")
     expect(Object.keys(cfg.fingerprint).sort()).toEqual(["gtd.config.ts", "steps.ts"])
   })
 
@@ -485,13 +472,13 @@ describe("ConfigService", () => {
       join(projectDir, "gtd.config.ts"),
       [
         `import { file } from "./vendor/wf/index.js"`,
-        optionedWorkflow("first", "{ steering: { [`.gtd/${file}.md`]: 'qa' } }"),
+        optionedWorkflow("first", "{ defaults: { probe: file } }"),
       ].join("\n"),
     )
 
     const cfg = await getConfig()
 
-    expect(cfg.workflow.steering[".gtd/function-ts-cjs-dep-wf.md"]).toBe("qa")
+    expect(cfg.defaultWorkflow.vars["probe"]).toBe("function-ts-cjs-dep-wf")
     expect(Object.keys(cfg.fingerprint).sort()).toEqual(["gtd.config.ts", "vendor/wf/index.ts"])
   })
 
@@ -502,11 +489,11 @@ describe("ConfigService", () => {
       [
         `const { file } = require("./steps.js")`,
         `const found = require("node:path").basename(require.resolve("./steps.ts"))`,
-        optionedWorkflow("first", "{ steering: { [`.gtd/${file}-${found}.md`]: 'qa' } }"),
+        optionedWorkflow("first", "{ defaults: { probe: `${file}-${found}` } }"),
       ].join("\n"),
     )
 
-    expect((await getConfig()).workflow.steering[".gtd/required-steps.ts.md"]).toBe("qa")
+    expect((await getConfig()).defaultWorkflow.vars["probe"]).toBe("required-steps.ts")
   })
 
   it("the fingerprint covers gtd.config.ts but no gtd module it imports", async () => {
@@ -519,10 +506,7 @@ describe("ConfigService", () => {
     [`{ defaults: { n: 1 } }`, `workflow "default"'s "defaults" is not a record of strings`],
     [`{ summary: "text" }`, `workflow "default"'s "summary" is not a function`],
     [`{ base: "main" }`, `workflow "default"'s "base" is not a function`],
-    [
-      `{ steering: { ".gtd/PLAN.md": 1 } }`,
-      `workflow "default"'s "steering" is not a record of strings`,
-    ],
+    [`{ steering: {} }`, `workflow "default" has unknown option(s) "steering"`],
     [`{ doors: [] }`, `workflow "default"'s "doors" is not a record of doors`],
     [`{ defualts: {} }`, `workflow "default" has unknown option(s) "defualts" — known: defaults,`],
   ])("rejects malformed workflow() options: %s", async (options, message) => {
@@ -643,151 +627,6 @@ describe("ConfigService", () => {
     const cfg = await getConfig(child)
 
     expect(cfg.workflow.initial).toBe("child-idle")
-  })
-
-  it("rejects a gtd.config.ts whose default export is not a function", async () => {
-    writeFileSync(join(projectDir, "gtd.config.ts"), `export default { nope: true }\n`)
-
-    await expect(getConfig()).rejects.toThrow(/the default export is not a function/)
-  })
-
-  describe("named workflows", () => {
-    const flow = (first: string) => `async () => {\n  await human("${first}")\n}`
-    const header = `import { human, workflow } from "@pmelab/gtd/flows"\n`
-
-    it("re-exported factories are startable under their names, default is not", async () => {
-      withFactories(`export { feature as default, feature, review, fix } from "./workflows"\n`)
-      const cfg = await getConfig()
-      expect(cfg.workflowNames).toEqual(["feature", "fix", "review"])
-      expect(cfg.defaultWorkflow.name).toBe("feature")
-      expect(cfg.workflowNamed("default")).toBeUndefined()
-      expect(cfg.workflowNamed("fix")?.def.initial).toBe("idle")
-    })
-
-    it("only workflow() exports and factories are workflows, named by their export; other functions are helpers", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        [
-          header,
-          `export default ${flow("main")}`,
-          `export const hotfix = workflow(${flow("hot")}, { defaults: { greeting: "hi" } })`,
-          `export const helper = ${flow("help")}`,
-          `export const notAFlow = 42`,
-          ``,
-        ].join("\n"),
-      )
-      const cfg = await getConfig()
-      expect(cfg.workflowNames).toEqual(["hotfix"])
-      expect(cfg.warnings).toEqual([])
-      expect(cfg.defaultWorkflow.name).toBe("default")
-      expect(cfg.defaultWorkflow.vars).toEqual({})
-      expect(cfg.workflow.initial).toBe("main")
-      expect(cfg.workflowNamed("hotfix")?.vars).toEqual({ greeting: "hi" })
-    })
-
-    it("an exported workflow re-wrapped with options of its own is a second workflow with only those", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        [
-          header,
-          `export const library = workflow(${flow("main")}, { defaults: { greeting: "hi" } })`,
-          `export const mine = workflow(library, { defaults: { tone: "dry" } })`,
-          `export default mine`,
-          ``,
-        ].join("\n"),
-      )
-      const cfg = await getConfig()
-      expect(cfg.workflowNames).toEqual(["library", "mine"])
-      expect(cfg.workflowNamed("library")?.vars).toEqual({ greeting: "hi" })
-      expect(cfg.workflowNamed("mine")?.vars).toEqual({ tone: "dry" })
-      expect(cfg.workflowNamed("mine")?.def.initial).toBe("main")
-    })
-
-    it("a plain default export is a workflow without options", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        [header, `export default ${flow("main")}`, ``].join("\n"),
-      )
-      const cfg = await getConfig()
-      expect(cfg.workflow.initial).toBe("main")
-      expect(cfg.defaultWorkflow.vars).toEqual({})
-      expect(cfg.workflow.summary).toBeUndefined()
-    })
-
-    it("a config with no default export fails, saying what to export", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        [header, `export const hotfix = ${flow("hot")}`, ``].join("\n"),
-      )
-      await expect(getConfig()).rejects.toThrow(
-        /no default export — export the workflow an ordinary start runs; write one — `gtd guide` says how/,
-      )
-    })
-
-    it("a default that is also a named export goes by that name", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        [
-          header,
-          `export const hotfix = workflow(${flow("hot")})`,
-          `export default hotfix`,
-          ``,
-        ].join("\n"),
-      )
-      expect((await getConfig()).defaultWorkflow.name).toBe("hotfix")
-    })
-
-    it("a helper re-exported from a workflow module stays a helper; a marked one is a workflow", async () => {
-      withFactories(`export { feature as default, unwind } from "./workflows"\n`)
-      expect((await getConfig()).workflowNames).not.toContain("unwind")
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        [
-          `import { workflow } from "@pmelab/gtd/flows"`,
-          `import { unwind } from "./workflows"`,
-          `export { feature as default } from "./workflows"`,
-          `export const unwinding = workflow(unwind)`,
-          ``,
-        ].join("\n"),
-      )
-      expect((await getConfig()).workflowNames).toContain("unwinding")
-    })
-
-    it("a gtd subpath only a helper file imports resolves", async () => {
-      writeFileSync(
-        join(projectDir, "kit.ts"),
-        [
-          `import { lensesOf } from "@pmelab/gtd/workflow-kit"`,
-          `export const kit = typeof lensesOf`,
-          ``,
-        ].join("\n"),
-      )
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        [
-          header,
-          `import { kit } from "./kit"`,
-          `export default workflow(${flow("main")}, { steering: { [\`.gtd/\${kit}.md\`]: "qa" } })`,
-          ``,
-        ].join("\n"),
-      )
-      expect((await getConfig()).workflow.steering[".gtd/function.md"]).toBe("qa")
-    })
-
-    it("steering is the workflow's own option", async () => {
-      writeFileSync(
-        join(projectDir, "gtd.config.ts"),
-        [
-          header,
-          `export default workflow(${flow("main")}, { steering: { ".gtd/REVIEW.md": "qa", ".gtd/X.md": "qa" } })`,
-          ``,
-        ].join("\n"),
-      )
-      const steering = (await getConfig()).workflow.steering
-      expect(steering[".gtd/REVIEW.md"]).toBe("qa")
-      expect(steering[".gtd/X.md"]).toBe("qa")
-      expect(steering[".gtd/REQUIREMENTS.md"]).toBeUndefined()
-    })
   })
 
   describe("doors", () => {
@@ -957,35 +796,10 @@ describe("ConfigService", () => {
     await expect(getConfig()).rejects.toThrow("config.ui.port: must be an integer")
   })
 
-  it("lets `config.modes` define the mode a custom workflow's step names", async () => {
-    writeFileSync(
-      join(projectDir, "gtd.config.ts"),
-      [
-        `import { human } from "@pmelab/gtd/flows"`,
-        ``,
-        `export default async () => {`,
-        `  await human("idle", { message: "hi", file: "docs/adr.md", mode: "adr" })`,
-        `}`,
-        `export const config = { modes: { adr: { validate: "adr-lint $GTD_FILE" } } }`,
-        ``,
-      ].join("\n"),
-    )
-
-    const cfg = await getConfig()
-
-    expect(cfg.workflow.modes["adr"]).toEqual({ validate: "adr-lint $GTD_FILE" })
-  })
-
   it("rejects a default entry that never reaches a step", async () => {
     writeFileSync(join(projectDir, "gtd.config.ts"), `export default async () => {}\n`)
 
     await expect(getConfig()).rejects.toThrow(/the flow returned without reaching any step/)
-  })
-
-  it("rejects a malformed `config.modes` entry", async () => {
-    withConfig(`{ modes: { adr: { lint: "adr-lint" } } }`)
-
-    await expect(getConfig()).rejects.toThrow("config.modes.adr.lint: is not a known key")
   })
 
   it("rejects a `config.skills` key that only matches an inherited object property, like `toString`", async () => {
@@ -1060,18 +874,12 @@ describe("ConfigService", () => {
     expect(existsSync(join(projectDir, ".gtd"))).toBe(false)
   })
 
-  it("keeps `modes.*.format`/`validate` and `ui.format`'s `$GTD_FILE` untouched", async () => {
-    withConfig(
-      `{ modes: { adr: { format: "prettier --write $GTD_FILE", validate: "adr-lint $GTD_FILE" } }, ui: { format: "oxfmt --write $GTD_FILE" } }`,
+  it("refuses the removed `modes` and `ui.format`, saying what replaced them", async () => {
+    withConfig(`{ modes: {}, ui: { format: "oxfmt --write $GTD_FILE" } }`)
+
+    await expect(getConfig()).rejects.toThrow(
+      "config.modes: was removed: every steering file is a widget document gtd checks itself",
     )
-
-    const cfg = await getConfig(undefined, { GTD_FILE: "should-never-appear" })
-
-    expect(cfg.workflow.modes["adr"]).toEqual({
-      format: "prettier --write $GTD_FILE",
-      validate: "adr-lint $GTD_FILE",
-    })
-    expect(cfg.ui).toEqual({ format: "oxfmt --write $GTD_FILE" })
   })
 
   it("never interpolates the workflow's own `defaults`", async () => {
@@ -1245,19 +1053,17 @@ describe("ConfigService — what a factory's build carries", () => {
       ].join("\n"),
     )
 
-  it("skills, access, steering and summary reach the workflow", async () => {
+  it("skills, access and summary reach the workflow", async () => {
     factoryConfig(
       [
         `  skills: (vars) => ({ work: [vars.lens ?? "none"] }),`,
         `  access: { work: { write: ["out/**"] } },`,
-        `  steering: { ".gtd/PLAN.md": "qa" },`,
         `  summary: () => "built",`,
       ].join("\n"),
     )
     const { workflow } = await getConfig()
     expect(workflow.skills({ lens: "x" })).toEqual({ work: ["x"] })
     expect(workflow.access({})).toEqual({ work: { write: ["out/**"] } })
-    expect(workflow.steering).toEqual({ ".gtd/PLAN.md": "qa" })
     expect(workflow.summary?.({} as never)).toBe("built")
   })
 

@@ -21,7 +21,6 @@ import {
   type ConfigFingerprint,
   type ConfigOperations,
   type ResolvedWorkflow,
-  knownModes,
   type ChangeStatus,
   type PendingChange,
   type StateName,
@@ -51,13 +50,7 @@ import {
   type TreeView,
 } from "../replay/index.js"
 import type { Mark, ScopeAccess, SummaryContext } from "../flows/index.js"
-import {
-  answerFindings,
-  formatFinding,
-  parseWidgets,
-  serialize,
-  steeringFormatFor,
-} from "../steering/index.js"
+import { answerFindings, formatFinding, parseWidgets, serialize } from "../steering/index.js"
 import { personEditNote, steeringPreamble } from "../steering/internal.js"
 import { failRestScript, noteOutcome, pinScript, unpinScript } from "../emit/index.js"
 import {
@@ -736,7 +729,7 @@ const DEFAULT_JUDGE_MESSAGE =
 const optional = <K extends string, V>(key: K, value: V | undefined): { [P in K]?: V } =>
   (value === undefined ? {} : { [key]: value }) as { [P in K]?: V }
 
-type StepCommon = Pick<StepDef, "actor" | "label" | "file" | "mode" | "modeSpec">
+type StepCommon = Pick<StepDef, "actor" | "label" | "file">
 
 const commonOf = (step: ReachedStep): StepCommon => {
   const options = step.request.options
@@ -744,9 +737,6 @@ const commonOf = (step: ReachedStep): StepCommon => {
     actor: step.actor,
     ...optional("label", options.label),
     ...optional("file", options.file),
-    ...(typeof options.mode === "object"
-      ? { mode: options.mode.name, modeSpec: options.mode.spec }
-      : optional("mode", options.mode)),
   }
 }
 
@@ -865,7 +855,6 @@ export interface RestHints {
   readonly file?: string
   readonly judge?: string
   readonly system?: string
-  readonly mode?: string
   readonly skills?: readonly string[]
   readonly access?: StepAccess
 }
@@ -876,27 +865,9 @@ const hintsOf = (def: StepDef): RestHints => ({
   ...optional("file", def.file),
   ...optional("judge", def.judge),
   ...optional("system", def.system),
-  ...optional("mode", def.mode),
   ...optional("skills", def.skills),
   ...optional("access", def.access),
 })
-
-/** A step's mode is a name the workflow knows, or a declared format named apart from all of them. */
-const modeFaultOf = (
-  def: WorkflowDefinition,
-  stepName: string,
-  stepDef: StepDef,
-): string | undefined => {
-  if (stepDef.mode === undefined) return undefined
-  const known = def.modes[stepDef.mode] !== undefined
-  if (stepDef.modeSpec !== undefined)
-    return known
-      ? `gtd: config: step "${stepName}": declared format "${stepDef.mode}" has the name of a mode this workflow already knows — rename the format`
-      : undefined
-  return known
-    ? undefined
-    : `gtd: config: step "${stepName}": mode "${stepDef.mode}" is not a mode this workflow knows (${knownModes(def).join(", ")})`
-}
 
 const normalizeStatus = (raw: string): ChangeStatus => (raw === "A" ? "A" : raw === "D" ? "D" : "M")
 
@@ -1073,7 +1044,7 @@ export const restAt = (
     // No `pending` tree: `restAt` resolves the LANDED process only, never a
     // pending working-tree edit (that's `decideLanding`'s own `replayFor`
     // call, below, deciding what landing right now WOULD do). `gtd lsp` caches
-    // `gtd next --json`'s `state`/`file`/`mode` per HEAD and depends on this
+    // `gtd next --json`'s `state`/`file` per HEAD and depends on this
     // staying true; passing a pending tree here would make it serve a stale
     // steering file on every cache hit.
     const outcome = yield* Effect.promise(() => replayFor(setup))
@@ -1086,8 +1057,6 @@ export const restAt = (
     const { reached, step } = resting
     const { stepDef, state, memory } = restFacts(pin, step, reached.trace, run)
     yield* (yield* Narrator).narrate(`rest resolved: ${state} (awaits ${stepDef.actor})`)
-    const modeFault = modeFaultOf(def, step.name, stepDef)
-    if (modeFault !== undefined) return yield* Effect.fail(new Error(modeFault))
     const changes =
       ref === undefined
         ? (yield* pendingChanges(git, stepDef.approve === true)).map((e) => ({
@@ -1380,8 +1349,6 @@ export const restIsIdle = (rest: Rest): boolean =>
 
 // ── Landing ─────────────────────────────────────────────────────────────────
 
-const isHumanReviewGate = (def: StepDef): boolean => def.actor === "human" && def.mode === "review"
-
 // An approval covers exactly the judged diff, so any edit refuses it; the
 // approver is read only at such a rest, and must be a name a trailer can carry.
 const approvalRefusal = (rest: Rest, approver: Option.Option<AuthorIdent>): Landing | undefined => {
@@ -1419,21 +1386,12 @@ const cleanLanding = (rest: Rest): Landing | undefined => {
   return undefined
 }
 
-/** At the human review gate the pending tree lands with every tick cleared; an agent-bound landing keeps them only if the unrewritten tree replays to the same step. */
-const reviewGateRewrite = (def: StepDef): Rewrite | undefined => {
-  const reviewFormat = steeringFormatFor("review")
-  if (!isHumanReviewGate(def) || def.file === undefined || reviewFormat === undefined) {
-    return undefined
-  }
-  return { path: def.file, apply: (content) => reviewFormat.clearTicks(content) }
-}
-
 const isWidgetStep = (def: StepDef): def is StepDef & { readonly file: string } =>
-  def.file !== undefined && def.mode === undefined
+  def.file !== undefined
 
-/** A widget steering file lands serialized; the review gate lands with its ticks cleared. */
+/** A steering file lands serialized. */
 const landingRewrite = (def: StepDef): Rewrite | undefined =>
-  isWidgetStep(def) ? { path: def.file, apply: serialize } : reviewGateRewrite(def)
+  isWidgetStep(def) ? { path: def.file, apply: serialize } : undefined
 
 /** A turn whose only change to the steering file is what serializing it undoes changed nothing. */
 const formattingOnly = (rest: Rest): boolean => {
@@ -1457,16 +1415,6 @@ const humanWidgetRefusal = (rest: Rest): Landing | undefined => {
     kind: "refusal",
     message: `gtd land: ${def.file} is not ready to land:\n${findings.map((f) => formatFinding(def.file, f)).join("\n")}`,
   }
-}
-
-/** Whether the pending review file differs from HEAD's once both have their ticks cleared. */
-const reviewEditedBeyondTicks = (rest: Rest): boolean => {
-  const rewrite = reviewGateRewrite(rest.stepDef)
-  if (rewrite === undefined) return false
-  const pending = rest.setup.workspace.readSync(rewrite.path)
-  const committed = rest.setup.workspace.readCommittedSync(rewrite.path)
-  if (pending === undefined || committed === undefined) return true
-  return rewrite.apply(pending) !== rewrite.apply(committed)
 }
 
 const multilineRefusal = (vars: Record<string, string>): Landing | undefined => {
@@ -1660,28 +1608,7 @@ const decideLanding = (
     )
     const to = yield* landingTarget(outcome, rest)
     if (typeof to !== "string") return to
-    const landed = landingTo(rest, to, branch, approver, outcomeMarks(outcome))
-    // Ticks survive an agent-bound landing only when the review file changed beyond ticks
-    // (a tick-only sign-off lands clean) and the unrewritten tree replays to the same step.
-    if (
-      landed.kind !== "commit" ||
-      !isHumanReviewGate(rest.stepDef) ||
-      outcome.kind !== "rest" ||
-      outcome.rest.request.kind !== "agent" ||
-      !reviewEditedBeyondTicks(rest)
-    ) {
-      return landed
-    }
-    const ticked = yield* Effect.promise(() =>
-      replayFor(rest.setup, {
-        tree: pendingTree(rest.setup.workspace, rest.setup.pendingWorktree(), undefined),
-        ...(verdicts !== undefined ? { verdicts } : {}),
-        ...(shipped !== undefined ? { shipped } : {}),
-      }),
-    )
-    return ticked.kind === "rest" && ticked.rest.name === outcome.rest.name
-      ? { ...landed, keepTicks: true }
-      : landed
+    return landingTo(rest, to, branch, approver, outcomeMarks(outcome))
   })
 
 /** The user's branch: `<b>` for a process on `gtd/<b>` while `<b>` still exists; any other branch as is. */

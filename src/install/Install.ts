@@ -80,7 +80,6 @@ while :; do
       resume="$(gtd next --json=session.resume)"
       model="$(gtd next --json=model)"
       system="$(gtd next --json=system)"
-      validate="$(gtd next --json=validate)"
       fresh="$(gtd next --json=fresh)"
       log="$(gtd next --json=log)"
       # \`model\` is a hint, not a model name — a workflow may use hints like
@@ -135,16 +134,6 @@ while :; do
         echo "agent turn failed — see $log" >&2
         exit 1
       }
-      n=0
-      while [ -n "\${validate:-}" ] && ! fix="$(sh -c "$validate" 2>&1)"; do
-        n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\\n' "$fix" >&2; exit 1; }
-        # $fix IS the fix prompt, verbatim.
-        printf '%s' "$fix" >"$log.prompt"
-        turn --resume "$session_id" <"$log.prompt" || {
-          echo "fix turn failed — see $log" >&2
-          exit 1
-        }
-      done
       rm -f "$log.prompt" "$log.fresh" ;;
   esac
 
@@ -188,10 +177,8 @@ const HEADER = (): string =>
   `gtd ${GTD_VERSION} — driver protocol\n` +
   `\n` +
   `gtd decides and prints; the driver executes. gtd never runs git, never runs\n` +
-  `your agent, never runs a check script, and never runs a steering mode's own\n` +
-  `format:/validate: command either — that pair is text in the script gtd next\n` +
-  `--json's validate field (or gtd validate) prints, for the driver to run\n` +
-  `itself ahead of gtd land.\n`
+  `your agent and never runs a check script. It checks a steering step's turn\n` +
+  `itself, once the turn lands, and hands any problem back as the next beat.\n`
 
 const BEAT_PROTOCOL = `
 ## The beat protocol
@@ -200,7 +187,7 @@ Two reads and one write, repeated: ask -> act -> land.
 
   gtd next --json=<path>   which kind is next, and any other field, one pure
                             scalar read per value (kind, content, idle,
-                            session.id, model, validate, log, ...)
+                            session.id, model, log, ...)
   gtd next                   what to run/show, in plain text — the SAME rest
                             the --json=<path> reads above are peeking at
   gtd land --json=<path>   how to record what happened, and whether anything
@@ -255,7 +242,7 @@ The \`kind\` field (\`--json=kind\`) selects what to do:
 - \`prompt\` — send plain \`gtd next\`'s own output to your agent CLI over
   stdin (it's the bare content at this kind, so no separate \`--json=content\`
   read is needed), using the accompanying \`session.id\`/\`session.resume\`/
-  \`model\`/\`validate\` fields, each its own \`--json=<path>\` read (see
+  \`model\` fields, each its own \`--json=<path>\` read (see
   below).
 `
 
@@ -276,9 +263,8 @@ exits 0, so read it in a shell variable and guard on emptiness
 
 \`gtd next\` fields — Always: \`schema\`, \`kind\` (\`capture\`|\`message\`|\`script\`|\`prompt\`|
 \`stalled\`), \`content\` (the bare step in every encoding — plain \`gtd next\`
-adds the self-validation instruction at a validatable \`prompt\` rest, and a
-status-summary header at every OTHER kind; \`content\` itself never carries
-either), \`idle\` (\`true\` iff the resolved rest is the workflow's initial
+adds a status-summary header at every kind but \`prompt\`; \`content\` itself
+never carries it), \`idle\` (\`true\` iff the resolved rest is the workflow's initial
 state with a clean tree), \`initial\` (\`true\` iff no process is underway —
 the default workflow's first step, first visit — whatever the tree holds), \`log\`, \`state\`, \`actor\`, \`changes\` (which
 declared \`on\` pattern, if any, each pending change matches), \`next\` (the
@@ -287,12 +273,11 @@ target}\` — or \`null\` on no match). Only at \`kind: "prompt"\` (the DISPATCH
 BLOCK — absent at every other kind, a \`stalled\` beat included, by
 construction): \`session.id\`/\`session.resume\` — both DERIVED from history,
 never stored, so a plain peek is exactly as safe to call as a dispatch would
-be — and, when the state declares a validatable steering file, \`validate\`
-(the script that formats then validates it), and, when the turn's scope declares
+be — and, when the turn's scope declares
 skills, \`skills\` (an array of the skill names, already trimmed and split —
 \`--json=skills.0\` reads the first), and always \`access\`
 (\`{read, write}\`, each an array of globs or \`null\` for unrestricted). When set: \`model\`, \`memory\`,
-\`label\`, \`file\`, \`mode\`, \`edges\`, \`judge\` (the pending judgment's rendered
+\`label\`, \`file\`, \`edges\`, \`judge\` (the pending judgment's rendered
 document). When a cost has been recorded (a prior \`gtd land --cost=<n>\`):
 \`cost\`, \`costByModel\`. Always \`approvals\` (an array of
 \`{step, name, email, commit}\`, \`[]\` when none). Only at a pin or unpin
@@ -351,9 +336,8 @@ const DRIVER_OBLIGATIONS = `
    session flags — try \`resume\`'s hinted flag first and fall back to the
    other on failure (\`resume\` is a hint, not a contract: nothing is stored,
    so a crashed prior turn or an expired agent session recovers by itself).
-6. After a \`prompt\` beat, run the same beat's own \`--json=validate\` script
-   (when set) and re-prompt its output verbatim on failure — the DRIVER
-   owns the retry cap, not gtd.
+6. After a \`prompt\` beat, land it. When the turn needs fixing, gtd hands
+   the problems back as the next \`prompt\` beat at the same step.
 7. Land only a beat you acted on (\`capture\`/\`script\`/\`prompt\`) — a stray
    \`gtd land\` at a clean \`prompt\` rest authors an empty attempt on purpose
    (that IS the stall bookkeeping), so don't land beats you didn't dispatch.
@@ -674,9 +658,9 @@ const PREREQUISITES = `
   then piped into it (see obligation 8 above). Reading
   \`gtd next --json=<path>\`/\`gtd land --json=<path>\`'s own output needs
   nothing beyond the same POSIX \`sh\` — no \`eval\`, no parser.
-- \`gtd\` on \`PATH\` — a seeded mode \`validate:\` command is literally the
-  string \`gtd check <mode> '<file>'\`, resolved by NAME at script-run time.
-  Keep one \`gtd\` on \`PATH\`, consistently.
+- \`gtd\` on \`PATH\` — a landing script rewrites the steering file with
+  \`gtd check --write '<file>'\`, resolved by NAME at script-run time. Keep
+  one \`gtd\` on \`PATH\`, consistently.
 
 Any runtime works: the contract is \`--json\`/\`--json=<path>\` in, subprocesses
 out.

@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from "react"
-import type { SteeringAnchor, SteeringViewThread } from "../steering/index.js"
+import type { SteeringAnchor } from "../steering/index.js"
 import { Button } from "./Button.js"
-import { Thread } from "./Thread.js"
 
 const ANCHOR_TITLE: Record<SteeringAnchor["kind"], string> = {
   chunk: "Note on this chunk",
@@ -16,8 +15,6 @@ export interface NoteSheetProps {
   readonly anchor: SteeringAnchor
   /** The anchor's existing note text, when it already carries one — pre-fills the textarea for editing rather than starting a second note. */
   readonly note?: string
-  /** The anchor's existing conversation, shown above the field. */
-  readonly thread?: SteeringViewThread
   readonly onSave: (anchor: SteeringAnchor, text: string) => void
   readonly onDismiss: () => void
   /**
@@ -108,11 +105,9 @@ const SheetBody = ({
   title,
   label,
   text,
-  thread,
   onTextChange,
   textareaRef,
 }: {
-  readonly thread?: SteeringViewThread | undefined
   readonly title: string
   readonly label: string
   readonly text: string
@@ -124,11 +119,6 @@ const SheetBody = ({
         away again", rather than "the screen changed". */}
     <div aria-hidden="true" className="mx-auto mt-2 h-1 w-9 rounded-full bg-divider" />
     <h2 className="p-3 pb-0 text-body font-semibold">{title}</h2>
-    {thread !== undefined && (
-      <div className="min-h-0 overflow-auto px-3 pt-2">
-        <Thread thread={thread} testId="note-sheet-thread" />
-      </div>
-    )}
     <label htmlFor="note-sheet-textarea" className="block px-3 text-small text-muted">
       {label}
     </label>
@@ -215,7 +205,6 @@ const SheetFooter = ({
 export const NoteSheet = ({
   anchor,
   note,
-  thread,
   onSave,
   onDismiss,
   onDone,
@@ -267,7 +256,6 @@ export const NoteSheet = ({
           title={copy.title}
           label={copy.label}
           text={text}
-          thread={thread}
           onTextChange={setText}
           textareaRef={textareaRef}
         />

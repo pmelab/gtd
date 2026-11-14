@@ -87,7 +87,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     And stdout contains "\"state\":\"idle\""
     And stdout contains "\"kind\":\"capture\""
 
-  Scenario: gtd next --json's dispatch block (session/validate) is absent at a script rest, even when a prompt rest nearby would carry it
+  Scenario: gtd next --json's dispatch block (session) is absent at a script rest, even when a prompt rest nearby would carry it
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -108,7 +108,6 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     Then it succeeds
     And stdout contains "\"kind\":\"script\""
     And stdout does not contain "\"session\""
-    And stdout does not contain "\"validate\""
 
   Scenario: gtd next --json lists each pending change with its status and path — plain gtd next carries no such report at a prompt rest (header dropped)
     Given a test project
@@ -469,7 +468,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     And stdout contains "{\"status\":\"A\",\"path\":\"DONE.md\"}"
     And stdout does not contain "\"pattern\""
 
-  Scenario: gtd next --json carries the state's declared file/mode — plain gtd next shows neither at a prompt rest (header dropped)
+  Scenario: gtd next --json carries the state's declared file — plain gtd next does not show it at a prompt rest (header dropped)
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -477,7 +476,7 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
-        await agent("working", "do the work described in NOTE.md", { file: ".gtd/PLAN.md", mode: "qa" })
+        await agent("working", "do the work described in NOTE.md", { file: ".gtd/PLAN.md" })
       }
       """
     And a file "NOTE.md" with:
@@ -489,14 +488,12 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     When I run gtd next
     Then it succeeds
     And stdout does not contain "File:"
-    And stdout does not contain "Mode:"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout contains "\"state\":\"working\""
     And stdout contains "\"file\":\".gtd/PLAN.md\""
-    And stdout contains "\"mode\":\"qa\""
 
-  Scenario: gtd next --json omits "file"/"mode" entirely when the state declares neither — plain gtd next shows no header either way at a prompt rest
+  Scenario: gtd next --json omits "file" entirely when the state declares none — plain gtd next shows no header either way at a prompt rest
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -516,11 +513,9 @@ Feature: Driver protocol — gtd next --json content kinds, next and pending cha
     When I run gtd next
     Then it succeeds
     And stdout does not contain "File:"
-    And stdout does not contain "Mode:"
     When I run gtd next with "--json"
     Then it succeeds
     And stdout does not contain "\"file\""
-    And stdout does not contain "\"mode\""
 
   Scenario: an initial message rest carries its declared file in gtd next --json
     Given a test project

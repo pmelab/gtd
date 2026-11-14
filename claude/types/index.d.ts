@@ -6,8 +6,6 @@ export type Stop = {
   isJudge?: boolean
   // the steering file the rest asks a person to edit
   file?: string
-  // the steering file's mode (`qa`, `review`), which bounds what may be written at the rest
-  mode?: string
 }
 
 export type PrThread = {

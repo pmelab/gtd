@@ -54,3 +54,16 @@ Feature: gtd check <file> — a steering file's widget structure
     When I run gtd with args "check PLAN.md"
     Then it fails
     And stderr contains "no such file: PLAN.md"
+
+  @live
+  Scenario: gtd check runs outside any git repository
+    Given a plain directory that is not a git repository
+    And a file "PLAN.md" with:
+      """
+      # Plan
+
+      Add src/thing.ts.
+      """
+    When I run gtd with args "check PLAN.md"
+    Then it succeeds
+    And stdout is empty

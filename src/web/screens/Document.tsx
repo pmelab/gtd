@@ -7,7 +7,7 @@ import { messageForReadRefusal, SaveIndicator, useSaveIndicatorProps } from "../
 import { readRefusalFrom, trpc } from "../api.js"
 import type { CasTokens } from "../staleRetry.js"
 import { cellKey, useWriteStore, WriteStoreProvider } from "../writeStore.js"
-import { Hunk } from "./Hunk.js"
+import { DiffBody } from "./Hunk.js"
 import { ProseBlocks } from "./ProseBlock.js"
 
 type TokenGuardedWrite = (tokens: CasTokens) => Promise<unknown>
@@ -55,19 +55,7 @@ const HunkDiff = ({ node }: { readonly node: SteeringViewNode }) => {
     },
     { enabled: node.path !== undefined },
   )
-  return (
-    <Hunk
-      node={node}
-      diff={query.data}
-      index={0}
-      total={1}
-      checked={false}
-      hasNote={false}
-      onToggle={() => {}}
-      onApprove={() => {}}
-      onOpenNote={() => {}}
-    />
-  )
+  return <DiffBody diff={query.data} />
 }
 
 const CustomAnswer = ({
@@ -399,18 +387,18 @@ const HandedBackPanel = () => (
 
 const useDocumentMutations = (filePath: string) => {
   const utils = trpc.useUtils()
-  const invalidate = () => utils.readSteeringFile.invalidate({ filePath, mode: undefined })
+  const invalidate = () => utils.readSteeringFile.invalidate({ filePath })
   const setValue = trpc.setValue.useMutation({ onSettled: invalidate })
   const writeNote = trpc.writeNote.useMutation({ onSettled: invalidate })
   const done = trpc.done.useMutation()
   const onSet =
     (anchor: SteeringAnchor, value: BoxValue) =>
     (cas: CasTokens): Promise<unknown> =>
-      setValue.mutateAsync({ filePath, ...cas, mode: undefined, anchor, ...value })
+      setValue.mutateAsync({ filePath, ...cas, anchor, ...value })
   const onSaveNote =
     (anchor: SteeringAnchor, text: string) =>
     (cas: CasTokens): Promise<unknown> =>
-      writeNote.mutateAsync({ filePath, ...cas, mode: undefined, anchor, text })
+      writeNote.mutateAsync({ filePath, ...cas, anchor, text })
   return { onSet, onSaveNote, onDone: () => done.mutateAsync({}), isDone: done.isSuccess }
 }
 
@@ -452,9 +440,9 @@ const DocumentInner = ({
 /** The screen for every widget steering file. */
 export const Document = ({ filePath }: { readonly filePath: string }) => {
   const utils = trpc.useUtils()
-  const query = trpc.readSteeringFile.useQuery({ filePath, mode: undefined })
+  const query = trpc.readSteeringFile.useQuery({ filePath })
   const refetchTokens = async (): Promise<CasTokens> => {
-    const fresh = await utils.readSteeringFile.fetch({ filePath, mode: undefined })
+    const fresh = await utils.readSteeringFile.fetch({ filePath })
     return { expectedHeadSha: fresh.headSha, expectedContentHash: fresh.contentHash }
   }
   return (

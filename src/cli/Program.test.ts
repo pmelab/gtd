@@ -23,8 +23,6 @@ import {
   testLayers,
   applyEmittedScript,
   takePinBeat,
-  IN_MEMORY_PID,
-  IN_MEMORY_SCRATCH,
 } from "../twins/index.js"
 import {
   commitAll,
@@ -606,138 +604,6 @@ export default async () => {
   })
 })
 
-const WITH_STEERING_FILE = (
-  mode: string,
-): string => `import { agent, human } from "@pmelab/gtd/flows"
-
-export default async () => {
-  await human("idle", { message: "write NOTE.md to start a process" })
-  await agent("working", "do the work", { file: ".gtd/PLAN.md", mode: "${mode}" })
-}
-`
-
-describe("gtd next --json — embedded validate script", () => {
-  const atWorking = async (): Promise<InMemRepo> => {
-    const repo = seed(WITH_STEERING_FILE("qa"))
-    await landTurn(repo, { "NOTE.md": "a note\n" })
-    return repo
-  }
-
-  it("embeds the same script gtd validate itself prints, when the declared file is present", async () => {
-    const repo = await atWorking()
-    repo.writeFile(".gtd/PLAN.md", "- [ ] a question\n")
-
-    const { stdout: nextStdout, exitCode: nextExit } = await run(repo, "next", "--json")
-    expect(nextExit).toBe(0)
-    const next = JSON.parse(nextStdout) as { validate?: string }
-
-    const { stdout: validateStdout, exitCode: validateExit } = await run(repo, "validate")
-    expect(validateExit).toBe(0)
-
-    expect(next.validate).toBeDefined()
-    expect(next.validate).toBe(validateStdout.replace(/\n$/, ""))
-  })
-
-  it("still embeds a validate script when the declared file is absent — the existence check lives inside the script", async () => {
-    const repo = await atWorking()
-    const { stdout, exitCode } = await run(repo, "next", "--json")
-    expect(exitCode).toBe(0)
-    const parsed = JSON.parse(stdout) as Record<string, unknown>
-    expect(parsed).toHaveProperty("validate")
-    expect(parsed.validate).toContain(`[ -f '.gtd/PLAN.md' ] || exit 0`)
-    expect(parsed.validate).toContain(`export GTD_FILE='.gtd/PLAN.md'\ngtd check qa "$GTD_FILE"`)
-  })
-})
-
-describe("gtd validate — the mode-contradiction round-trip", () => {
-  const runEnv = async (
-    repo: InMemRepo,
-    env: Readonly<Record<string, string | undefined>>,
-    ...args: string[]
-  ): Promise<{ readonly stdout: string; readonly stderr: string; readonly exitCode: number }> => {
-    const { io, result } = makeCapturingCliIo(repo, env)
-    await Effect.runPromise(runCli(["node", "gtd.js", ...args], io))
-    return result()
-  }
-
-  const atWorking = async (modes: string, stateMode = "qa"): Promise<InMemRepo> => {
-    const repo = seed(
-      `${WITH_STEERING_FILE(stateMode)}\nexport const config = { modes: ${modes} }\n`,
-    )
-    await landTurn(repo, { "NOTE.md": "a note\n" })
-    return repo
-  }
-
-  it("a live built-in validator (qa, with a declared format:) emits the round-trip BEFORE the existence guard, using the scratch path under TMPDIR", async () => {
-    const repo = await atWorking(`{ qa: { format: "my-formatter $GTD_FILE" } }`)
-    const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
-    expect(exitCode).toBe(0)
-
-    const samplePath = `/fixture-scratch/gtd-mode-sample-qa-${IN_MEMORY_PID}.md`
-    const roundTripIndex = stdout.indexOf(`printf '%s' `)
-    const guardIndex = stdout.indexOf(`[ -f '.gtd/PLAN.md' ] || exit 0`)
-    // The real format command, distinct from the round-trip's own copy
-    // (rendered against the scratch sample path) earlier in the script.
-    const formatIndex = stdout.indexOf(`export GTD_FILE='.gtd/PLAN.md'\nmy-formatter $GTD_FILE`)
-    const validateIndex = stdout.indexOf(`gtd_validate_out=`)
-
-    expect(roundTripIndex).toBeGreaterThan(-1)
-    expect(guardIndex).toBeGreaterThan(-1)
-    expect(roundTripIndex).toBeLessThan(guardIndex)
-    expect(guardIndex).toBeLessThan(formatIndex)
-    expect(formatIndex).toBeLessThan(validateIndex)
-
-    expect(stdout).toContain(samplePath)
-    expect(stdout).toContain(`export GTD_FILE='${samplePath}'\nmy-formatter $GTD_FILE`)
-    expect(stdout).toContain(`gtd check qa '${samplePath}' >/dev/null 2>&1 || {`)
-    expect(stdout).toContain("CONFIGURATION BUG")
-    expect(stdout).toContain("Do NOT edit the steering file")
-  })
-
-  it("an external validate: command prints a one-line skip notice instead of the round-trip", async () => {
-    const repo = await atWorking(`{ qa: { format: "my-formatter $GTD_FILE", validate: "true" } }`)
-    const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
-    expect(exitCode).toBe(0)
-    expect(stdout).toContain('mode "qa" has an external validate: command')
-    expect(stdout).toContain("skipping")
-    expect(stdout).not.toContain("printf '%s' ")
-    expect(stdout).not.toContain("CONFIGURATION BUG")
-  })
-
-  it("a format-only mode (no validate at all) emits neither the round-trip nor the skip notice — just the guard and the format command", async () => {
-    const repo = await atWorking(`{ prose: { format: "my-formatter $GTD_FILE" } }`, "prose")
-    const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
-    expect(exitCode).toBe(0)
-    expect(stdout).toContain(`[ -f '.gtd/PLAN.md' ] || exit 0`)
-    expect(stdout).toContain("export GTD_FILE='.gtd/PLAN.md'\nmy-formatter $GTD_FILE")
-    expect(stdout).not.toContain("printf '%s' ")
-    expect(stdout).not.toContain("CONFIGURATION BUG")
-    expect(stdout).not.toContain("skipping")
-  })
-
-  it("no format: command at all emits neither", async () => {
-    const repo = await atWorking(`{}`)
-    const { stdout, exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
-    expect(exitCode).toBe(0)
-    expect(stdout).toContain(`[ -f '.gtd/PLAN.md' ] || exit 0`)
-    expect(stdout).not.toContain("printf '%s' ")
-    expect(stdout).not.toContain("skipping")
-  })
-
-  it("falls back to the host's own scratch dir when TMPDIR is unset", async () => {
-    const repo = await atWorking(`{ qa: { format: "my-formatter $GTD_FILE" } }`)
-    const { stdout, exitCode } = await runEnv(repo, {}, "validate")
-    expect(exitCode).toBe(0)
-    expect(stdout).toContain(`${IN_MEMORY_SCRATCH}/gtd-mode-sample-qa-${IN_MEMORY_PID}.md`)
-  })
-
-  it("gtd validate the COMMAND exits 0 even when the emitted SCRIPT would fail if run — gtd only prints it", async () => {
-    const repo = await atWorking(`{ qa: { format: "my-formatter $GTD_FILE" } }`)
-    const { exitCode } = await runEnv(repo, { TMPDIR: "/fixture-scratch" }, "validate")
-    expect(exitCode).toBe(0)
-  })
-})
-
 describe("gtd next — refuses when history diverges from what replay reaches", () => {
   const atWorking = async (): Promise<InMemRepo> => {
     const repo = seed(IDLE_THEN_WORKING)
@@ -898,469 +764,6 @@ describe("outcome scripts — step no-op / abandon no-op / restore", () => {
 
     expect(applyEmittedScript(repo, new Map(), stdout).ok).toBe(true)
     expect(repo.resolveRef("HEAD")).toBe(tip)
-  })
-})
-
-describe("gtd check <mode> <file>", () => {
-  // Fully standalone (needsOf("check") === "none") — no config, no commit, no
-  // git state at all is required; the file just needs to exist in the
-  // in-memory worktree. Sample valid/invalid content mirrors
-  // src/steering/index.test.ts's own qa/review fixtures.
-
-  const validQaDoc = [
-    "# Plan",
-    "",
-    "## Open Questions",
-    "",
-    "### Which operations?",
-    "",
-    "add and subtract.",
-    "",
-    "## Answered Questions",
-    "",
-    "### What is the target platform?",
-    "",
-    "web only.",
-    "",
-  ].join("\n")
-
-  const invalidQaDoc = ["## Open Questions", "", "###", "", "no question text.", ""].join("\n")
-
-  const validReviewDoc = [
-    "# Review: abc1234",
-    "<!-- base: abc1234def5678901234567890123456789abcd -->",
-    "",
-    "## Add calculator",
-    "",
-    "- [x] ./src/calc.ts#1-1",
-    "",
-  ].join("\n")
-
-  const invalidReviewDoc = "Just some text\n"
-
-  const bareRepo = (): InMemRepo => new InMemRepo()
-
-  it("exits 0 with no output for valid qa content", async () => {
-    const repo = bareRepo()
-    repo.writeFile(".gtd/TODO.md", validQaDoc)
-    const { stdout, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md")
-    expect(exitCode).toBe(0)
-    expect(stdout).toBe("")
-  })
-
-  it("exits 0 with no output for valid review content", async () => {
-    const repo = bareRepo()
-    repo.writeFile("REVIEW.md", validReviewDoc)
-    const { stdout, exitCode } = await run(repo, "check", "review", "REVIEW.md")
-    expect(exitCode).toBe(0)
-    expect(stdout).toBe("")
-  })
-
-  it("invalid qa content prints each finding one per line on stderr, leaves stdout empty, and exits non-zero", async () => {
-    const repo = bareRepo()
-    repo.writeFile(".gtd/TODO.md", invalidQaDoc)
-    const { stdout, stderr, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md")
-    expect(exitCode).toBe(1)
-    expect(stdout).toBe("")
-    expect(stderr).toContain(
-      "An '### ' question heading under '## Open Questions' or '## Answered Questions' has no question text",
-    )
-  })
-
-  it("invalid review content prints each finding one per line on stderr, leaves stdout empty, and exits non-zero", async () => {
-    const repo = bareRepo()
-    repo.writeFile("REVIEW.md", invalidReviewDoc)
-    const { stdout, stderr, exitCode } = await run(repo, "check", "review", "REVIEW.md")
-    expect(exitCode).toBe(1)
-    expect(stdout).toBe("")
-    expect(stderr).toContain(
-      "Missing or malformed '# Review: <hash>' header as the document's first line",
-    )
-    expect(stderr).toContain("Missing '<!-- base: <hash> -->' comment")
-    expect(stderr).toContain("REVIEW.md has no '##' chunks")
-  })
-
-  it("a positioned finding prints '<file>:<line>:<col>: <message>', 1-based, on stderr", async () => {
-    const repo = bareRepo()
-    const secondPointerDoc = [
-      "# Review: abc1234",
-      "<!-- base: abc1234def5678901234567890123456789abcd -->",
-      "",
-      "## Add calculator",
-      "",
-      "- [ ] ./src/calc.ts#1 — ./src/other.ts#2",
-      "",
-    ].join("\n")
-    repo.writeFile("REVIEW.md", secondPointerDoc)
-    const { stdout, stderr, exitCode } = await run(repo, "check", "review", "REVIEW.md")
-    expect(exitCode).toBe(1)
-    expect(stdout).toBe("")
-    // The offending pointer is the 0-based 6th line (index 5) — printed
-    // 1-based as 6 — and the second pointer token itself starts at the
-    // 0-based column 24, printed 1-based as 25.
-    expect(stderr).toContain(
-      'REVIEW.md:6:25: Chunk "Add calculator" hunk ./src/calc.ts#1\'s note starts with a second pointer (./src/other.ts#2) — give it its own "- [ ]" line',
-    )
-  })
-
-  it("an absent file is a refusal (exit 1) naming it", async () => {
-    const repo = bareRepo()
-    const { stdout, stderr, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md")
-    expect(exitCode).toBe(1)
-    expect(stdout).toBe("")
-    expect(stderr).toContain("gtd check: no such file: .gtd/TODO.md")
-  })
-
-  it("an unknown mode is a usage error (exit 2) naming the known modes", async () => {
-    const repo = bareRepo()
-    repo.writeFile("TODO.md", validQaDoc)
-    const { stderr, exitCode } = await run(repo, "check", "bogus", "TODO.md")
-    expect(exitCode).toBe(2)
-    expect(stderr).toContain('unknown mode "bogus"')
-    expect(stderr).toContain("qa")
-    expect(stderr).toContain("review")
-  })
-
-  it("--json is out of scope for check — a usage error, never a JSON envelope (next/land are the only structured surfaces)", async () => {
-    const repo = bareRepo()
-    repo.writeFile(".gtd/TODO.md", validQaDoc)
-    const { stdout, stderr, exitCode } = await run(repo, "check", "qa", ".gtd/TODO.md", "--json")
-    expect(exitCode).toBe(2)
-    expect(stdout).toBe("")
-    expect(stderr).toContain("only valid for `gtd next`")
-  })
-
-  // Regression pin: `ModeContradiction.ts`'s round-trip renders `gtd check
-  // <mode> <path>` against an ABSOLUTE scratch path under `Host.scratchDir`
-  // (never repo-relative) — `Workspace`'s repo-relative `read` rejects an
-  // absolute argument outright, so this command must read through `atPath`
-  // instead, not `read`.
-  it("reads an ABSOLUTE file path too — atPath, not the repo-relative read", async () => {
-    const repo = bareRepo()
-    repo.writeFile("outside.md", validQaDoc)
-    const { stdout, exitCode } = await run(repo, "check", "qa", "/repo/outside.md")
-    expect(exitCode).toBe(0)
-    expect(stdout).toBe("")
-  })
-})
-
-describe("gtd uncheck <file>", () => {
-  const bareRepo = (): InMemRepo => new InMemRepo()
-
-  it("rewrites [x]/[X] pointer boxes to [ ], exit 0, no output", async () => {
-    const repo = bareRepo()
-    repo.writeFile(
-      "REVIEW.md",
-      ["# Review: abc1234", "", "## Chunk", "", "- [x] ./src/calc.ts#1", ""].join("\n"),
-    )
-    const { stdout, stderr, exitCode } = await run(repo, "uncheck", "REVIEW.md")
-    expect(exitCode).toBe(0)
-    expect(stdout).toBe("")
-    expect(stderr).toBe("")
-    expect(repo.readFile("REVIEW.md")).toBe(
-      ["# Review: abc1234", "", "## Chunk", "", "- [ ] ./src/calc.ts#1", ""].join("\n"),
-    )
-  })
-
-  it("does not write back when the bytes are unchanged (no ticks to clear)", async () => {
-    const repo = bareRepo()
-    const content = ["# Review: abc1234", "", "## Chunk", "", "- [ ] ./src/calc.ts#1", ""].join(
-      "\n",
-    )
-    repo.writeFile("REVIEW.md", content)
-    const writeSpy = vi.spyOn(repo, "writeFile")
-    const { exitCode } = await run(repo, "uncheck", "REVIEW.md")
-    expect(exitCode).toBe(0)
-    expect(writeSpy).not.toHaveBeenCalled()
-    writeSpy.mockRestore()
-  })
-
-  it("a missing file writes nothing and exits 0", async () => {
-    const repo = bareRepo()
-    const { stdout, exitCode } = await run(repo, "uncheck", "REVIEW.md")
-    expect(exitCode).toBe(0)
-    expect(stdout).toBe("")
-    expect(repo.hasPath("REVIEW.md")).toBe(false)
-  })
-
-  it("bad arity (no file argument) exits 2", async () => {
-    const repo = bareRepo()
-    const { exitCode, stderr } = await run(repo, "uncheck")
-    expect(exitCode).toBe(2)
-    expect(stderr).toContain("missing file argument")
-  })
-
-  // Regression pin: `gtd uncheck` shares its file-reading shape with `gtd
-  // check`, both of which take an arbitrary CLI-given `<file>` — not
-  // necessarily repo-relative (see the sibling pin below, at `gtd check`'s
-  // own describe block, for the case this actually matters in production:
-  // `ModeContradiction.ts`'s round-trip invokes `gtd check qa <absolute
-  // scratch path>`). `Workspace`'s repo-relative `read`/`write` reject an
-  // absolute path outright — only `atPath`/`writeAtPath` may see one.
-  it("rewrites ticks at an ABSOLUTE file path too — atPath/writeAtPath, not the repo-relative read/write", async () => {
-    const repo = bareRepo()
-    // Seeded/read back by the STRIPPED key: `atPath`'s in-memory adapter
-    // (`testing/Layers.ts`) maps an absolute path rooted under `/repo` (the
-    // default fake root) to its relative key, same as the live adapter maps
-    // it to `join(root, …)` — the CLI argument is absolute, the storage key
-    // isn't.
-    repo.writeFile(
-      "REVIEW.md",
-      ["# Review: abc1234", "", "## Chunk", "", "- [x] ./src/calc.ts#1", ""].join("\n"),
-    )
-    const { stdout, stderr, exitCode } = await run(repo, "uncheck", "/repo/REVIEW.md")
-    expect(exitCode).toBe(0)
-    expect(stdout).toBe("")
-    expect(stderr).toBe("")
-    expect(repo.readFile("REVIEW.md")).toBe(
-      ["# Review: abc1234", "", "## Chunk", "", "- [ ] ./src/calc.ts#1", ""].join("\n"),
-    )
-  })
-})
-
-describe("gtd check <mode> <file> --open-questions", () => {
-  // Shares the exact `unansweredQuestions` predicate a flow's `openQuestions()`
-  // reads — this is the leaf command a workflow's own gate script calls to
-  // answer the same question ahead of time.
-
-  const docWithUnanswered = [
-    "# Plan",
-    "",
-    "## Open Questions",
-    "",
-    "### Which operations?",
-    "",
-    "- [ ] add and subtract",
-    "- [ ] _your answer_",
-    "",
-    "### What is the target platform?",
-    "",
-    "- [x] web only",
-    "- [ ] _your answer_",
-    "",
-  ].join("\n")
-
-  const docFullyAnswered = [
-    "# Plan",
-    "",
-    "## Open Questions",
-    "",
-    "### What is the target platform?",
-    "",
-    "- [x] web only",
-    "- [ ] _your answer_",
-    "",
-  ].join("\n")
-
-  const docNoOpenQuestionsSection = [
-    "# Plan",
-    "",
-    "## Answered Questions",
-    "",
-    "### What is the target platform?",
-    "",
-    "web only.",
-    "",
-  ].join("\n")
-
-  const docNeitherSection = ["# Plan", "", "Just some prose, no questions at all.", ""].join("\n")
-
-  const docFreeTextAnswered = [
-    "# Plan",
-    "",
-    "## Open Questions",
-    "",
-    "### Which operations?",
-    "",
-    "- [ ] add and subtract",
-    "- [x] multiply only",
-    "",
-  ].join("\n")
-
-  const bareRepo = (): InMemRepo => new InMemRepo()
-
-  it("lists each unanswered question on stderr, leaves stdout empty, and exits non-zero", async () => {
-    const repo = bareRepo()
-    repo.writeFile(".gtd/TODO.md", docWithUnanswered)
-    const { stdout, stderr, exitCode } = await run(
-      repo,
-      "check",
-      "qa",
-      "--open-questions",
-      ".gtd/TODO.md",
-    )
-    expect(exitCode).not.toBe(0)
-    expect(stdout).toBe("")
-    expect(stderr).toContain(".gtd/TODO.md:5: Which operations?")
-  })
-
-  it("exits 0 with no output when every open question has a ticked box", async () => {
-    const repo = bareRepo()
-    repo.writeFile(".gtd/TODO.md", docFullyAnswered)
-    const { stdout, exitCode } = await run(repo, "check", "qa", "--open-questions", ".gtd/TODO.md")
-    expect(exitCode).toBe(0)
-    expect(stdout).toBe("")
-  })
-
-  it("exits 0 with no output when the '## Open Questions' section is absent (an '## Answered Questions' section only)", async () => {
-    const repo = bareRepo()
-    repo.writeFile(".gtd/TODO.md", docNoOpenQuestionsSection)
-    const { stdout, exitCode } = await run(repo, "check", "qa", "--open-questions", ".gtd/TODO.md")
-    expect(exitCode).toBe(0)
-    expect(stdout).toBe("")
-  })
-
-  it("exits 0 with no output for a document with neither section at all", async () => {
-    const repo = bareRepo()
-    repo.writeFile(".gtd/TODO.md", docNeitherSection)
-    const { stdout, exitCode } = await run(repo, "check", "qa", "--open-questions", ".gtd/TODO.md")
-    expect(exitCode).toBe(0)
-    expect(stdout).toBe("")
-  })
-
-  it("a question answered via the free-text slot with the human's own text counts as answered", async () => {
-    const repo = bareRepo()
-    repo.writeFile(".gtd/TODO.md", docFreeTextAnswered)
-    const { stdout, exitCode } = await run(repo, "check", "qa", "--open-questions", ".gtd/TODO.md")
-    expect(exitCode).toBe(0)
-    expect(stdout).toBe("")
-  })
-
-  it("a missing file exits non-zero with a message, not a silent zero", async () => {
-    const repo = bareRepo()
-    const { stderr, exitCode } = await run(repo, "check", "qa", "--open-questions", ".gtd/TODO.md")
-    expect(exitCode).not.toBe(0)
-    expect(stderr).toContain(".gtd/TODO.md")
-  })
-
-  it("an existing-but-unreadable path (a directory at that name) exits non-zero with a message", async () => {
-    // The in-memory fake has no real file descriptors/permissions, so
-    // "unreadable" is simulated the one way it can be: a path that EXISTS
-    // (`hasPath` sees the nested file) but has no content of its own
-    // (`readFile` returns undefined for a directory), exactly like `gtd
-    // check`'s existing `steeringFormatFor` path already treats a directory —
-    // `readFileString` fails with ENOENT rather than returning a string.
-    const repo = bareRepo()
-    repo.writeFile(".gtd/TODO.md/nested.txt", "not actually the file")
-    const { stderr, exitCode } = await run(repo, "check", "qa", "--open-questions", ".gtd/TODO.md")
-    expect(exitCode).not.toBe(0)
-    expect(stderr).toContain(".gtd/TODO.md")
-  })
-
-  it("--json is out of scope for check --open-questions too — a usage error, never a JSON envelope", async () => {
-    const repo = bareRepo()
-    repo.writeFile(".gtd/TODO.md", docWithUnanswered)
-    const { stdout, stderr, exitCode } = await run(
-      repo,
-      "check",
-      "qa",
-      "--open-questions",
-      ".gtd/TODO.md",
-      "--json",
-    )
-    expect(exitCode).toBe(2)
-    expect(stdout).toBe("")
-    expect(stderr).toContain("only valid for `gtd next`")
-  })
-
-  it("an unknown mode still fails with the usual unknown-mode usage error, even with --open-questions", async () => {
-    const repo = bareRepo()
-    repo.writeFile(".gtd/TODO.md", docFullyAnswered)
-    const { stderr, exitCode } = await run(
-      repo,
-      "check",
-      "bogus",
-      "--open-questions",
-      ".gtd/TODO.md",
-    )
-    expect(exitCode).toBe(2)
-    expect(stderr).toContain('unknown mode "bogus"')
-    expect(stderr).toContain("qa")
-    expect(stderr).toContain("review")
-  })
-
-  it("a known but non-qa mode (e.g. review) refuses --open-questions instead of silently running the qa predicate", async () => {
-    const repo = bareRepo()
-    repo.writeFile("REVIEW.md", docWithUnanswered)
-    const { stderr, exitCode } = await run(repo, "check", "review", "--open-questions", "REVIEW.md")
-    expect(exitCode).not.toBe(0)
-    expect(stderr).toContain("--open-questions")
-    expect(stderr).toContain('"review"')
-  })
-})
-
-describe("gtd check <mode> <file> --open-threads", () => {
-  const open = [
-    "We cache.[^cache]",
-    "",
-    "[^cache]:",
-    "    - H: why this way?",
-    "    - A: because",
-    "",
-  ].join("\n")
-  const bareRepo = (): InMemRepo => new InMemRepo()
-  const waitingOnAgent = open.replace("    - A: because\n", "")
-
-  it("exits non-zero listing file:line: [^name]: first H entry per open thread", async () => {
-    const repo = bareRepo()
-    repo.writeFile("NOTES.md", open)
-    const { stderr, exitCode } = await run(repo, "check", "qa", "--open-threads", "NOTES.md")
-    expect(exitCode).not.toBe(0)
-    expect(stderr).toContain("NOTES.md:3: [^cache]: why this way?")
-  })
-
-  it("exits 0 when every thread waits on the agent", async () => {
-    const repo = bareRepo()
-    repo.writeFile("NOTES.md", waitingOnAgent)
-    const { exitCode } = await run(repo, "check", "review", "--open-threads", "NOTES.md")
-    expect(exitCode).toBe(0)
-  })
-
-  it("exits 0 when there is no thread", async () => {
-    const repo = bareRepo()
-    repo.writeFile("NOTES.md", "plain\n")
-    const { exitCode } = await run(repo, "check", "qa", "--open-threads", "NOTES.md")
-    expect(exitCode).toBe(0)
-  })
-
-  it("fails on a missing file", async () => {
-    const repo = bareRepo()
-    const { stderr, exitCode } = await run(repo, "check", "qa", "--open-threads", "MISSING.md")
-    expect(exitCode).not.toBe(0)
-    expect(stderr).toContain("MISSING.md")
-  })
-})
-
-describe("gtd check --open-threads (no mode, no file) — code threads", () => {
-  const WORKFLOW = `import { agent, human } from "@pmelab/gtd/flows"
-
-export default async () => {
-  await human("idle", { message: "hi" })
-  await agent("working", "go")
-}
-`
-  const withThread = ["const a = 1", "// H: why this?", "// A: because", "const b = 2", ""].join(
-    "\n",
-  )
-
-  it("no process underway: prints nothing, exits 0", async () => {
-    const repo = seed(WORKFLOW)
-    repo.writeFile("src/a.ts", withThread)
-    const { stderr, exitCode } = await run(repo, "check", "--open-threads")
-    expect(exitCode).toBe(0)
-    expect(stderr).toBe("")
-  })
-
-  it("process underway: lists open threads (committed and untracked) as path:line: first entry", async () => {
-    const repo = seed(WORKFLOW)
-    await landTurn(repo, { "src/a.ts": withThread })
-    repo.writeFile("src/b.ts", ["x", "// H: and this?", "// A: so"].join("\n"))
-    repo.writeFile("src/asked.ts", "// H: still waiting on the agent")
-    const { stderr, exitCode } = await run(repo, "check", "--open-threads")
-    expect(stderr).toContain("src/a.ts:2: why this?")
-    expect(stderr).toContain("src/b.ts:2: and this?")
-    expect(stderr).not.toContain("asked.ts")
-    expect(exitCode).not.toBe(0)
   })
 })
 
@@ -1654,58 +1057,23 @@ export default async () => {
   })
 })
 
-describe("gtd land — the landing script is only the commit", () => {
-  // A step's mode `format:`/`validate:` pair runs in the driver, off
-  // `gtd next --json`'s `validate` field — never inside the landing script.
-  const NOTES_WORKFLOW = `import { agent, changes, human } from "@pmelab/gtd/flows"
+describe("gtd land — a steering file lands in its canonical form", () => {
+  const NOTES_WORKFLOW = `import { agent, human } from "@pmelab/gtd/flows"
 
 export default async () => {
   await human("idle", { message: "hi" })
-  do {
-    await agent("drafting", "write the notes", { file: ".gtd/NOTES.md", mode: "notes" })
-  } while (!changes(".gtd/NOTES.md").some((c) => c.status === "deleted"))
+  await agent("drafting", "write the notes", { file: ".gtd/NOTES.md" })
+  await human("done", { message: "read the notes", file: ".gtd/NOTES.md" })
 }
 `
 
-  const atDrafting = async (): Promise<InMemRepo> => {
-    const repo = seed(
-      `${NOTES_WORKFLOW}export const config = { modes: { notes: { format: "fmt-notes $GTD_FILE" } } }\n`,
-    )
-    await landTurn(repo, { ".gtd/NOTES.md": "# notes\n\nfirst draft\n" })
-    return repo
-  }
-
-  it("at a dirty steering file (file + mode), the emitted script carries no format/validate command", async () => {
-    const repo = await atDrafting()
-    repo.writeFile(".gtd/NOTES.md", "# notes\n\nsecond draft\n")
+  it("formats the file ahead of the commit", async () => {
+    const repo = seed(NOTES_WORKFLOW)
+    await landTurn(repo, { ".gtd/NOTES.md": "# notes\n\nfirst\ndraft\n" })
     const { exitCode, script } = await landAndApply(repo)
     expect(exitCode).toBe(0)
-    expect(script).not.toContain("fmt-notes")
-    expect(script).not.toContain("oxfmt")
-    expect(script).not.toContain("prettier")
-    expect(script).not.toContain("gtd check")
-    expect(repo.lastCommitSubject()).toBe("gtd(agent): drafting")
-  })
-
-  it("still lands a step that deletes that file, with no format command either", async () => {
-    const repo = await atDrafting()
-    repo.deleteFile(".gtd/NOTES.md")
-    const { exitCode, script } = await landAndApply(repo)
-    expect(exitCode).toBe(0)
-    expect(script).not.toContain("fmt-notes")
-    expect(repo.lastCommitSubject(`${repo.resolveRef("gtd/main")}~1`)).toBe(
-      "gtd(agent): drafting → gtd:unpin",
-    )
-  })
-
-  it("`gtd next --json`'s `validate` field carries the mode's format command", async () => {
-    const repo = await atDrafting()
-    repo.writeFile(".gtd/NOTES.md", "# notes\n\nsecond draft\n")
-    const { stdout, exitCode } = await run(repo, "next", "--json")
-    expect(exitCode).toBe(0)
-    expect((JSON.parse(stdout) as { validate?: string }).validate).toContain(
-      "export GTD_FILE='.gtd/NOTES.md'\nfmt-notes $GTD_FILE",
-    )
+    expect(script).toContain("gtd check --write '.gtd/NOTES.md'")
+    expect(repo.readFile(".gtd/NOTES.md")).toBe("# notes\n\nfirst draft\n")
   })
 })
 
@@ -1721,9 +1089,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     restore: { kind: "restore" },
     repin: { kind: "repin" },
     next: { kind: "next" },
-    validate: { kind: "validate" },
-    check: { kind: "check", mode: "qa", file: ".gtd/TODO.md" },
-    uncheck: { kind: "uncheck", file: ".gtd/REVIEW.md" },
+    check: { kind: "check", file: ".gtd/TODO.md" },
     guide: { kind: "guide" },
     bundle: { kind: "bundle" },
     summary: { kind: "summary" },
@@ -1744,7 +1110,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
 
-  it("derives exactly the sixteen non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the fifteen non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
       [
         "abandon",
@@ -1756,7 +1122,6 @@ describe("runCommand — refuses in a repository with no commits", () => {
         "restore",
         "repin",
         "summary",
-        "validate",
         "ui",
         "judge",
         "judgeAnswer",
@@ -2034,11 +1399,9 @@ describe("gtd next/land --json=<path> — the select branch", () => {
 
   it("an absent selector writes zero bytes to stdout and exits EXIT_OK", async () => {
     const repo = seededRepo()
-    // The workflow's initial `idle` step declares no `mode:` —
-    // `mode` is a real, present-but-`undefined` field on the beat document
-    // there (see `src/wire/BeatStatus.ts`'s `statusOf`), not merely an
-    // unknown path.
-    const { stdout, exitCode } = await run(repo, "next", "--json=mode")
+    // The initial `idle` step declares no `file:` — a real,
+    // present-but-`undefined` field on the beat document, not an unknown path.
+    const { stdout, exitCode } = await run(repo, "next", "--json=file")
     expect(exitCode).toBe(0)
     expect(stdout).toBe("")
   })

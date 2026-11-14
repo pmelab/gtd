@@ -23,14 +23,6 @@ import {
 
 const ANNOTATE_ACTION_TITLE = "gtd: add an annotation"
 
-const SAMPLE = `# Plan
-
-## 🔘 Which store?
-
-- [ ] Redis
-- [ ] ✏️
-`
-
 /** One checkbox of an input widget: an option, the custom answer, or a hunk. */
 interface Box {
   readonly line: number
@@ -438,7 +430,6 @@ const pointerAt: SteeringFormat["pointerAt"] = (content, position) => {
 
 /** The one steering format: a document of widgets. */
 export const widgetFormat: SteeringFormat = {
-  sample: SAMPLE,
   validate: (content) => {
     const doc = parseWidgets(content)
     return [...doc.findings, ...answerFindings(doc)]
@@ -450,5 +441,4 @@ export const widgetFormat: SteeringFormat = {
   view,
   annotate,
   apply,
-  clearTicks: (content) => content,
 }

@@ -12,13 +12,7 @@ import {
   type Flow,
   type Mark,
 } from "../flows/internal.js"
-import {
-  openQuestions,
-  parseCodeThreads,
-  sectionBodies,
-  sections,
-  threads,
-} from "../steering/index.js"
+import { sectionBodies, sections } from "../steering/index.js"
 import { steeringStepFindings } from "../steering/internal.js"
 import { flowWidgets } from "./FlowWidgets.js"
 import { accessShapeFault, foldAccess, sameAccess } from "./Access.js"
@@ -114,7 +108,7 @@ export interface ReachedStep {
   readonly memoryScope: string
   /** The scope's resolved skill list, for an agent step; absent when none. */
   readonly skills?: readonly string[] | undefined
-  /** The scope's resolved access with the step's steering file and waiting code threads folded in, for an agent step. */
+  /** The scope's resolved access with the step's steering file folded in, for an agent step. */
   readonly access?: AccessDef | undefined
   /** The commit replay stood on when it reached this step. */
   readonly enteredAt: string
@@ -320,7 +314,7 @@ export const setAsideBy = (
  * Pure over its input: the same episode always yields the same outcome, and
  * the only reads are through `TreeView`s.
  */
-const STEERING_OPTIONS = ["file", "mode", "label", "base"]
+const STEERING_OPTIONS = ["file", "label", "base"]
 // The option keys each step accepts. A gtd.config.ts is evaluated without a
 // type check, so a misspelt key would otherwise be silently ignored.
 const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
@@ -384,9 +378,8 @@ const unknownOptions = (step: ReachedStep): string | undefined => {
 const approveConflict = (step: ReachedStep): string | undefined => {
   const request = step.request
   if (request.kind !== "human" || request.options.approve !== true) return undefined
-  const keys = (["mode", "file"] as const).filter((key) => request.options[key] !== undefined)
-  if (keys.length === 0) return undefined
-  return `gtd: step "${step.name}": approve cannot be combined with ${keys.join(", ")} in human() options — an approval records exactly the judged tree, and a steering file is rewritten on landing`
+  if (request.options.file === undefined) return undefined
+  return `gtd: step "${step.name}": approve cannot be combined with file in human() options — an approval records exactly the judged tree, and a steering file is rewritten on landing`
 }
 
 const WIDGET_KINDS = new Set([
@@ -411,20 +404,13 @@ const widgetShapeFault = (widgets: unknown, coverage: unknown): string | undefin
 // `widgets` and `coverage` narrow what a steering file may hold; with no file they mean nothing.
 const widgetOptionsFault = (step: ReachedStep): string | undefined => {
   if (step.request.kind !== "agent") return undefined
-  const { widgets, coverage, file, mode } = step.request.options
+  const { widgets, coverage, file } = step.request.options
   if (widgets === undefined && coverage === undefined) return undefined
   const fault =
-    file === undefined || mode !== undefined
-      ? "widgets and coverage require file, and no mode, in agent() options"
+    file === undefined
+      ? "widgets and coverage require file in agent() options"
       : widgetShapeFault(widgets, coverage)
   return fault === undefined ? undefined : `gtd: step "${step.name}": ${fault}`
-}
-
-// A mode names how a steering file is checked; with no file there is nothing to check.
-const modeWithoutFile = (step: ReachedStep): string | undefined => {
-  const options = step.request.options
-  if (options.mode === undefined || options.file !== undefined) return undefined
-  return `gtd: step "${step.name}": mode requires file in ${step.kind}() options — name the steering file the mode checks`
 }
 
 // The pin is the engine's, not the process's: flow code never sees it, so a
@@ -600,29 +586,14 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
   const resolveAccess = (memory: string): ScopeAccess | undefined =>
     resolveScoped(memory, (s) => s.access, input.configuredAccess, input.access)
 
+  // A steering step writes its steering file and nothing else (ADR 0010).
   const foldedAccessFor = (
     scopeAccess: ScopeAccess | undefined,
     file: string | undefined,
   ): AccessDef => {
-    // Reading code threads parses every changed file: only a restricted side needs them.
-    const restricted = scopeAccess?.read !== undefined || scopeAccess?.write !== undefined
-    const threadPaths = restricted
-      ? context
-          .codeThreads()
-          .filter((t) => t.waitingOn === "agent")
-          .map((t) => t.path)
-      : []
-    return foldAccess(scopeAccess, file, threadPaths)
+    const access = foldAccess(scopeAccess, file)
+    return file === undefined ? access : { read: access.read, write: [file] }
   }
-
-  // A steering step writes its steering file and nothing else (ADR 0010).
-  const steeringAccess = (
-    access: AccessDef,
-    options: { readonly file?: string | undefined; readonly mode?: unknown },
-  ): AccessDef =>
-    options.file === undefined || options.mode !== undefined
-      ? access
-      : { read: access.read, write: [options.file] }
 
   const scopeAccessFault = (): string | undefined => {
     for (const [i, s] of scopes.entries()) {
@@ -677,10 +648,7 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
       ...(resolved.kind === "agent"
         ? {
             skills: resolveSkills(memory),
-            access: steeringAccess(
-              foldedAccessFor(scopeAccess, resolved.options.file),
-              resolved.options,
-            ),
+            access: foldedAccessFor(scopeAccess, resolved.options.file),
           }
         : {}),
       enteredAt: position.hash,
@@ -739,7 +707,6 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
       unknownOptions(step) ??
       onFailFault(step) ??
       approveConflict(step) ??
-      modeWithoutFile(step) ??
       widgetOptionsFault(step) ??
       checkIdentity(step)
     return error === undefined ? undefined : { kind: "failed", message: error }
@@ -935,26 +902,6 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
     matches: globMatches,
     sections,
     sectionBodies,
-    openQuestions,
-    threads,
-    codeThreads: () =>
-      changesBetween(
-        treeAt(input.start) ?? input.startTree ?? input.episode.base.tree,
-        position.tree,
-      )
-        .filter((c) => c.status !== "deleted")
-        .flatMap((c) => {
-          const { threads, findings } = parseCodeThreads(c.path, position.tree.read(c.path) ?? "")
-          return threads.map((t) => ({
-            path: t.path,
-            line: t.line + 1,
-            waitingOn: t.waitingOn,
-            first: t.entries[0]?.text ?? "",
-            faults: findings
-              .filter((f) => f.message.startsWith(`Code thread at ${c.path}:${t.line + 1}: `))
-              .map((f) => f.message),
-          }))
-        }),
     widgets: flowWidgets,
     steeringFindings: (file, options) =>
       steeringStepFindings(

@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest"
-import { freeFormFormat, steeringFormatFor } from "../steering/index.js"
+import { widgetFormat } from "../steering/index.js"
 import type { StepRead } from "./Beat.js"
 import {
   appRouter,
@@ -8,7 +8,7 @@ import {
   type RouterContext,
 } from "./Router.js"
 
-const QA_FORMAT = steeringFormatFor("qa")!
+const PLAN = "# Plan\n\n## 🔘 Store?\n\n- [ ] Redis\n- [ ] Memory\n"
 
 const OK_STEP: StepRead = {
   status: "ok",
@@ -22,7 +22,6 @@ const OK_STEP: StepRead = {
   idle: false,
   rest: "2026-08-01T10:00:00+00:00",
   file: ".gtd/TODO.md",
-  mode: "qa",
 }
 
 /** Every `writeNote`/`writeValue`/`done` fake below that just needs to succeed resolves this — a real `Write.ts#WriteSuccess` always carries `contentHash` now, so a bare `{ ok: true }` no longer type-checks as one. */
@@ -48,7 +47,6 @@ const doneNote = {
   filePath: "TODO.md",
   expectedHeadSha: "sha",
   expectedContentHash: "hash",
-  mode: "qa",
   anchor: { kind: "paragraph" as const, line: 3 },
   text: "a note",
 }
@@ -67,23 +65,13 @@ describe("appRouter.writeNote", () => {
     filePath: ".gtd/REVIEW.md",
     expectedHeadSha: "sha1",
     expectedContentHash: "hash1",
-    mode: "review",
-    anchor: { kind: "chunk" as const, index: 0 },
+    anchor: { kind: "question" as const, index: 0 },
     text: "a note a human typed",
   }
 
   it("delegates to the context's writeNote and returns ok on success, forwarding contentHash", async () => {
     const caller = appRouter.createCaller(contextFor(undefined, () => Promise.resolve(WRITE_OK)))
     await expect(caller.writeNote(request)).resolves.toEqual(WRITE_OK)
-  })
-
-  it("forwards a formatNotice alongside contentHash when the write context reports one", async () => {
-    const withNotice = {
-      ...WRITE_OK,
-      formatNotice: { command: "npx oxfmt --write x", exitCode: 1 },
-    }
-    const caller = appRouter.createCaller(contextFor(undefined, () => Promise.resolve(withNotice)))
-    await expect(caller.writeNote(request)).resolves.toEqual(withNotice)
   })
 
   it("surfaces a refusal as a typed WriteNoteRefusal cause, naming the reason", async () => {
@@ -126,7 +114,6 @@ describe("appRouter.setValue", () => {
     filePath: ".gtd/REVIEW.md",
     expectedHeadSha: "sha1",
     expectedContentHash: "hash1",
-    mode: "review",
     anchor: { kind: "hunk" as const, chunkIndex: 0, index: 0 },
     checked: true,
   }
@@ -192,27 +179,15 @@ describe("appRouter.setValue", () => {
 })
 
 describe("appRouter.view", () => {
-  it("returns a qa-mode document's view", async () => {
+  it("returns the document's widget view", async () => {
     const caller = appRouter.createCaller(contextFor())
-    const result = await caller.view({ mode: "qa", content: QA_FORMAT.sample })
-    expect(result).toEqual({ view: QA_FORMAT.view(QA_FORMAT.sample) })
-  })
-
-  it("falls back to the free-form format's own view for an unregistered mode, never throwing", async () => {
-    const caller = appRouter.createCaller(contextFor())
-    const result = await caller.view({ mode: "not-a-real-mode", content: "x" })
-    expect(result).toEqual({ view: freeFormFormat.view("x") })
-  })
-
-  it("falls back to the free-form format's own view when mode is absent entirely — the genuinely mode-less case Task 3 enables", async () => {
-    const caller = appRouter.createCaller(contextFor())
-    const result = await caller.view({ content: "x", mode: undefined })
-    expect(result).toEqual({ view: freeFormFormat.view("x") })
+    const result = await caller.view({ content: PLAN })
+    expect(result).toEqual({ view: widgetFormat.view(PLAN) })
   })
 
   it("rejects malformed input rather than reaching steeringViewFor", async () => {
     const caller = appRouter.createCaller(contextFor())
-    await expect(caller.view({ mode: "qa" } as never)).rejects.toThrow()
+    await expect(caller.view({} as never)).rejects.toThrow()
   })
 })
 
@@ -291,15 +266,15 @@ describe("appRouter.readSteeringFile", () => {
   it("delegates straight to the context's readSteeringFile, returning the full result on success", async () => {
     const okResult = {
       ok: true as const,
-      content: QA_FORMAT.sample,
+      content: PLAN,
       headSha: "abc123",
       contentHash: "deadbeef",
-      view: QA_FORMAT.view(QA_FORMAT.sample),
+      view: widgetFormat.view(PLAN),
     }
     const caller = appRouter.createCaller(
       contextFor(undefined, undefined, undefined, () => Promise.resolve(okResult)),
     )
-    const result = await caller.readSteeringFile({ filePath: ".gtd/PLAN.md", mode: "qa" })
+    const result = await caller.readSteeringFile({ filePath: ".gtd/PLAN.md" })
     expect(result).toEqual(okResult)
   })
 
@@ -309,24 +284,10 @@ describe("appRouter.readSteeringFile", () => {
         Promise.resolve({ ok: false, reason: "file-vanished" }),
       ),
     )
-    const error = await caller
-      .readSteeringFile({ filePath: "x.md", mode: "qa" })
-      .catch((e: unknown) => e)
+    const error = await caller.readSteeringFile({ filePath: "x.md" }).catch((e: unknown) => e)
     const cause = (error as { cause?: unknown }).cause
     expect(cause).toBeInstanceOf(ReadSteeringFileRefusal)
     expect((cause as ReadSteeringFileRefusal).reason).toBe("file-vanished")
-  })
-
-  it('accepts an absent mode, forwarding it through to readSteeringFile as undefined, never a `""` sentinel', async () => {
-    let received: unknown
-    const caller = appRouter.createCaller(
-      contextFor(undefined, undefined, undefined, (input) => {
-        received = input
-        return Promise.resolve({ ok: false, reason: "file-vanished" })
-      }),
-    )
-    await caller.readSteeringFile({ filePath: "x.md" } as never).catch(() => undefined)
-    expect(received).toMatchObject({ mode: undefined })
   })
 
   it("surfaces a head-unresolved refusal as a typed ReadSteeringFileRefusal cause with a BAD_REQUEST code", async () => {
@@ -335,9 +296,7 @@ describe("appRouter.readSteeringFile", () => {
         Promise.resolve({ ok: false, reason: "head-unresolved" }),
       ),
     )
-    const error = await caller
-      .readSteeringFile({ filePath: "x.md", mode: "qa" })
-      .catch((e: unknown) => e)
+    const error = await caller.readSteeringFile({ filePath: "x.md" }).catch((e: unknown) => e)
     const cause = (error as { cause?: unknown }).cause
     expect(cause).toBeInstanceOf(ReadSteeringFileRefusal)
     expect((cause as ReadSteeringFileRefusal).reason).toBe("head-unresolved")
@@ -452,7 +411,7 @@ describe("no procedure input carries a filesystem path from the client", () => {
     // router turns into a thrown TRPCError — irrelevant here, the point is
     // only what request shape reached `ctx.readSteeringFile` before it did.
     await caller
-      .readSteeringFile({ filePath: "x.md", mode: "qa", worktreePath: "/etc/passwd" } as never)
+      .readSteeringFile({ filePath: "x.md", worktreePath: "/etc/passwd" } as never)
       .catch(() => {})
     await caller.diff({ path: "x.ts", worktreePath: "/etc/passwd" } as never)
 

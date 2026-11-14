@@ -81,9 +81,7 @@ export interface DemandSession {
 
 /**
  * One driver `case` arm's whole demand: what to DO, and (only at `prompt`)
- * the dispatch bookkeeping (`session`/`validate`) no other kind carries.
- * Replaces `BeatFields`' flat `session`/`validate` fields (gated at
- * `kind === "prompt"` by a runtime check) with a shape where a non-`prompt`
+ * the dispatch bookkeeping (`session`) no other kind carries: a non-`prompt`
  * variant cannot HOLD a session at all.
  */
 export type Demand =
@@ -95,7 +93,6 @@ export type Demand =
       readonly kind: "prompt"
       readonly content: string
       readonly session: DemandSession | undefined
-      readonly validate: string | undefined
       readonly fresh: string | null
       readonly skills: readonly string[] | undefined
       readonly access: StepAccess
@@ -104,7 +101,7 @@ export type Demand =
 /**
  * Assemble one `Demand` — the ONLY place a rest's resolved content becomes
  * `Demand.content` (`stallDiagnosis` at `kind === "stalled"`, the rendered
- * content otherwise), and the only place `session`/`validate`/`skills`/`access` are
+ * content otherwise), and the only place `session`/`skills`/`access` are
  * attached, which the `prompt` variant's own type makes impossible to do at
  * any other kind.
  */
@@ -115,10 +112,9 @@ export const demandOf = (input: {
   >
   readonly kind: BeatKind
   readonly session?: DemandSession
-  readonly validate?: string
   readonly fresh?: string | null
 }): Demand => {
-  const { rendered, kind, session, validate, fresh = null } = input
+  const { rendered, kind, session, fresh = null } = input
   const content =
     kind === "stalled"
       ? stallDiagnosis(rendered.state, rendered.actor, rendered.failure, rendered.blocked)
@@ -126,7 +122,7 @@ export const demandOf = (input: {
   const skills =
     rendered.skills !== undefined && rendered.skills.length > 0 ? rendered.skills : undefined
   const access = rendered.access ?? { read: null, write: null }
-  if (kind === "prompt") return { kind, content, session, validate, fresh, skills, access }
+  if (kind === "prompt") return { kind, content, session, fresh, skills, access }
   if (kind === "script" && rendered.pin !== undefined) return { kind, content, pin: rendered.pin }
   return { kind, content }
 }

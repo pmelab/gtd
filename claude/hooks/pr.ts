@@ -24,8 +24,7 @@ export type Answer = { thread: string; title: string; choice: Choice; text: stri
 const PR_URL = /^https?:\/\/([^/]+)\/([^/]+)\/([^/]+)\/pull\/(\d+)/
 // The thread's node id, tagged on the note's heading.
 const TAG = /\(thread ([A-Za-z0-9_=-]+)\)\s*$/
-const LEAD = "Tick exactly one:"
-const PLACEHOLDER = "_your answer_"
+const CUSTOM = /^✏️?\s*/u
 
 const fail = (text: string): Done => ({ ok: false, text })
 
@@ -159,17 +158,17 @@ const quoted = (body: string) => {
     .join("\n")
 }
 
+// A single select: the review gate cannot land until each one is answered.
 const heading = (t: Thread) =>
-  `## ${t.path ? `${t.path}${t.line ? `:${t.line}` : ""}` : "Pull request review"} (thread ${t.id})`
+  `## 🔘 ${t.path ? `${t.path}${t.line ? `:${t.line}` : ""}` : "Pull request review"} (thread ${t.id})`
 
 export function threadNote(t: Thread) {
   const said = t.comments.map((c) => `**@${c.author}** ([comment](${c.url})):\n\n${quoted(c.body)}`)
   return [
     heading(t),
     ...said,
-    "From the pull request. To decline it, tick won't fix and write your reason after it on that line.",
-    LEAD,
-    "- [x] fix as suggested\n- [ ] won't fix\n- [ ] _your answer_",
+    "From the pull request. To decline it, tick won't fix and write your reason after it on that line; to reply instead, write your answer after ✏️.",
+    "- [x] fix as suggested\n- [ ] won't fix\n- [ ] ✏️",
   ].join("\n\n")
 }
 
@@ -189,7 +188,7 @@ function chunks(review: string): Chunk[] {
     .slice(1)
     .map((part) => {
       const [first = "", ...lines] = part.split(/\r?\n/)
-      const title = first.trim()
+      const title = first.trim().replace(/^🔘\s*/u, "")
       const thread = TAG.exec(title)?.[1]
       return { title, ...(thread ? { thread } : {}), lines }
     })
@@ -198,10 +197,10 @@ function chunks(review: string): Chunk[] {
 // An unindented line right below an item continues it, as markdown reads it.
 const continues = (line: string, afterBlank: boolean) => !afterBlank || /^\s+\S/.test(line)
 
-// The three answer boxes after the lead line, a wrapped item's continuation joined on.
+// The three answer boxes of the note's first checkbox list, a wrapped item's continuation joined on.
 function boxes(lines: readonly string[]) {
-  const at = lines.findIndex((l) => l.trim() === LEAD)
-  if (at === -1) return undefined
+  const at = lines.findIndex((l) => /^[-*+] \[[ xX]\]/.test(l)) - 1
+  if (at === -2) return undefined
   const items: { checked: boolean; text: string }[] = []
   let blank = false
   for (const line of lines.slice(at + 1)) {
@@ -222,11 +221,12 @@ export function answers(review: string): Answer[] {
   return chunks(review).flatMap((c) => {
     const b = c.thread ? boxes(c.lines) : undefined
     if (!c.thread || b?.length !== 3) return []
-    const ticked = b.flatMap((o, i) => (o.checked ? [i] : []))
+    const own = b[2]!.text.replace(CUSTOM, "").trim()
+    // A written own answer counts as picked, ticked or not, as in any 🔘 widget.
+    const ticked = b.flatMap((o, i) => (o.checked || (i === 2 && own !== "") ? [i] : []))
     if (ticked.length !== 1) return []
     const i = ticked[0]!
     const choice = (["fix", "wontfix", "answer"] as const)[i]!
-    const own = b[2]!.text.toLowerCase() === PLACEHOLDER ? "" : b[2]!.text
     const text = choice === "wontfix" ? reasonOf(b[1]!.text) : choice === "answer" ? own : ""
     return [{ thread: c.thread, title: c.title, choice, text }]
   })

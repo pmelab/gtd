@@ -105,7 +105,6 @@ Feature: gtd guide — the driver-building briefing, and where to get a workflow
           agent("working", "do the work described in NOTE.md", {
             label: "Doing the work",
             file: ".gtd/PLAN.md",
-            mode: "qa",
           }),
         )
       }
@@ -117,7 +116,7 @@ Feature: gtd guide — the driver-building briefing, and where to get a workflow
     And gtd lands "gtd(human): idle → working"
     And a file ".gtd/PLAN.md" with:
       """
-      a prior draft, so the validate field resolves
+      a prior draft
       """
     When I run gtd next with "--json"
     Then it succeeds

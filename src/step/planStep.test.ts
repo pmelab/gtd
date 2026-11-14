@@ -29,7 +29,7 @@ describe("planStep — commit", () => {
   it("an attempt commits the subject with no step trailer and bypasses guards", () => {
     const s = snapshot({
       state: "await-answers",
-      stepDef: { actor: "agent", kind: "prompt", mode: "qa" },
+      stepDef: { actor: "agent", kind: "prompt" },
       actor: "agent",
       landing: { kind: "attempt", subject: "gtd(agent): await-answers" },
     })
@@ -68,16 +68,17 @@ describe("planStep — commit", () => {
     })
   })
 
-  it("prepends `gtd uncheck` at the human review gate", () => {
+  it("formats the steering file ahead of the commit", () => {
     const s = snapshot({
       state: "await-review",
-      stepDef: { mode: "review", file: ".gtd/REVIEW.md" },
-      changes: [{ status: "M", path: "src/a.ts" }],
+      stepDef: { file: ".gtd/REVIEW.md" },
+      file: ".gtd/REVIEW.md",
+      changes: [{ status: "M", path: ".gtd/REVIEW.md" }],
       landing: commitTo("await-review", "deciding"),
     })
     const outcome = planStep(s)
     if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-    expect(outcome.steps[0]).toEqual({ kind: "uncheck", file: ".gtd/REVIEW.md" })
+    expect(outcome.steps[0]).toEqual({ kind: "format", file: ".gtd/REVIEW.md" })
   })
 
   it("records Gtd-Cost, then one Gtd-Judge per verdict", () => {

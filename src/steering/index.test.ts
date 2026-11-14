@@ -1,79 +1,24 @@
 import { describe, expect, it } from "vitest"
 import * as published from "./index.js"
-import { BUILT_IN_MODE_NAMES, steeringFormatFor, unansweredQuestions, viewOf } from "./internal.js"
-
-const qa = steeringFormatFor("qa")!
-const review = steeringFormatFor("review")!
-
-describe("steeringFormatFor / BUILT_IN_MODE_NAMES", () => {
-  it("resolves both built-in modes by name", () => {
-    expect(steeringFormatFor("qa")).toBeDefined()
-    expect(steeringFormatFor("review")).toBeDefined()
-  })
-
-  it("is undefined for a name that isn't a built-in mode", () => {
-    expect(steeringFormatFor("bogus")).toBeUndefined()
-  })
-
-  it("lists the built-in mode names, in registry order", () => {
-    expect(BUILT_IN_MODE_NAMES).toEqual(["qa", "review", "findings"])
-  })
-})
-
-describe("dispatch over a resolved format — cross-format safety", () => {
-  it("each registered format validates with its own rule, not a shared or wrong one", () => {
-    expect(qa.validate("")).toEqual([])
-    expect(review.validate("").length).toBeGreaterThan(0)
-  })
-
-  it("unansweredQuestions is qa-only — review always answers []", () => {
-    expect(unansweredQuestions(review, review.sample)).toEqual([])
-  })
-
-  it("clearTicks is format-parameterised — running review's clearTicks over qa-shaped content is a no-op", () => {
-    const qaShapedContent = [
-      "Plan.",
-      "",
-      "## Open Questions",
-      "",
-      "### Q?",
-      "",
-      "- [x] Option A",
-      "- [ ] Option B",
-      "",
-    ].join("\n")
-    expect(qa.clearTicks(qaShapedContent)).toBe(qaShapedContent)
-    expect(review.clearTicks(qaShapedContent)).toBe(qaShapedContent)
-  })
-})
+import { viewOf, widgetFormat } from "./internal.js"
 
 describe("viewOf", () => {
-  it("qa's view has no documentLinks (qa declares none) but does have an outline", () => {
-    const view = viewOf(qa, qa.sample)
-    expect(view.documentLinks).toEqual([])
-    expect(view.outline.length).toBeGreaterThan(0)
-  })
-
-  it("review's documentLinks carry the hunk pointer's own range, matching its outline's hunk-adjacent chunk range", () => {
-    const view = viewOf(review, review.sample)
-    expect(view.documentLinks.length).toBe(1)
-    expect(view.documentLinks[0]!.path).toBe("./sample.ts")
-    expect(view.documentLinks[0]!.line).toBe(0)
+  it("gives the widget format's outline and hunk links", () => {
+    const view = viewOf(widgetFormat, "## 🔍 Chunk\n\n- [ ] ./a.ts#3-4\n")
+    expect(view.outline.map((n) => n.name)).toEqual(["🔍 Chunk"])
+    expect(view.documentLinks.map((l) => [l.path, l.line])).toEqual([["a.ts", 2]])
   })
 })
 
 describe("@pmelab/gtd/steering", () => {
-  it("publishes no engine-only name, nor a duplicate of the pure text reads", () => {
+  it("publishes no engine-only name", () => {
     for (const name of [
-      "FOOTNOTE_ACTION_TITLE",
-      "THREAD_REPLY_ACTION_TITLE",
       "getParseCount",
-      "BUILT_IN_MODE_NAMES",
-      "steeringFormatOrFreeForm",
       "viewOf",
       "headingSections",
       "headingSectionBodies",
-      "unansweredQuestions",
+      "steeringStepFindings",
+      "steeringPreamble",
     ]) {
       expect(published, name).not.toHaveProperty(name)
     }
@@ -81,8 +26,6 @@ describe("@pmelab/gtd/steering", () => {
 
   it("publishes the pure text reads a flow also has", () => {
     expect(published.sections("## A\n\n## B\n")).toEqual(["A", "B"])
-    expect(typeof published.threads).toBe("function")
-    expect(typeof published.openQuestions).toBe("function")
     expect(typeof published.sectionBodies).toBe("function")
   })
 })

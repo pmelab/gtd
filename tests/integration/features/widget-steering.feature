@@ -1,11 +1,11 @@
 @inmem
 Feature: steering steps — an agent step with a file writes widgets and nothing else
 
-  An agent step that declares `file` (and no `mode`) is a steering step. gtd
-  checks its turn itself: the file must exist and hold valid widgets, no
-  annotation may be left in it, and the turn may change no other path. Every
-  problem goes back to the agent in the same session; after the cap the
-  process rests at `<step>.invalid`.
+  An agent step that declares `file` is a steering step. gtd checks its turn
+  itself: the file must exist and hold valid widgets, no annotation may be
+  left in it, and the turn may change no other path. Every problem goes back
+  to the agent in the same session; after the cap the process rests at
+  `<step>.invalid`.
 
   Background:
     Given a test project

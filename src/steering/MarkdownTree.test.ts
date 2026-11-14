@@ -12,7 +12,7 @@ import {
   toLspPosition,
   toLspPositionFromOffset,
 } from "./MarkdownTree.js"
-import { steeringFormatFor } from "./index.js"
+import { widgetFormat } from "./index.js"
 import type { Heading, List, ListItem, Paragraph } from "mdast"
 
 describe("parseMarkdown", () => {
@@ -99,21 +99,19 @@ describe("parseMarkdown", () => {
       expect(getParseCount()).toBe(before + 1)
     })
 
-    it("performs exactly one parse across one qa validate() call — the structural pass and the footnote pass share it", () => {
+    it("performs exactly one parse across one widget validate() call — the structural pass and the answer pass share it", () => {
       const content = [
         "Build a thing.",
         ...Array.from({ length: 1990 }, (_, i) => `Line ${i} of padding prose.`),
         "",
-        "## Open Questions",
-        "",
-        "### Which backend?",
+        "## 🔘 Which backend?",
         "",
         "- [x] SQLite",
         "- [ ] Postgres",
         "",
       ].join("\n")
       const before = getParseCount()
-      steeringFormatFor("qa")!.validate(content)
+      widgetFormat.validate(content)
       expect(getParseCount()).toBe(before + 1)
     })
   })

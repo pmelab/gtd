@@ -62,42 +62,22 @@ describe("demandOf", () => {
     expect(demand.content).not.toBe("fix it")
   })
 
-  it("carries session/validate only on the prompt variant — no other kind's Demand shape can hold them", () => {
+  it("carries session only on the prompt variant — no other kind's Demand shape can hold it", () => {
     const session = { id: "8f2c", resume: true }
     for (const kind of BEAT_KINDS.filter((k) => k !== "prompt")) {
-      const demand = demandOf({
-        rendered: rendered(),
-        kind,
-        session,
-        validate: "gtd check qa 'TODO.md'",
-      })
-      expect("session" in demand).toBe(false)
-      expect("validate" in demand).toBe(false)
+      expect("session" in demandOf({ rendered: rendered(), kind, session })).toBe(false)
     }
   })
 
-  it("carries session/validate at kind prompt when supplied", () => {
+  it("carries session at kind prompt when supplied, and present-with-undefined when not", () => {
     const session = { id: "8f2c", resume: true }
-    const demand = demandOf({
-      rendered: rendered(),
-      kind: "prompt",
-      session,
-      validate: "gtd check qa 'TODO.md'",
-    })
-    expect(demand.kind).toBe("prompt")
+    const demand = demandOf({ rendered: rendered(), kind: "prompt", session })
     if (demand.kind !== "prompt") throw new Error("unreachable")
     expect(demand.session).toEqual(session)
-    expect(demand.validate).toBe("gtd check qa 'TODO.md'")
-  })
-
-  it("carries session/validate present-with-undefined (not omitted) at kind prompt when the caller supplied none", () => {
-    const demand = demandOf({ rendered: rendered(), kind: "prompt" })
-    expect(demand.kind).toBe("prompt")
-    if (demand.kind !== "prompt") throw new Error("unreachable")
-    expect("session" in demand).toBe(true)
-    expect(demand.session).toBeUndefined()
-    expect("validate" in demand).toBe(true)
-    expect(demand.validate).toBeUndefined()
+    const bare = demandOf({ rendered: rendered(), kind: "prompt" })
+    if (bare.kind !== "prompt") throw new Error("unreachable")
+    expect("session" in bare).toBe(true)
+    expect(bare.session).toBeUndefined()
   })
 
   it("carries skills at kind prompt when the rendered source has a non-empty list", () => {

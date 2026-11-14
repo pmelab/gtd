@@ -1,23 +1,15 @@
 import type { ScopeAccess } from "./runtime.js"
 
-/** One steering-file mode's shell commands; each reads the file from `$GTD_FILE`. */
-export interface ModeCommands {
-  readonly format?: string
-  readonly validate?: string
-}
-
 /** `gtd ui` settings; its `--host`/`--port` flags outrank `host`/`port`. */
 export interface UiSettings {
   readonly port?: number
   readonly host?: string
   readonly cert?: string
   readonly key?: string
-  readonly format?: string
 }
 
 /** The repository settings a `gtd.config.ts` exports as `config`. */
 export interface GtdConfig {
-  readonly modes?: Readonly<Record<string, ModeCommands>>
   readonly ui?: UiSettings
   readonly skills?: Readonly<Record<string, readonly string[]>>
   readonly access?: Readonly<Record<string, ScopeAccess>>
@@ -30,9 +22,14 @@ export interface ConfigProblem {
   readonly message: string
 }
 
-const CONFIG_KEYS = ["modes", "ui", "skills", "access", "historyRemote"] as const
-const MODE_KEYS = ["format", "validate"] as const
-const UI_KEYS = ["port", "host", "cert", "key", "format"] as const
+const CONFIG_KEYS = ["ui", "skills", "access", "historyRemote"] as const
+const UI_KEYS = ["port", "host", "cert", "key"] as const
+
+/** Keys that once meant something, and what replaced them. */
+const REMOVED: Readonly<Record<string, string>> = {
+  modes: "was removed: every steering file is a widget document gtd checks itself",
+  "ui.format": "was removed: gtd writes every steering file in its own canonical form",
+}
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
   typeof v === "object" && v !== null && !Array.isArray(v)
@@ -47,7 +44,10 @@ const unknownKeys = (
 ): ConfigProblem[] =>
   Object.keys(value)
     .filter((key) => !known.includes(key))
-    .map((key) => ({ path: [...path, key], message: "is not a known key" }))
+    .map((key) => ({
+      path: [...path, key],
+      message: REMOVED[[...path, key].join(".")] ?? "is not a known key",
+    }))
 
 const recordOf = (
   value: unknown,
@@ -58,22 +58,6 @@ const recordOf = (
   isRecord(value)
     ? Object.entries(value).flatMap(([key, v]) => entry(v, [...path, key]))
     : [{ path, message: `must be an object of ${shape}` }]
-
-const modeProblems = (value: unknown, path: readonly string[]): ConfigProblem[] => {
-  if (path.at(-1) === "") return [{ path, message: "is a mode without a name" }]
-  // An empty mode still registers its name: a step may use it, unformatted and unvalidated.
-  if (!isRecord(value))
-    return [{ path, message: 'must be an object with "format" and/or "validate"' }]
-  return [
-    ...unknownKeys(value, MODE_KEYS, path),
-    ...MODE_KEYS.flatMap((key) => {
-      const command = value[key]
-      return command === undefined || (typeof command === "string" && command.trim() !== "")
-        ? []
-        : [{ path: [...path, key], message: "must be a non-empty shell command" }]
-    }),
-  ]
-}
 
 const uiProblems = (value: unknown, path: readonly string[]): ConfigProblem[] => {
   if (!isRecord(value)) return [{ path, message: "must be an object" }]
@@ -113,7 +97,6 @@ export const configProblems = (value: unknown): readonly ConfigProblem[] => {
   if (!isRecord(value)) return [{ path: [], message: "must be an object" }]
   return [
     ...unknownKeys(value, CONFIG_KEYS, []),
-    ...(value.modes === undefined ? [] : recordOf(value.modes, ["modes"], "modes", modeProblems)),
     ...(value.ui === undefined ? [] : uiProblems(value.ui, ["ui"])),
     ...(value.historyRemote === undefined ||
     (typeof value.historyRemote === "string" && value.historyRemote.trim() !== "")

@@ -102,24 +102,18 @@ describe("readStep — ok rows", () => {
     )
   })
 
-  it("carries the beat-reported file and mode verbatim, for the phone to open the right steering screen", async () => {
-    const deps = makeDeps({ beatOutcome: ok(beatJson({ file: ".gtd/PLAN.md", mode: "qa" })) })
+  it("carries the beat-reported file verbatim, for the phone to open the steering screen", async () => {
+    const deps = makeDeps({ beatOutcome: ok(beatJson({ file: ".gtd/PLAN.md" })) })
     const result = await readStep({ path: "/repos/gtd" }, deps)
     expect(result.status).toBe("ok")
-    if (result.status === "ok") {
-      expect(result.file).toBe(".gtd/PLAN.md")
-      expect(result.mode).toBe("qa")
-    }
+    if (result.status === "ok") expect(result.file).toBe(".gtd/PLAN.md")
   })
 
-  it("omits file/mode entirely when the beat reports neither", async () => {
+  it("omits file entirely when the beat reports none", async () => {
     const deps = makeDeps({ beatOutcome: ok(beatJson({ file: undefined })) })
     const result = await readStep({ path: "/repos/gtd" }, deps)
     expect(result.status).toBe("ok")
-    if (result.status === "ok") {
-      expect(result.file).toBeUndefined()
-      expect(result.mode).toBeUndefined()
-    }
+    if (result.status === "ok") expect(result.file).toBeUndefined()
   })
 
   it("sets rest to HEAD's committer date", async () => {

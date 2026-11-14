@@ -1,8 +1,8 @@
 @inmem
 Feature: --json on every command that prints a script
 
-  `gtd start`, `gtd abandon`, `gtd restore`,
-  `gtd validate` and `gtd history fetch` print a script. Under `--json` each
+  `gtd start`, `gtd abandon`, `gtd restore` and `gtd history fetch` print a
+  script. Under `--json` each
   prints the script document `{ schema, script }`, and `--json=script` the
   script alone — the one idiom `gtd land` and `gtd judge answer` already take.
   Their plain output is unchanged.
@@ -36,7 +36,7 @@ Feature: --json on every command that prints a script
     And I record the commit count
     When I run gtd with args "abandon --json"
     Then it succeeds
-    And the json field "schema" contains "1"
+    And the json field "schema" contains "2"
     And the json field "script" contains "abandoned the process resting at"
     And the commit count is unchanged
 
@@ -83,21 +83,10 @@ Feature: --json on every command that prints a script
     Then it succeeds
     And the json field "script" contains "gtd(human): patch"
 
-  Scenario: gtd validate --json carries an empty script where there is nothing to validate
-    When I run gtd with args "validate --json"
-    Then it succeeds
-    And stdout is:
-      """
-      {"schema":1,"script":""}
-      """
-    When I run gtd with args "validate"
-    Then it succeeds
-    And stdout contains "nothing to validate at \"idle\""
-
   Scenario: gtd history fetch --json=script selects the fetch script
     When I run gtd with args "history fetch upstream --json"
     Then it succeeds
-    And the json field "schema" contains "1"
+    And the json field "schema" contains "2"
     And the json field "script" contains "upstream"
     When I run gtd with args "history fetch upstream --json=script"
     Then it succeeds

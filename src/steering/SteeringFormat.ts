@@ -65,12 +65,9 @@ export interface SteeringLink {
 
 /**
  * Where an `annotate` call attaches a note. A client reads one off `view` and
- * hands it straight back, never inventing indices. Deliberately closed and
- * format-agnostic: `review`'s chunk/hunk and `qa`'s question/option are the
- * same two things here (a container and one of its numbered children), plus
- * `paragraph`, which a client resolves from its cursor rather than the view.
- * A `review` finding's answer boxes are `option`s too, `questionIndex` being
- * the chunk's index.
+ * hands it straight back, never inventing indices: `question`/`chunk` name
+ * an input widget by its index among the input widgets, `option`/`hunk` one of
+ * its checkboxes, and `paragraph` a block a client resolves from its cursor.
  */
 export type SteeringAnchor =
   | { readonly kind: "chunk"; readonly index: number }
@@ -79,8 +76,7 @@ export type SteeringAnchor =
   | { readonly kind: "option"; readonly questionIndex: number; readonly index: number }
   | { readonly kind: "paragraph"; readonly line: number }
 
-/** `pick-never-clears`: a free-form pick-one tick only moves, so `checked: false` is refused by policy, not for a bad anchor. */
-type SteeringRefusalReason = "anchor-not-found" | "id-collision" | "pick-never-clears"
+type SteeringRefusalReason = "anchor-not-found" | "id-collision"
 
 /** `annotate`'s result: the edits to splice in, or a typed refusal — a stale/unresolvable `anchor`, or a derived note id that already names a definition. */
 export type SteeringAnnotateResult =
@@ -99,46 +95,28 @@ export interface BlockListItem {
   readonly inline?: readonly InlineNode[]
   /** The item's own 0-based source line: a `paragraph` anchor at it notes this item alone. */
   readonly line?: number
-  /** The note or thread whose marker sits on `line`, as on a view node. */
+  /** The note whose marker sits on `line`, as on a view node. */
   readonly note?: string
-  readonly thread?: SteeringViewThread
-}
-
-export interface SteeringViewThread {
-  readonly name: string
-  readonly entries: readonly { readonly author: "me" | "agent"; readonly text: string }[]
-  readonly waitingOn: "human" | "agent"
-}
-
-/** One labelled part of a node's drafted comment. */
-export interface SteeringViewSection {
-  readonly label: string
-  readonly body: readonly SteeringViewNode[]
 }
 
 /**
- * One node of a format's `view`: a generic container/item tree, the SAME
- * shape for every format. Deliberately never a closed per-format union — a
- * third format would have to pretend to be one of the two, or this file would
- * grow a member, and a user-declared mode is supposed to light up the phone
- * UI for free. Every field beyond `title`/`anchor` is optional because each
- * format populates a different subset.
+ * One node of the phone's view: a prose block, a widget (`status` names its
+ * kind), or one of a widget's checkboxes. Every field beyond `title`/`anchor`
+ * is optional because each kind of node fills a different subset.
  */
 export interface SteeringViewNode {
-  /** This node's own display name — a chunk's/question's title, an option's/hunk's own label. */
+  /** This node's own display name — a widget's title, a checkbox's label. */
   readonly title: string
-  /** A longer description or summary, when the format has one (a chunk's description, a question's first body line). */
+  /** A widget's description. */
   readonly detail?: string
-  /** A free-form status label, when the format has one (`qa`'s `"open"`/`"answered"`). */
+  /** A widget's kind, or `"custom"` on a select's ✏️ answer. */
   readonly status?: string
-  /** `true` when this node's own condition is fully satisfied (`qa`'s answered question, `review`'s decided finding) — distinct from `checked`, which is a per-item tick. */
+  /** `false` for a widget a person still has to answer — distinct from `checked`, which is a per-item tick. */
   readonly answered?: boolean
-  /** This node's own checkbox state, when it has one (a hunk's tick, an option's tick). */
+  /** This node's own checkbox state, when it has one. */
   readonly checked?: boolean
-  /** An attached one-shot note's text, when this node carries one. A thread fills `thread` instead, never this. */
+  /** The annotation attached to this node, when it carries one. */
   readonly note?: string
-  /** An attached footnote thread — a conversation, not a flat string. `waitingOn: "human"` means the agent spoke last. */
-  readonly thread?: SteeringViewThread
   /**
    * `detail`'s own inline counterpart, for the three compact rows (a chunk
    * card, a hunk's description row, a plan row): built server-side by
@@ -147,37 +125,19 @@ export interface SteeringViewNode {
    * Block structure stays flattened — a list contributes its items' runs
    * joined by spaces, a fence contributes its plain text — and an image
    * collapses to its alt text unconditionally, so a compact row can never
-   * fire a remote fetch. Set by `review.ts` (chunk, hunk) and `qa.ts`
-   * (question); absent wherever `detail` itself is absent.
+   * fire a remote fetch. Absent wherever `detail` itself is absent.
    */
   readonly detailInline?: readonly InlineNode[]
-  /** A review finding's drafted PR comment as labelled sections (What / Impact / Fix), when it has one. */
-  readonly comment?: readonly SteeringViewSection[]
-  /** A file path this node points at, when it has one (a `review` hunk). */
+  /** The file a hunk points at. */
   readonly path?: string
   /** A 1-based line in `path` this node points at, when it has one. */
   readonly line?: number
-  /** A 1-based END line in `path`, alongside `line`, for a `review` hunk pointer carrying a range (`#<start>-<end>`). Absent whenever `line` is absent, or for a bare `#<line>` pointer with no range. */
+  /** A 1-based END line in `path`, alongside `line`, for a hunk pointer carrying a range (`#<start>-<end>`). */
   readonly endLine?: number
   /** Where `annotate` attaches a NEW note to this node. */
   readonly anchor: SteeringAnchor
-  /** The section a top-level node sits in, when the format groups them (`review`'s `Findings` / `Walkthrough`). */
-  readonly group?: string
-  /** A `review` finding's answer boxes, in order — fix as suggested, won't fix, and the free-text slot, whose `title` is the human's text (`""` while unfilled). Kept out of `children`, which are its hunks. */
-  readonly decision?: readonly SteeringViewNode[]
   readonly children?: readonly SteeringViewNode[]
-  /**
-   * A node's body, a SIBLING of `children` and never a reuse of it: a `qa`
-   * question's `children` are its options, so a body block riding in that
-   * array would render as a phantom option.
-   *
-   * Set by `qa` questions, `review` chunks, and a `qa` OPTION node too, where
-   * it is that option's own impacts — read-only, since the write-back span an
-   * answer commits through never reaches past the option's label. `[]` — not
-   * absent — for a question/chunk with no body, so `body !== undefined` is
-   * never "this is a question"; absent entirely on the free-text slot, which
-   * never carries impacts.
-   */
+  /** Blocks rendered with a node, a sibling of `children` so they never render as checkboxes. */
   readonly body?: readonly SteeringViewNode[]
   /**
    * The document structure a prose block carries. NO new anchor kind: whatever
@@ -194,14 +154,7 @@ export interface SteeringViewNode {
     readonly items?: readonly BlockListItem[]
     /** The fenced code block's info-string language, when it has one. Set only for `kind: "code"`. */
     readonly language?: string
-    /**
-     * This block's own text, verbatim. `qa`/`review` set it only for
-     * `kind: "code"`/`"blockquote"` (the code block's body / the
-     * blockquote's own text); the free-form format (`freeform.ts`) sets it
-     * for EVERY kind — the block's own raw source bytes, unmodified — since
-     * it has no structure of its own to fall back on and an edit there
-     * replaces a block's whole source span with this same shape of text.
-     */
+    /** This block's own source text, verbatim. */
     readonly text?: string
     /**
      * This block's own inline structure — set only for `kind: "paragraph"`,
@@ -215,26 +168,17 @@ export interface SteeringViewNode {
   }
 }
 
-/** A format's whole domain projection of `content`. The server serializes this without importing a format module or switching on the mode name. */
+/** A steering file's whole projection for the phone. */
 export interface SteeringView {
   readonly header?: string
   readonly nodes: readonly SteeringViewNode[]
 }
 
 /**
- * One steering-file FORMAT's whole behavior. `validate` returns the same
- * `findings` shape `gtd validate` and the capture gate consume (empty =
- * valid); `pointerAt` is absent for a format with nothing to jump to.
+ * The steering format's whole behaviour for the editor and the phone.
+ * `validate` returns findings (empty = valid).
  */
 export interface SteeringFormat {
-  /**
-   * The clearest minimal document that satisfies this format's own `validate`.
-   * `ModeContradiction.ts` round-trips this exact string through a mode's
-   * `format:` command to catch a formatter that breaks its own validator, so
-   * it is deliberately NOT authored to survive any particular formatter — a
-   * reflow that invalidates it IS the contradiction that check exists to find.
-   */
-  readonly sample: string
   readonly validate: (content: string) => readonly SteeringFinding[]
   readonly outline: (content: string) => readonly SteeringOutlineNode[]
   readonly actions: (
@@ -250,14 +194,9 @@ export interface SteeringFormat {
   ) => SteeringPointer | undefined
   /** Every hunk-pointer document link in `content`. Walks the parsed hunks directly: `pointerAt` is one call per line and cannot yield the token's own range. */
   readonly documentLinks?: (content: string) => readonly SteeringLink[]
-  /** MANDATORY, so a user-declared mode lights up the phone UI the moment it registers one — the server reads a `view` rather than importing a format module. */
+  /** What the phone renders. */
   readonly view: (content: string) => SteeringView
-  /**
-   * Attaches a note at `anchor`. `text` is never a placeholder — unlike the
-   * LSP's "add a footnote" action, which seeds an empty definition for a human
-   * to fill in, a server-attached note already has its real body, so the
-   * document it produces validates clean immediately.
-   */
+  /** Attaches an annotation carrying `text` at `anchor`. */
   readonly annotate: (
     content: string,
     anchor: SteeringAnchor,
@@ -265,37 +204,12 @@ export interface SteeringFormat {
   ) => SteeringAnnotateResult
   /**
    * The checkbox-writing counterpart to `annotate`, sharing its refusal shape.
-   * `qa`'s `option` anchor is RADIO: ticking one unticks every sibling, and
-   * ticking the free-text slot with `text` set also replaces its label, in ONE
-   * edit set. `review`'s `chunk` anchor sets every hunk beneath it to the
-   * caller's stated target state — never a majority-flip heuristic.
+   * A single select's option is a radio: ticking it unticks the others. A
+   * `question`/`chunk` anchor on a review checklist sets every hunk at once.
    */
   readonly apply: (
     content: string,
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ) => SteeringAnnotateResult
-  /**
-   * Resets only THIS format's own read-progress ticks. `qa`'s checkbox ticks
-   * ARE its answers — never auto-cleared; `review`'s hunk ticks are
-   * read-progress, cleared on every land. Mandatory so a format can never
-   * accidentally inherit another one's tick-clearing rule.
-   */
-  readonly clearTicks: (content: string) => string
-  /**
-   * `qa`-only: every OPEN question not yet answered — distinct from
-   * `validate`'s structural findings, since a well-formed document can still
-   * have open questions nobody answered. Absent on a format with no such
-   * concept.
-   */
-  readonly unansweredQuestions?: (content: string) => readonly {
-    readonly question: string
-    readonly headingLine: number
-  }[]
-  /** Every OPEN thread (last entry is the agent's), 0-based `line` — mirrors `unansweredQuestions`. */
-  readonly openThreads?: (content: string) => readonly {
-    readonly name: string
-    readonly line: number
-    readonly firstMe: string
-  }[]
 }

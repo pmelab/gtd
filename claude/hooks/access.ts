@@ -65,9 +65,9 @@ function searchDenial(raw: unknown, globs: string[] | null, root: string) {
 }
 
 // What the main session may write while gtd drives: nothing while a step runs
-// (gtd commits the tree when it ends), only the steering file at a rest whose
-// mode is `qa`, anything otherwise. A review rest takes code edits as feedback.
-export type MainPhase = { isRunning: boolean; mode?: string; file?: string }
+// (gtd commits the tree when it ends), only the steering file at a person's
+// gate that has one (ADR 0010: the file is the channel), anything otherwise.
+export type MainPhase = { isRunning: boolean; file?: string | undefined }
 
 export const RUNNING_DENIAL =
   "gtd is running a step and commits the working tree when it ends: don't edit files now. Answer read-only, or record the request with mcp__gtd__note for the next step that waits on the person. /gtd stop stops the run."
@@ -81,7 +81,7 @@ export function mainDenial(
   const key = WRITE[tool]
   if (!key) return undefined
   if (phase.isRunning) return RUNNING_DENIAL
-  if (phase.mode !== "qa" || !phase.file) return undefined
+  if (!phase.file) return undefined
   const raw = input[key]
   const rel = typeof raw === "string" ? inRepo(raw, root) : undefined
   return rel === phase.file

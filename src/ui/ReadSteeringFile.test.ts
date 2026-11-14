@@ -2,11 +2,11 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { freeFormFormat, steeringFormatFor } from "../steering/index.js"
+import { widgetFormat } from "../steering/index.js"
 import { readSteeringFile } from "./ReadSteeringFile.js"
 import { contentHashOf, liveReadFile } from "./index.js"
 
-const QA_FORMAT = steeringFormatFor("qa")!
+const PLAN = "# Plan\n\n## 🔘 Store?\n\n- [ ] Redis\n- [ ] Memory\n"
 
 const depsFor = (files: Readonly<Record<string, string>>, headSha: string | undefined) => ({
   headSha: () => Promise.resolve(headSha),
@@ -21,21 +21,21 @@ const depsFor = (files: Readonly<Record<string, string>>, headSha: string | unde
 describe("readSteeringFile", () => {
   it("reads the file, resolving path against worktreePath, and returns its content/headSha/contentHash/view together", async () => {
     const result = await readSteeringFile(
-      { worktreePath: "/repo", filePath: ".gtd/PLAN.md", mode: "qa" },
-      depsFor({ "/repo/.gtd/PLAN.md": QA_FORMAT.sample }, "abc123"),
+      { worktreePath: "/repo", filePath: ".gtd/PLAN.md" },
+      depsFor({ "/repo/.gtd/PLAN.md": PLAN }, "abc123"),
     )
     expect(result).toEqual({
       ok: true,
-      content: QA_FORMAT.sample,
+      content: PLAN,
       headSha: "abc123",
-      contentHash: contentHashOf(QA_FORMAT.sample),
-      view: QA_FORMAT.view(QA_FORMAT.sample),
+      contentHash: contentHashOf(PLAN),
+      view: widgetFormat.view(PLAN),
     })
   })
 
   it("reads a missing served file as an empty document, rather than refusing", async () => {
     const result = await readSteeringFile(
-      { worktreePath: "/repo", filePath: "missing.md", mode: "qa" },
+      { worktreePath: "/repo", filePath: "missing.md" },
       depsFor({}, "abc123"),
     )
     expect(result).toEqual({
@@ -43,14 +43,14 @@ describe("readSteeringFile", () => {
       content: "",
       headSha: "abc123",
       contentHash: contentHashOf(""),
-      view: QA_FORMAT.view(""),
+      view: widgetFormat.view(""),
     })
   })
 
   it("refuses a filePath that escapes the worktree root, as file-vanished, never reaching readFile with a path outside it", async () => {
     let readCalled = false
     const result = await readSteeringFile(
-      { worktreePath: "/repo", filePath: "../../../etc/passwd", mode: "qa" },
+      { worktreePath: "/repo", filePath: "../../../etc/passwd" },
       {
         headSha: () => Promise.resolve("abc123"),
         readFile: () => {
@@ -70,7 +70,7 @@ describe("readSteeringFile", () => {
       writeFileSync(join(outside, "secret.md"), "top secret")
       symlinkSync(join(outside, "secret.md"), join(root, "escape.md"))
       const result = await readSteeringFile(
-        { worktreePath: root, filePath: "escape.md", mode: "qa" },
+        { worktreePath: root, filePath: "escape.md" },
         { headSha: () => Promise.resolve("abc123"), readFile: liveReadFile },
       )
       expect(result).toEqual({ ok: false, reason: "file-vanished" })
@@ -80,37 +80,9 @@ describe("readSteeringFile", () => {
     }
   })
 
-  it("falls back to the free-form format's own view for an unregistered mode, rather than refusing", async () => {
-    const result = await readSteeringFile(
-      { worktreePath: "/repo", filePath: "x.md", mode: "not-a-real-mode" },
-      depsFor({ "/repo/x.md": "content" }, "abc123"),
-    )
-    expect(result).toEqual({
-      ok: true,
-      content: "content",
-      headSha: "abc123",
-      contentHash: contentHashOf("content"),
-      view: freeFormFormat.view("content"),
-    })
-  })
-
-  it("falls back to the free-form format's own view when mode is absent entirely", async () => {
-    const result = await readSteeringFile(
-      { worktreePath: "/repo", filePath: "x.md", mode: undefined },
-      depsFor({ "/repo/x.md": "content" }, "abc123"),
-    )
-    expect(result).toEqual({
-      ok: true,
-      content: "content",
-      headSha: "abc123",
-      contentHash: contentHashOf("content"),
-      view: freeFormFormat.view("content"),
-    })
-  })
-
   it("refuses as file-vanished when the read fails (EISDIR, permission error, …), never falling back to an empty document", async () => {
     const result = await readSteeringFile(
-      { worktreePath: "/repo", filePath: "x.md", mode: "qa" },
+      { worktreePath: "/repo", filePath: "x.md" },
       {
         headSha: () => Promise.resolve("abc123"),
         readFile: () => Promise.resolve({ kind: "unreadable" as const }),
@@ -121,7 +93,7 @@ describe("readSteeringFile", () => {
 
   it("refuses as head-unresolved when headSha resolves undefined, never an ok:true carrying an empty headSha", async () => {
     const result = await readSteeringFile(
-      { worktreePath: "/repo", filePath: "x.md", mode: "qa" },
+      { worktreePath: "/repo", filePath: "x.md" },
       depsFor({ "/repo/x.md": "Just prose.\n" }, undefined),
     )
     expect(result).toEqual({ ok: false, reason: "head-unresolved" })

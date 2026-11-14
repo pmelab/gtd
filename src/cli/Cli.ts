@@ -133,7 +133,6 @@ const SCRIPT_KINDS: ReadonlySet<Command["kind"]> = new Set<Command["kind"]>([
   "abandon",
   "restore",
   "repin",
-  "validate",
   "historyFetch",
 ])
 
@@ -291,26 +290,7 @@ const FLAGS: readonly FlagRow[] = [
     valueHint: "<name>=<value>",
     help: "Pin one of the workflow's declared settings for the new process (repeatable); through a door, on top of the settings its args set",
   },
-  {
-    name: "--open-questions",
-    arity: 0,
-    repeatable: false,
-    scope: (kind) => kind === "check",
-    decode: () => Result.succeed(true),
-    scopeError: "gtd: --open-questions is only valid for `gtd check`",
-    valueHint: "",
-    help: "Instead of <mode>'s findings, list the unanswered questions in <file>; exits 1 when any remain",
-  },
-  {
-    name: "--open-threads",
-    arity: 0,
-    repeatable: false,
-    scope: (kind) => kind === "check",
-    decode: () => Result.succeed(true),
-    scopeError: "gtd: --open-threads is only valid for `gtd check`",
-    valueHint: "",
-    help: "Instead of <mode>'s findings, list the open threads in <file>; exits 1 when any are open. Alone, lists the open code-comment threads in the files the current process changed",
-  },
+
   {
     name: "--write",
     arity: 0,
@@ -321,16 +301,7 @@ const FLAGS: readonly FlagRow[] = [
     valueHint: "",
     help: "Rewrite <file> in its canonical form before checking it",
   },
-  {
-    name: "--spec",
-    arity: 1,
-    repeatable: false,
-    scope: (kind) => kind === "check",
-    decode: ([raw]) => Result.succeed(raw ?? ""),
-    scopeError: "gtd: --spec is only valid for `gtd check`",
-    valueHint: "<json>",
-    help: "Check against the declared format this spec describes, named <mode>, instead of a built-in one; validation scripts pass it for a step whose mode is a declared format",
-  },
+
   {
     name: "--verbose",
     arity: 0,
@@ -367,7 +338,6 @@ const flagByToken = (token: string): FlagRow | undefined => {
 type Arity =
   | "none"
   | { readonly name: string }
-  | { readonly names: readonly [string, string]; readonly firstOptional?: true }
   // One required leading positional, then any number the command itself judges.
   | { readonly name: string; readonly variadic: string }
   // The same, the leading one optional too.
@@ -415,14 +385,7 @@ gtd writes nothing itself. Plain output names the commit it would make; --json=s
 
 --json prints the whole document: the script, the step the process lands at, the commit subject, and the recorded cost and model. A refusal exits 1.`,
   },
-  {
-    token: "validate",
-    kind: "validate",
-    arity: "none",
-    group: "Core loop",
-    summary: "Print the script that checks the steering file",
-    details: `Print the script that formats, then validates, the current step's steering file with its mode's commands. gtd runs nothing: the script's exit code is the verdict, and on a failure it prints a ready-to-send fix prompt. Prints "nothing to validate" when the step declares no file to check; --json=script then prints an empty script.`,
-  },
+
   {
     token: "start",
     kind: "start",
@@ -572,19 +535,12 @@ The fixed answerer reads --answers and leaves out the questions it does not cove
   {
     token: "check",
     kind: "check",
-    arity: { names: ["mode", "file"], firstOptional: true },
-    group: "Driver plumbing",
-    summary: "Check a steering file",
-    details: `Read <file> as widgets and print each structural finding on a line of its own; exits 1 when there are any, or when <file> does not exist. --write first rewrites <file> in its canonical form. With a <mode>, run that steering format (qa, review or findings, or the declared format --spec describes) instead; an unknown <mode> is a usage error (exit 2). Reads no workflow and runs from any directory — emitted scripts call it.`,
-  },
-  {
-    token: "uncheck",
-    kind: "uncheck",
     arity: { name: "file" },
     group: "Driver plumbing",
-    summary: "Untick a review file's boxes",
-    details: `Reset every ticked review box (- [x]) in <file> to - [ ], writing the file only when it changes; a missing file writes nothing. Reads no workflow and runs from any directory — the landing script at a review gate calls it unless the next step is an agent turn, which keeps the ticks.`,
+    summary: "Check a steering file",
+    details: `Read <file> as widgets and print each structural finding on a line of its own; exits 1 when there are any, or when <file> does not exist. --write first rewrites <file> in its canonical form. Reads no workflow and runs from any directory — emitted landing scripts call it.`,
   },
+
   {
     token: "lsp",
     kind: "lsp",
@@ -613,10 +569,6 @@ const OPTION_COLUMN = 22
 const synopsis = (row: CommandRow): string => {
   const { token, arity } = row
   if (arity === "none") return token
-  if ("names" in arity)
-    return arity.firstOptional === true
-      ? `${token} [${arity.names[0]}] <${arity.names[1]}>`
-      : `${token} <${arity.names[0]}> <${arity.names[1]}>`
   if ("bare" in arity) return `${token} [${arity.name}] [${arity.variadic}...]`
   if ("variadic" in arity) return `${token} <${arity.name}> [${arity.variadic}...]`
   if ("optional" in arity) return `${token} [${arity.name}]`
@@ -910,27 +862,10 @@ const tooMany = (
 
 const arityError = (cmd: string, rest: readonly string[], arity: Arity): string | undefined => {
   if (arity === "none") return tooMany(cmd, rest, "none", 0)
-  if ("names" in arity) {
-    if (arity.firstOptional === true && rest.length === 1) return undefined
-    return pairArityError(cmd, rest, arity.names)
-  }
   if ("bare" in arity) return undefined
   if ("optional" in arity) return tooMany(cmd, rest, `at most one ${arity.name}`, 1)
   if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
   return "variadic" in arity ? undefined : tooMany(cmd, rest, `one ${arity.name}`, 1)
-}
-
-const pairArityError = (
-  cmd: string,
-  rest: readonly string[],
-  [first, second]: readonly [string, string],
-): string | undefined => {
-  if (rest.length === 0) return `gtd ${cmd}: missing ${first} and ${second} arguments`
-  if (rest.length === 1) return `gtd ${cmd}: missing ${second} argument`
-  if (rest.length > 2) {
-    return `gtd ${cmd}: too many arguments — expected ${first} and ${second}, got: ${rest.join(", ")}`
-  }
-  return undefined
 }
 
 /** Decode every present flag into a bag of values, or the first decode error encountered. */
@@ -1067,10 +1002,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   // `judgeAnswer` consumes TWO leading positionals ("judge" and "answer"), everything else one.
   const restPositionals = positionals.slice(judgeAnswer || judgeRun || isHistory ? 2 : 1)
 
-  const bare = kind === "check" && restPositionals.length === 0 && present.has("--open-threads")
-  const arityMsg = bare
-    ? undefined
-    : arityError(isHistory ? row.token : first, restPositionals, row.arity)
+  const arityMsg = arityError(isHistory ? row.token : first, restPositionals, row.arity)
   if (arityMsg !== undefined) {
     const hint =
       afterBareJson !== undefined && restPositionals.includes(afterBareJson)
@@ -1093,10 +1025,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--cost"?: number
     readonly "--model"?: string
     readonly "--var"?: Readonly<Record<string, string>>
-    readonly "--open-questions"?: boolean
     readonly "--write"?: boolean
-    readonly "--open-threads"?: boolean
-    readonly "--spec"?: string
     readonly "--host"?: string
     readonly "--self-signed"?: boolean
     readonly "--http"?: boolean
@@ -1170,18 +1099,8 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       kind: "command",
       command: {
         kind: "check",
-        ...(restPositionals.length === 1
-          ? { file: restPositionals[0]! }
-          : {
-              ...(restPositionals[0] !== undefined ? { mode: restPositionals[0] } : {}),
-              ...(restPositionals[1] !== undefined ? { file: restPositionals[1] } : {}),
-            }),
+        file: restPositionals[0]!,
         ...(bag["--write"] !== undefined ? { write: bag["--write"] } : {}),
-        ...(bag["--open-questions"] !== undefined
-          ? { openQuestions: bag["--open-questions"] }
-          : {}),
-        ...(bag["--open-threads"] !== undefined ? { openThreads: bag["--open-threads"] } : {}),
-        ...(bag["--spec"] !== undefined ? { spec: bag["--spec"] } : {}),
       },
       json,
       verbose,
@@ -1261,15 +1180,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     }
   }
 
-  if (kind === "uncheck") {
-    return {
-      kind: "command",
-      command: { kind: "uncheck", file: restPositionals[0]! },
-      json,
-      verbose,
-    }
-  }
-
   // Every other kind carries no extra fields.
   const command: Command = {
     kind: kind as
@@ -1278,7 +1188,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "restore"
       | "repin"
       | "next"
-      | "validate"
       | "guide"
       | "bundle"
       | "base"

@@ -6,6 +6,8 @@
   envelope
 - [Configuration](./configuration.md) — `gtd.config.ts` (the workflow and its
   `config` export), settings, migrating from `.gtdrc`
+- [Steering files](./steering.md) — the widget format agents write and people
+  answer
 - [Setup](./setup.md) — repository requirements, editor integration
 - [Testing a workflow](./testing.md) — the testkit, under any test runner
 - [Workflow kit](./workflow-kit.md) — `@pmelab/gtd/workflow-kit`'s building

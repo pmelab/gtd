@@ -34,8 +34,6 @@ export type Landing =
       readonly note?: string
       /** The one path this landing commits; every other pending change stays pending. */
       readonly only?: string
-      /** Review-gate landing into an agent turn: the human's ticks are committed. */
-      readonly keepTicks?: boolean
     }
 
 /**

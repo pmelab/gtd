@@ -113,26 +113,18 @@ const steeringAnchorInput = (value: unknown): SteeringAnchor => {
   return parsed
 }
 
-/** `mode`'s own optional-string check, shared by every input validator here — present it must be a string, absent is allowed (the ui boundary falls back to free-form, never a `""` sentinel). */
-const parseOptionalMode = (value: unknown): string | undefined => {
-  if (value === undefined) return undefined
-  if (typeof value !== "string") throw new Error("expected mode to be a string when present")
-  return value
-}
-
-/** `writeNote`'s own input validator — every field is required except `mode`, no `worktreePath`: the server writes through the one worktree it serves. `text` is the human's own typed note body, carried verbatim into the new footnote definition (never a placeholder). */
+/** `writeNote`'s own input validator — every field is required, no `worktreePath`: the server writes through the one worktree it serves. `text` is the human's own typed note body, carried verbatim into the new footnote definition (never a placeholder). */
 const writeNoteInput = (
   value: unknown,
 ): {
   readonly filePath: string
   readonly expectedHeadSha: string
   readonly expectedContentHash: string
-  readonly mode: string | undefined
   readonly anchor: SteeringAnchor
   readonly text: string
 } => {
   if (!isRecord(value)) throw new Error("expected a write request")
-  const { filePath, expectedHeadSha, expectedContentHash, mode, anchor, text } = value
+  const { filePath, expectedHeadSha, expectedContentHash, anchor, text } = value
   for (const field of [filePath, expectedHeadSha, expectedContentHash, text]) {
     if (typeof field !== "string") throw new Error("expected string fields on a write request")
   }
@@ -140,7 +132,6 @@ const writeNoteInput = (
     filePath: filePath as string,
     expectedHeadSha: expectedHeadSha as string,
     expectedContentHash: expectedContentHash as string,
-    mode: parseOptionalMode(mode),
     anchor: steeringAnchorInput(anchor),
     text: text as string,
   }
@@ -172,24 +163,21 @@ const setValueInput = (
   readonly filePath: string
   readonly expectedHeadSha: string
   readonly expectedContentHash: string
-  readonly mode: string | undefined
   readonly anchor: SteeringAnchor
   readonly checked?: boolean
   readonly text?: string
 } => {
   if (!isRecord(value)) throw new Error("expected a write request")
-  const { filePath, expectedHeadSha, expectedContentHash, mode, anchor, checked, text } = value
+  const { filePath, expectedHeadSha, expectedContentHash, anchor, checked, text } = value
   for (const field of [filePath, expectedHeadSha, expectedContentHash]) {
     if (typeof field !== "string") throw new Error("expected string fields on a write request")
   }
-  const parsedMode = parseOptionalMode(mode)
   const parsedChecked = parseOptionalChecked(checked)
   const parsedText = parseOptionalText(text)
   return {
     filePath: filePath as string,
     expectedHeadSha: expectedHeadSha as string,
     expectedContentHash: expectedContentHash as string,
-    mode: parsedMode,
     anchor: steeringAnchorInput(anchor),
     ...(parsedChecked !== undefined ? { checked: parsedChecked } : {}),
     ...(parsedText !== undefined ? { text: parsedText } : {}),
@@ -215,14 +203,12 @@ const doneInput = (
   return { note: writeNoteInput(value.note) }
 }
 
-/** `steeringView`'s own input validator — a `{ content: string, mode?: string }`, no `worktreePath`. `mode` is optional, exactly like `writeNoteInput`/`setValueInput`/`readSteeringFileInput` (Task 3): the ui boundary falls back to free-form when it's absent or unregistered, never a `""` sentinel. */
-const viewInput = (
-  value: unknown,
-): { readonly content: string; readonly mode: string | undefined } => {
+/** `steeringView`'s own input validator — a `{ content: string }`, no `worktreePath`. */
+const viewInput = (value: unknown): { readonly content: string } => {
   if (!isRecord(value) || typeof value.content !== "string") {
-    throw new Error("expected { content: string, mode?: string }")
+    throw new Error("expected { content: string }")
   }
-  return { content: value.content, mode: parseOptionalMode(value.mode) }
+  return { content: value.content }
 }
 
 /** `resolveDiff`'s own input validator — `{ path: string, line?: number, endLine?: number }`, no `worktreePath`. `line`/`endLine` are each optional: a bare pointer with no line number (or a line pointer with no end) is a real, valid case, not a validation failure — the same "number when present" check applies to both. */
@@ -245,14 +231,12 @@ const diffInput = (
   }
 }
 
-/** `readSteeringFile`'s own input validator — `{ filePath: string, mode?: string }`, no `worktreePath`. */
-const readSteeringFileInput = (
-  value: unknown,
-): { readonly filePath: string; readonly mode: string | undefined } => {
+/** `readSteeringFile`'s own input validator — `{ filePath: string }`, no `worktreePath`. */
+const readSteeringFileInput = (value: unknown): { readonly filePath: string } => {
   if (!isRecord(value) || typeof value.filePath !== "string") {
-    throw new Error("expected { filePath: string, mode?: string }")
+    throw new Error("expected { filePath: string }")
   }
-  return { filePath: value.filePath, mode: parseOptionalMode(value.mode) }
+  return { filePath: value.filePath }
 }
 
 export const appRouter = t.router({
@@ -279,7 +263,6 @@ export const appRouter = t.router({
     return {
       ok: true as const,
       contentHash: result.contentHash,
-      ...(result.formatNotice ? { formatNotice: result.formatNotice } : {}),
     }
   }),
 
@@ -304,7 +287,6 @@ export const appRouter = t.router({
     return {
       ok: true as const,
       contentHash: result.contentHash,
-      ...(result.formatNotice ? { formatNotice: result.formatNotice } : {}),
     }
   }),
 
@@ -328,17 +310,15 @@ export const appRouter = t.router({
     return {
       ok: true as const,
       contentHash: write.contentHash,
-      ...(write.formatNotice ? { formatNotice: write.formatNotice } : {}),
     }
   }),
 
   /**
-   * The steering screen's one read: `View.ts#steeringViewFor`'s pure
-   * dispatch, never a format module import or a switch on `input.mode` here
-   * either — total, so there is no refusal to lift into a `TRPCError`.
+   * The steering screen's one read: `View.ts#steeringViewFor` — total, so
+   * there is no refusal to lift into a `TRPCError`.
    */
   view: t.procedure.input(viewInput).query(({ input }) => ({
-    view: steeringViewFor(input.mode, input.content),
+    view: steeringViewFor(input.content),
   })),
 
   /**

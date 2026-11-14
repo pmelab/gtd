@@ -497,10 +497,9 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
     return JSON.parse(result.stdout) as BeatDocument
   }
 
-  /** Lands what an actor did: a judge's verdict answered, anything else validated and landed. */
+  /** Lands what an actor did: a judge's verdict answered, anything else landed. */
   const act = async (doc: BeatDocument, returned: unknown): Promise<void> => {
     if (doc.actor !== "judge") {
-      if (doc.validate !== undefined) apply(`validating ${doc.file ?? doc.state}`, doc.validate)
       await runWrite(["land"])
       return
     }
