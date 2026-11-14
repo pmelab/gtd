@@ -302,21 +302,41 @@ export async function processTip(io: GitIo): Promise<ProcessTip> {
   return { branch, tip: has ? ref : "HEAD", isShipped: has }
 }
 
-// The oldest ship on `<b>` whose process tip holds `fix`.
+// The oldest ship on `<b>` whose process tip holds `fix`. A ship's tip is the
+// local `refs/gtd/shipped/<ship>` ref; an older gtd wrote a `Gtd-Tip` trailer.
 async function shipOf(io: GitIo, branch: string, fix: string) {
-  const ships = await io.run([
+  const tips = new Map<string, string>()
+  const pairs = async (argv: string[]) =>
+    (await io.run(argv)).out
+      .split("\n")
+      .map((line) => line.trim().split(/\s+/))
+      .filter((pair): pair is [string, string] => pair.length === 2)
+  for (const [ship, tip] of await pairs([
+    "git",
+    "log",
+    "--first-parent",
+    "--grep=^Gtd-Tip:",
+    "--format=%H %(trailers:key=Gtd-Tip,valueonly,separator=)",
+    `refs/heads/${branch}`,
+  ]))
+    tips.set(ship, tip)
+  for (const [ship, tip] of await pairs([
+    "git",
+    "for-each-ref",
+    "--format=%(refname:lstrip=3) %(objectname)",
+    "refs/gtd/shipped/",
+  ]))
+    tips.set(ship, tip)
+  const commits = await io.run([
     "git",
     "log",
     "--reverse",
     "--first-parent",
-    "--grep=^Gtd-Tip:",
     "--format=%H",
     `refs/heads/${branch}`,
   ])
-  for (const ship of ships.out.split("\n").filter(Boolean)) {
-    const body = await io.run(["git", "show", "-s", "--format=%B", ship])
-    const tip = /^Gtd-Tip: ([0-9a-f]+)$/m.exec(body.out)?.[1]
-    if (tip && (await io.run(["git", "merge-base", "--is-ancestor", fix, tip])).code === 0)
+  for (const ship of commits.out.split("\n").filter((c) => tips.has(c))) {
+    if ((await io.run(["git", "merge-base", "--is-ancestor", fix, tips.get(ship)!])).code === 0)
       return ship
   }
   return undefined

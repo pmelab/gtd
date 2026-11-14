@@ -16,7 +16,7 @@ import {
 } from "../emit/index.js"
 import { Effect, Option } from "effect"
 import { ScriptSurface } from "../emit/index.js"
-import { GitService } from "../platform/index.js"
+import { GitService, shippedRef } from "../platform/index.js"
 import { gitTiers, type GitTier, type ScriptedCommand } from "./index.js"
 
 // Every case runs through real `sh` — with this build's `gtd` on PATH — and
@@ -320,8 +320,8 @@ printf '%s\n' 'a' '' 'it'\''s' '100%' '-x' 'a\b' '.gtd/packages/00-x.md' > '.gtd
         expect(await git((g) => g.readFileAtRef(shipped, "a.txt"))).toBe("shipped\n")
         expect(await git((g) => g.diffPaths(parent, shipped))).toEqual(["a.txt"])
         const message = await git((g) => g.lastCommitMessage(shipped))
-        expect(message).toContain("feat: it's shipped")
-        expect(message).toContain(`\n\nGtd-History: ${HISTORY}\nGtd-Tip: ${parent}`)
+        expect(message.trim()).toBe("feat: it's shipped")
+        expect(await git((g) => g.readRefOption(shippedRef(shipped)))).toEqual(Option.some(parent))
         expect(await git((g) => g.lastCommitMessage("HEAD"))).toContain(`Gtd-Shipped: ${shipped}`)
         expect(t.observe.statusPorcelain()).toBe("")
       })

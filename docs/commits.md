@@ -55,4 +55,4 @@ no-promise surface never takes a `!`.
 ## Body and trailers
 
 The body explains why — motivation, decisions, trade-offs — not which files
-changed. Keep the trailers: `Co-Authored-By`, `Claude-Session`, `Gtd-History`.
+changed. Keep the trailers: `Co-Authored-By`, `Claude-Session`.

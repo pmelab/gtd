@@ -2,8 +2,8 @@
 Feature: ship() squashes the process onto the user's branch
 
   A `ship(name, message)` step lands like a check: its landing first commits
-  the tree, with `.gtd/` as `<b>` has it, onto `<b>` as one commit, with
-  `Gtd-History` and `Gtd-Tip` trailers, and moves `<b>` there. HEAD stays on `gtd/<b>`. The step
+  the tree, with `.gtd/` as `<b>` has it, onto `<b>` as one commit carrying
+  only the ship's message, and moves `<b>` there. HEAD stays on `gtd/<b>`. The step
   resolves to the shipped commit's hash, or `undefined` when nothing shipped.
 
   Background:
@@ -49,8 +49,7 @@ Feature: ship() squashes the process onto the user's branch
     And the process rests at "shipped"
     And the current branch is "gtd/main"
     And the branch "main" tip's parent is at "base"
-    And the branch "main" tip message contains "feat: a thing"
-    And the branch "main" tip message contains "Gtd-Tip: "
+    And the branch "main" tip message is "feat: a thing"
     And the branch "main" holds "src/a.ts" with:
       """
       export const a = 1

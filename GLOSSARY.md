@@ -247,10 +247,11 @@ steering file. The next steering step integrates it into the document and
 removes it; it is never answered in place. _Avoid_: thread, comment, note
 
 **Ship**: A `ship()` step: one commit on the user's branch `<b>` carrying the
-process's tree minus `.gtd/`, made while the process keeps every turn on
-`gtd/<b>`. gtd never rewrites history — the ship is a new commit, and the turns
-stay reachable through the `Gtd-History` ref it names. _Avoid_: squash (no
-commit is rewritten), merge, release
+process's tree minus `.gtd/` and the workflow's message, made while the process
+keeps every turn on `gtd/<b>`. gtd never rewrites history — the ship is a new
+commit, and the turns stay reachable through the process's history ref. The ship
+leaves no [trace](#trace). _Avoid_: squash (no commit is rewritten), merge,
+release
 
 **Trace**: Anything gtd leaves where someone other than the user would see it —
 a commit, trailer or file on the user's branch, a pushed ref, a pull request.

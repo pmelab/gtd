@@ -64,7 +64,7 @@ import {
 } from "../wire/index.js"
 
 import { GTD_VERSION } from "../install/index.js"
-import { keptRef, processHistoryRef } from "../platform/index.js"
+import { keptRef, processHistoryRef, shippedRef } from "../platform/index.js"
 import { GTD_BRANCH_PREFIX, startBranchFor, userBranchOf } from "../step/index.js"
 import { accessRefusal, type Landing, type RepoSnapshot } from "../step/index.js"
 
@@ -496,6 +496,17 @@ export const summaryRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = 
   },
 )
 
+/** The process commit whose tree `commit` shipped, or `undefined` when `commit` is no ship. An older gtd named it in a `Gtd-Tip` trailer. */
+export const shipTip = (
+  git: GitOperations,
+  commit: string,
+): Effect.Effect<string | undefined, Error> =>
+  Effect.gen(function* () {
+    const legacy = parseCommitMessage(yield* git.lastCommitMessage(commit)).tip
+    if (legacy !== undefined) return legacy
+    return Option.getOrUndefined(yield* git.readRefOption(shippedRef(commit)))
+  })
+
 const leftProcessTip = (
   git: GitOperations,
   head: { readonly hash: string; readonly subject: string },
@@ -508,7 +519,7 @@ const leftProcessTip = (
     if (Option.isNone(tip)) return undefined
     const message = yield* git.lastCommitMessage(tip.value)
     if (parseCommitMessage(message).parsed?.to === undefined) return undefined
-    const since = parseCommitMessage(yield* git.lastCommitMessage(head.hash)).tip ?? head.hash
+    const since = (yield* shipTip(git, head.hash)) ?? head.hash
     if (!(yield* git.isAncestor(since, tip.value))) return undefined
     return { hash: tip.value, subject: message.split("\n")[0]! }
   })
@@ -1746,7 +1757,7 @@ const revertedPaths = (
 ) =>
   Effect.gen(function* () {
     const head = yield* git.resolveRef("HEAD")
-    const shipped = parseCommitMessage(yield* git.lastCommitMessage(parent)).tip
+    const shipped = yield* shipTip(git, parent)
     if (shipped !== undefined && (yield* git.isAncestor(shipped, head))) return []
     const fork = yield* git.mergeBase(parent, head)
     const foreign = Option.isNone(fork)
@@ -1769,7 +1780,7 @@ const revertedPaths = (
  * Whether landing a ship step with `tree` would ship, and onto what. The squash
  * replaces the user's branch's tree with `tree`, so it is blocked while that
  * branch carries a change `tree` would revert: one made since the last ship
- * (whose `Gtd-Tip` HEAD descends from), or since it forked from HEAD.
+ * (whose process tip HEAD descends from), or since it forked from HEAD.
  */
 const decideShip = (
   workspace: WorkspaceOps,
@@ -1790,7 +1801,7 @@ const decideShip = (
     )
     // A landing whose hook rejected after the ship moved `<b>`: its tip is a ship of this very HEAD.
     // An edit since (say, to satisfy that hook) ships again rather than reusing the stale ship.
-    const pending = parseCommitMessage(yield* git.lastCommitMessage(parent)).tip
+    const pending = yield* shipTip(git, parent)
     if (
       changed.size === 0 &&
       pending !== undefined &&

@@ -117,6 +117,13 @@ Then(
 )
 
 Then(
+  "the branch {string} tip message is {string}",
+  (world: GtdWorld, branch: string, text: string) => {
+    assert.strictEqual(messageAt(world, `refs/heads/${branch}`).trim(), text)
+  },
+)
+
+Then(
   "the branch {string} tip's parent is at {string}",
   (world: GtdWorld, branch: string, mark: string) => {
     const tip = branchTip(world, branch)

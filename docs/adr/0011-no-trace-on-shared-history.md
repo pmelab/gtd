@@ -17,5 +17,3 @@ the whole team and tied the user's branch to gtd's bookkeeping.
   message.
 - `gtd.config.ts` may live outside the repository, because the lookup walks up
   to the home directory. Committing it is the team's choice.
-- Until the ship stops writing `Gtd-History:` and `Gtd-Tip:` on `<b>`, this
-  decision describes the target, not the current behaviour.

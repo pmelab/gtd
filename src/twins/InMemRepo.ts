@@ -1,6 +1,7 @@
 // No real filesystem/git.
 import { createHash } from "node:crypto"
 import { CHANGED_SINCE_LAND } from "../emit/index.js"
+import { shippedRef } from "../platform/index.js"
 
 /** Embedded in every value this fake reaches (see also `strictGitOperations`'s default message) so `scripts/assert-no-test-doubles.mjs` can catch a leak into the shipped bundle by string search. */
 export const TEST_DOUBLE_SENTINEL = "gtd:test-double:never-ship"
@@ -580,7 +581,6 @@ export class InMemRepo {
     branch: string,
     parent: string,
     shipMessage: string,
-    historyRef: string,
     message: string,
   ): string | undefined {
     this.stageAll()
@@ -591,8 +591,9 @@ export class InMemRepo {
       ...[...this.index].filter(([path]) => !path.startsWith(".gtd/")),
       ...kept.filter(([path]) => path.startsWith(".gtd/")),
     ])
-    const shipped = `${shipMessage}\n\nGtd-History: ${historyRef}\nGtd-Tip: ${this.head}\n`
-    const hash = makeHash(shipped, parent, tree)
+    const shipped = `${shipMessage}\n`
+    const tip = this.head
+    const hash = makeHash(`${shipped}${tip}`, parent, tree)
     if (this.branches.get(branch) !== parent) {
       return `fatal: update_ref failed for ref 'refs/heads/${branch}': cannot lock ref 'refs/heads/${branch}': is at ${this.branches.get(branch) ?? "nothing"} but expected ${parent}`
     }
@@ -604,6 +605,7 @@ export class InMemRepo {
       seq: this.nextSeq++,
       signed: this.signingEnabled,
     })
+    this.refs.set(shippedRef(hash), tip)
     this.branches.set(branch, hash)
     return this.commitAsIs(`${message}\nGtd-Shipped: ${hash}`)
   }

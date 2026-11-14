@@ -60,13 +60,14 @@ import {
   noProcessUnderway,
   restIsIdle,
   reviewBaseFor,
+  shipTip,
   snapshotFromRest,
   stalledAt,
   summaryFor,
   summaryRun,
   type RenderedRest,
 } from "../edge/index.js"
-import { formatCommitMessage, parseCommitMessage, PIN_STATES } from "../replay/index.js"
+import { formatCommitMessage, PIN_STATES } from "../replay/index.js"
 import {
   GTD_BRANCH_PREFIX,
   userBranchOf,
@@ -732,7 +733,7 @@ const runStartListCommand = (
 
 /**
  * Back on `<b>` when the process ran on `gtd/<b>` and `<b>` moved only by its
- * ships (whose `Gtd-Tip` the tip descends from): the rewind stops at the last
+ * ships (whose process tip the tip descends from): the rewind stops at the last
  * ship, so the uncommitted changes are what it left unshipped.
  */
 const abandonTarget = (current: Option.Option<string>, tip: string, startParent: string) =>
@@ -747,7 +748,7 @@ const abandonTarget = (current: Option.Option<string>, tip: string, startParent:
       return { leaves: undefined, rewindTo: startParent }
     }
     if (userTip.value === startParent) return { leaves: userBranch, rewindTo: startParent }
-    const shipped = parseCommitMessage(yield* git.lastCommitMessage(userTip.value)).tip
+    const shipped = yield* shipTip(git, userTip.value)
     return shipped !== undefined && (yield* git.isAncestor(shipped, tip))
       ? { leaves: userBranch, rewindTo: userTip.value }
       : { leaves: undefined, rewindTo: startParent }
@@ -880,8 +881,8 @@ const runRestoreCommand = (
     const tip = retained.value
 
     const headHash = yield* git.resolveRef("HEAD")
-    // Abandon after a ship leaves HEAD on `<b>` at the bare ship commit: its `Gtd-Tip` is on the retained tip.
-    const shippedTip = parseCommitMessage(yield* git.lastCommitMessage(headHash)).tip
+    // Abandon after a ship leaves HEAD on `<b>` at the bare ship commit: its process tip is on the retained tip.
+    const shippedTip = yield* shipTip(git, headHash)
     const atShip = shippedTip !== undefined && (yield* git.isAncestor(shippedTip, tip))
     const check = atShip ? { ok: true as const } : yield* restorability(git, headHash, tip)
     if (!check.ok) {

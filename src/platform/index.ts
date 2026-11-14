@@ -37,6 +37,7 @@ export {
   PROCESS_HISTORY_PREFIX,
   readRetainedHistory,
   restorability,
+  shippedRef,
 } from "./RetainedHistory.js"
 export { livePinFile, runPinModule } from "./NodePinFile.js"
 export type { PinFile } from "./PinFile.js"
