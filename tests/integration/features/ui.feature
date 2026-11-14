@@ -10,8 +10,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
   it on, regardless of its reported content kind. Idle is renderable too —
   the phone opens free-form on the idle rest's own `file` (`.gtd/TODO.md`
   below), and the human's write is what eventually moves the
-  state, not `gtd ui` itself. `mode` is NOT part of that axis — an absent or
-  unregistered mode renders free-form. Scenarios run the server in-process
+  state, not `gtd ui` itself. Scenarios run the server in-process
   against the in-memory worktree; refusing outside a repository needs a real
   directory, and runs `@live`.
 
@@ -159,55 +158,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
 
 
   @inmem
-  Scenario: a prompt rest resting with a human, whose mode resolves to no registered steering format, binds a port instead of refusing
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "write NOTE.md to start" })
-        await human("working", {
-          file: ".gtd/PLAN.md",
-          mode: "custom-mode",
-          message: "answer the plan",
-        })
-      }
-
-      export const config = {
-        modes: {
-          "custom-mode": {
-            validate: "true",
-          },
-        },
-      }
-      """
-    And a file "NOTE.md" with:
-      """
-      a note
-      """
-    And gtd lands "gtd(human): idle → working"
-    And I run the pin beat
-    And a file ".gtd/PLAN.md" with:
-      """
-      Paragraph zero here.
-      """
-    When I hand off ".gtd/PLAN.md" in mode "custom-mode" with the text "handed back" to a spawned gtd ui
-    Then gtd ui is still serving after done
-    And the file ".gtd/PLAN.md" contains "handed back"
-
-  # ── The positive scenario that fails today (T7): a human rest carrying a
-  # `file` and a registered `mode`, reporting kind `message` (not `prompt`) —
-  # the exact shape of `build.review.await-review` — binds a port and takes
-  # a handoff. The pre-existing render gate (kind === "prompt") refuses this with
-  # exit 2; only the actor-based gate this package installs admits it.
-  # Proven via the same real spawn-and-handoff round trip
-  # `ui-lifecycle.feature` already uses (`world.ts#spawnGtdUiAndHandOff`) —
-  # bind, then a real tRPC `done` call, then the server still answers.
-  # ──────────────────────────────────────────────────────────────────────
-
-  @inmem
-  Scenario: a human rest reporting kind message, carrying a file and a registered mode, binds a port and takes a handoff
+  Scenario: a human rest reporting kind message, carrying a file, binds a port and takes a handoff
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -217,7 +168,6 @@ Feature: gtd ui — the phone/web client's HTTPS listener
         await human("idle", { message: "write NOTE.md to start" })
         await human("awaiting-review", {
           file: ".gtd/REVIEW.md",
-          mode: "qa",
           message: "awaiting your review",
         })
       }
@@ -235,20 +185,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
 
       Paragraph two here.
       """
-    When I hand off ".gtd/REVIEW.md" in mode "qa" with the text "handed back" to a spawned gtd ui
+    When I hand off ".gtd/REVIEW.md" with the text "handed back" to a spawned gtd ui
     Then gtd ui is still serving after done
     And the file ".gtd/REVIEW.md" contains "handed back"
 
-  # ── Package 01 Task 10 — a genuinely mode-less rest (no `mode:` key at all
-  # on the state, distinct from the unregistered-`custom-mode` scenario
-  # above): renders its own structure, accepts a block edit, refuses a stale
-  # write, hands off, and formats on write — the free-form screen's own
-  # end-to-end acceptance. Every scenario below shares the same workflow
-  # shape: `idle` (write NOTE.md to start) → `planning`, a human rest
-  # carrying `file: ".gtd/TODO.md"` and no `mode` at all. ─────────────────────
-
   @inmem
-  Scenario: a mode-less steering file renders as its own structure — headings, a list, and a fenced code block
+  Scenario: a steering file renders as its own structure — headings, a list, and a fenced code block
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -281,16 +223,11 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the rendered view has a "list" block at index 1
     And the rendered view has a "code" block at index 2
 
-  # Package 02 (improve-free-form-ui) dropped free-form's per-block
-  # replace/delete: `freeform.ts#freeFormApply` now only ever appends, at or
-  # past the document's own last line — an anchor matching a real block's
-  # own start line (paragraph 0 below) now refuses `anchor-not-found`
-  # instead. "Paragraph zero here.\n" splits into two lines
-  # (`["Paragraph zero here.", ""]`), so paragraph 1 is that trailing blank
-  # row past the last real block — the append target this scenario now
-  # exercises.
+  # A paragraph write only ever appends, at or past the document's last line.
+  # "Paragraph zero here.\n" splits into two lines, so paragraph 1 is the
+  # trailing blank row past the last real block.
   @inmem
-  Scenario: writing to a mode-less steering file via setValue appends the bytes to disk
+  Scenario: writing to a steering file via setValue appends the bytes to disk
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -316,7 +253,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the file ".gtd/TODO.md" contains "Appended paragraph."
 
   @inmem
-  Scenario: ticking a box in a mode-less steering file moves the pick on disk and leaves every other byte alone
+  Scenario: picking a single select's option moves the pick on disk and leaves every other byte alone
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -335,12 +272,12 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And I run the pin beat
     And a file ".gtd/TODO.md" with:
       """
-      Pick one:
+      ## 🔘 Pick one
 
       - [x] APPROVE
       - [ ] REJECT
       """
-    When I tick the box on line 3 of ".gtd/TODO.md" via a spawned gtd ui
+    When I pick option 2 of widget 1 in ".gtd/TODO.md" via a spawned gtd ui
     Then the file ".gtd/TODO.md" contains "- [ ] APPROVE"
     And the file ".gtd/TODO.md" contains "- [x] REJECT"
 
@@ -395,7 +332,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And ".gtd/TODO.md" is still a directory
 
   @inmem
-  Scenario: handing off a genuinely mode-less rest (no mode key at all) keeps serving with the edit on disk
+  Scenario: handing off keeps serving with the edit on disk
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -421,7 +358,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And the file ".gtd/TODO.md" contains "handed back"
 
   @inmem
-  Scenario: ui.format rewrites a mode-less write, and a second write against the returned hash still succeeds
+  Scenario: a free-text answer replaces the previous one through a spawned gtd ui
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -429,59 +366,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("planning", { file: ".gtd/TODO.md", message: "edit the plan" })
-      }
-
-      export const config = {
-        ui: {
-          format: "append-formatted $GTD_FILE",
-        },
-      }
-      """
-    And the shell command "append-formatted $GTD_FILE" appends to "$GTD_FILE":
-      """
-      FORMATTED
-      """
-    And a file "NOTE.md" with:
-      """
-      a note
-      """
-    And gtd lands "gtd(human): idle → planning"
-    And I run the pin beat
-    And a file ".gtd/TODO.md" with:
-      """
-      Paragraph zero here.
-      """
-    # `freeFormApply` now only ever appends (package 02, improve-free-form-ui)
-    # — line 9999 is always past the document's own last line, both before
-    # and after `ui.format` grows the file, so both writes below land as
-    # appends rather than needing to track the file's real length.
-    When I write "First edit." then "Second edit." to paragraph 9999 of ".gtd/TODO.md" via a spawned gtd ui, reusing the first write's returned hash
-    Then the file ".gtd/TODO.md" contains "FORMATTED"
-    And the file ".gtd/TODO.md" contains "Second edit."
-    And the second write succeeded
-
-  # ── Package 06's Task 4: a design document's free-text answer, typed long
-  # enough to wrap past 80 columns, must survive a real save through a
-  # spawned `gtd ui` byte-for-byte — replacing a PREVIOUS wrapped answer's own
-  # continuation lines whole, never leaving a stale tail welded onto the new
-  # text (`qa.ts#optionTextSpan`'s whole-paragraph span, package 06 Task 1).
-  # ──────────────────────────────────────────────────────────────────────
-
-  @inmem
-  Scenario: a free-text answer typed long enough to wrap saves byte-for-byte through a spawned gtd ui, with no tail of the previous wrapped answer left behind
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "write NOTE.md to start" })
-        await human("awaiting-review", {
-          file: ".gtd/REVIEW.md",
-          mode: "qa",
-          message: "awaiting your review",
-        })
+        await human("awaiting-review", { file: ".gtd/REVIEW.md", message: "awaiting your review" })
       }
       """
     And a file "NOTE.md" with:
@@ -493,22 +378,18 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And I run the pin beat
     And a file ".gtd/REVIEW.md" with:
       """
-      ## Open Questions
-
-      ### Which storage backend should the new cache layer use?
+      ## 🔘 Which storage backend should the new cache layer use?
 
       - [ ] Redis
-      - [x] a previous long answer that already wraps across two whole
-            continuation lines from an earlier save
+      - [x] ✏️ a previous answer
       """
-    When I answer option 1 of question 0 in ".gtd/REVIEW.md" mode "qa" with the text "Go with SQLite on the shared volume instead — it needs no additional infrastructure to operate, unlike every alternative the team considered." via a spawned gtd ui
-    Then the file ".gtd/REVIEW.md" contains "Go with SQLite on the shared volume instead"
+    When I answer option 2 of widget 1 in ".gtd/REVIEW.md" with the text "Go with SQLite on the shared volume instead — it needs no additional infrastructure to operate, unlike every alternative the team considered." via a spawned gtd ui
+    Then the file ".gtd/REVIEW.md" contains "- [x] ✏️ Go with SQLite on the shared volume instead"
     And the file ".gtd/REVIEW.md" contains "unlike every alternative the team considered."
-    And the file ".gtd/REVIEW.md" does not contain "a previous long answer"
-    And the file ".gtd/REVIEW.md" does not contain "continuation lines from an earlier save"
+    And the file ".gtd/REVIEW.md" does not contain "a previous answer"
 
   @inmem
-  Scenario: answering a review finding from the phone ticks exactly one box and writes the answer over the placeholder
+  Scenario: a free-text answer from the phone ticks exactly one box of a single select
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -516,11 +397,7 @@ Feature: gtd ui — the phone/web client's HTTPS listener
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("awaiting-review", {
-          file: ".gtd/REVIEW.md",
-          mode: "review",
-          message: "awaiting your review",
-        })
+        await human("awaiting-review", { file: ".gtd/REVIEW.md", message: "awaiting your review" })
       }
       """
     And a file "NOTE.md" with:
@@ -532,27 +409,16 @@ Feature: gtd ui — the phone/web client's HTTPS listener
     And I run the pin beat
     And a file ".gtd/REVIEW.md" with:
       """
-      # Review: abc1234
-
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Findings
-
-      ### Token check
-
-      - ./src/auth.ts#1-2
-
-      Tick exactly one:
+      ## 🔘 Token check
 
       - [ ] fix as suggested
       - [x] won't fix
-      - [ ] _your answer_
+      - [ ] ✏️
       """
-    When I answer option 2 of question 0 in ".gtd/REVIEW.md" mode "review" with the text "Only for admin tokens" via a spawned gtd ui
+    When I answer option 3 of widget 1 in ".gtd/REVIEW.md" with the text "Only for admin tokens" via a spawned gtd ui
     Then the file ".gtd/REVIEW.md" contains "- [ ] fix as suggested"
     And the file ".gtd/REVIEW.md" contains "- [ ] won't fix"
-    And the file ".gtd/REVIEW.md" contains "- [x] Only for admin tokens"
-    And the file ".gtd/REVIEW.md" does not contain "_your answer_"
+    And the file ".gtd/REVIEW.md" contains "- [x] ✏️ Only for admin tokens"
 
   # `resolveBindHost`/`resolveCertPair` themselves (the Tailscale-scan
   # default, --self-signed, ui.cert/ui.key) are pinned deterministically at

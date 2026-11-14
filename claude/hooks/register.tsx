@@ -2,7 +2,7 @@ import { atom, read, update } from "claude-code"
 import type { EngineInterface, Register } from "claude-code"
 
 import type { Run, Stop } from "../types"
-import { accessDenial, mainDenial } from "./access"
+import { accessDenial, mainDenial, steeringDenial } from "./access"
 import type { AccessDef } from "./access"
 import { jobPrompt, wakePrompt, wakes } from "./assist"
 import { afterReload, drive, isTrue } from "./drive"
@@ -79,6 +79,12 @@ const ours = new Set<string>()
 const accesses = new Map<string, AccessDef>()
 const setAccess = (id: string, a: AccessDef | undefined) =>
   void (a ? accesses.set(id, a) : accesses.delete(id))
+// Each turn agent's steering file, when its step is a steering step.
+const steerings = new Map<string, string>()
+const setTurn = (id: string, t: { access?: AccessDef; steering?: string }) => {
+  setAccess(id, t.access)
+  void (t.steering ? steerings.set(id, t.steering) : steerings.delete(id))
+}
 async function workerModel($: $, hint: string | undefined) {
   return subagentModel(hint, {
     smart: await $.env.get("GTD_PLANNERMODEL"),
@@ -175,13 +181,6 @@ function io($: $): Io {
       await update($, run, (r) => ({ ...r, isScripting: false }))
       return code
     },
-    check: async (script) => {
-      // Streamed for the same reason: a validator may outlast run's cap.
-      const child = $.process.spawn({ argv: ["sh", "-c", script], cwd: root })
-      let out = ""
-      for await (const chunk of child) out += chunk.text
-      return { ok: (await child.result).code === 0, out: out.trim() }
-    },
     judge: () =>
       docs($).judge(async (doc, j) => {
         const env = judgeRunEnv({
@@ -207,7 +206,7 @@ function io($: $): Io {
       const known = resumable(entry, name)
       if (t.resume && entry && !known) $.ui.log(restartLine(t.scope))
       if (t.resume && known) {
-        setAccess(known, t.access)
+        setTurn(known, t)
         const end = send($, known, t.prompt)
         await update($, run, (r) => ({ ...r, inflight: { agentId: known, memory: t.memory } }))
         const ended = await end
@@ -226,7 +225,7 @@ function io($: $): Io {
       const id = spawned.agentId
       if (!id) return settle($, { ok: false, why: spawned.deny ?? "subagent spawn refused" })
       ours.add(id)
-      setAccess(id, t.access)
+      setTurn(id, t)
       await update($, agents, (list) => [...list, id].slice(-200))
       await update($, scopes, (s) => ({ ...s, [t.memory]: { agentId: id, persona: name } }))
       await update($, run, (r) => ({ ...r, inflight: { agentId: id, memory: t.memory } }))
@@ -628,7 +627,6 @@ async function catchNow($: $, ref: string) {
     const stop: Stop = { kind: "gate", text: b.content ?? "", state: b.state, label: b.label }
     if (b.judge) stop.isJudge = true
     if (b.file) stop.file = b.file
-    if (b.mode) stop.mode = b.mode
     const rest = restId(await head($), b.state)
     await update($, run, (r) => ({ ...r, stop, rest, isRepeat: false }))
     void wake($)
@@ -816,8 +814,8 @@ async function proceed(
   return undefined
 }
 
-// The rest's own `gtd validate` script, run; a declined review thread needs
-// the reason its reply carries.
+// The rest's steering file, checked as `gtd land` will check it; a declined
+// review thread needs the reason its reply carries.
 async function validateRest($: $) {
   const r = await read($, run)
   if (r.pr?.importedAt !== undefined && isReviewGate(r.stop)) {
@@ -825,9 +823,9 @@ async function validateRest($: $) {
     const missing = (await $.fs.exists(path)) ? missingReasons(await $.fs.read(path)) : []
     if (missing.length > 0) return { ok: false, out: missing.join("\n") }
   }
-  const script = await gtd($, ["validate"])
-  if (script.trim().startsWith("nothing to validate")) return { ok: true, out: "" }
-  const v = await $.process.run(["sh", "-c", script], { cwd: root, timeoutMs: TEN_MINUTES })
+  const file = r.stop?.file
+  if (file === undefined || !(await $.fs.exists(`${root}/${file}`))) return { ok: true, out: "" }
+  const v = await $.process.run(["gtd", "check", file], { cwd: root, timeoutMs: TEN_MINUTES })
   return { ok: v.exitCode === 0, out: `${v.stdout}${v.stderr}`.trim() }
 }
 
@@ -1024,6 +1022,9 @@ function subagentDenial(agentId: string, e: Record<string, unknown>) {
   const access = accesses.get(agentId)
   const denial = access && accessDenial(String(e.tool), e, access, root)
   if (denial) return denial
+  const steering = steerings.get(agentId)
+  const steered = steering && steeringDenial(String(e.tool), e, steering)
+  if (steered) return steered
   const delegated = delegates.get(agentId)
   if (!delegated) return undefined
   if ((e.tool === "Write" && e.file_path !== delegated.file) || e.tool === "Bash") {
@@ -1036,11 +1037,11 @@ function subagentDenial(agentId: string, e: Record<string, unknown>) {
 async function phase($: $) {
   const r = await read($, run)
   const stop = r.stop
-  const atQa = stop?.kind === "gate" && !stop.isJudge
+  const atGate = stop?.kind === "gate" && !stop.isJudge
   // A continue waiting for the turn to end is as good as running: the file
   // it validated must not change before it lands.
   const isRunning = r.isRunning || r.pending !== undefined
-  return { isRunning, mode: atQa ? stop.mode : undefined, file: stop?.file }
+  return { isRunning, file: atGate ? stop.file : undefined }
 }
 
 // A tool's answer. For `continue`, any text is a refusal the model reads as an

@@ -75,16 +75,3 @@ When("I commit with message {string}", (world: GtdWorld, message: string) => {
     )
   }
 })
-
-Then(
-  "{string} has no lines longer than {int} characters",
-  (world: GtdWorld, path: string, limit: number) => {
-    const content = world.readRepoFile(path)
-    const longLines = content.split("\n").filter((line) => line.length > limit)
-    assert.strictEqual(
-      longLines.length,
-      0,
-      `Expected no lines longer than ${limit} chars in ${path}, but found:\n${longLines.join("\n")}`,
-    )
-  },
-)

@@ -570,7 +570,7 @@ Then(
   },
 )
 
-/** LSP `DiagnosticSeverity` values, named the way a scenario names them — `Warning` is what a built-in format's own live `validate` publishes (see `src/lsp/Lsp.ts`'s `toDiagnostic`); `Information` is the external-validator notice (`externalValidatorNotice`). */
+/** LSP `DiagnosticSeverity` values, named the way a scenario names them. */
 const DIAGNOSTIC_SEVERITY_BY_NAME: Readonly<Record<string, number>> = {
   Error: 1,
   Warning: 2,

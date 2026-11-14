@@ -18,7 +18,7 @@ const FILES = {
   "gtd.config.ts": [
     'import { agent, human } from "@pmelab/gtd/flows"',
     "export default async () => {",
-    '  await human("idle", { message: "go", file: ".gtd/PLAN.md", mode: "qa" })',
+    '  await human("idle", { message: "go", file: ".gtd/PLAN.md" })',
     '  await agent("working", "work")',
     "}",
     "",
@@ -95,10 +95,10 @@ for (const make of [live, inMemory]) {
       expect(await t.io.head(t.root)).toBe(t.head())
     })
 
-    it("reads the rest's steering file and mode off gtd next --json", async () => {
+    it("reads the rest's steering file off gtd next --json", async () => {
       t = make()
       const rest = JSON.parse(await t.io.next(t.root)) as Record<string, unknown>
-      expect([rest["state"], rest["file"], rest["mode"]]).toEqual(["idle", ".gtd/PLAN.md", "qa"])
+      expect([rest["state"], rest["file"]]).toEqual(["idle", ".gtd/PLAN.md"])
     })
   })
 }

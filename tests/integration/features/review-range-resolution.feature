@@ -1,51 +1,17 @@
-Feature: Review pointers carry a mandatory range — validated at check, resolved end to end at gtd ui
+Feature: Review pointers resolve end to end at gtd ui
 
-  Package 04: `.gtd/REVIEW.md`'s file pointers now carry a MANDATORY
-  `#start-end` range (see `src/steering/review.ts`), and `gtd ui`'s `diff`
-  query resolves that range against a real git diff (`src/ui/Diff.ts`) —
-  collecting every hunk the range overlaps, slicing each down to a 3-line pad
-  either side, and falling back to a whole-file banner whenever the range
-  doesn't land on any hunk, rather than ever rendering an empty body. The two
-  `@inmem` scenarios below pin the validator; the `@live` scenarios drive a
-  real spawned `gtd ui` against a real git repository.
-
-  @inmem
-  Scenario: a pointer with a line but no range produces exactly one finding naming that pointer, and gtd check review exits non-zero
-    Given a file "REVIEW.md" with:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add thing.ts
-
-      - [ ] ./src/thing.ts#42 — new export
-      """
-    When I run gtd with args "check review REVIEW.md"
-    Then it fails
-    And stdout is empty
-    And stderr contains "./src/thing.ts#42"
-
-  @inmem
-  Scenario: gtd uncheck clears a ticked range pointer back to "- [ ]"
-    Given a file "REVIEW.md" with:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add thing.ts
-
-      - [x] ./src/thing.ts#42-70 — new export
-      """
-    When I run gtd with args "uncheck REVIEW.md"
-    Then it succeeds
-    And "REVIEW.md" contains "- [ ] ./src/thing.ts#42-70"
-    And "REVIEW.md" does not contain "- [x]"
+  `gtd ui`'s `diff` query resolves a hunk pointer's `#start-end` range against
+  a real git diff — collecting every hunk the range overlaps, slicing each
+  down to a 3-line pad either side, and falling back to a whole-file banner
+  whenever the range doesn't land on any hunk, rather than ever rendering an
+  empty body. The scenarios drive a real spawned `gtd ui` against a real git
+  repository.
 
   # ── `gtd ui`'s `diff` query, resolved end to end against a real spawned
   # process (see world.ts#spawnGtdUiAndResolveDiff) — every scenario below
   # rests on the same shape: a human `planning` state with no steering file
   # of its own, so ONLY the render gate (human actor + a `file`) is under
-  # test, never a particular mode. ──────────────────────────────────────────
+  # test. ──────────────────────────────────────────
 
   @live
   Scenario: a pointer into a new file renders only its range plus a 3-line pad, never the whole file

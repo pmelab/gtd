@@ -114,7 +114,7 @@ const step = (actor, from, to, occurrence, files) => ({
   files,
 })
 
-/** A planning loop shaped like gtd-workflows' default: the steps the episode replays. */
+/** A planning loop: the steps the episode replays. */
 const WORKFLOW = `import { agent, human, read, run, scope } from "@pmelab/gtd/flows"
 
 export default async () => {

@@ -18,7 +18,7 @@ const FILES = {
   "gtd.config.ts": [
     'import { agent, human } from "@pmelab/gtd/flows"',
     "export default async () => {",
-    '  await human("idle", { message: "go", file: ".gtd/PLAN.md", mode: "qa" })',
+    '  await human("idle", { message: "go", file: ".gtd/PLAN.md" })',
     '  await agent("working", "work")',
     "}",
     "",

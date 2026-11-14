@@ -1,23 +1,13 @@
 import type { WorkflowBase, Flow, ScopeAccess, Summary } from "../flows/index.js"
-import type { Actor, ContentKind, StateMode, StateName, StepAccess } from "../wire/index.js"
+import type { Actor, ContentKind, StateName, StepAccess } from "../wire/index.js"
 
-export type { Actor, ContentKind, StateMode, StateName }
+export type { Actor, ContentKind, StateName }
 
 export type ChangeStatus = "A" | "M" | "D"
 
 export interface PendingChange {
   readonly status: ChangeStatus
   readonly path: string
-}
-
-/**
- * One steering-file mode: shell commands (reading the file from `$GTD_FILE`) that
- * format and validate a file of this format. Both run at the edge, never in
- * the engine.
- */
-export interface ModeDef {
-  readonly format?: string
-  readonly validate?: string
 }
 
 /**
@@ -31,9 +21,6 @@ export interface StepDef {
   readonly content: string
   readonly label?: string
   readonly file?: string
-  readonly mode?: StateMode
-  /** A declared format's spec, when `mode` names one rather than a built-in or `modes:` entry. */
-  readonly modeSpec?: string
   readonly model?: string
   readonly system?: string
   readonly judge?: string
@@ -60,10 +47,6 @@ export interface WorkflowDefinition {
   readonly flow: Flow
   readonly summary?: Summary | undefined
   readonly base?: WorkflowBase | undefined
-  /** Steering files by path, with their mode — what the LSP knows before a step declaring one is reached. */
-  readonly steering: Readonly<Record<string, StateMode>>
-  /** Every mode a step may name: the built-in registry merged with `config.modes`. */
-  readonly modes: Readonly<Record<StateMode, ModeDef>>
   /** Bundled skill lists keyed by scope full name, given the process's resolved vars — the fallback beneath `configuredSkills` and a `scope()` option. */
   readonly skills: (
     vars: Readonly<Record<string, string>>,
@@ -79,6 +62,3 @@ export interface WorkflowDefinition {
   /** The flow's first step on an ordinary start — where a finished episode waits. */
   readonly initial: StateName
 }
-
-export const knownModes = (def: Pick<WorkflowDefinition, "modes">): readonly StateMode[] =>
-  Object.keys(def.modes)

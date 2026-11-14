@@ -2,8 +2,8 @@
 Feature: Command surface — bare gtd, unknown subcommands, --help, --version
 
   gtd exposes `land` (with `--cost=<n>`/`--model=<name>`), `start`,
-  `abandon`, `restore`, `next`, `validate`, `check <mode> <file>`,
-  `uncheck <file>`, `lsp`, `version`, and `help` among its subcommands.
+  `abandon`, `restore`, `next`, `check <file>`, `lsp`, `version`, and `help`
+  among its subcommands.
   Bare `gtd` (no subcommand) is a usage error. `--help`/`help` and `--version`/`version`
   short-circuit before any repo-state work and exit 0 everywhere, including
   outside a workflow state.
@@ -42,8 +42,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     And stdout does not contain "--workflow"
     And stdout contains "abandon"
     And stdout contains "next"
-    And stdout contains "check <mode> <file>"
-    And stdout contains "uncheck <file>"
+    And stdout contains "check <file>"
     And stdout contains "base "
 
   Scenario: --version prints the version and exits 0
@@ -100,8 +99,7 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     Examples:
       | args                     |
       | lsp --json               |
-      | check qa TODO.md --json  |
-      | uncheck REVIEW.md --json |
+      | check TODO.md --json     |
       | guide --json             |
       | summary --json           |
       | base --json              |
@@ -140,45 +138,6 @@ Feature: Command surface — bare gtd, unknown subcommands, --help, --version
     And stdout is empty
     And stderr contains "\"state\":\"error\""
     And stderr matches "gtd: [^\n]*\n$"
-
-  Scenario: gtd uncheck resets a review-mode file's ticked boxes back to unticked
-    Given a test project
-    And a file "REVIEW.md" with:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Chunk
-
-      - [x] ./src/calc.ts#1
-      """
-    When I run gtd with args "uncheck REVIEW.md"
-    Then it succeeds
-    And stdout is empty
-    And "REVIEW.md" contains "- [ ] ./src/calc.ts#1"
-    And "REVIEW.md" does not contain "- [x]"
-
-  Scenario: gtd uncheck on a missing file writes nothing and exits 0
-    Given a test project
-    When I run gtd with args "uncheck REVIEW.md"
-    Then it succeeds
-    And stdout is empty
-
-  Scenario: gtd uncheck with no file argument is a usage error, exit 2
-    Given a test project
-    When I run gtd with args "uncheck"
-    Then it fails
-    And stderr contains "missing file argument"
-
-  Scenario: gtd uncheck takes no <mode> argument — a second positional is too many arguments
-    Given a test project
-    And a file "REVIEW.md" with:
-      """
-      # Review: abc1234
-      """
-    When I run gtd with args "uncheck review REVIEW.md"
-    Then it fails
-    And stderr contains "too many arguments"
 
   @inmem
   Scenario: bare gtd history is a usage error naming its subcommands

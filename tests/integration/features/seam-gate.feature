@@ -104,7 +104,7 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
     And the last commit subject is "gtd(human): gate → again"
     And the last commit body contains 'Gtd-Approved: {"step":"gate#1","name":"Test","email":"test@test.com"}'
     And the last commit body does not contain "Signed-off-by:"
-    And the last commit body contains "Gtd-Format: 4"
+    And the last commit body contains "Gtd-Format: 5"
 
   @inmem
   Scenario: a staging hook does not reach the approval
@@ -321,15 +321,15 @@ Feature: seamGate — a refactor-first judgment rests at a human approval gate
       """
 
   @inmem
-  Scenario: approve combined with mode and file is refused naming the step and both
+  Scenario: approve combined with file is refused naming the step and the key
     Given a gtd config file at "gtd.config.ts" with:
       """
       import { human } from "@pmelab/gtd/flows"
 
       export default async () => {
-        await human("gate", { approve: true, mode: "review", file: ".gtd/REVIEW.md" })
+        await human("gate", { approve: true, file: ".gtd/REVIEW.md" })
       }
       """
     When I run gtd next
     Then it fails
-    And stderr contains 'step "gate": approve cannot be combined with mode, file in human() options'
+    And stderr contains 'step "gate": approve cannot be combined with file in human() options'

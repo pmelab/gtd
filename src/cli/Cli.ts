@@ -38,7 +38,6 @@ import {
   type JsonMode,
 } from "./Program.js"
 import type { ToolCommands } from "./ToolCommands.js"
-import { THRESHOLDS } from "./Judges.js"
 import { closest, definition, wrap } from "./Help.js"
 import { EXIT_RUNTIME_ERROR, EXIT_USAGE_ERROR } from "../wire/index.js"
 
@@ -134,7 +133,6 @@ const SCRIPT_KINDS: ReadonlySet<Command["kind"]> = new Set<Command["kind"]>([
   "abandon",
   "restore",
   "repin",
-  "validate",
   "historyFetch",
 ])
 
@@ -148,8 +146,6 @@ const JSON_KINDS: ReadonlySet<Command["kind"] | undefined> = new Set<Command["ki
   "judgeAnswer",
   "historyList",
   "historyShow",
-  "historyMetrics",
-  "historyJudges",
   "strays",
 ])
 
@@ -285,16 +281,6 @@ const FLAGS: readonly FlagRow[] = [
     },
   },
   {
-    name: "--threshold",
-    arity: 1,
-    repeatable: true,
-    scope: (kind) => kind === "historyJudges",
-    decode: (raws) => decodeAssignments("--threshold", raws),
-    scopeError: "gtd: --threshold is only valid for `gtd history judges`",
-    valueHint: "<name>=<value>",
-    help: "Re-decide every past verdict under this threshold: judgeIdenticalMinP or qualityTriageMinP (repeatable)",
-  },
-  {
     name: "--var",
     arity: 1,
     repeatable: true,
@@ -304,47 +290,18 @@ const FLAGS: readonly FlagRow[] = [
     valueHint: "<name>=<value>",
     help: "Pin one of the workflow's declared settings for the new process (repeatable); through a door, on top of the settings its args set",
   },
+
   {
-    name: "--jsonl",
-    arity: 0,
-    repeatable: false,
-    scope: (kind) => kind === "historyJudges",
-    decode: () => Result.succeed(true),
-    scopeError: "gtd: --jsonl is only valid for `gtd history judges`",
-    valueHint: "",
-    help: "Print one JSON line per verdict instead of the report",
-    conflicts: ["--json", "--threshold"],
-  },
-  {
-    name: "--open-questions",
+    name: "--write",
     arity: 0,
     repeatable: false,
     scope: (kind) => kind === "check",
     decode: () => Result.succeed(true),
-    scopeError: "gtd: --open-questions is only valid for `gtd check`",
+    scopeError: "gtd: --write is only valid for `gtd check`",
     valueHint: "",
-    help: "Instead of <mode>'s findings, list the unanswered questions in <file>; exits 1 when any remain",
+    help: "Rewrite <file> in its canonical form before checking it",
   },
-  {
-    name: "--open-threads",
-    arity: 0,
-    repeatable: false,
-    scope: (kind) => kind === "check",
-    decode: () => Result.succeed(true),
-    scopeError: "gtd: --open-threads is only valid for `gtd check`",
-    valueHint: "",
-    help: "Instead of <mode>'s findings, list the open threads in <file>; exits 1 when any are open. Alone, lists the open code-comment threads in the files the current process changed",
-  },
-  {
-    name: "--spec",
-    arity: 1,
-    repeatable: false,
-    scope: (kind) => kind === "check",
-    decode: ([raw]) => Result.succeed(raw ?? ""),
-    scopeError: "gtd: --spec is only valid for `gtd check`",
-    valueHint: "<json>",
-    help: "Check against the declared format this spec describes, named <mode>, instead of a built-in one; validation scripts pass it for a step whose mode is a declared format",
-  },
+
   {
     name: "--verbose",
     arity: 0,
@@ -381,15 +338,12 @@ const flagByToken = (token: string): FlagRow | undefined => {
 type Arity =
   | "none"
   | { readonly name: string }
-  | { readonly names: readonly [string, string] }
   // One required leading positional, then any number the command itself judges.
   | { readonly name: string; readonly variadic: string }
   // The same, the leading one optional too.
   | { readonly name: string; readonly variadic: string; readonly bare: true }
   // At most one trailing positional.
   | { readonly name: string; readonly optional: true }
-  // Any number of positionals, none included.
-  | { readonly name: string; readonly many: true }
 
 type Group = "Core loop" | "Start and stop" | "Inspect" | "Driver plumbing"
 
@@ -431,14 +385,7 @@ gtd writes nothing itself. Plain output names the commit it would make; --json=s
 
 --json prints the whole document: the script, the step the process lands at, the commit subject, and the recorded cost and model. A refusal exits 1.`,
   },
-  {
-    token: "validate",
-    kind: "validate",
-    arity: "none",
-    group: "Core loop",
-    summary: "Print the script that checks the steering file",
-    details: `Print the script that formats, then validates, the current step's steering file with its mode's commands. gtd runs nothing: the script's exit code is the verdict, and on a failure it prints a ready-to-send fix prompt. Prints "nothing to validate" when the step declares no file to check; --json=script then prints an empty script.`,
-  },
+
   {
     token: "start",
     kind: "start",
@@ -526,22 +473,6 @@ Prints a sorted JSON array ([] when clean) and a summary on stderr; --verbose ad
     details: `Replay one finished process under today's config and print its steps, judge verdicts and approvals. <ref> is a full ref, an entry hash or a unique prefix of one, or a branch name. Refuses when a config file changed since; a different gtd version only warns. --json prints the trail as one document. Writes nothing.`,
   },
   {
-    token: "history metrics",
-    kind: "historyMetrics",
-    arity: { name: "ref", many: true },
-    group: "Inspect",
-    summary: "Report cost and rework of finished processes",
-    details: `Report how finished processes went: builds that landed first time or were rebuilt, cost by model and phase, review findings per lens, and red checks that passed when re-run — per process and in total. <ref> is read as by \`gtd history show\`, but a branch name means every process kept from it; no <ref> means all of them. Never replays, so a changed config is no reason to refuse. --json prints { processes, total }. Writes nothing.`,
-  },
-  {
-    token: "history judges",
-    kind: "historyJudges",
-    arity: { name: "ref", many: true },
-    group: "Inspect",
-    summary: "Calibrate the judges of finished processes",
-    details: `Calibrate the judges of finished processes from their recorded verdicts: per judge and confidence bucket, how many verdicts later events overturned. <ref> is read as by \`gtd history metrics\`. Never replays and asks no model. --json prints { processes, total, whatIf }. Writes nothing.`,
-  },
-  {
     token: "history fetch",
     kind: "historyFetch",
     arity: { name: "remote", optional: true },
@@ -604,19 +535,12 @@ The fixed answerer reads --answers and leaves out the questions it does not cove
   {
     token: "check",
     kind: "check",
-    arity: { names: ["mode", "file"] },
-    group: "Driver plumbing",
-    summary: "Check a steering file's format",
-    details: `Run the steering format <mode> (qa, review or findings, or the declared format --spec describes) over <file> and print each finding on a line of its own; exits 1 when there are any, or when <file> does not exist. An unknown <mode> is a usage error (exit 2). Reads no workflow and runs from any directory — emitted validation scripts call it.`,
-  },
-  {
-    token: "uncheck",
-    kind: "uncheck",
     arity: { name: "file" },
     group: "Driver plumbing",
-    summary: "Untick a review file's boxes",
-    details: `Reset every ticked review box (- [x]) in <file> to - [ ], writing the file only when it changes; a missing file writes nothing. Reads no workflow and runs from any directory — the landing script at a review gate calls it unless the next step is an agent turn, which keeps the ticks.`,
+    summary: "Check a steering file",
+    details: `Read <file> as widgets and print each structural finding on a line of its own; exits 1 when there are any, or when <file> does not exist. --write first rewrites <file> in its canonical form. Reads no workflow and runs from any directory — emitted landing scripts call it.`,
   },
+
   {
     token: "lsp",
     kind: "lsp",
@@ -645,15 +569,13 @@ const OPTION_COLUMN = 22
 const synopsis = (row: CommandRow): string => {
   const { token, arity } = row
   if (arity === "none") return token
-  if ("names" in arity) return `${token} <${arity.names[0]}> <${arity.names[1]}>`
   if ("bare" in arity) return `${token} [${arity.name}] [${arity.variadic}...]`
   if ("variadic" in arity) return `${token} <${arity.name}> [${arity.variadic}...]`
   if ("optional" in arity) return `${token} [${arity.name}]`
-  if ("many" in arity) return `${token} [${arity.name}...]`
   return `${token} <${arity.name}>`
 }
 
-const SPACE_FORM_FLAGS = new Set(["--var", "--threshold"])
+const SPACE_FORM_FLAGS = new Set(["--var"])
 
 const flagHeader = (row: FlagRow): string => {
   if (row.valueHint === "") return row.name
@@ -940,24 +862,10 @@ const tooMany = (
 
 const arityError = (cmd: string, rest: readonly string[], arity: Arity): string | undefined => {
   if (arity === "none") return tooMany(cmd, rest, "none", 0)
-  if ("names" in arity) return pairArityError(cmd, rest, arity.names)
-  if ("many" in arity || "bare" in arity) return undefined
+  if ("bare" in arity) return undefined
   if ("optional" in arity) return tooMany(cmd, rest, `at most one ${arity.name}`, 1)
   if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
   return "variadic" in arity ? undefined : tooMany(cmd, rest, `one ${arity.name}`, 1)
-}
-
-const pairArityError = (
-  cmd: string,
-  rest: readonly string[],
-  [first, second]: readonly [string, string],
-): string | undefined => {
-  if (rest.length === 0) return `gtd ${cmd}: missing ${first} and ${second} arguments`
-  if (rest.length === 1) return `gtd ${cmd}: missing ${second} argument`
-  if (rest.length > 2) {
-    return `gtd ${cmd}: too many arguments — expected ${first} and ${second}, got: ${rest.join(", ")}`
-  }
-  return undefined
 }
 
 /** Decode every present flag into a bag of values, or the first decode error encountered. */
@@ -976,27 +884,6 @@ const decodeFlags = (
     bag[row.name] = decoded.success
   }
   return Result.succeed(bag)
-}
-
-/** `gtd history judges`' thresholds: each a known judge threshold with a numeric value. */
-const judgeThresholds = (
-  thresholds: Readonly<Record<string, string>>,
-): Result.Result<Readonly<Record<string, string>>, string> => {
-  const unknown = Object.keys(thresholds).find((name) => !Object.hasOwn(THRESHOLDS, name))
-  if (unknown !== undefined) {
-    return Result.fail(
-      `gtd history judges: --threshold ${unknown} is no judge threshold — use ${Object.keys(THRESHOLDS).join(" or ")}`,
-    )
-  }
-  const nan = Object.entries(thresholds).find(
-    ([, value]) => value.trim() === "" || !Number.isFinite(Number(value)),
-  )
-  if (nan !== undefined) {
-    return Result.fail(
-      `gtd history judges: --threshold ${nan[0]} must be a number — got "${nan[1]}"`,
-    )
-  }
-  return Result.succeed(thresholds)
 }
 
 /** Assembles a `land` `Command` from its already-scope-checked flag bag — split out of `parseArgv` so its two independent, omit-when-absent optional fields don't inflate that function's own branching. */
@@ -1070,7 +957,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     return usagePlan(
       typo !== undefined
         ? `gtd history: unknown subcommand '${positionals[1]}' — did you mean \`gtd history ${typo}\`?`
-        : "gtd history: expected a subcommand — list, show <ref>, metrics [ref...], judges [ref...] or fetch [remote]",
+        : "gtd history: expected a subcommand — list, show <ref> or fetch [remote]",
       jsonSeen,
     )
   }
@@ -1115,10 +1002,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   // `judgeAnswer` consumes TWO leading positionals ("judge" and "answer"), everything else one.
   const restPositionals = positionals.slice(judgeAnswer || judgeRun || isHistory ? 2 : 1)
 
-  const bare = kind === "check" && restPositionals.length === 0 && present.has("--open-threads")
-  const arityMsg = bare
-    ? undefined
-    : arityError(isHistory ? row.token : first, restPositionals, row.arity)
+  const arityMsg = arityError(isHistory ? row.token : first, restPositionals, row.arity)
   if (arityMsg !== undefined) {
     const hint =
       afterBareJson !== undefined && restPositionals.includes(afterBareJson)
@@ -1141,17 +1025,13 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--cost"?: number
     readonly "--model"?: string
     readonly "--var"?: Readonly<Record<string, string>>
-    readonly "--threshold"?: Readonly<Record<string, string>>
-    readonly "--open-questions"?: boolean
-    readonly "--open-threads"?: boolean
-    readonly "--spec"?: string
+    readonly "--write"?: boolean
     readonly "--host"?: string
     readonly "--self-signed"?: boolean
     readonly "--http"?: boolean
     readonly "--dev"?: boolean
     readonly "--provider"?: "fixed" | "jev" | "llm"
     readonly "--answers"?: string
-    readonly "--jsonl"?: boolean
   }
 
   // `present.has("--json")` alone can't distinguish bare `--json` (no value
@@ -1219,13 +1099,8 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       kind: "command",
       command: {
         kind: "check",
-        ...(restPositionals[0] !== undefined ? { mode: restPositionals[0] } : {}),
-        ...(restPositionals[1] !== undefined ? { file: restPositionals[1] } : {}),
-        ...(bag["--open-questions"] !== undefined
-          ? { openQuestions: bag["--open-questions"] }
-          : {}),
-        ...(bag["--open-threads"] !== undefined ? { openThreads: bag["--open-threads"] } : {}),
-        ...(bag["--spec"] !== undefined ? { spec: bag["--spec"] } : {}),
+        file: restPositionals[0]!,
+        ...(bag["--write"] !== undefined ? { write: bag["--write"] } : {}),
       },
       json,
       verbose,
@@ -1274,32 +1149,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     }
   }
 
-  if (kind === "historyMetrics") {
-    return {
-      kind: "command",
-      command: { kind: "historyMetrics", refs: restPositionals },
-      json,
-      verbose,
-    }
-  }
-
-  if (kind === "historyJudges") {
-    const thresholds = judgeThresholds(bag["--threshold"] ?? {})
-    if (Result.isFailure(thresholds)) return usagePlan(thresholds.failure, jsonSeen)
-    const vars = thresholds.success
-    return {
-      kind: "command",
-      command: {
-        kind: "historyJudges",
-        refs: restPositionals,
-        vars,
-        jsonl: bag["--jsonl"] ?? false,
-      },
-      json,
-      verbose,
-    }
-  }
-
   if (kind === "historyFetch") {
     return {
       kind: "command",
@@ -1331,15 +1180,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     }
   }
 
-  if (kind === "uncheck") {
-    return {
-      kind: "command",
-      command: { kind: "uncheck", file: restPositionals[0]! },
-      json,
-      verbose,
-    }
-  }
-
   // Every other kind carries no extra fields.
   const command: Command = {
     kind: kind as
@@ -1348,7 +1188,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       | "restore"
       | "repin"
       | "next"
-      | "validate"
       | "guide"
       | "bundle"
       | "base"

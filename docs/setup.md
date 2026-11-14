@@ -1,8 +1,7 @@
 # Setup
 
-The skills an agent turn loads are the workflow's: gtd-workflows' `default`
-lists the ones it names in its
-[setup](https://github.com/pmelab/gtd-workflows/blob/main/docs/setup.md).
+The skills an agent turn loads are the workflow's: it names them, and the
+machine running the agent must have them installed.
 
 ## Repository requirements
 
@@ -25,38 +24,24 @@ lists the ones it names in its
 
 ## Editor integration
 
-`gtd lsp` starts an LSP server over stdio for steering files — the file the step
-the process rests on declares, plus any `REVIEW.md`:
+`gtd lsp` starts an LSP server over stdio for the [steering file](./steering.md)
+the step the process rests on declares:
 
-- a symbol per `review`-mode chunk that still has an unchecked hunk (an outline
-  of what is left to review), plus check/uncheck actions over those chunks
-- go-to-definition from a `review`-mode hunk line into the file it points at, at
-  its `#start-end` range
-- a document link on a `review`-mode hunk's `./path#start-end` pointer,
-  clickable straight to that file at its range without going through
-  go-to-definition
-- symbols over a `qa`-mode file's open questions, plus "pick this option" /
-  "uncheck this option" code actions on each option — offered anywhere on the
-  option's list item, including wrapped continuation lines
-- a "gtd: add a footnote" code action in both formats: it plants a `[^name]`
-  marker at the exact cursor position and an empty definition below the current
-  block, with no placeholder text to delete, so leaving a footnote never means
-  hand-typing the syntax
-- that same action moves the cursor into the new, empty definition so you can
-  start typing immediately — the jump needs an editor that supports being asked
-  to show a document, but the marker and definition are written either way
-- go-to-definition on a footnote jumps both ways — marker to definition,
-  definition to its first marker's exact column — in both formats, within the
-  same file
-- a symbol per footnote thread, nested under the question, option or chunk its
-  first marker sits in, saying whether it waits on you or on the agent
-- a "gtd: reply" code action on an open thread's marker or anywhere in its
-  definition: it appends an empty `- H: ` entry after the last one and puts the
-  cursor right after it. It is not offered while the agent is the one to answer
-- an `Information` diagnostic on the last entry of every open thread
-- live diagnostics for both formats as you edit, including thread syntax
-  (`- H:`/`- A:` entries); an open thread — last entry the agent's — blocks
-  landing at a gate that requires threads closed
+- a symbol per widget, with one child per checkbox
+- code actions on a widget's checkboxes: "gtd: pick this option" on a 🔘 option,
+  "gtd: write a custom answer" on its ✏️ item, "gtd: tick" / "gtd: untick" on a
+  ☑️ option, a ❔ box or a 🔍 hunk, and "gtd: tick every hunk" on a 🔍 heading
+- go-to-definition from a 🔍 hunk pointer into the file it points at, at its
+  `#start-end` range, and a document link on the pointer itself
+- a "gtd: add an annotation" code action anywhere in the file: it plants a
+  `[^name]` marker at the end of the line and an empty note below the current
+  block, and moves the cursor into the note — the jump needs an editor that
+  supports being asked to show a document, but the marker and note are written
+  either way
+- go-to-definition on an annotation jumps both ways — marker to note, note to
+  its first marker's exact column
+- live diagnostics as you edit: every broken widget, and every single select or
+  review checklist still unanswered — the same checks `gtd land` applies
 - a `gtd.openSteeringFile` command that jumps to the current step's steering
   file, falling back to `.gtd/TODO.md` when the resting step declares none, so
   the keybinding has an answer even before a process has started
@@ -66,17 +51,7 @@ has never run gtd, `.gtd/` may not exist yet and editors differ on opening a
 file whose parent directory is missing. This bites only the very first sketch in
 a fresh repository.
 
-Which format a file gets is the resting step's `mode`, read the way any driver
-reads it: from `gtd next --json`'s `file` and `mode`. Any other file named
-`REVIEW.md` gets `review`. Outside a repository with at least one commit, only
-that `REVIEW.md` fallback applies. So does a file from any repository other than
-the one the editor's workspace belongs to: asking `gtd next` there would run
-that repository's `gtd.config.ts`.
-
-`qa`, `review` and `findings` are gtd's built-in steering-file formats: each has
-its own outline, actions, go-to-definition, and a validator gtd implements
-itself. `gtd lsp` reads no workflow configuration, so it always shows the
-built-in validator's live diagnostics — even when a workflow overrides that
-mode's `validate:` command, which `gtd validate` runs instead. Any other mode
-name has no built-in format and gets no live editor support at all;
-`gtd validate` still formats and validates it like any other mode.
+Which file is a steering file comes from the resting step, read the way any
+driver reads it: `gtd next --json`'s `file`. Any other file gets nothing, and so
+does a file from any repository other than the one the editor's workspace
+belongs to: asking `gtd next` there would run that repository's `gtd.config.ts`.

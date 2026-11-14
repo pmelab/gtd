@@ -56,7 +56,7 @@ export interface WorktreeRef {
   readonly path: string
 }
 
-/** The served worktree's own rest, projected down to what the phone UI renders plus `file`/`mode` (the plumbing a phone screen needs to actually open and hand back a steering file). */
+/** The served worktree's own rest, projected down to what the phone UI renders plus `file` (the plumbing a phone screen needs to open and hand back a steering file). */
 export interface Step {
   readonly status: "ok"
   readonly path: string
@@ -69,10 +69,8 @@ export interface Step {
   readonly actor: string
   readonly idle: boolean
   readonly rest: string
-  /** The beat-reported steering file's path, relative to `path` — `undefined` when this rest has no steering file (a `script`/`stalled` rest, typically). The phone's own `readSteeringFile`/`writeNote`/`done` calls all need this alongside `mode`. */
+  /** The beat-reported steering file's path, relative to `path` — `undefined` when this rest has no steering file (a `script`/`stalled` rest, typically). The phone's own `readSteeringFile`/`writeNote`/`done` calls all need it. */
   readonly file?: string
-  /** The beat-reported steering mode (`qa`, `review`, a custom mode, …) — `undefined` alongside `file` exactly when there is no steering file to open. Never switched on here; only threaded through so a phone screen can pick `Plan` vs `Review` client-side. */
-  readonly mode?: string
 }
 
 /** The served worktree refused to read cleanly — `detail` is the verbatim text distinguishing one refusal from another. */
@@ -188,7 +186,6 @@ type ParsedBeatFields = {
   readonly label?: unknown
   readonly state?: unknown
   readonly file?: unknown
-  readonly mode?: unknown
 }
 
 const STEP_KINDS: readonly StepKind[] = ["capture", "message", "script", "prompt", "stalled"]
@@ -210,15 +207,6 @@ const isValidBeat = (
   typeof fields.actor === "string" &&
   fields.actor !== ""
 
-/** `okResult`'s own two optional fields (`file`/`mode`) — dropped entirely, never present-as-`undefined`, when its source value isn't there. */
-const optionalStepFields = (
-  filePath: string | undefined,
-  mode: unknown,
-): Pick<Step, "file" | "mode"> => ({
-  ...(filePath !== undefined ? { file: filePath } : {}),
-  ...(typeof mode === "string" ? { mode } : {}),
-})
-
 const okResult = (
   worktree: WorktreeRef,
   meta: { readonly repo: string; readonly branch: string; readonly rest: string },
@@ -237,7 +225,7 @@ const okResult = (
     actor: fields.actor,
     idle: Boolean(fields.idle),
     rest: meta.rest,
-    ...optionalStepFields(filePath, fields.mode),
+    ...(filePath !== undefined ? { file: filePath } : {}),
   }
 }
 

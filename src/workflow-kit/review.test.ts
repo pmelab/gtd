@@ -1,664 +1,102 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
 
 const state = vi.hoisted(() => ({
-  feedback: undefined as string | undefined,
   head: "h1",
-  pending: [] as unknown[],
   files: {} as Record<string, string | undefined>,
-  since: [] as { path: string; status: string; before?: string; after?: string }[],
-  sinceAfter: undefined as
-    | { path: string; status: string; before?: string; after?: string }[]
-    | undefined,
-  agentThread: false,
-  humanThread: false,
-  marks: [] as string[],
+  annotations: [] as string[],
+  since: [] as { path: string; status: string }[],
 }))
 
 vi.mock("../flows/index.js", () => ({
-  changes: () => state.pending,
-  changesSince: (commit: string) => {
-    const list = commit === "h2" && state.sinceAfter ? state.sinceAfter : state.since
-    return Object.assign([...list], {
-      paths: list.map((c) => c.path),
-      get: (path: string) => list.find((c) => c.path === path),
-    })
-  },
-  hasThreadFor: (who: string) => (who === "agent" ? state.agentThread : state.humanThread),
+  annotations: () => state.annotations,
+  changesSince: () => state.since,
   head: () => state.head,
-  mark: (name: string, value: string) => void state.marks.push(`${name}=${value}`),
-  read: (path: string) => (path === "f.md" ? state.feedback : state.files[path]),
+  read: (path: string) => state.files[path],
   refuse: (m: string) => {
     throw new Error(m)
   },
-  requireReplies: () => {},
-  requireThreadsClosed: () => {},
+  widgets: () => [],
 }))
 
-import {
-  review,
-  reviewToHandOff,
-  routeNotes,
-  type HandOffPolicy,
-  type Requested,
-  type ReviewPolicy,
-  type Verdict,
-} from "./review.js"
-import type { ReviewDecision, ReviewNote } from "../steering/index.js"
+import { review, reviewToHandOff, type HandOffPolicy } from "./review.js"
 
-const note = (id: string) => ({ id }) as unknown as ReviewNote
-
-const setup = (verdicts: Record<string, Verdict>, silent = false, dropped = false) => {
+const setup = () => {
   const calls: string[] = []
-  const judged: ReviewNote[][] = []
-  const fixed: ReviewNote[][] = []
-  const decided: ReviewDecision[][] = []
-  const collected: ReviewNote[][] = []
-  const p = {
+  const p: HandOffPolicy = {
     file: "r.md",
-    feedback: "f.md",
-    triage: async (ns: readonly ReviewNote[]) => {
-      judged.push([...ns])
-      return new Map(Object.entries(verdicts))
+    isCode: (path) => !path.startsWith(".gtd/"),
+    reviewing: async (base) => {
+      calls.push(`reviewing:${base}`)
+      state.head = "h2"
+      state.files["r.md"] = "## 🔍 Chunk\n\n- [ ] ./a.ts#1\n"
     },
-    answerQuestions: async () => void calls.push("answer"),
-    fixNits: async (ns: readonly ReviewNote[]) => {
-      calls.push("nits")
-      fixed.push([...ns])
+    awaitReview: async () => {
+      calls.push("await")
+      state.head = "h3"
     },
-    decided: (ds: readonly ReviewDecision[]) => void decided.push([...ds]),
     keepGreen: async () => void calls.push("green"),
-    collecting: async () => {
-      calls.push("collect")
-      if (!silent) state.feedback = "x"
-    },
-    captures: {
-      editNotes: (_r: string, edits: readonly ReviewNote[]) => {
-        collected.push([...edits])
-        return "cap"
-      },
-    },
-    refusals: dropped
-      ? {
-          dropped: (r: Requested) =>
-            `dropped: ${r.notes.map((n) => n.id).join(",")} / ${r.paths.join(",")}`,
-        }
-      : {},
-  } as unknown as ReviewPolicy
-  const r = {
-    round: "r1",
-    close: async () => void calls.push("close"),
-    outcome: (verdict: "signoff" | "feedback") => ({ verdict }) as never,
-    unfolded: async () => ({ verdict: "signoff" }) as never,
+    close: async (round) => void calls.push(`close:${round}`),
+    handOff: async (reviewed) => void calls.push(`handOff:${reviewed}`),
+    deleted: "keep r.md",
   }
-  return { p, r, calls, judged, fixed, decided, collected }
+  return { p, calls }
 }
 
 beforeEach(() => {
-  state.feedback = undefined
-  state.pending = []
-  state.files = {}
-  state.since = []
-  state.sinceAfter = undefined
   state.head = "h1"
-  state.agentThread = false
-  state.humanThread = false
-  state.marks = []
+  state.files = {}
+  state.annotations = []
+  state.since = []
 })
 
-describe("routeNotes decisions", () => {
-  const decision = (
-    anchor: string,
-    choice: ReviewDecision["choice"],
-    text = "",
-  ): ReviewDecision => ({ anchor, body: `${anchor} body`, choice, text })
-
-  it("a fix joins the nit batch unjudged", async () => {
-    const t = setup({})
-    const res = await routeNotes(t.p, [], t.r, [decision("Rounding", "fix")])
-    expect(res).toEqual({ next: "rereview", carry: undefined })
-    expect(t.judged).toEqual([])
-    expect(t.fixed[0]).toMatchObject([{ anchor: "Rounding", text: "Rounding body" }])
-    expect(t.calls).toEqual(["nits", "green", "close"])
+describe("review", () => {
+  it("signs off and closes when the person annotated nothing", async () => {
+    const { p, calls } = setup()
+    expect(await review("b", p)).toEqual({ verdict: "signoff" })
+    expect(calls).toEqual(["reviewing:b", "await", "close:h3"])
   })
 
-  it("an own answer is judged like a note", async () => {
-    const t = setup({ "answer-1": "edit" })
-    const res = await routeNotes(t.p, [], t.r, [decision("Rounding", "answer", "round up")])
-    expect(res).toEqual({ verdict: "feedback" })
-    expect(t.judged[0]).toMatchObject([{ id: "answer-1", anchor: "Rounding", text: "round up" }])
-    expect(t.collected[0]!.map((n) => n.id)).toEqual(["answer-1"])
+  it("keeps the suite green when the person edited code and signed off", async () => {
+    const { p, calls } = setup()
+    state.since = [
+      { path: "src/a.ts", status: "modified" },
+      { path: ".gtd/r.md", status: "modified" },
+    ]
+    await review("b", p)
+    expect(calls).toEqual(["reviewing:b", "await", "green", "close:h3"])
   })
 
-  it("a won't-fix is dropped, marked, and signs off a round with nothing else", async () => {
-    const t = setup({})
-    const res = await routeNotes(t.p, [], t.r, [decision("Rounding", "wontfix")])
-    expect(res).toEqual({ verdict: "signoff" })
-    expect(t.calls).toEqual([])
-    expect(t.judged).toEqual([])
-    expect(state.marks).toEqual(["wontfix=Rounding"])
-  })
-
-  it("tells the policy every decision before routing", async () => {
-    const t = setup({})
-    const ds = [decision("A", "fix"), decision("B", "wontfix")]
-    await routeNotes(t.p, [], t.r, ds)
-    expect(t.decided).toEqual([ds])
-  })
-})
-
-describe("routeNotes dropped", () => {
-  it("an edit note whose collecting turn writes nothing is refused naming the note", async () => {
-    const t = setup({ a: "edit" }, true, true)
-    await expect(routeNotes(t.p, [note("a")], t.r)).rejects.toThrow("dropped: a / ")
-  })
-
-  it("signs off when no dropped refusal is set", async () => {
-    const t = setup({ a: "edit" }, true)
-    expect(await routeNotes(t.p, [note("a")], t.r)).toEqual({ verdict: "signoff" })
-  })
-
-  it("a collecting turn that changed something else is unmatched, not dropped", async () => {
-    const t = setup({ a: "edit" }, true, true)
-    Object.assign(t.p.refusals, { unmatched: "unmatched" })
-    state.pending = [{ path: "x" }]
-    await expect(routeNotes(t.p, [note("a")], t.r)).rejects.toThrow("unmatched")
-  })
-
-  it("a praise-only round never collects, so signs off", async () => {
-    const t = setup({ a: "praise" }, true, true)
-    expect(await routeNotes(t.p, [note("a")], t.r)).toEqual({ verdict: "signoff" })
-  })
-})
-
-const doc = (...body: string[]): string =>
-  [
-    "# Review: abc1234",
-    "",
-    "<!-- base: 0000000000000000000000000000000000000000 -->",
-    "",
-    "## calc",
-    "",
-    ...body,
-    "",
-  ].join("\n")
-
-const POINTER = "- [ ] ./a.ts#1-1 does x"
-const thread = (...entries: string[]): string =>
-  ["[^t]:", ...entries.map((e) => `    - ${e}`)].join("\n")
-const oneShot = (id: string, text: string): string => `[^${id}]:\n    ${text}`
-
-/** Drives `review` over one round: `before` is the file as reviewed, `after` what the human left. */
-const driveRound = async (
-  before: string,
-  after: string,
-  opts: {
-    verdicts?: Record<string, Verdict>
-    inGate?: string
-    handEdit?: boolean
-    silent?: boolean
-    /** Nothing but thread edits lands after the in-gate collecting turn. */
-    settled?: boolean
-    noDropped?: boolean
-    learn?: ReviewPolicy["learn"]
-    settles?: ReviewPolicy["settles"]
-    pending?: () => boolean
-  } = {},
-) => {
-  let reviews = 0
-  const triaged: string[][] = []
-  const captured: string[] = []
-  const editRanges: (string | undefined)[] = []
-  const dropped: Requested[] = []
-  const rounds: string[] = []
-  let awaits = 0
-  const p = {
-    file: "r.md",
-    feedback: "f.md",
-    isCode: (path: string) => path.endsWith(".ts"),
-    reviewing: async () => {
-      reviews++
-      state.files["r.md"] = before
-    },
-    fixRisks: async () => {},
-    keepGreen: async () => {},
-    learn: opts.learn,
-    settles: opts.settles,
-    pending: opts.pending,
-    awaitReview: async () => {
-      awaits++
-      if (awaits > 2 || (awaits > 1 && opts.inGate === undefined)) throw new Error("stop")
-      if (opts.inGate !== undefined && awaits === 1) {
-        state.agentThread = true
-        return
-      }
-      state.humanThread = false
-      state.files["r.md"] = after
-      state.since = [{ path: "r.md", status: "modified", before, after }]
-      if (opts.handEdit)
-        state.since.push({ path: "a.ts", status: "modified", before: "a", after: "b" })
-    },
-    reviewMissing: async () => {},
-    collecting: async (_capture: string, round: string) => {
-      rounds.push(round)
-      if (opts.inGate !== undefined && state.agentThread) {
-        state.agentThread = false
-        state.humanThread = true
-        state.files["r.md"] = opts.inGate
-        state.head = "h2"
-        if (opts.settled) state.sinceAfter = []
-        return
-      }
-      if (!opts.silent) state.feedback = "x"
-    },
-    triage: async (ns: readonly ReviewNote[]) => {
-      triaged.push(ns.map((n) => n.id))
-      return new Map(Object.entries(opts.verdicts ?? {}))
-    },
-    answerQuestions: async () => {},
-    fixNits: async () => {},
-    close: async () => {},
-    captures: {
-      edits: (_round: string, from?: string) => (
-        captured.push("edits"),
-        editRanges.push(from),
-        "edits"
-      ),
-      notes: () => (captured.push("notes"), "notes"),
-      editNotes: () => (captured.push("editNotes"), "editNotes"),
-    },
-    refusals: {
-      deleted: "deleted",
-      unmatched: "unmatched",
-      ...(opts.noDropped
-        ? {}
-        : {
-            dropped: (r: Requested) => {
-              dropped.push(r)
-              return "dropped"
-            },
-          }),
-    },
-  } as unknown as ReviewPolicy
-  const result = await review("base", p).catch((e: Error) => e)
-  return { result, triaged, dropped, captured, rounds, editRanges, reviews }
-}
-
-describe("a one-shot footnote is a note, a thread footnote is not", () => {
-  const base = doc(`${POINTER}[^t]`, "", thread("H: why?"))
-  const replied = doc(`${POINTER}[^t]`, "", thread("H: why?", "A: because"))
-
-  it("a one-shot footnote added after an in-gate collecting turn routes through triage", async () => {
-    const withFootnote = doc(
-      `${POINTER}[^t][^n1]`,
-      "",
-      thread("H: why?", "A: because"),
-      "",
-      oneShot("n1", "please rename this"),
-    )
-    const r = await driveRound(base, withFootnote, {
-      inGate: replied,
-      verdicts: { "note-1": "praise" },
+  it("returns feedback when the person annotated the review", async () => {
+    const { p, calls } = setup()
+    state.annotations = ["fn1"]
+    state.since = [{ path: "src/a.ts", status: "modified" }]
+    expect(await review("b", p)).toEqual({
+      verdict: "feedback",
+      base: "b",
+      restoreFrom: "h2",
+      edited: [{ path: "src/a.ts", status: "modified" }],
     })
-    expect(r.triaged).toHaveLength(1)
-    expect(r.triaged[0]).toHaveLength(1)
+    expect(calls).toEqual(["reviewing:b", "await"])
   })
 
-  it("only a thread reply after an in-gate collecting turn still settles", async () => {
-    const r = await driveRound(base, replied, { inGate: replied })
-    expect(r.triaged).toEqual([])
-    expect(r.result).toEqual({ verdict: "signoff" })
-  })
-})
-
-describe("the dropped refusal lists edit notes only", () => {
-  const before = doc(POINTER, "- [ ] ./a.ts#2-2 other")
-  const after = doc(`${POINTER} nice`, "- [ ] ./a.ts#2-2 other rename it")
-
-  it("a hand-edit round names the edited paths and no notes", async () => {
-    const r = await driveRound(before, after, { handEdit: true, silent: true })
-    expect(r.result).toBeInstanceOf(Error)
-    expect(r.dropped).toEqual([{ notes: [], paths: ["a.ts"] }])
-  })
-
-  it('a round with unparsed notes collects as "notes", a triaged one as "triaged"', async () => {
-    const unparsed = await driveRound(before, `${before}\n\nstray prose`, { silent: true })
-    expect(unparsed.rounds).toEqual(["notes"])
-    const praise = doc(`${POINTER}[^n1]`, "- [ ] ./a.ts#2-2 other", "", oneShot("n1", "rename it"))
-    const triaged = await driveRound(before, praise, {
-      verdicts: { "note-1": "edit" },
-      silent: true,
-    })
-    expect(triaged.rounds).toEqual(["triaged"])
-  })
-
-  it("a notes-only round names the notes judged edit, footnotes included", async () => {
-    const praise = doc(
-      `${POINTER}[^n1]`,
-      "- [ ] ./a.ts#2-2 other[^n2]",
-      "",
-      oneShot("n1", "lovely"),
-      "",
-      oneShot("n2", "rename it"),
-    )
-    const r = await driveRound(before, praise, {
-      verdicts: { "note-1": "praise", "note-2": "edit" },
-      silent: true,
-    })
-    expect(r.result).toBeInstanceOf(Error)
-    expect(r.triaged[0]).toHaveLength(2)
-    expect(r.dropped).toHaveLength(1)
-    expect(r.dropped[0]!.paths).toEqual([])
-    expect(r.dropped[0]!.notes).toHaveLength(1)
-    expect(r.dropped[0]!.notes[0]!.anchor).toContain("[^n2]")
-  })
-})
-
-describe("a settled round with an unfolded change", () => {
-  const base = doc(`${POINTER}[^t]`, "", thread("H: why?"))
-  const replied = doc(`${POINTER}[^t]`, "", thread("H: why?", "A: because"))
-  const withNote = (text: string) =>
-    doc(`${POINTER} ${text}[^t]`, "", thread("H: why?", "A: because", "H: ok"))
-
-  it("an edit note since reviewed with an empty collecting turn refuses naming the note", async () => {
-    const r = await driveRound(base, withNote("rename it"), {
-      inGate: replied,
-      settled: true,
-      silent: true,
-      verdicts: { "note-1": "edit" },
-    })
-    expect(r.result).toBeInstanceOf(Error)
-    expect(r.triaged).toHaveLength(1)
-    expect(r.captured).toEqual(["edits", "editNotes"])
-    expect(r.rounds).toEqual(["reply", "triaged"])
-    expect(r.dropped).toHaveLength(1)
-    expect(r.dropped[0]!.notes).toHaveLength(1)
-    expect(r.dropped[0]!.paths).toEqual([])
-  })
-
-  it("a code hand-edit since reviewed names the path", async () => {
-    const r = await driveRound(base, replied, {
-      inGate: replied,
-      settled: true,
-      silent: true,
-      handEdit: true,
-    })
-    expect(r.result).toBeInstanceOf(Error)
-    expect(r.triaged).toEqual([])
-    expect(r.captured).toEqual(["edits", "edits"])
-    expect(r.rounds).toEqual(["reply", "edits"])
-    expect(r.dropped).toEqual([{ notes: [], paths: ["a.ts"] }])
-    // the in-gate reply capture has no range; the settled round's starts at `reviewed`
-    expect(r.editRanges).toEqual([undefined, "h1"])
-  })
-
-  it("a nit-only note is fixed without a collecting turn or a refusal", async () => {
-    const r = await driveRound(base, withNote("typo"), {
-      inGate: replied,
-      settled: true,
-      silent: true,
-      verdicts: { "note-1": "nit" },
-    })
-    expect(r.rounds).toEqual(["reply"])
-    expect(r.dropped).toEqual([])
-  })
-
-  it("a closed collecting turn that writes the feedback file turns the round into feedback", async () => {
-    const r = await driveRound(base, withNote("rename it"), {
-      inGate: replied,
-      settled: true,
-      verdicts: { "note-1": "edit" },
-    })
-    expect(r.result).toMatchObject({ verdict: "feedback" })
-    expect(r.dropped).toEqual([])
-  })
-
-  it("praise-only notes sign off", async () => {
-    const r = await driveRound(base, withNote("lovely"), {
-      inGate: replied,
-      settled: true,
-      verdicts: { "note-1": "praise" },
-    })
-    expect(r.triaged).toHaveLength(1)
-    expect(r.result).toEqual({ verdict: "signoff" })
-  })
-
-  it("only thread replies sign off without triage", async () => {
-    const r = await driveRound(
-      base,
-      doc(`${POINTER}[^t]`, "", thread("H: why?", "A: because", "H: ok")),
-      {
-        inGate: replied,
-        settled: true,
-      },
-    )
-    expect(r.triaged).toEqual([])
-    expect(r.result).toEqual({ verdict: "signoff" })
-  })
-
-  it("without a dropped refusal an edit note signs off unjudged", async () => {
-    const r = await driveRound(base, withNote("rename it"), {
-      inGate: replied,
-      settled: true,
-      noDropped: true,
-      verdicts: { "note-1": "edit" },
-    })
-    expect(r.triaged).toEqual([])
-    expect(r.result).toEqual({ verdict: "signoff" })
+  it("refuses a gate that deleted the review", async () => {
+    const { p } = setup()
+    const deleting = { ...p, awaitReview: async () => void delete state.files["r.md"] }
+    await expect(review("b", deleting)).rejects.toThrow("keep r.md")
   })
 })
 
 describe("reviewToHandOff", () => {
-  it("hands off a footnote-only edit instead of closing as a sign-off", async () => {
-    const before = doc(POINTER)
-    const after = doc(`${POINTER}[^n1]`, "", oneShot("n1", "rename it"))
-    const calls: string[] = []
-    let awaits = 0
-    const p = {
-      file: "r.md",
-      reviewing: async () => void (state.files["r.md"] = before),
-      fixRisks: async () => {},
-      keepGreen: async () => {},
-      awaitReview: async () => {
-        if (++awaits > 1) throw new Error("stop")
-        state.files["r.md"] = after
-        state.since = [{ path: "r.md", status: "modified", before, after }]
-      },
-      reviewMissing: async () => {},
-      close: async () => void calls.push("close"),
-      handOff: async () => void calls.push("handOff"),
-      deleted: "deleted",
-      threadsPending: "pending",
-      unparsed: "unparsed",
-    } as unknown as HandOffPolicy
-    await reviewToHandOff("base", p)
-    expect(calls).toEqual(["handOff"])
-  })
-})
-
-describe("a note's answer boxes", () => {
-  const boxes = (fix: string, wont: string): string =>
-    doc(
-      POINTER,
-      "",
-      "## Rounding",
-      "",
-      "Should subtract round?",
-      "",
-      "Tick exactly one:",
-      "",
-      `- [${fix}] fix as suggested`,
-      `- [${wont}] won't fix`,
-      "- [ ] _your answer_",
-    )
-  const open = boxes(" ", " ")
-
-  it("a sign-off with a note unanswered is refused", async () => {
-    const r = await driveRound(open, open)
-    expect(r.result).toBeInstanceOf(Error)
-    expect((r.result as Error).message).toContain("answer-completeness: 1 note(s) in r.md")
+  it("hands an annotated review on", async () => {
+    const { p, calls } = setup()
+    state.annotations = ["fn1"]
+    await reviewToHandOff("b", p)
+    expect(calls).toEqual(["reviewing:b", "await", "handOff:h2"])
   })
 
-  it("two ticks on one note are refused", async () => {
-    const r = await driveRound(open, boxes("x", "x"))
-    expect((r.result as Error).message).toContain("answer-completeness")
-  })
-
-  it("a won't-fix answer signs off with no judge", async () => {
-    const r = await driveRound(open, boxes(" ", "x"))
-    expect(r.result).toEqual({ verdict: "signoff" })
-    expect(r.triaged).toEqual([])
-    expect(state.marks).toEqual(["wontfix=Rounding"])
-  })
-
-  it("a thread round may leave notes unanswered until the agent replied", async () => {
-    const base = doc(
-      `${POINTER}[^t]`,
-      "",
-      thread("H: why?"),
-      "",
-      "## Rounding",
-      "",
-      "Round?",
-      "",
-      "Tick exactly one:",
-      "",
-      "- [ ] fix as suggested",
-      "- [ ] won't fix",
-      "- [ ] _your answer_",
-    )
-    const replied = base.replace("    - H: why?", "    - H: why?\n    - A: because")
-    const r = await driveRound(base, replied, { inGate: replied })
-    expect(r.rounds).toEqual(["reply"])
-    expect((r.result as Error).message).toContain("answer-completeness")
-  })
-
-  const threaded = (wont: string, withThread: boolean): string =>
-    doc(
-      withThread ? `${POINTER}[^t]` : POINTER,
-      ...(withThread ? ["", thread("H: why?", "A: because")] : []),
-      "",
-      "## Rounding",
-      "",
-      "Round?",
-      "",
-      "Tick exactly one:",
-      "",
-      "- [ ] fix as suggested",
-      `- [${wont}] won't fix`,
-      "- [ ] _your answer_",
-    )
-
-  it("a reply that folds the last thread away rests at the gate again for the answers", async () => {
-    const base = threaded(" ", true).replace("\n    - A: because", "")
-    const r = await driveRound(base, threaded("x", false), { inGate: threaded(" ", false) })
-    expect(r.rounds).toEqual(["reply"])
-    expect(r.result).toEqual({ verdict: "signoff" })
-    expect(state.marks).toEqual(["wontfix=Rounding"])
-  })
-
-  it("an answer ticked beside a thread still routes once the thread settles", async () => {
-    const base = threaded(" ", true).replace("\n    - A: because", "")
-    const ticked = threaded("x", true)
-    const r = await driveRound(base, ticked, { inGate: ticked, settled: true, noDropped: true })
-    expect(r.result).toEqual({ verdict: "signoff" })
-    expect(state.marks).toEqual(["wontfix=Rounding"])
-  })
-
-  it("a hand-edit round still records its answers", async () => {
-    const r = await driveRound(open, boxes(" ", "x"), { handEdit: true })
-    expect(r.rounds).toEqual(["edits"])
-    expect(state.marks).toEqual(["wontfix=Rounding"])
-  })
-})
-
-describe("learning from the answers", () => {
-  const boxes = (wont: string, own = "_your answer_"): string =>
-    doc(
-      POINTER,
-      "",
-      "## Rounding",
-      "",
-      "Should subtract round?",
-      "",
-      "Tick exactly one:",
-      "",
-      "- [ ] fix as suggested",
-      `- [${wont}] won't fix`,
-      `- [${own === "_your answer_" ? " " : "x"}] ${own}`,
-    )
-
-  it("learn reads every answer once it is marked, before any is routed", async () => {
-    const seen: ReviewDecision[][] = []
-    let marked: string[] = []
-    const r = await driveRound(boxes(" "), boxes("x"), {
-      learn: async (ds) => {
-        seen.push([...ds])
-        marked = [...state.marks]
-      },
-    })
-    expect(seen).toEqual([[expect.objectContaining({ anchor: "Rounding", choice: "wontfix" })]])
-    expect(marked).toEqual(["wontfix=Rounding"])
-    expect(r.result).toEqual({ verdict: "signoff" })
-  })
-
-  it("an answer the policy settles is learned from, never marked, routed or collected", async () => {
-    const seen: ReviewDecision[][] = []
-    const r = await driveRound(boxes(" "), boxes("x"), {
-      settles: () => true,
-      learn: async (ds) => void seen.push([...ds]),
-    })
-    expect(seen).toHaveLength(1)
-    expect(state.marks).toEqual([])
-    expect(r.triaged).toEqual([])
-    expect(r.rounds).toEqual([])
-    expect(r.result).toEqual({ verdict: "signoff" })
-  })
-
-  it("a hand-edit round learns from its answers too", async () => {
-    const seen: ReviewDecision[][] = []
-    await driveRound(boxes(" "), boxes("x"), {
-      handEdit: true,
-      learn: async (ds) => void seen.push([...ds]),
-    })
-    expect(seen).toHaveLength(1)
-  })
-
-  it("learn is not asked when no note was answered", async () => {
-    let asked = false
-    await driveRound(boxes(" "), `${boxes(" ")}\n\nstray prose`, {
-      silent: true,
-      learn: async () => void (asked = true),
-    })
-    expect(asked).toBe(false)
-  })
-
-  it("a sign-off while something is pending writes the review again", async () => {
-    const r = await driveRound(boxes(" "), boxes("x"), { pending: () => true })
-    expect(r.reviews).toBe(2)
-    expect((r.result as Error).message).toBe("stop")
-  })
-})
-
-describe("deleted answer boxes", () => {
-  it("are refused even when a reply turn landed them", async () => {
-    const withBoxes = doc(
-      `${POINTER}[^t]`,
-      "",
-      thread("H: why?"),
-      "",
-      "## Rounding",
-      "",
-      "Round?",
-      "",
-      "Tick exactly one:",
-      "",
-      "- [ ] fix as suggested",
-      "- [ ] won't fix",
-      "- [ ] _your answer_",
-    )
-    const gone = doc(POINTER, "", "## Rounding", "", "Round?")
-    state.since = [{ path: "r.md", status: "modified", before: withBoxes, after: gone }]
-    const r = await driveRound(withBoxes, gone, { inGate: gone })
-    expect((r.result as Error).message).toContain("its answer boxes were deleted")
+  it("closes a signed-off review", async () => {
+    const { p, calls } = setup()
+    await reviewToHandOff("b", p)
+    expect(calls).toEqual(["reviewing:b", "await", "close:h3"])
   })
 })

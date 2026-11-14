@@ -129,19 +129,10 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the current branch is "main"
     And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
 
-  Scenario: Runs the self-validation gate after a producing agent turn and re-prompts until the steering file is well-formed
-    # `planning` declares file:/mode: (.gtd/PLAN.md as `qa`), so its output has
-    # a checkable format. The paste's `.validate` field is embedded in the
-    # BEAT it reads before the agent's turn runs — so the file must already
-    # exist at that point for the field to be populated at all (`gtd next
-    # --json` omits it for a file the working tree doesn't have yet, exactly
-    # like plain `gtd validate` degrades) — this is why a placeholder
-    # .gtd/PLAN.md is seeded below, standing in for a prior draft. The stub
-    # then OVERWRITES it with a MALFORMED plan first; the paste's embedded
-    # validate script fails, and it re-prompts the SAME session with the
-    # validator's own findings (verbatim — `$out` IS the fix prompt), on which
-    # the stub writes a valid plan — only then does the paste step, landing
-    # the commit that enters idle.
+  Scenario: A steering step's broken file comes back as a retry prompt, resumed until the file is sound
+    # gtd checks the steering step's turn itself once it lands: a broken widget
+    # rests the process at the same step with the findings as the next prompt,
+    # in the same session, and the paste simply runs that prompt beat.
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -149,10 +140,7 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start a process" })
-        await agent("planning", "Write .gtd/PLAN.md with the plan.", {
-          file: ".gtd/PLAN.md",
-          mode: "qa",
-        })
+        await agent("planning", "Write .gtd/PLAN.md with the plan.", { file: ".gtd/PLAN.md" })
       }
       """
     And a file "NOTE.md" with:
@@ -160,19 +148,14 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
       Build a calculator.
       """
     And gtd lands "gtd(human): idle → planning"
-    And a file ".gtd/PLAN.md" with:
-      """
-      a prior draft, about to be overwritten
-      """
     And a stub agent script that responds to prompts with:
       """
       mkdir -p .gtd
       case "$GTD_LOOP_PROMPT" in
-        *"does not pass"*)
+        *"did not pass validation"*)
           echo "AGENT: fixing the plan"
-          echo "FIX PROMPT WAS: $GTD_LOOP_PROMPT"
           cat > .gtd/PLAN.md <<'PLAN'
-      Plan: build the calculator. No open questions.
+      Plan: build the calculator.
       PLAN
           ;;
         *)
@@ -180,11 +163,9 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
           cat > .gtd/PLAN.md <<'PLAN'
       Plan: build the calculator.
 
-      ## Open Questions
+      ## ❔ Ship it?
 
-      ###
-
-      Forgot to write the question.
+      Forgot the checkbox.
       PLAN
           ;;
       esac
@@ -196,9 +177,6 @@ Feature: docs/driver.md's minimal driver — doc-tested against the loop protoco
     And the log file contains "AGENT: fixing the plan"
     And the current branch is "main"
     And the branch "gtd/main" tip subject is "gtd(check): gtd:unpin → idle"
-    # The fix re-prompt is the validate script's own output verbatim — not the
-    # state's own prompt text prefixed onto it.
-    And the log file does not contain "Write .gtd/PLAN.md with the plan."
 
   Scenario: Records each turn's cost on the landing, tagged with the model the hint resolved to
     Given a test project

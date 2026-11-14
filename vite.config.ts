@@ -20,7 +20,7 @@ const flagged = { ...check, env: ["GTD_FLAG_*"] }
 
 // The oxc configs, read in place so the standalone tools keep working. vp runs
 // the oxfmt/oxlint package.json pins: oxfmt 0.74 (vp's own) panics on an empty
-// footnote definition, which tests/tooling/steering-oxfmt.test.ts catches.
+// footnote definition.
 const json = (path: string) => {
   const text = readFileSync(new URL(path, import.meta.url), "utf8")
   const { $schema: _, ...rest } = ts.parseConfigFileTextToJson(path, text).config

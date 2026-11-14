@@ -14,9 +14,7 @@ interface CommandOutcome {
 /**
  * The subprocess port: run one shell command in the repo root, wait for it to
  * finish, and get its combined output back as one string (a workflow
- * `script:` is run by the DRIVER, never by gtd — and a mode's
- * `format:`/`validate:` command is RENDERED into the driver's script rather
- * than spawned here). Its remaining callers are `gtd ui`'s own helpers
+ * `script:` is run by the DRIVER, never by gtd). Its remaining callers are `gtd ui`'s own helpers
  * (openssl, tailscale). `gtd ui`'s loop command is spawned by `Loop.ts`'s own
  * port instead — it needs a per-worktree cwd, a shim-prepended `PATH`, real
  * OS signal control while the child is still running, and never-combined
@@ -26,7 +24,7 @@ interface CommandOutcome {
 export class CommandRunner extends Context.Service<
   CommandRunner,
   {
-    /** A SPAWN failure (no `bash`, unreadable cwd) fails the Effect; a non-zero EXIT is a value — how a mode command reports "invalid"/"broken" for the caller to interpret. */
+    /** A SPAWN failure (no `bash`, unreadable cwd) fails the Effect; a non-zero EXIT is a value for the caller to interpret. */
     readonly bash: (command: string) => Effect.Effect<CommandOutcome, Error>
   }
 >()("CommandRunner") {

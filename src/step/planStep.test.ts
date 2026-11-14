@@ -29,7 +29,7 @@ describe("planStep — commit", () => {
   it("an attempt commits the subject with no step trailer and bypasses guards", () => {
     const s = snapshot({
       state: "await-answers",
-      stepDef: { actor: "agent", kind: "prompt", mode: "qa" },
+      stepDef: { actor: "agent", kind: "prompt" },
       actor: "agent",
       landing: { kind: "attempt", subject: "gtd(agent): await-answers" },
     })
@@ -39,7 +39,7 @@ describe("planStep — commit", () => {
     expect(outcome.steps).toEqual([
       {
         kind: "gitWrite",
-        write: { kind: "commitAll", message: "gtd(agent): await-answers\n\nGtd-Format: 4" },
+        write: { kind: "commitAll", message: "gtd(agent): await-answers\n\nGtd-Format: 5" },
       },
       { kind: "outcome", outcome: { kind: "commit", subject: "gtd(agent): await-answers" } },
     ])
@@ -59,7 +59,7 @@ describe("planStep — commit", () => {
       kind: "gitWrite",
       write: {
         kind: "commitAll",
-        message: "gtd(human): building → done\n\nGtd-Step: building#1\nGtd-Format: 4",
+        message: "gtd(human): building → done\n\nGtd-Step: building#1\nGtd-Format: 5",
       },
     })
     expect(outcome.steps.at(-1)).toEqual({
@@ -68,16 +68,17 @@ describe("planStep — commit", () => {
     })
   })
 
-  it("prepends `gtd uncheck` at the human review gate", () => {
+  it("formats the steering file ahead of the commit", () => {
     const s = snapshot({
       state: "await-review",
-      stepDef: { mode: "review", file: ".gtd/REVIEW.md" },
-      changes: [{ status: "M", path: "src/a.ts" }],
+      stepDef: { file: ".gtd/REVIEW.md" },
+      file: ".gtd/REVIEW.md",
+      changes: [{ status: "M", path: ".gtd/REVIEW.md" }],
       landing: commitTo("await-review", "deciding"),
     })
     const outcome = planStep(s)
     if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
-    expect(outcome.steps[0]).toEqual({ kind: "uncheck", file: ".gtd/REVIEW.md" })
+    expect(outcome.steps[0]).toEqual({ kind: "format", file: ".gtd/REVIEW.md" })
   })
 
   it("records Gtd-Cost, then one Gtd-Judge per verdict", () => {
@@ -99,7 +100,7 @@ describe("planStep — commit", () => {
     expect(trailers[1]).toBe("Gtd-Cost: 1.5 m")
     expect(trailers[2]).toBe('Gtd-Judge: {"id":"q1","answer":true,"p":0.9}')
     expect(trailers[3]).toBe('Gtd-Judge: {"id":"q2","answer":"x","p":0.4}')
-    expect(trailers[4]).toBe("Gtd-Format: 4")
+    expect(trailers[4]).toBe("Gtd-Format: 5")
     expect(trailers).toHaveLength(5)
   })
 })
@@ -182,7 +183,7 @@ describe("planStep — keepTurn", () => {
       write: {
         kind: "keepTurn",
         ref: kept,
-        message: "gtd(agent): building → checking\n\nGtd-Step: building#1\nGtd-Format: 4",
+        message: "gtd(agent): building → checking\n\nGtd-Step: building#1\nGtd-Format: 5",
       },
     })
   })

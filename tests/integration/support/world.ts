@@ -71,14 +71,6 @@ const UI_BOUND_URL_POLL_INTERVAL_MS = 50
 
 export type Tier = "live" | "inmem"
 
-/**
- * The `done` mutation's own note-carrying request (package 04 Task 1's
- * nested `{ note: {...} }` shape) — every real `spawnGtdUi*AndHandOff`
- * helper below builds the exact same shape off its own `filePath`/`headSha`/
- * `content`/`mode`/`text`, at a fixed paragraph-0 anchor (the phone's own
- * "Save & Done" always attaches to the anchor the human was looking at,
- * which every one of these scenarios sets up as paragraph 0).
- */
 /** Where `gtd ui` listens: a direct bind, a serve port, or the default serve walk. */
 type UiTarget = "direct" | "default" | number
 
@@ -118,7 +110,6 @@ const doneNoteRequest = (
   filePath: string,
   headSha: string,
   contentHash: string,
-  mode: string | undefined,
   text: string,
   anchor: SteeringAnchor = { kind: "paragraph", line: 0 },
 ) => ({
@@ -126,7 +117,6 @@ const doneNoteRequest = (
     filePath,
     expectedHeadSha: headSha,
     expectedContentHash: contentHash,
-    mode,
     anchor,
     text,
   },
@@ -154,14 +144,10 @@ const isWriteCommand = (args: readonly string[]): boolean =>
 const startsByName = (args: readonly string[]): boolean =>
   args[0] === "start" && args.slice(1).some((arg) => !arg.startsWith("-"))
 
-/** `gtd validate`'s plain script is driven; its `--json` document is not. */
-const drivesValidate = (args: readonly string[]): boolean =>
-  args[0] === "validate" && !requestsStructuredOutput(args)
-
 /** `gtd land` exits `EXIT_OK` on any successful landing; only a refusal or usage error has nothing to drive. */
 const landExitDrivable = (exitCode: number): boolean => exitCode === EXIT_OK
 
-/** The one line of a possibly multi-document stdout that parses as a JSON object (`gtd check --json`'s failing shape emits two). */
+/** The one line of a possibly multi-document stdout that parses as a JSON object. */
 const firstJsonObject = (stdout: string): Record<string, unknown> | undefined => {
   for (const line of stdout.split("\n")) {
     if (!line.startsWith("{")) continue
@@ -176,9 +162,6 @@ const firstJsonObject = (stdout: string): Record<string, unknown> | undefined =>
 
 const stringField = (json: Record<string, unknown>, key: string): string =>
   typeof json[key] === "string" ? json[key] : ""
-
-/** `gtd validate`'s own "nothing to run" plain-text line — `Program.ts`'s `runValidateCommand`. */
-const NOTHING_TO_VALIDATE_RE = /^nothing to validate at "/
 
 /** A real `sh` exit + combined output on the live tier, or the in-memory twin's on the in-memory one. */
 interface EmittedRun {
@@ -294,19 +277,6 @@ const signalExitStatus = (code: number | null, signal: NodeJS.Signals | null): n
 const optionalEnv = (key: string, value: string | undefined): NodeJS.ProcessEnv =>
   value !== undefined ? { [key]: value } : {}
 
-/** How a driver reports `gtd validate`'s emitted script once it has run: `<file>: valid`, or the script's own output as findings. */
-const validateVerdict = (
-  file: string,
-  run: EmittedRun,
-): { exitCode: number; stdout: string; stderr: string } =>
-  run.exitCode === 0
-    ? { exitCode: 0, stdout: `${file}: valid\n`, stderr: "" }
-    : {
-        exitCode: run.exitCode,
-        stdout: "",
-        stderr: `gtd validate: ${file} is not valid\n${run.output}`,
-      }
-
 export class GtdWorld extends QuickPickleWorld {
   // Under `moduleResolution: nodenext`, a bare subclass of `QuickPickleWorld`
   // loses its base class's members from TS's view entirely (a dual CJS/ESM
@@ -394,9 +364,6 @@ export class GtdWorld extends QuickPickleWorld {
   lastDiffResult: DiffResult | undefined = undefined
   /** Package 01 Task 10's own stale-write proof: the typed refusal `spawnGtdUiAndSetValueWithStaleHash` reads off a real rejected `setValue` mutation, or `undefined` if the write unexpectedly succeeded. */
   lastWriteRefusal: { readonly reason: string; readonly moved?: string } | undefined = undefined
-  /** Package 01 Task 10's own `ui.format` proof: the first write's own post-format `contentHash`, and whether a second write issued against it succeeded — `spawnGtdUiAndWriteTwiceReusingHash`'s result. */
-  formatWriteResult: { readonly firstContentHash: string; readonly secondOk: boolean } | undefined =
-    undefined
   /** A temp dir OUTSIDE the repo holding a doc's extracted bash paste (the minimal driver, the run-gtd worked example) — proves the paste needs nothing inside the project. */
   pasteDir: string | undefined = undefined
   /** Absolute path to the extracted paste inside `pasteDir`, chmod'd executable. */
@@ -436,7 +403,6 @@ export class GtdWorld extends QuickPickleWorld {
     await this.invokeGtd(...args)
     if (!landExitDrivable(this.lastResult.exitCode)) return
     if (isWriteCommand(args)) await this.driveWriteCommand(args)
-    else if (drivesValidate(args)) await this.driveValidateCommand()
   }
 
   /**
@@ -548,30 +514,6 @@ export class GtdWorld extends QuickPickleWorld {
       stdout: this.lastResult.stdout,
       stderr: this.lastResult.stderr + run.output,
     }
-  }
-
-  /**
-   * gtd prints the format-then-validate script as plain text — the verdict
-   * lives in that script's exit code, not the command's. `validate` doesn't
-   * name the file itself, so the file name for the verdict message is probed
-   * off a `gtd next --json` call against the same rest instead.
-   */
-  private async driveValidateCommand(): Promise<void> {
-    const script = this.lastResult.stdout
-    if (NOTHING_TO_VALIDATE_RE.test(script)) return
-    const run = await this.runEmittedScript(script)
-    const file = await this.currentValidateFile()
-    this.lastResult = validateVerdict(file, run)
-  }
-
-  /** Probes `gtd next --json`'s `file` field, restoring `lastResult` to gtd's own `validate` output afterwards. */
-  private async currentValidateFile(): Promise<string> {
-    const reported = this.lastResult
-    await this.invokeGtd("next", "--json")
-    const probe = this.lastResult
-    this.lastResult = reported
-    const parsed = firstJsonObject(probe.stdout)
-    return parsed !== undefined ? stringField(parsed, "file") : ""
   }
 
   async runEmittedScript(script: string): Promise<EmittedRun> {
@@ -1167,7 +1109,6 @@ export class GtdWorld extends QuickPickleWorld {
   private async noteRequest(
     session: UiSession,
     filePath: string,
-    mode: string | undefined,
     text: string,
     anchor?: SteeringAnchor,
   ) {
@@ -1176,7 +1117,6 @@ export class GtdWorld extends QuickPickleWorld {
       filePath,
       session.headSha(),
       contentHashOf(session.read(filePath)),
-      mode,
       text,
       anchor,
     )
@@ -1186,11 +1126,10 @@ export class GtdWorld extends QuickPickleWorld {
   async spawnGtdUiServeAndHandOff(
     servePort: number,
     filePath: string,
-    mode: string,
     text: string,
   ): Promise<void> {
     const session = await this.openUi(servePort)
-    const note = await this.noteRequest(session, filePath, mode, text)
+    const note = await this.noteRequest(session, filePath, text)
     await this.handOffThrough(session, (client) => client.done.mutate(note))
   }
 
@@ -1285,13 +1224,9 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /** The default candidate walk: no `--port`, so `gtd ui` picks the serve port itself. */
-  async spawnGtdUiServeAndHandOffDefaultPort(
-    filePath: string,
-    mode: string,
-    text: string,
-  ): Promise<void> {
+  async spawnGtdUiServeAndHandOffDefaultPort(filePath: string, text: string): Promise<void> {
     const session = await this.openUi("default")
-    const note = await this.noteRequest(session, filePath, mode, text)
+    const note = await this.noteRequest(session, filePath, text)
     await this.handOffThrough(session, (client) => client.done.mutate(note))
   }
 
@@ -1315,7 +1250,6 @@ export class GtdWorld extends QuickPickleWorld {
   async spawnGtdUiServePublishFailAndHandOff(
     servePort: number,
     filePath: string,
-    mode: string,
     text: string,
   ): Promise<void> {
     const { child, exited, stdout } = await this.spawnBoundGtdUiServe(servePort)
@@ -1349,9 +1283,7 @@ export class GtdWorld extends QuickPickleWorld {
       const client = createTRPCClient<AppRouter>({
         links: [httpBatchLink({ url: `https://${bindHost}:${servePort}/trpc` })],
       })
-      await client.done.mutate(
-        doneNoteRequest(filePath, headSha, contentHashOf(content), mode, text),
-      )
+      await client.done.mutate(doneNoteRequest(filePath, headSha, contentHashOf(content), text))
       this.uiStepAfterDone = (await client.step.query()).status
     } finally {
       this.restoreTlsReject(previousTlsReject)
@@ -1363,12 +1295,11 @@ export class GtdWorld extends QuickPickleWorld {
   /** A `done` carrying a note; `gtd ui` keeps serving. */
   async spawnGtdUiAndHandOff(
     filePath: string,
-    mode: string | undefined,
     text: string,
     anchor?: SteeringAnchor,
   ): Promise<void> {
     const session = await this.openUi("direct")
-    const note = await this.noteRequest(session, filePath, mode, text, anchor)
+    const note = await this.noteRequest(session, filePath, text, anchor)
     await this.handOffThrough(session, (client) => client.done.mutate(note))
   }
 
@@ -1381,7 +1312,6 @@ export class GtdWorld extends QuickPickleWorld {
   /** A `setValue` write against the file's real token; `setValue` never ends the turn. */
   async spawnGtdUiAndSetValue(
     filePath: string,
-    mode: string | undefined,
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ): Promise<void> {
@@ -1392,7 +1322,6 @@ export class GtdWorld extends QuickPickleWorld {
         filePath,
         expectedHeadSha: session.headSha(),
         expectedContentHash: contentHashOf(session.read(filePath)),
-        mode,
         anchor,
         ...opts,
       })
@@ -1410,7 +1339,6 @@ export class GtdWorld extends QuickPickleWorld {
         filePath,
         expectedHeadSha: session.headSha(),
         expectedContentHash: contentHashOf(session.read(filePath)),
-        mode: undefined,
         anchor: { kind: "paragraph", line: 0 },
         text,
       })
@@ -1419,10 +1347,10 @@ export class GtdWorld extends QuickPickleWorld {
   }
 
   /** The `readSteeringFile` view a phone's first load renders, kept on `lastSteeringView`. */
-  async spawnGtdUiAndReadView(filePath: string, mode: string | undefined): Promise<void> {
+  async spawnGtdUiAndReadView(filePath: string): Promise<void> {
     const session = await this.openUi("direct")
     try {
-      const result = await session.client.readSteeringFile.query({ filePath, mode })
+      const result = await session.client.readSteeringFile.query({ filePath })
       assert.ok(result.ok, `expected readSteeringFile to succeed, got: ${JSON.stringify(result)}`)
       this.lastSteeringView = result.view
     } finally {
@@ -1451,26 +1379,23 @@ export class GtdWorld extends QuickPickleWorld {
   /** A `setValue` whose content-hash token can never match, keeping the refusal on `lastWriteRefusal`. */
   async spawnGtdUiAndSetValueWithStaleHash(
     filePath: string,
-    mode: string | undefined,
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ): Promise<void> {
-    await this.setValueExpectingRefusal(filePath, mode, anchor, opts)
+    await this.setValueExpectingRefusal(filePath, anchor, opts)
   }
 
   /** A `setValue` against a path that is a directory — refused before the token is ever compared. */
   async spawnGtdUiAndSetValueAgainstUnreadableFile(
     filePath: string,
-    mode: string | undefined,
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ): Promise<void> {
-    await this.setValueExpectingRefusal(filePath, mode, anchor, opts)
+    await this.setValueExpectingRefusal(filePath, anchor, opts)
   }
 
   private async setValueExpectingRefusal(
     filePath: string,
-    mode: string | undefined,
     anchor: SteeringAnchor,
     opts: { readonly checked?: boolean; readonly text?: string },
   ): Promise<void> {
@@ -1482,7 +1407,6 @@ export class GtdWorld extends QuickPickleWorld {
         expectedHeadSha: session.headSha(),
         // Never the hash of anything on disk.
         expectedContentHash: "0".repeat(64),
-        mode,
         anchor,
         ...opts,
       })
@@ -1502,50 +1426,11 @@ export class GtdWorld extends QuickPickleWorld {
     }
   }
 
-  /** Two writes, the second reusing the first's returned hash — `ui.format`'s rewrite must already be in it. */
-  async spawnGtdUiAndWriteTwiceReusingHash(
-    filePath: string,
-    mode: string | undefined,
-    anchor: SteeringAnchor,
-    firstText: string,
-    secondText: string,
-  ): Promise<void> {
-    const session = await this.openUi("direct")
-    const { contentHashOf } = await import("../../../src/ui/index.js")
-    try {
-      const headSha = session.headSha()
-      const first = await session.client.setValue.mutate({
-        filePath,
-        expectedHeadSha: headSha,
-        expectedContentHash: contentHashOf(session.read(filePath)),
-        mode,
-        anchor,
-        text: firstText,
-      })
-      let secondOk = true
-      try {
-        await session.client.setValue.mutate({
-          filePath,
-          expectedHeadSha: headSha,
-          expectedContentHash: first.contentHash,
-          mode,
-          anchor,
-          text: secondText,
-        })
-      } catch {
-        secondOk = false
-      }
-      this.formatWriteResult = { firstContentHash: first.contentHash, secondOk }
-    } finally {
-      await session.stop()
-    }
-  }
-
   /** A page reload, then a `done`: the reload must not end the server. */
-  async spawnGtdUiReloadThenHandOff(filePath: string, mode: string, text: string): Promise<void> {
+  async spawnGtdUiReloadThenHandOff(filePath: string, text: string): Promise<void> {
     const session = await this.openUi("direct")
     assert.strictEqual(await session.reload(), 200, "the reload must still be served")
-    const note = await this.noteRequest(session, filePath, mode, text)
+    const note = await this.noteRequest(session, filePath, text)
     await this.handOffThrough(session, (client) => client.done.mutate(note))
   }
 

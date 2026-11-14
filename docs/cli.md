@@ -11,7 +11,6 @@ workflow. It never acts on it: a driver, or you, runs what it prints.
 Core loop:
   next                      Print what should happen next
   land                      Record what the tree now shows
-  validate                  Print the script that checks the steering file
 
 Start and stop:
   start [name] [args...]    Start a workflow or door; bare, list them
@@ -25,8 +24,6 @@ Inspect:
   strays <range> [glob...]  List changed files outside the globs
   history list              List finished processes
   history show <ref>        Replay one finished process
-  history metrics [ref...]  Report cost and rework of finished processes
-  history judges [ref...]   Calibrate the judges of finished processes
   history fetch [remote]    Print a script that fetches finished processes
   ui                        Serve the web and phone client
 
@@ -36,8 +33,7 @@ Driver plumbing:
   judge                     Print the pending judgment
   judge answer              Land a verdict read from stdin
   judge run                 Answer a judgment with a model
-  check <mode> <file>       Check a steering file's format
-  uncheck <file>            Untick a review file's boxes
+  check <file>              Check a steering file
   lsp                       Start the steering-file language server
   help [command]            Print help for gtd or one command
   version                   Print the version
@@ -104,10 +100,9 @@ stderr, since stdout is exactly the agent's input.
 
 Every usage mistake — an unknown option or command, missing/extra arguments, a
 scope violation (e.g. `--cost` on a command other than `gtd land`), a bad flag
-value, an unknown `gtd check` mode, a `--var` the workflow does not declare, a
-stdin that `gtd judge run` or `gtd judge answer` cannot read — is a USAGE error
-(`2`), never a runtime error (`1`): nothing was even attempted.
-`--help`/`--version` still exit `0`.
+value, a `--var` the workflow does not declare, a stdin that `gtd judge run` or
+`gtd judge answer` cannot read — is a USAGE error (`2`), never a runtime error
+(`1`): nothing was even attempted. `--help`/`--version` still exit `0`.
 
 `--version` (`-V`) / `gtd version` and `--help` (`-h`) / `gtd help`
 short-circuit before any git or repository-state work — they run outside a repo
@@ -122,12 +117,11 @@ included (see [Error envelope](#error-envelope) below). Any other, truly unknown
 subcommand is likewise a usage error exiting 2 without touching the repository;
 its message names the nearest command when it looks like a typo of one. The
 state commands (`land`, `start`, `abandon`, `restore`, `repin`, `next`,
-`validate`, `summary`, `ui`, `judge`, `judge answer`, `history list`,
-`history show`, `history fetch`) must run from the **repository root** — gtd
-derives the workflow, pending changes, and process history relative to cwd, so
-they refuse with a clear error from a subdirectory; `lsp`, `check`, `uncheck`
-and `strays` are standalone and run from anywhere (see each command's own help
-entry).
+`summary`, `ui`, `judge`, `judge answer`, `history list`, `history show`,
+`history fetch`) must run from the **repository root** — gtd derives the
+workflow, pending changes, and process history relative to cwd, so they refuse
+with a clear error from a subdirectory; `lsp`, `check` and `strays` are
+standalone and run from anywhere (see each command's own help entry).
 
 `guide` is described on its own above: it installs knowledge into the calling
 agent's context — including where to get a workflow, since gtd ships none — and
@@ -136,11 +130,10 @@ writes nothing.
 Each long option is valid only on the commands whose help lists it; any other
 `--` option (including a typo like `--jsn`) is rejected with a usage error
 rather than silently ignored, so a mistyped flag can never degrade a JSON caller
-to plain-text mode. A value takes the `--flag=value` form; `--var` and
-`--threshold` also take the space-separated `--flag value` form, and `--json`
-takes only `--json=<path>`. `--` ends the options: every word after it is an
-argument, even one starting with `-`, and `--help`/`--version` after it are no
-short-circuit.
+to plain-text mode. A value takes the `--flag=value` form; `--var` also takes
+the space-separated `--flag value` form, and `--json` takes only
+`--json=<path>`. `--` ends the options: every word after it is an argument, even
+one starting with `-`, and `--help`/`--version` after it are no short-circuit.
 
 `--model` means two things: on `gtd land` (with `--cost`) the model to record
 that cost against, on `gtd judge run` the model that answers. `--var` pins a
@@ -202,8 +195,8 @@ currently `1`: `gtd next --json` (every beat kind), `gtd land --json`,
 carries none.
 
 The script document is what every other command that prints a script prints
-under `--json` — `gtd start <name>`, `gtd abandon`, `gtd restore`, `gtd repin`,
-`gtd validate` and `gtd history fetch`:
+under `--json` — `gtd start <name>`, `gtd abandon`, `gtd restore`, `gtd repin`
+and `gtd history fetch`:
 
 ```json
 { "schema": 1, "script": "<the script, ending in one newline>" }
@@ -217,8 +210,7 @@ s=$(gtd abandon --json=script) && sh -c "$s"
 ```
 
 Without `--json` these commands print the same script, and plain `gtd land` and
-`gtd judge answer` keep naming the commit instead. `gtd validate`'s script is
-empty when the step declares no file to check. `gtd summary`, `gtd base` and
+`gtd judge answer` keep naming the commit instead. `gtd summary`, `gtd base` and
 `gtd check` take no `--json`: they print a prompt, a hash or findings, never a
 script, and `gtd check`'s verdict is its exit code.
 
@@ -246,11 +238,7 @@ like the error envelope above.
 A failure's remediation detail is unconditional — it prints at every verbosity,
 on the line(s) right after the `gtd: `-prefixed message, each indented two
 spaces: a bad config key names the offending key and the file it came from, and
-a corrupted ref names the ref. (A steering mode's `format:`/ `validate:` command
-naming its own missing binary and the resolved `$PATH` is a DIFFERENT thing —
-that line is printed by the driver's shell to the emitted script's own stdout,
-unindented, not by gtd on stderr; see docs/configuration.md's "A missing binary
-in `format:`/`validate:` fails loudly, before it runs".)
+a corrupted ref names the ref.
 
 ### Non-interactive today
 
@@ -352,23 +340,6 @@ Options:
                       on the commit
   --model=<name>      With --cost: the model that cost was spent on — recorded
                       on the commit, nothing runs on it
-  -v, --verbose       Narrate on stderr what gtd resolved
-```
-
-### `gtd validate`
-
-```
-Usage: gtd validate [options]
-
-Print the script that formats, then validates, the current step's steering file
-with its mode's commands. gtd runs nothing: the script's exit code is the
-verdict, and on a failure it prints a ready-to-send fix prompt. Prints "nothing
-to validate" when the step declares no file to check; --json=script then prints
-an empty script.
-
-Options:
-  --json[=<path>]     Print { schema, script }, or with --json=script the script
-                      alone
   -v, --verbose       Narrate on stderr what gtd resolved
 ```
 
@@ -547,46 +518,6 @@ Options:
   -v, --verbose       Narrate on stderr what gtd resolved
 ```
 
-### `gtd history metrics`
-
-```
-Usage: gtd history metrics [ref...] [options]
-
-Report how finished processes went: builds that landed first time or were
-rebuilt, cost by model and phase, review findings per lens, and red checks that
-passed when re-run — per process and in total. <ref> is read as by
-`gtd history show`, but a branch name means every process kept from it; no <ref>
-means all of them. Never replays, so a changed config is no reason to refuse.
---json prints { processes, total }. Writes nothing.
-
-Options:
-  --json[=<path>]     Print the JSON document, or with --json=<path> one field
-                      of it (e.g. --json=kind): a scalar bare, a list one entry
-                      per line, nothing for an absent field
-  -v, --verbose       Narrate on stderr what gtd resolved
-```
-
-### `gtd history judges`
-
-```
-Usage: gtd history judges [ref...] [options]
-
-Calibrate the judges of finished processes from their recorded verdicts: per
-judge and confidence bucket, how many verdicts later events overturned. <ref> is
-read as by `gtd history metrics`. Never replays and asks no model. --json prints
-{ processes, total, whatIf }. Writes nothing.
-
-Options:
-  --json[=<path>]     Print the JSON document, or with --json=<path> one field
-                      of it (e.g. --json=kind): a scalar bare, a list one entry
-                      per line, nothing for an absent field
-  --threshold <name>=<value>
-                      Re-decide every past verdict under this threshold:
-                      judgeIdenticalMinP or qualityTriageMinP (repeatable)
-  --jsonl             Print one JSON line per verdict instead of the report
-  -v, --verbose       Narrate on stderr what gtd resolved
-```
-
 ### `gtd history fetch`
 
 ```
@@ -718,38 +649,15 @@ Options:
 ### `gtd check`
 
 ```
-Usage: gtd check <mode> <file> [options]
+Usage: gtd check <file> [options]
 
-Run the steering format <mode> (qa, review or findings, or the declared format
---spec describes) over <file> and print each finding on a line of its own; exits
-1 when there are any, or when <file> does not exist. An unknown <mode> is a
-usage error (exit 2). Reads no workflow and runs from any directory — emitted
-validation scripts call it.
-
-Options:
-  --open-questions    Instead of <mode>'s findings, list the unanswered
-                      questions in <file>; exits 1 when any remain
-  --open-threads      Instead of <mode>'s findings, list the open threads in
-                      <file>; exits 1 when any are open. Alone, lists the open
-                      code-comment threads in the files the current process
-                      changed
-  --spec=<json>       Check against the declared format this spec describes,
-                      named <mode>, instead of a built-in one; validation
-                      scripts pass it for a step whose mode is a declared format
-  -v, --verbose       Narrate on stderr what gtd resolved
-```
-
-### `gtd uncheck`
-
-```
-Usage: gtd uncheck <file>
-
-Reset every ticked review box (- [x]) in <file> to - [ ], writing the file only
-when it changes; a missing file writes nothing. Reads no workflow and runs from
-any directory — the landing script at a review gate calls it unless the next
-step is an agent turn, which keeps the ticks.
+Read <file> as widgets and print each structural finding on a line of its own;
+exits 1 when there are any, or when <file> does not exist. --write first
+rewrites <file> in its canonical form. Reads no workflow and runs from any
+directory — emitted landing scripts call it.
 
 Options:
+  --write             Rewrite <file> in its canonical form before checking it
   -v, --verbose       Narrate on stderr what gtd resolved
 ```
 

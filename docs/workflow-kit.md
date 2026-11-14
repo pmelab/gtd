@@ -149,11 +149,7 @@ Runs `f.fix` until `f.findings` is gone, at most `f.cap` turns; then runs
 
 ```ts
 const fixed = await fixFindings({
-  fix: () =>
-    agent("fix", "Resolve .gtd/FINDINGS.md, then delete it.", {
-      file: ".gtd/FINDINGS.md",
-      mode: "findings",
-    }),
+  fix: () => agent("fix", "Resolve .gtd/FINDINGS.md, then delete it."),
   findings: ".gtd/FINDINGS.md",
   cap: 2,
   escalate: () =>
@@ -201,70 +197,46 @@ await agent("rewrite", prompt, {
 
 ### `review(base, policy)`
 
-A reviewer writes the review file over everything since `base`, a person reviews
-it, and each note is judged: edits go to another lap, questions are answered in
-place, nits are fixed in one batch, praise is dropped. Resolves
-`{ verdict: "signoff" }`, or
-`{ verdict: "feedback", base, restoreFrom, edited }` for the caller to re-plan
-from.
+A reviewer writes the review over everything since `base` — a
+[steering file](./steering.md) of 🔍 review checklists — and a person reviews
+it. Ticking every hunk signs off: `keepGreen` runs if the person edited code at
+the gate, `close` removes the file, and the round resolves
+`{ verdict: "signoff" }`. An annotation sends it back: the round resolves
+`{ verdict: "feedback", base, restoreFrom, edited }` — `restoreFrom` the commit
+the reviewer's own review was written at, `edited` the code the person changed
+at the gate — for the caller to act on.
 
 ```ts
 const policy: ReviewPolicy = {
   file: ".gtd/REVIEW.md",
-  feedback: ".gtd/FEEDBACK.md",
   isCode: (path) => !path.startsWith(".gtd/"),
   reviewing: (base) =>
     agent("reviewing", `Write .gtd/REVIEW.md over everything since ${base}.`, {
       file: ".gtd/REVIEW.md",
-      mode: "review",
+      widgets: ["review-checklist"],
+      coverage: true,
     }),
-  fixRisks: () => agent("risks", "Fix the risks .gtd/REVIEW.md marks."),
-  keepGreen: async () => {
-    await check("green", "npm test", ".gtd/FEEDBACK.md")
-  },
   awaitReview: () =>
     human("review-gate", "Review .gtd/REVIEW.md, then land.", {
       file: ".gtd/REVIEW.md",
-      mode: "review",
     }),
-  reviewMissing: () => agent("rewrite", "Write .gtd/REVIEW.md again."),
-  collecting: (capture) => agent("collect", capture, { allowEmpty: true }),
-  triage: async () => new Map(),
-  answerQuestions: () =>
-    agent("answer", "Answer the questions in .gtd/REVIEW.md."),
-  fixNits: () => agent("nits", "Fix the nits in .gtd/REVIEW.md."),
+  keepGreen: async () => {
+    await check("green", "npm test", ".gtd/FEEDBACK.md")
+  },
   close: () => run("close", removeScript([".gtd/REVIEW.md"])),
-  captures: {
-    edits: (round) =>
-      `Fold the hand-edits since ${round} into .gtd/FEEDBACK.md.`,
-    notes: (round) => `Fold the notes of ${round} into .gtd/FEEDBACK.md.`,
-    editNotes: (round) =>
-      `Fold the edit notes of ${round} into .gtd/FEEDBACK.md.`,
-  },
-  refusals: {
-    deleted: "gtd land: keep .gtd/REVIEW.md — sign off by changing nothing.",
-    unmatched: "gtd land: write .gtd/FEEDBACK.md, or change nothing.",
-  },
+  deleted: "gtd land: keep .gtd/REVIEW.md — sign off by ticking every hunk.",
 }
 const outcome = await review(start(), policy)
 ```
 
-`ReviewPolicy` is one interface of many members, optional hooks (`decided`,
-`settles`, `learn`, `pending`, `refusals.dropped`) among them. It stays one
-interface: splitting it would change the type every workflow passing one names.
-
 ### `reviewToHandOff(base, policy)`
 
-The same review round, without judging: no note signs off and closes, any note
-ends the round with the review left in place for another workflow to act on,
-through `policy.handOff`.
+The same round: a sign-off closes, and an annotated review is left in place for
+another workflow to act on, through `policy.handOff`.
 
 ```ts
 await reviewToHandOff(start(), {
   ...policy,
   handOff: () => run("hand-off", moveScript(".gtd/REVIEW.md", ".gtd/NOTES.md")),
-  deleted: "gtd land: keep .gtd/REVIEW.md — sign off by changing nothing.",
-  threadsPending: "gtd land: answer every thread in .gtd/REVIEW.md first.",
-  unparsed: "gtd land: write your notes as review notes in .gtd/REVIEW.md.",
 })
 ```

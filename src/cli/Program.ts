@@ -23,11 +23,8 @@ import {
   refuseLegacyRc,
   ConfigService,
   formatDiagnostic,
-  seededValidateCommand,
   type PendingChange,
-  type StateMode,
   type StateName,
-  type WorkflowDefinition,
 } from "../workflow/index.js"
 import type { Door } from "../flows/index.js"
 import {
@@ -77,19 +74,8 @@ import {
   planStep as planStepPure,
   type JudgeVerdict,
 } from "../step/index.js"
+import { formatFinding, parseWidgets, serialize } from "../steering/internal.js"
 import {
-  BUILT_IN_MODE_NAMES,
-  formatFromSpec,
-  steeringFormatFor,
-  openThreads,
-  parseCodeThreads,
-  unansweredQuestions,
-  formatFinding,
-  type SteeringFormat,
-} from "../steering/internal.js"
-import {
-  resolveMode,
-  validateScriptFor,
   deleteRef,
   hardResetTo,
   mixedResetTo,
@@ -105,14 +91,13 @@ import {
   updateRef,
   type RunnableScript,
   combinedScript,
-  commandForFile,
   emitScripts,
   type EmitStep,
   abandonedOutcome,
   abandonNoopOutcome,
   restoredOutcome,
 } from "../emit/index.js"
-import { GTD_VERSION, renderBriefing, WORKFLOWS_REPO } from "../install/index.js"
+import { GTD_VERSION, renderBriefing } from "../install/index.js"
 import { ToolCommands } from "./ToolCommands.js"
 import {
   normalizeScriptNewline,
@@ -134,8 +119,6 @@ export {
 } from "./Output.js"
 import { runStraysCommand } from "./Strays.js"
 import { runHistoryFetchCommand, runHistoryListCommand, runHistoryShowCommand } from "./History.js"
-import { runHistoryJudgesCommand } from "./Judges.js"
-import { runHistoryMetricsCommand } from "./Metrics.js"
 
 /**
  * `Edge.ts`'s `Rest` is module-private (`.gtd/packages/05-step-core.md`
@@ -176,18 +159,11 @@ export type Command =
   | { readonly kind: "restore" }
   | { readonly kind: "repin" }
   | { readonly kind: "next" }
-  | { readonly kind: "validate" }
   | {
       readonly kind: "check"
-      /** Absent only for the bare `gtd check --open-threads` form. */
-      readonly mode?: string
-      readonly file?: string
-      readonly openQuestions?: boolean
-      readonly openThreads?: boolean
-      /** A declared format's spec: `mode` names it, and no built-in is looked up. */
-      readonly spec?: string
+      readonly file: string
+      readonly write?: boolean
     }
-  | { readonly kind: "uncheck"; readonly file: string }
   | { readonly kind: "guide" }
   | { readonly kind: "bundle" }
   | { readonly kind: "summary" }
@@ -196,13 +172,6 @@ export type Command =
   | { readonly kind: "judgeAnswer" }
   | { readonly kind: "historyList" }
   | { readonly kind: "historyShow"; readonly ref: string }
-  | { readonly kind: "historyMetrics"; readonly refs: readonly string[] }
-  | {
-      readonly kind: "historyJudges"
-      readonly refs: readonly string[]
-      readonly vars: Readonly<Record<string, string>>
-      readonly jsonl: boolean
-    }
   | { readonly kind: "historyFetch"; readonly remote: string }
   | {
       readonly kind: "strays"
@@ -251,7 +220,7 @@ const runGuideCommand = (
     if ((yield* host.realPath(topLevel.success)) !== (yield* host.realPath(host.root))) return
     if ((yield* (yield* ConfigDiscovery).workflowModule(host.root, host.home)) !== undefined) return
     yield* (yield* Narrator).warn(
-      `gtd guide: no ${WORKFLOW_MODULE} governs here, and gtd ships no workflow — get one from ${WORKFLOWS_REPO} or write your own (step 2 of the briefing above)`,
+      `gtd guide: no ${WORKFLOW_MODULE} governs here, and gtd ships no workflow — write your own (step 2 of the briefing above)`,
     )
   })
 
@@ -984,58 +953,6 @@ const runRepinCommand = (
     yield* writeScript(json, out, combinedScript(emitScripts(steps).required, ""))
   })
 
-/**
- * The mode's own validate command for `file`: a declared `validate:` command
- * verbatim; a `"builtin"` validator or no mode at all names the leaf
- * `gtd check <mode>` invocation instead, so there's always something concrete
- * to name.
- */
-const selfValidateCommand = (
-  def: WorkflowDefinition,
-  state: string,
-  mode: StateMode,
-  file: string,
-  spec: string | undefined,
-): string => {
-  const resolved = resolveMode(def, state, mode, spec)
-  const validate = resolved.kind === "resolved" ? resolved.validate : undefined
-  const command = validate?.kind === "command" ? validate.command : seededValidateCommand(mode)
-  return commandForFile(command, file)
-}
-
-const emitsValidatablePrompt = (rendered: RenderedRest): boolean =>
-  rendered.kind === "prompt" && rendered.file !== undefined && rendered.mode !== undefined
-
-/**
- * Shared by `gtd validate --json` and `gtd next --json`'s `validate` field so
- * the two can't drift. `undefined` means no `file:`+`mode:` declared.
- *
- * The file's presence is checked inside the emitted SCRIPT, not here: it is
- * only knowable after the turn, so a turn that legitimately wrote nothing
- * exits 0 rather than burning a fix turn. The contradiction round-trip is
- * emitted before that guard, so it still runs at the first-write beat.
- */
-const resolveValidateScript = (
-  rest: Rest,
-): Effect.Effect<
-  { readonly file: string; readonly mode: StateMode; readonly script: string } | undefined,
-  Error,
-  Host | Path.Path
-> =>
-  Effect.gen(function* () {
-    const file = rest.hints.file
-    const mode = rest.stepDef.mode
-    if (file === undefined || mode === undefined) return undefined
-
-    const resolved = resolveMode(rest.def, rest.state, mode, rest.stepDef.modeSpec)
-    if (resolved.kind === "unknown") {
-      return yield* Effect.fail(new Error(resolved.message))
-    }
-
-    const { script } = yield* validateScriptFor(resolved, file)
-    return { file, mode, script }
-  })
-
 /** The driver-facing `BeatKind` for a currently-resolved rest, the one computation `gatherBeatDocument` reads — so a driver's `kind` field can never drift from what it assembled. */
 const restBeatKind = (rest: Rest): BeatKind =>
   beatKindOf({
@@ -1069,114 +986,34 @@ const runNextCommand = (
     } else if (json.kind === "select") {
       yield* writeSelection(out, fields, json.path)
     } else {
-      const validateCommand = emitsValidatablePrompt(rendered)
-        ? selfValidateCommand(
-            rest.def,
-            rest.state,
-            rendered.mode!,
-            rendered.file!,
-            rest.stepDef.modeSpec,
-          )
-        : undefined
       if (DEMAND_BRIEFING[fields.kind].suppressHeader) {
         // A prompt's stdout is the agent's input, so its header goes to stderr;
         // rendered as a header-showing kind to reuse the one header layout.
         const shown = renderBeatPlain({ ...fields, kind: "message" })
         yield* narrator.warn(shown.slice(0, shown.indexOf("\n\n")))
       }
-      out.write(renderBeatPlain(fields, validateCommand))
+      out.write(renderBeatPlain(fields))
     }
-  })
-
-/** Emits the format-then-validate script for the driver to run; reads no file and executes nothing itself. The verdict lives in that script's future exit code, which prints the complete fix prompt rather than bare findings. */
-const runValidateCommand = (
-  json: JsonMode,
-  out: ArtifactOut,
-): Effect.Effect<void, Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    const rest = yield* currentRest
-    const script = (yield* resolveValidateScript(rest))?.script ?? ""
-    yield* writeScript(
-      json,
-      out,
-      script,
-      script.length > 0 ? `${script}\n` : `nothing to validate at "${rest.state}"\n`,
-    )
   })
 
 /**
- * Runs `<mode>`'s parser over `<file>`, exiting non-zero on any finding.
- * Resolves no workflow state and reads no config — this is what a seeded
- * `validate:` command invokes as a leaf step, and it formats nothing.
- *
- * An unknown mode is a usage error; an absent file is a refusal (the emitted
- * validate script guards on the file's presence before it calls this).
- * Findings ride the failing Effect's message, so the shared refusal path
- * reports them on stderr.
+ * `gtd check <file>`: the widget format's structural findings; `--write`
+ * first rewrites the file in its canonical form (landing scripts call this).
  */
-const runCheckCommand = (
-  mode: string,
+const runWidgetCheckCommand = (
   file: string,
-  openQuestions: boolean,
-  openThreadsFlag: boolean,
-  spec: string | undefined,
+  write: boolean,
 ): Effect.Effect<void, Error, Workspace> =>
   Effect.gen(function* () {
-    const format = spec !== undefined ? yield* declaredFormat(spec) : steeringFormatFor(mode)
-    if (format === undefined) {
-      return yield* Effect.fail(
-        new GtdUsageError(
-          `gtd check: unknown mode "${mode}" — known modes: ${BUILT_IN_MODE_NAMES.join(", ")}`,
-        ),
-      )
-    }
-
-    if (openThreadsFlag) {
-      if (openQuestions) {
-        return yield* Effect.fail(
-          new Error("gtd check: --open-threads and --open-questions are mutually exclusive"),
-        )
-      }
-      if (format.openThreads === undefined) {
-        const accepted = BUILT_IN_MODE_NAMES.filter(
-          (name) => steeringFormatFor(name)?.openThreads !== undefined,
-        )
-        return yield* Effect.fail(
-          new Error(
-            `gtd check: --open-threads only applies to modes ${accepted.join(", ")} — got "${mode}"`,
-          ),
-        )
-      }
-      return yield* runOpenThreadsCheckCommand(format, file)
-    }
-
-    if (openQuestions) {
-      if (mode !== "qa") {
-        return yield* Effect.fail(
-          new Error(`gtd check: --open-questions only applies to mode "qa" — got "${mode}"`),
-        )
-      }
-      return yield* runOpenQuestionsCheckCommand(format, file)
-    }
-
+    const workspace = yield* Workspace
     const content = yield* existingFile(file)
-    const errors = format.validate(content).map((finding) => formatFinding(file, finding))
-
+    const canonical = write ? serialize(content) : content
+    if (canonical !== content) yield* workspace.writeAtPath(file, canonical)
+    const errors = parseWidgets(canonical).findings.map((finding) => formatFinding(file, finding))
     if (errors.length === 0) return
-
     return yield* Effect.fail(
-      new Error(
-        `gtd check: ${file} is not valid under mode "${mode}" (${errors.length} finding(s)):\n` +
-          errors.join("\n"),
-      ),
+      new Error(`gtd check: ${file} has ${errors.length} finding(s):\n` + errors.join("\n")),
     )
-  })
-
-const declaredFormat = (spec: string): Effect.Effect<SteeringFormat, GtdUsageError> =>
-  Effect.try({
-    try: () => formatFromSpec(spec),
-    catch: (error) =>
-      new GtdUsageError(`gtd check: --spec is not a declared format: ${(error as Error).message}`),
   })
 
 const existingFile = (file: string): Effect.Effect<string, Error, Workspace> =>
@@ -1185,97 +1022,6 @@ const existingFile = (file: string): Effect.Effect<string, Error, Workspace> =>
     return content === undefined
       ? Effect.fail(new Error(`gtd check: no such file: ${file}`))
       : Effect.succeed(content)
-  })
-
-/**
- * The bare `gtd check --open-threads`: code-comment threads in the files the
- * current process changed. The one `check` form that reads process state; no
- * process underway is silence, not an error.
- */
-const runCodeThreadsCheckCommand = (): Effect.Effect<void, Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    const rest = yield* currentRest
-    if (rest.run.trace.length === 0) return
-    const git = yield* GitService
-    const workspace = yield* Workspace
-    const changed = yield* git.changedPaths(rest.run.diffBase)
-    const lines = changed
-      .filter((c) => c.status !== "D" && c.path !== PIN_PATH)
-      .flatMap(({ path }) => {
-        const { threads, findings } = parseCodeThreads(path, workspace.atPath(path) ?? "")
-        return [
-          ...threads
-            .filter((t) => t.waitingOn === "human")
-            .map((t) => `${path}:${t.line + 1}: ${t.entries[0]!.text}`),
-          ...findings.map((f) => `${path}:${(f.line ?? 0) + 1}: ${f.message}`),
-        ]
-      })
-    if (lines.length === 0) return
-    return yield* Effect.fail(new Error(lines.join("\n")))
-  })
-
-/** Prints one `file:line: [^name]: <first H entry>` line per open thread. */
-const runOpenThreadsCheckCommand = (
-  format: SteeringFormat,
-  file: string,
-): Effect.Effect<void, Error, Workspace> =>
-  Effect.gen(function* () {
-    const content = yield* existingFile(file)
-    const errors = openThreads(format, content).map(
-      (t) => `${file}:${t.line + 1}: [^${t.name}]: ${t.firstMe}`,
-    )
-    if (errors.length === 0) return
-
-    return yield* Effect.fail(
-      new Error(`gtd check: ${errors.length} open thread(s) in ${file}:\n` + errors.join("\n")),
-    )
-  })
-
-/**
- * Runs the SAME `unansweredQuestions` predicate a flow's `openQuestions()`
- * reads, so the gate script and the flow's own check stay in sync.
- */
-const runOpenQuestionsCheckCommand = (
-  format: SteeringFormat,
-  file: string,
-): Effect.Effect<void, Error, Workspace> =>
-  Effect.gen(function* () {
-    const content = yield* existingFile(file)
-    const errors = unansweredQuestions(format, content).map(
-      (q) => `${file}:${q.headingLine + 1}: ${q.question}`,
-    )
-    if (errors.length === 0) return
-
-    return yield* Effect.fail(
-      new Error(
-        `gtd check: ${errors.length} open question(s) unanswered in ${file}:\n` + errors.join("\n"),
-      ),
-    )
-  })
-
-/**
- * Clears the `review` format's ticks in `<file>`, writing back only when the
- * bytes changed so an untouched file's mtime never moves. Standalone: no
- * workflow state, no config.
- *
- * Takes no `<mode>` argument and must never grow one — this means review
- * pointers and nothing else, and must never touch `qa`'s answer boxes.
- */
-const runUncheckCommand = (file: string): Effect.Effect<void, Error, Workspace> =>
-  Effect.gen(function* () {
-    // `gtd uncheck` means review-mode file pointers, hardcoded — never the
-    // qa format, whose answer boxes it must never touch.
-    const format = steeringFormatFor("review")
-    if (format === undefined) return
-
-    const workspace = yield* Workspace
-    const content = workspace.atPath(file)
-    if (content === undefined) return
-
-    const cleared = format.clearTicks(content)
-    if (cleared === content) return
-
-    yield* workspace.writeAtPath(file, cleared)
   })
 
 /** The pending changes, as the beat reports them. */
@@ -1309,14 +1055,6 @@ const gatherBeatDocument = (
     const kind = restBeatKind(rest)
     const session =
       kind === "prompt" ? resolveSession(rendered.memory, rendered.memoryResumed) : undefined
-    const resolvedValidate =
-      kind === "prompt"
-        ? yield* resolveValidateScript(rest).pipe(Effect.catch(() => Effect.succeed(undefined)))
-        : undefined
-    const validate =
-      resolvedValidate !== undefined && resolvedValidate.script.length > 0
-        ? resolvedValidate.script
-        : undefined
     const log = yield* loopLogPath
     const retry = retryContent(kind, rendered, session?.resume === true)
     const demand = demandOf({
@@ -1326,7 +1064,6 @@ const gatherBeatDocument = (
       ...(session !== undefined
         ? { session: { id: session.sessionId, resume: session.resume } }
         : {}),
-      ...(validate !== undefined ? { validate } : {}),
     })
     const status = statusOf({
       rendered,
@@ -1433,7 +1170,6 @@ export const needsOf = (kind: Command["kind"]): Needs => {
     case "strays":
       return "none"
     case "check":
-    case "uncheck":
       return "fs"
     default:
       return "state"
@@ -1444,7 +1180,6 @@ export const needsOf = (kind: Command["kind"]): Needs => {
 export const standaloneKinds = (): readonly Command["kind"][] => [
   "lsp",
   "check",
-  "uncheck",
   "guide",
   "judgeRun",
   "strays",
@@ -1495,21 +1230,8 @@ const dispatchVoidCommand = (
       return runRepinCommand(json, out)
     case "next":
       return runNextCommand(json, out)
-    case "validate":
-      return runValidateCommand(json, out)
     case "check":
-      if (command.mode === undefined || command.file === undefined) {
-        return runCodeThreadsCheckCommand()
-      }
-      return runCheckCommand(
-        command.mode,
-        command.file,
-        command.openQuestions ?? false,
-        command.openThreads ?? false,
-        command.spec,
-      )
-    case "uncheck":
-      return runUncheckCommand(command.file)
+      return runWidgetCheckCommand(command.file, command.write ?? false)
     case "guide":
       return runGuideCommand(out)
     case "bundle":
@@ -1528,10 +1250,6 @@ const dispatchVoidCommand = (
       return runHistoryListCommand(json, out)
     case "historyShow":
       return runHistoryShowCommand(command.ref, json, out)
-    case "historyMetrics":
-      return runHistoryMetricsCommand(command.refs, json, out)
-    case "historyJudges":
-      return runHistoryJudgesCommand(command.refs, command.vars, command.jsonl, json, out)
     case "historyFetch":
       return runHistoryFetchCommand(command.remote, json, out)
   }

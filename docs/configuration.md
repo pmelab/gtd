@@ -2,11 +2,10 @@
 
 A repository's configuration is one file, **`gtd.config.ts`**: a TypeScript
 module that says which steps a process goes through, with which settings, plus
-the repository settings in its [`config` export](#the-config-export) —
-steering-file modes, `gtd ui` settings, per-scope skills and access. It is
-required: without one, every command that resolves workflow state fails, saying
-to run `gtd guide`, which says where to get one. gtd ships no workflow: use one
-from [gtd-workflows](https://github.com/pmelab/gtd-workflows) or write your own.
+the repository settings in its [`config` export](#the-config-export) — `gtd ui`
+settings, per-scope skills and access. It is required: without one, every
+command that resolves workflow state fails, saying to run `gtd guide`. gtd ships
+no workflow: you write your own.
 
 Settings that belong to a machine rather than a repository live outside it: the
 judge `gtd judge run` uses (see [Judge settings](#judge-settings)), plus
@@ -17,14 +16,14 @@ versions read are gone — a leftover one is an error (see
 > **Trust: `gtd.config.ts` is code, and gtd runs it.** Because the workflow is a
 > TypeScript module, every gtd command that resolves workflow state evaluates
 > the repository's `gtd.config.ts` — including the read-only ones: `gtd next`,
-> `gtd lsp`, `gtd validate`, `gtd judge` and `gtd start`, not only `gtd land`.
-> Nothing else is evaluated: every workflow lives in this one file and what it
-> imports. The lookup walks up from the current directory, so a `gtd.config.ts`
-> in a parent directory counts too. Treat a repository's `gtd.config.ts` like
-> any other code you run from it — a Makefile, a `package.json` script: **do not
-> run gtd in a checkout you do not trust.** Settings end up on command lines too
-> (a test command a workflow interpolates into the scripts gtd emits), which is
-> the same trust decision.
+> `gtd lsp`, `gtd judge` and `gtd start`, not only `gtd land`. Nothing else is
+> evaluated: every workflow lives in this one file and what it imports. The
+> lookup walks up from the current directory, so a `gtd.config.ts` in a parent
+> directory counts too. Treat a repository's `gtd.config.ts` like any other code
+> you run from it — a Makefile, a `package.json` script: **do not run gtd in a
+> checkout you do not trust.** Settings end up on command lines too (a test
+> command a workflow interpolates into the scripts gtd emits), which is the same
+> trust decision.
 
 ## `gtd.config.ts`
 
@@ -35,17 +34,14 @@ filesystem root when the current directory is outside home) and uses the
 **innermost** `gtd.config.ts` it finds. There is no merging: one file is the
 whole workflow. A `gtd.config.ts` found nowhere is an error naming `gtd guide`.
 
-gtd ships no workflow and `gtd guide` writes no config. Get one from
-[gtd-workflows](https://github.com/pmelab/gtd-workflows), a pinned checkout
-whose `gtd-wf config default` prints a `gtd.config.ts` importing its `default`
-workflow by absolute path (see its README), or write your own (see
+gtd ships no workflow and `gtd guide` writes no config. Write your own (see
 [Shape](#shape) below and [Testing a workflow](./testing.md)).
 
 **Upgrading from a gtd that shipped workflows:** `@pmelab/gtd/workflows`,
 `@pmelab/gtd/workflow` and `@pmelab/gtd/workflows/<name>` no longer resolve, so
-a config importing them fails to load. Replace it with the one
-`gtd-wf config default` prints: gtd-workflows' `default` keeps the same step
-names, so a process already underway keeps replaying.
+a config importing them fails to load. Replace it with your own workflow; a
+process already underway keeps replaying only if your workflow reaches the same
+step names.
 
 ### Shape
 
@@ -96,8 +92,6 @@ fails the load:
 - `summary` — the prompt `gtd summary` prints (see [Summary](#summary))
 - `base` — the diff base of a process `gtd start` starts (see
   [Workflows](#workflows))
-- `steering` — steering file paths with their mode, e.g.
-  `{ ".gtd/docs/adr.md": "adr" }`
 - `skills` and `access` — per-scope skill lists and file access (see
   [Skills](#skills) and [File access](#file-access))
 - `doors` — named shortcuts onto the workflow (see [Doors](#doors))
@@ -182,8 +176,9 @@ Every step takes an options object; all keys are optional.
 | Option        | Steps                | Meaning                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | ------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `label`       | all                  | Display name shown by `gtd next` and viewers.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `file`        | all but `ship`       | The step's steering file, a repository path under `.gtd/`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| `mode`        | all, requires `file` | The steering file's mode: `qa`, `review`, `findings`, a name declared in `config.modes`, or a [declared format](#declared-formats). An unknown name fails the process once it rests at the step; a `mode` without a `file` fails it when replay reaches the step.                                                                                                                                                                                                                                                                                                              |
+| `file`        | `agent`, `human`     | The step's [steering file](./steering.md), a repository path under `.gtd/`. On an agent step it makes the step a steering step: gtd checks the turn itself, and the step may write that file and nothing else.                                                                                                                                                                                                                                                                                                                                                                 |
+| `widgets`     | `agent`, with `file` | The widget kinds the steering file may hold: `"single-select"`, `"multi-select"`, `"boolean"`, `"review-checklist"` (static content is always allowed). Another kind sends the turn back.                                                                                                                                                                                                                                                                                                                                                                                      |
+| `coverage`    | `agent`, with `file` | `true`: every range the review base diff changes must be listed by a 🔍 widget.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `message`     | `human`, `judge`     | The text shown to the person at this rest.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
@@ -194,7 +189,7 @@ Every step takes an options object; all keys are optional.
 | `exhausted`   | `agent`              | With `validate`: `async (errors) => void`, run once `cap` retries failed. Default: a `<step>.invalid` human gate showing the errors that takes a clean landing. When it resolves the validator runs again; a failure starts another round of retries with a fresh `cap` (agent cost is unbounded while a human keeps landing the gate).                                                                                                                                                                                                                                        |
 | `correction`  | `agent`              | With `validate`: `(errors) => string`, the retry's `content` instead of the default wording.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
 | `acceptClean` | `human`              | A landing that changes nothing completes the gate — "accept as-is". Without it, a clean landing is a no-op and the gate keeps waiting for an edit.                                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `approve`     | `human`              | A sign-off gate; implies `acceptClean`. Only a **clean** `gtd land` completes it — any edit is refused, and git must have an author identity. Cannot be combined with `mode` or `file` (refused when replay reaches the step, so earlier steps may already have landed). That commit carries `Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}`. Git hooks do not run on that commit; `commit.gpgSign` still applies (a failing signer refuses the approval). See [`seamGate`](#judges).                                                                  |
+| `approve`     | `human`              | A sign-off gate; implies `acceptClean`. Only a **clean** `gtd land` completes it — any edit is refused, and git must have an author identity. Cannot be combined with `file` (refused when replay reaches the step, so earlier steps may already have landed). That commit carries `Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}`. Git hooks do not run on that commit; `commit.gpgSign` still applies (a failing signer refuses the approval). See [`seamGate`](#judges).                                                                            |
 | `onFail`      | `run`                | `"rest"`: a non-zero exit is recorded in `.gtd/run-failed.txt` and the process rests at the step as `stalled`, showing the failed output. Any tree change runs the script again; only a zero exit advances. Without it a failing body lands and the flow carries on.                                                                                                                                                                                                                                                                                                           |
 | `base`        | all                  | The commit this step reviews changes since — what `gtd base` prints while the process rests here. Without it, the process's `start()`.                                                                                                                                                                                                                                                                                                                                                                                                                                         |
 
@@ -312,15 +307,14 @@ landed step left — never the live working tree:
 - `sections(text)` — the top-level `## ` headings of markdown `text`
 - `sectionBodies(text)` — the same sections as `{ title, body }`, `body` being
   the section's own markdown, its heading line included
-- `threads(text)` — every `H:`/`A:` thread in a document as
-  `{ name, line, waitingOn, faults }` (1-based line; `waitingOn: "human"` means
-  open; `faults` its syntax faults).
-- `codeThreads()` — every `H:`/`A:` thread in line comments of the files changed
-  since the process's diff base (deleted files excluded), as
-  `{ path, line, waitingOn, first, faults }` (1-based line, `first` the opening
-  `H:` entry's text, `faults` its syntax faults). Reads committed trees
-- `openQuestions(text)` — the unanswered questions of a `qa` document, each
-  `{ question, line }`
+- `widgets(file)` — the [widgets](./steering.md#widgets) of steering file `file`
+  in file order, none when it does not exist. Each has its `kind`, `title`,
+  1-based `line`, the `annotations` whose markers sit in it, and `answered`; an
+  input widget also its `description` and its answer (`options` and `custom`,
+  `checked` and `label`, or `hunks`)
+- `unanswered(list)` — the widgets a person still has to answer: a single select
+  with no answer, a review checklist with an unticked hunk
+- `annotations(list)` — the labels of every annotation marker in the widgets
 - `settings` — the process settings, pinned at process start (see
   [Settings](#settings))
 - `envSettings` — the environment settings, read live (see
@@ -329,10 +323,10 @@ landed step left — never the live working tree:
   `start()` — the process's diff base. Name them in a prompt for an agent to
   inspect a range itself
 
-`sections`, `sectionBodies`, `threads` and `openQuestions` read only the text
-they are given, yet throw outside a replay, like every helper here.
-`@pmelab/gtd/steering` exports the same four under the same names as plain
-functions — for a test, or a module's top level.
+`sections` and `sectionBodies` read only the text they are given, yet throw
+outside a replay, like every helper here. `@pmelab/gtd/steering` exports both
+under the same names as plain functions, and `parseWidgets(text)` for widgets —
+for a test, or a module's top level.
 
 Flow code is plain code, so it can also keep what it needs across steps in local
 variables — a counter, the previous round's report, the commit a review round
@@ -412,29 +406,15 @@ whose turn they check:
 
 - `requireProgress(file)` — refuses a turn that deleted `file` without changing
   any code, unless the deleted content starts with `NOTHING ACTIONABLE`
-- `requireAnswers(file)` — refuses a turn that changed something while a
-  question in the `qa` document `file` is still unanswered. A turn that changes
-  nothing is accepted
-- `requireThreadsClosed(file)` — refuses any landing while a thread in `file`,
-  or a code thread in a changed file, waits on the human (its last entry is the
-  agent's) or has a syntax fault, listing each as `file:line: [^name]` /
-  `path:line: <first H entry>`; the human replies with a conclusion or deletes
-  it
-- `requireReplies(file)` — refuses an agent turn that leaves a thread in `file`,
-  or a code thread in a changed file, whose last entry is `H:` (or that has a
-  syntax fault), listing each the same way
-- `hasThreadFor(waitingOn, file?)` — whether a thread waits on `waitingOn`: a
-  footnote thread in `file` or any code thread
 - `requireRevert(edited, base)` — refuses a turn that left any of the `edited`
   changes differing from their content before them
 
-Each of `requireProgress`, `requireReplies` and `requireRevert` has a validator
-form to pass to `agent(…, { validate })`, so a failing check retries the turn
-with a correction instead of refusing the landing. Each returns `undefined` when
-the turn is valid, or an error addressed to the agent:
+Each of `requireProgress` and `requireRevert` has a validator form to pass to
+`agent(…, { validate })`, so a failing check retries the turn with a correction
+instead of refusing the landing. Each returns `undefined` when the turn is
+valid, or an error addressed to the agent:
 
 - `progressErrors(file, changes)` — judges `turn.changes`
-- `repliesErrors(file)` — reads the threads in the tree
 - `revertErrors(edited, base)` — reads the tree, not the turn's changes
 
 ```ts
@@ -528,10 +508,9 @@ flows it is built from instead.
 
 ### Judges
 
-`judge(name, { questions, evidence, message?, label?, file?, mode?, base? })`
-asks one or more questions and resolves to `{ answers, truncated }`. `file`,
-`mode`, `base` and `label` are the step options every step takes (see
-[Step options](#step-options)). A question is
+`judge(name, { questions, evidence, message?, label?, base? })` asks one or more
+questions and resolves to `{ answers, truncated }`. `base` and `label` are the
+step options every step takes (see [Step options](#step-options)). A question is
 `{ id, primitive, instructions, criteria }`, where `primitive` is `noul` (also
 spelled `yesno`; yes/no, read back as `"yes"`/`"no"`), `choice`, or `score`
 (read back as its decimal string). A `yesno` question reaches the driver as
@@ -689,8 +668,7 @@ export const review = workflow(reviewFlow, {
 A door starts whatever name the config exports its workflow under. `args` is a
 static list of positional arguments (required ones first); `vars` is a pure
 function of the args returning a record of process settings — no git runs while
-it is evaluated. gtd-workflows' `fix` builds `fix`, its `review` builds
-`review [base]`, so a config exporting only `fix` offers only the `fix` door.
+it is evaluated. A config offers only the doors of the workflows it exports.
 
 A config's doors are those of every workflow it exports. A door several exported
 workflows build belongs to the one exported under the door's own name (the
@@ -766,11 +744,12 @@ trailer predates it and is format 1. Format 2 adds the pin and unpin commits
 so a gtd that reads only format 1 would misread them as turns. Format 3 adds a
 repin's `Gtd-Anchor` (see
 [Episodes, replay and divergence](#episodes-replay-and-divergence)): a gtd that
-reads only format 2 would replay the commits it sets aside. The current format
-is 4, which renames the pin beats from `pin` and `unpin` to `gtd:pin` and
-`gtd:unpin` in commit subjects: a gtd that reads only format 3 would read them
-as steps. Commits in formats 2 and 3 keep their old names. The retained tip is
-versioned by that same trailer on the commit it points at.
+reads only format 2 would replay the commits it sets aside. Format 4 renames the
+pin beats from `pin` and `unpin` to `gtd:pin` and `gtd:unpin` in commit
+subjects: a gtd that reads only format 3 would read them as steps. Commits in
+formats 2 and 3 keep their old names. The current format is 5, whose steering
+files are [widget documents](./steering.md), which no earlier gtd reads. The
+retained tip is versioned by that same trailer on the commit it points at.
 
 The format changes only when one of those encodings does, independently of gtd's
 own version. A gtd reads its current format and, after a change, at least the
@@ -869,19 +848,12 @@ import { defineConfig } from "@pmelab/gtd/flows"
 export { default } from "./workflow.ts"
 
 export const config = defineConfig({
-  modes: {
-    qa: { format: 'npx prettier --write "$GTD_FILE"' },
-    review: { format: 'npx prettier --write "$GTD_FILE"' },
-  },
   ui: { port: 8443 },
 })
 ```
 
 It has exactly these keys, all optional:
 
-- **`modes`** — steering-file modes (`format`/`validate` shell commands) a
-  step's `mode` may name, layered over gtd's built-in `qa`, `review` and
-  `findings` modes. See [Modes](#modes).
 - **`ui`** — `gtd ui`'s own settings. See [`ui`](#ui).
 - **`skills`** — a flat scope full-name -> skill-name array map, one entry per
   scope whose skill list you want to change. See [Skills](#skills).
@@ -896,248 +868,22 @@ It has exactly these keys, all optional:
 is installed for editor type-checking, and a load error naming the key either
 way — `defineConfig` throws while `gtd.config.ts` loads, and gtd checks a plain
 object exported as `config` the same way. A key that moved out of the repository
-config (`vars`, `env`, `judge`) therefore fails loudly instead of doing nothing:
+config (`vars`, `env`, `judge`) therefore fails loudly instead of doing nothing,
+and so do the removed `modes` and `ui.format`, naming what replaced them:
 
 ```text
 gtd: config:
   - /repo/gtd.config.ts: config.env: is not a known key
+  - /repo/gtd.config.ts: config.modes: was removed: every steering file is a widget document gtd checks itself
 ```
 
 Process and environment settings are not here: they are the workflow's, set as
 [factory options](#workflow-factories) or the `defaults`/`envDefaults` options
 of `workflow()` (see [Settings](#settings)).
 
-### Modes
-
-A mode is a pair of shell commands over one steering file, both optional:
-
-```ts
-export const config = defineConfig({
-  modes: {
-    adr: {
-      format: 'npx prettier --write "$GTD_FILE"',
-      validate: 'adr-lint "$GTD_FILE"',
-    },
-  },
-})
-```
-
-Each command runs in `bash` with `$GTD_FILE` set to the steering file's path.
-Quote it (`"$GTD_FILE"`) so a path with spaces stays one argument. The
-`<%= it.file %>` templates of earlier versions are refused with a hint to use
-`$GTD_FILE` instead. `format:` normalizes the file in place; `validate:` reports
-findings, and exits zero only when there are none. A step names a mode with
-`{ file, mode }`. A mode with neither command still registers its name: a step
-may use it, and the file is neither formatted nor validated.
-
-#### Declared formats
-
-A workflow can declare a list or section format in code instead of a shell
-command, and pass it as a step's `mode`:
-
-```ts
-import { agent } from "@pmelab/gtd/flows"
-import { listFormat, sectionFormat } from "@pmelab/gtd/steering"
-
-export const criteria = listFormat({
-  name: "criteria",
-  section: { title: "Acceptance criteria", level: 2 },
-  item: { id: /^AC-\d+$/, separator: ":", example: "AC-1" },
-  ids: { unique: true },
-})
-
-export const notes = sectionFormat({ name: "notes", level: 2, title: "unique" })
-
-await agent("plan", `Write the plan. ${criteria.instructions}`, {
-  file: ".gtd/PLAN.md",
-  mode: criteria,
-})
-```
-
-`listFormat` options:
-
-| Option     | Default    | Meaning                                                                                                                                                                                                                                                                                                                     |
-| ---------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `name`     | required   | The mode name: lowercase letters, digits and `-`. It may not be a mode the workflow already knows (`qa`, `review`, `findings`, a `config.modes` entry).                                                                                                                                                                     |
-| `section`  | none       | `{ title, level, required? }`: the list lives under this heading, up to the next heading of the same or a higher level. A string `title` matches case-insensitively; a RegExp needs `example`, the text `instructions` and `sample` show. `required` defaults to `true`. Without `section`, the whole document is the list. |
-| `item`     | none       | `{ id, separator, example }`: every item starts with an ID matching `id`, then `separator`, then its text. `example` is an ID `id` matches.                                                                                                                                                                                 |
-| `markers`  | `["-"]`    | Allowed markers among `-`, `*`, `+`, `1.` (`1.` stands for any numbered item).                                                                                                                                                                                                                                              |
-| `wrap`     | `"join"`   | `"join"`: a continuation line indented under its item joins it. `"forbid"`: one line per item.                                                                                                                                                                                                                              |
-| `checkbox` | `"forbid"` | `"forbid"`, `"strip"` (read `[ ]`/`[x]` into `checked`) or `"require"`.                                                                                                                                                                                                                                                     |
-| `ids`      | none       | `{ unique: true }`: two items may not share an ID.                                                                                                                                                                                                                                                                          |
-
-`sectionFormat({ name, level, title? })` reads every heading at `level` as a
-section; deeper headings belong to a section's body. `title: "unique"` refuses
-two sections with the same title (case-insensitive).
-
-A declaration that contradicts itself (a bad `name`, an `example` its pattern
-does not match) throws when the workflow loads. Each declared format has:
-
-- `parse(text)`: `{ items, problems }` for a list — each item
-  `{ line, text, id?, checked? }`, `line` 0-based — or `{ sections, problems }`
-  for sections, each `{ line, title, body }`
-- `validate(text)`: the problems plus the [footnote and thread](#modes) checks
-  every format runs, as findings `formatFinding` prints `file:line: message`
-- `instructions`: the format in prose, for a prompt
-- `sample`: a minimal document that validates
-
-A list format reports: a marker it does not allow; mixed markers in one list; a
-continuation line not indented under its item, or any continuation under
-`wrap: "forbid"`; a list item inside a code fence, which is never read as an
-item; a code fence that is never closed; a duplicate ID or an item without one;
-the section heading at the wrong level, repeated, or missing; text between
-items; a nested list; a checkbox where forbidden or missing where required; and
-an empty item. A section format reports a heading above the section level after
-the first section, an untitled or repeated section, and an unclosed fence. These
-rules apply only to declared formats; the built-in `qa`, `review` and `findings`
-formats are unchanged.
-
-After the turn, a step whose `mode` is a declared format validates its file the
-way a [built-in one](#built-in-steering-formats-are-ordinary-modes) does: the
-validation script runs `gtd check <name> "$GTD_FILE" --spec '<json>'`, whose
-spec carries the whole declaration, so it loads no workflow. Each problem goes
-back to the agent as `file:line: message`. A declared format has no `format:`
-command.
-
-#### Built-in steering formats are ordinary modes
-
-`qa`, `review` and `findings` are gtd's built-in steering-file formats (parsed
-and validated in-process, because `gtd lsp` needs the same parsers for live
-diagnostics), but their `validate:` is not hidden: every workflow's modes are
-seeded with `qa`/`review`/`findings` entries whose `validate:` is the command
-`gtd check <mode> '<file>'`. That seeded command is overridable the same way —
-declare `modes: { qa: { validate: "your-own-command" } }` and your command
-displaces the seed; declaring only a `format:` for a built-in mode composes with
-the seeded `validate:` rather than replacing it.
-
-The `qa` format also checks section order: `## Open Questions` must come before
-every other `##` section in the file, and `## Answered Questions` must come
-after every other `##` section — a file that gets this backwards fails
-`gtd check qa` / `gtd validate`. A `###` question heading or a `- [ ]` option
-indented 4 or more spaces stops counting as one (it is Markdown indented code,
-or a lazy continuation of the line above it) and fails `gtd check qa` /
-`gtd validate` naming the exact line; 2 or 3 spaces of indent are still fine.
-
-Content nested under a `qa` option — a bullet list or a second paragraph
-indented under its `- [ ]`/`- [x]` line — is that option's own detail, shown
-alongside it, never part of the answer, and never touched when you write into
-the free-text slot.
-
-Both formats also understand **footnotes** — your own comment attached to an
-exact spot in the file, for the next agent turn to read as a mandatory note
-rather than as an instruction. Mark the spot with `[^name]` (any name, no
-whitespace or `]` — the same name may mark more than one spot), then define it
-anywhere below — on its own line, at the start of the line — as
-`[^name]: explain what you mean here`; a definition's own name must be unique in
-the file. Indent a longer comment's continuation lines so they stay part of the
-same definition. The next agent turn folds the comment into its own work and
-deletes both the marker and the definition — a footnote is never carried forward
-or left for a later turn to re-read. `gtd check`/`gtd validate` flag five things
-about a footnote: a marker with no matching definition, a definition with no
-matching marker, the same name defined twice, a definition whose body is still
-empty (a newly seeded definition starts that way), and a definition followed by
-text indented 1-3 spaces — too little to join the body as a continuation line —
-which names the indent and the 4-space fix rather than calling the body empty —
-each fails the file until fixed.
-
-A footnote can also be a **thread**: a conversation. Its definition is a list of
-alternating `- H:` and `- A:` entries, the first yours, with continuation lines
-indented 4 spaces (oxfmt's 6-space wrap is fine):
-
-```markdown
-We cache the result per request.[^cache]
-
-[^cache]:
-    - H: why do we do that this way?
-    - A: because ...
-    - H: then do it this way
-```
-
-Only a definition whose body opens with a `H:`/`A:` item is a thread; anything
-else stays a one-shot footnote. The agent reads the wording of your last entry:
-a question gets one `- A:` reply in the same thread and nothing else changes; a
-conclusion or advice gets folded into the document and the marker and definition
-are deleted together. If it misreads you, correct it with your next entry. The
-agent never starts a thread. A thread is **open** when its last entry is the
-agent's. `gtd check`/`gtd validate` flag an item without a `H:`/`A:` prefix, a
-first entry by the agent, two consecutive entries by one author, an empty entry,
-and anything in the body besides the one list; an open thread is not a finding,
-but a gate whose workflow calls `requireThreadsClosed` (see [Helpers](#helpers))
-refuses every landing until you reply with a conclusion or delete it.
-`gtd check <mode> <file> --open-threads` prints
-`file:line: [^name]: <first H entry>` for each open thread and exits non-zero
-when any exist (modes `qa`, `review`). A `review` line note on a hunk pointer
-stays a one-shot note — to discuss a hunk, put a footnote on it.
-
-#### Threads in code comments
-
-The same conversation works in **line comments** of any file changed in the
-current process (diff base to working tree, untracked non-ignored files
-included; an untouched file is never scanned). Write bare entries — no bullet,
-no `[^name]` marker; the comment's position is the anchor:
-
-```ts
-// H: why do we retry here?
-// A: the upstream drops the first request after idle
-```
-
-- Only line comments count: `//` (`.ts`, `.js`, `.go`, `.rs`, `.c`, `.java` and
-  kin), `#` (`.feature`, `.py`, `.sh`, `.rb`, `.yaml`, `.toml`), `--` (`.sql`,
-  `.lua`, `.hs`), `;` (`.lisp`, `.clj`, `.ini`, `.asm`). A file with no mapped
-  extension (`Makefile`, `Dockerfile`) is scanned for all four; `.md` and
-  `.gtd/**` never. Block comments (`/* */`, `<!-- -->`) and trailing comments
-  after code never form a thread
-- A thread is one run of consecutive same-token comment lines whose first line
-  starts with `H:`; an unprefixed line in the run continues the `H:` entry
-  above; the first non-comment line ends it, and so does an unprefixed line
-  below an `A:` line — the agent's entries are one line, so a comment you write
-  there stays an ordinary comment
-- Same rules as a footnote thread: entries alternate, the agent never starts
-  one, an open thread (agent spoke last) refuses landing where the workflow
-  calls `requireThreadsClosed`, and the agent answers a question with exactly
-  one `A:` line directly below, or folds a conclusion in and deletes the thread.
-  A syntax fault (agent opens, same author twice, empty entry) refuses too
-- A code thread is transient — it must not survive the lap that settles it
-- Code threads are not shown in the phone UI. `gtd check --open-threads` with no
-  `<mode> <file>` lists them as `path:line: <first H entry>` (and one line per
-  fault), exiting non-zero when any are printed; it reads the process's diff
-  base, and prints nothing (exit 0) when no process is underway
-
-#### The normalization-only contract on `format:`
-
-`gtd land`'s own emitted script never runs a mode's `format:`/`validate:` pair —
-it is only the HEAD assertion and the commit. Formatting and validating a
-steering file is a driver contract instead: run it explicitly, ahead of
-`gtd land`, off `gtd next --json`'s own `validate` field (or `gtd validate`,
-which prints the same script). A driver that skips this can land a malformed or
-unformatted steering file — `gtd land` itself does not stop it.
-
-A mode's `format:` command may reformat a steering file — whitespace, wrapping,
-reordering — but must NEVER change what a landing guard would decide. gtd's
-checks (`requireProgress`, `requireAnswers`, `requireRevert`, and the
-review-file checks) decide once, against whichever bytes are on disk at the
-moment `gtd land` runs — which may be before OR after a driver's own separate
-`format:` run. That is only safe because every built-in guard judges only the
-content it explicitly cares about, not incidental formatting around it. If you
-plug in your own `format:` command, the same rule binds it: a formatter that
-also changes meaning — stripping a paragraph a guard reads — makes the guard's
-decision and the file's actual content disagree, and gtd will not catch that for
-you.
-
-#### A missing binary in `format:`/`validate:` fails loudly, before it runs
-
-The emitted script checks a mode's `format:`/`validate:` command against `$PATH`
-before running it, whenever that command is a single unambiguous leading word
-(e.g. `adr-lint "$GTD_FILE"`): a typo'd or uninstalled binary exits 127 with a
-`gtd:`-prefixed message naming the mode, the `format`/`validate` key, the
-binary, and the resolved `$PATH` it was looked up in, instead of a raw shell
-error. A command gtd cannot reduce to one binary — a `VAR=x`-prefixed command, a
-pipeline, anything with a shell metacharacter — gets no such check and fails
-exactly as it always has.
-
 ### `ui`
 
-`config.ui` holds `gtd ui`'s five settings, all optional — a flat struct, so an
+`config.ui` holds `gtd ui`'s four settings, all optional — a flat struct, so an
 unknown sub-key is rejected the same way any other unknown config key is.
 `gtd ui` serves exactly the ONE worktree it is invoked in — there is no
 roots/discovery setting, because there is no fleet to discover:
@@ -1160,13 +906,6 @@ roots/discovery setting, because there is no fleet to discover:
   freshly generated throwaway pair, even when both are configured. `--http`
   ignores both: it serves plain HTTP on a loopback bind for a local
   TLS-terminating proxy.
-- **`format`** (string, optional) — a shell command run after every write
-  `gtd ui` makes to the steering file, before the phone's request resolves, with
-  `$GTD_FILE` set to the written file's absolute path. Absent means no command
-  runs at all. gtd ships no formatter — bring your own (`oxfmt`, `prettier`, a
-  script). A non-zero exit or a missing binary never reverts the write or
-  refuses it — the phone is told which command ran and what it exited with, and
-  the bytes it already wrote stay on disk either way.
 
 Flags (`--host`, `--port`, `--self-signed`, `--http`) always override the
 matching `ui` value; see `docs/cli.md`'s `ui` row for the full flag list.
@@ -1190,16 +929,15 @@ export const config = defineConfig({
 })
 ```
 
-Which scope names exist is the workflow's: gtd-workflows' `default` lists its
-own in its reference. A nested scope with no entry of its own inherits its
-parent's list, so a key on a parent reaches every scope beneath it that sets
-none. A scope that only groups others runs no turn and carries no key. A
-workflow's scopes are addressable through its `skills` option (a factory build
-carries it, so a config exporting the workflow gets it too); the option may be a
-function of the resolved vars, and must list every scope holding an agent step.
-The type can check an entry's VALUE (an array of strings) but never its KEY,
-since scope names come from the workflow actually in play — there is no editor
-autocompletion of scope names here.
+Which scope names exist is the workflow's. A nested scope with no entry of its
+own inherits its parent's list, so a key on a parent reaches every scope beneath
+it that sets none. A scope that only groups others runs no turn and carries no
+key. A workflow's scopes are addressable through its `skills` option (a factory
+build carries it, so a config exporting the workflow gets it too); the option
+may be a function of the resolved vars, and must list every scope holding an
+agent step. The type can check an entry's VALUE (an array of strings) but never
+its KEY, since scope names come from the workflow actually in play — there is no
+editor autocompletion of scope names here.
 
 A key that is not a scope running a turn is a load error, exit 1 — a group
 scope, or a step name rather than its scope. The message lists the known scope
@@ -1222,8 +960,9 @@ scope({ name: "review", access: { read: ["src/**", "docs/**"], write: [".gtd/REV
 - A nested scope inherits its parent's access unless it sets its own, which
   replaces the parent's wholesale (never merged). `{}` reopens everything a
   parent restricted.
-- The step's own steering file is always included, on both sides, so a
-  restricted turn can still answer its prompt.
+- The step's own steering file is always readable, so a restricted turn can
+  still answer its prompt. A steering step (an agent step with `file`) may write
+  that file and nothing else, whatever its scope's `write` says.
 - `agent()` takes no `access` option; narrower access for one step needs its own
   `scope()`.
 
@@ -1276,13 +1015,6 @@ gtd: config:
   - /path/to/repo/gtd.config.ts: config.ui.port: must be an integer
 ```
 
-A step naming a mode nothing declares fails the same way, as soon as the process
-rests at it:
-
-```
-gtd: config: step "idle": mode "adrs" is not a mode this workflow knows (qa, review, findings)
-```
-
 A `config.skills` key that is not a scope running a turn fails the same way,
 listing the known scope keys. It is reported when gtd resolves the current
 state, not by every config read (see [Skills](#skills)):
@@ -1296,10 +1028,10 @@ A workflow declaring one name in both `defaults` and `envDefaults` fails to
 load. All load failures exit **1** and write to **stderr**, never stdout.
 
 gtd requires a repository with **at least one commit** before any state command
-(`land`, `start`, `next`, `abandon`, `restore`, `repin`, `validate`, `summary`)
-will run — there is no workflow state to derive from an empty history.
-`gtd guide`, `gtd lsp`, and `gtd check` are unaffected, since none of them needs
-a process history (`gtd lsp` then serves `REVIEW.md` alone).
+(`land`, `start`, `next`, `abandon`, `restore`, `repin`, `summary`) will run —
+there is no workflow state to derive from an empty history. `gtd guide`,
+`gtd lsp`, and `gtd check` are unaffected, since none of them needs a process
+history (`gtd lsp` then serves no file).
 
 ## Judge settings
 
@@ -1424,7 +1156,7 @@ file and exits **1**. Move each key, then delete the file:
 | `vars`       | A [factory option](#workflow-factories) in `gtd.config.ts` (`feature({ qualityReviews: "correctness" })`), or `workflow(flow, { defaults })`        |
 | `env`        | A factory option in `gtd.config.ts` (`feature({ testCommand: "npm run ci" })`), or `envDefaults`; per machine, `GTD_<NAME>`                         |
 | `judge`      | `~/.config/gtd/judge.json` (`$XDG_CONFIG_HOME/gtd/judge.json`), or `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` — see [Judge settings](#judge-settings) |
-| `modes`      | `config.modes` — see [Modes](#modes)                                                                                                                |
+| `modes`      | Nothing: every steering file is a [widget document](./steering.md) gtd checks itself                                                                |
 | `ui`         | `config.ui` — see [`ui`](#ui); `--host`/`--port` still override it per run                                                                          |
 | `skills`     | `config.skills` — see [Skills](#skills)                                                                                                             |
 | `access`     | `config.access` — see [File access](#file-access)                                                                                                   |

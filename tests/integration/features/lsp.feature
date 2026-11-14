@@ -1,25 +1,11 @@
 Feature: gtd lsp — the steering-file LSP server (stdio)
 
-  Minimal protocol-level smoke for `gtd lsp` (see src/lsp/Lsp.ts): the server
-  starts over stdio, the
-  `initialize` handshake succeeds and advertises the document-symbol/code-
-  action capabilities, and a `textDocument/documentSymbol` request against a
-  `.gtd/TODO.md` fixture yields NO symbols (there is no `TODO.md` → qa
-  basename fallback — the bundled `idle` names that exact path as its `file:`
-  but declares no `mode:`, so nothing dispatches over it). Two further
-  scenarios prove the config-driven half: documentSymbol served for a
-  CUSTOM-named `qa` file named by the step the process rests on (as
-  `gtd next --json` reports its `file`/`mode`), and
-  the `gtd.openSteeringFile` executeCommand resolving a
-  hand-authored current state and asking the client to show its steering
-  file (`window/showDocument`). A final scenario proves go-to-definition: a
-  `textDocument/definition` on a `.gtd/REVIEW.md` hunk pointer line returns a
-  `Location` in the referenced file at its `#line` (basename fallback). A
-  further scenario pins the fix for a hunk pointer whose path contains
-  hyphens: it must jump to the full file, not a truncated directory prefix.
-  One more scenario proves a `qa`-mode code action is offered from a wrapped
-  option's continuation line, not just its own `- [ ]` line (see
-  `QuestionOption.endLine` in src/steering/qa.ts). The handshake runs a
+  `gtd lsp` serves the steering file the current rest names (as `gtd next
+  --json` reports its `file`): an outline with one symbol per widget, a
+  diagnostic for each broken widget and each unanswered required one, code
+  actions to answer widgets and to add an annotation, and go-to-definition
+  from a hunk pointer into its file and between an annotation's marker and
+  its note. A file the rest does not name gets nothing. The handshake runs a
   spawned `gtd lsp` over stdio; the rest run the same server in-process.
 
   @live
@@ -32,26 +18,22 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     And the LSP response result has a "codeActionProvider" capability
 
   @inmem
-  Scenario: with no config, .gtd/TODO.md is NOT dispatched by basename — it yields no symbols
+  Scenario: a file no rest names yields no symbols
     Given a test project
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
     When the LSP client requests document symbols for ".gtd/TODO.md" containing:
       """
-      Build a calculator.
+      ## 🔘 Which operations?
 
-      ## Open Questions
-
-      ### Which operations?
-
-      add and subtract.
+      - [ ] add
       """
     Then the LSP response has no error
     And the LSP response result is an empty symbol list
 
   @inmem
-  Scenario: documentSymbol is served for a CUSTOM-named qa file mapped via a real gtd.config.ts (config-driven dispatch)
+  Scenario: the rest's steering file is outlined one symbol per widget
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -59,11 +41,9 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
       export default async () => {
         await human("idle", { message: "go" })
-        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md" })
       }
       """
-    # The LSP knows a steering file's mode from the rest `gtd next --json`
-    # reports, so the process first moves on to the step that declares it.
     And a file "NOTE.md" with:
       """
       a note
@@ -75,16 +55,47 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     Then the LSP response has no error
     When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
       """
-      Build a calculator.
+      # Build a calculator
 
-      ## Open Questions
+      ## 🔘 Which operations?
 
-      ### Which operations?
-
-      add and subtract.
+      - [ ] add
+      - [ ] subtract
       """
     Then the LSP response has no error
-    And the LSP response result contains a symbol named "[unanswered] Which operations?"
+    And the LSP response result contains a symbol named "🔘 Which operations?"
+    And the LSP response result contains a symbol named "add" nested under "🔘 Which operations?"
+
+  @inmem
+  Scenario: a broken widget is a diagnostic
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md" })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → working"
+    And I run the pin beat
+    And an LSP server started in the test project
+    When the LSP client sends an initialize request
+    Then the LSP response has no error
+    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+      """
+      # Build a calculator
+
+      ## ❔ Ship it?
+
+      Yes or no.
+      """
+    Then the LSP client received a textDocument/publishDiagnostics notification for ".gtd/PLAN.md" with exactly one Warning diagnostic containing "needs its checkbox list"
 
   @inmem
   Scenario: gtd.openSteeringFile resolves the current state's steering file and asks the client to show it
@@ -95,12 +106,12 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
       export default async () => {
         await human("idle", { message: "go" })
-        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md" })
       }
       """
-    And a file ".gtd/PLAN.md" with:
+    And a file "NOTE.md" with:
       """
-      the plan under development
+      a note
       """
     And gtd lands "gtd(human): idle → working"
     And I run the pin beat
@@ -124,15 +135,11 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
       export default workflow(async () => {
         await human("idle", { message: "go" })
-        await agent("working", "develop the plan", { file: `.gtd/${settings.planFile}`, mode: "qa" })
+        await agent("working", "develop the plan", { file: `.gtd/${settings.planFile}` })
       }, { defaults })
 
       export const reviewCheck = workflow(async () => {
-        await human("review-check", {
-          file: `.gtd/${settings.planFile}`,
-          mode: "qa",
-          message: "reviewing",
-        })
+        await human("review-check", { file: `.gtd/${settings.planFile}`, message: "reviewing" })
       }, { defaults })
       """
     And I run gtd with args "start reviewCheck --var planFile=OTHER.md"
@@ -145,50 +152,50 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     And the LSP client received a window/showDocument request for ".gtd/OTHER.md"
 
   @inmem
-  Scenario: initialize advertises definition support and a definition on a hunk line jumps into the file
+  Scenario: a definition on a hunk pointer jumps into the file, also when its path has hyphens
     Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "go" })
+        await agent("reviewing", "review it", { file: ".gtd/REVIEW.md" })
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And gtd lands "gtd(human): idle → reviewing"
+    And I run the pin beat
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
     And the LSP response result has a "definitionProvider" capability
-    When the LSP client requests a definition at line 6 in ".gtd/REVIEW.md" containing:
+    When the LSP client requests a definition at line 4 in ".gtd/REVIEW.md" containing:
       """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add calculator
+      ## 🔍 Add budget alerts
 
       - [ ] ./src/calc.ts#1
-      - [x] ./src/calc.ts#5
-        subtract
+      - [ ] ./src/calc.ts#5 — subtract
+      - [ ] ./src/server/email/budget-threshold.ts#31
+      """
+    Then the LSP response has no error
+    And the LSP response result points to "src/server/email/budget-threshold.ts" at line 30
+    When the LSP client requests a definition at line 3 in ".gtd/REVIEW.md" containing:
+      """
+      ## 🔍 Add budget alerts
+
+      - [ ] ./src/calc.ts#1
+      - [ ] ./src/calc.ts#5 — subtract
+      - [ ] ./src/server/email/budget-threshold.ts#31
       """
     Then the LSP response has no error
     And the LSP response result points to "src/calc.ts" at line 4
 
   @inmem
-  Scenario: a definition on a hunk whose path contains hyphens jumps to the file, not a parent folder
-    # Regression: the pointer regex's non-greedy path group split the path at
-    # its first hyphen and called the remainder a note, so the jump landed on
-    # ./src/server/email/budget (a DIRECTORY) at line 0.
-    Given a test project
-    And an LSP server started in the test project
-    When the LSP client sends an initialize request
-    Then the LSP response has no error
-    When the LSP client requests a definition at line 5 in ".gtd/REVIEW.md" containing:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add budget alerts
-
-      - [ ] ./src/server/email/budget-threshold.ts#31
-        non-obvious import
-      """
-    Then the LSP response has no error
-    And the LSP response result points to "src/server/email/budget-threshold.ts" at line 30
-
-  @inmem
-  Scenario: a code action is offered on a wrapped option's continuation line, not just its checkbox line
+  Scenario: an option offers to pick it, and the editor jumps into a new annotation
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -196,11 +203,9 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
       export default async () => {
         await human("idle", { message: "go" })
-        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md" })
       }
       """
-    # The LSP knows a steering file's mode from the rest `gtd next --json`
-    # reports, so the process first moves on to the step that declares it.
     And a file "NOTE.md" with:
       """
       a note
@@ -210,175 +215,28 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
-    When the LSP client requests code actions at line 9 in ".gtd/PLAN.md" containing:
+    When the LSP client requests code actions at line 3 in ".gtd/PLAN.md" containing:
       """
-      Build a calculator.
-
-      ## Open Questions
-
-      ### Which API?
+      ## 🔘 Which API?
 
       - [ ] REST
       - [ ] GraphQL
-      - [ ] _your answer_
-        a wrapped continuation of the free-text answer
+      - [ ] ✏️
       """
     Then the LSP response has no error
     And the LSP response result contains a code action titled "gtd: pick this option"
-
-  @inmem
-  Scenario: 'gtd: add a footnote' inserts a marker and a seeded definition; applying the edits shows both
-    Given a test project
-    And an LSP server started in the test project
-    When the LSP client sends an initialize request
-    Then the LSP response has no error
-    When the LSP client requests code actions at line 5 character 22 in ".gtd/REVIEW.md" containing:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add calculator
-
-      - [ ] ./src/calc.ts#1 new add function
-      """
-    Then the LSP response has no error
-    And the LSP response result contains a code action titled "gtd: add a footnote"
-    When the LSP client applies the edits of the code action titled "gtd: add a footnote"
-    Then the applied document contains "[^fn1]new add function"
+    And the LSP response result contains a code action titled "gtd: add an annotation"
+    When the LSP client applies the edits of the code action titled "gtd: pick this option"
+    Then the applied document contains "- [x] GraphQL"
+    When the LSP client applies the edits of the code action titled "gtd: add an annotation"
+    Then the applied document contains "- [ ] GraphQL[^fn1]"
     And the applied document matches "^\[\^fn1\]:$"
+    When the LSP client executes the command of the code action titled "gtd: add an annotation"
+    Then the LSP response has no error
+    And the LSP client received a window/showDocument request for ".gtd/PLAN.md" with a selection at line 6 character 7, taking focus
 
   @inmem
-  Scenario: gtd.revealPosition jumps the client to the end of the new footnote definition's line, independent of the edits standing on their own
-    Given a test project
-    And an LSP server started in the test project
-    When the LSP client sends an initialize request
-    Then the LSP response has no error
-    When the LSP client requests code actions at line 5 character 22 in ".gtd/REVIEW.md" containing:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add calculator
-
-      - [ ] ./src/calc.ts#1 new add function
-      """
-    Then the LSP response has no error
-    And the LSP response result contains a code action titled "gtd: add a footnote"
-    When the LSP client applies the edits of the code action titled "gtd: add a footnote"
-    Then the applied document contains "[^fn1]new add function"
-    And the applied document matches "^\[\^fn1\]:$"
-    When the LSP client executes the command of the code action titled "gtd: add a footnote"
-    Then the LSP response has no error
-    And the LSP client received a window/showDocument request for ".gtd/REVIEW.md" with a selection at line 6 character 7, taking focus
-
-  @inmem
-  Scenario: a footnote thread appears in the outline with its waiting-on detail
-    Given a test project
-    And an LSP server started in the test project
-    When the LSP client sends an initialize request
-    Then the LSP response has no error
-    When the LSP client requests document symbols for ".gtd/REVIEW.md" containing:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add calculator
-
-      - [ ] ./src/calc.ts#1-3 new add function[^t1]
-
-      [^t1]:
-          - H: why a new function?
-          - A: the old one was private
-      """
-    Then the LSP response has no error
-    And the LSP response result contains a symbol named "[^t1]" with detail "waiting on you"
-
-  @inmem
-  Scenario: an open thread is flagged with an Information diagnostic
-    Given a test project
-    And an LSP server started in the test project
-    When the LSP client sends an initialize request
-    Then the LSP response has no error
-    When the LSP client requests document symbols for ".gtd/REVIEW.md" containing:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add calculator
-
-      - [ ] ./src/calc.ts#1-3 new add function[^t1]
-
-      [^t1]:
-          - H: why a new function?
-          - A: the old one was private
-      """
-    Then the LSP response has no error
-    And the LSP client received a textDocument/publishDiagnostics notification for ".gtd/REVIEW.md" with exactly one Information diagnostic containing "waiting on you"
-
-  @inmem
-  Scenario: 'gtd: reply' appends an empty H entry and the cursor lands right after it
-    Given a test project
-    And an LSP server started in the test project
-    When the LSP client sends an initialize request
-    Then the LSP response has no error
-    When the LSP client requests code actions at line 7 character 2 in ".gtd/REVIEW.md" containing:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add calculator
-
-      - [ ] ./src/calc.ts#1-3 new add function[^t1]
-
-      [^t1]:
-          - H: why a new function?
-          - A: the old one was private
-      """
-    Then the LSP response has no error
-    And the LSP response result contains a code action titled "gtd: reply"
-    When the LSP client applies the edits of the code action titled "gtd: reply"
-    Then the applied document matches "^    - H: $"
-    When the LSP client executes the command of the code action titled "gtd: reply"
-    Then the LSP response has no error
-    And the LSP client received a window/showDocument request for ".gtd/REVIEW.md" with a selection at line 10 character 9, taking focus
-
-  @inmem
-  Scenario: a textDocument/definition round trip jumps marker to definition, then definition back to the marker's exact column
-    Given a test project
-    And an LSP server started in the test project
-    When the LSP client sends an initialize request
-    Then the LSP response has no error
-    When the LSP client requests a definition at line 5 character 39 in ".gtd/REVIEW.md" containing:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add calculator
-
-      - [ ] ./src/calc.ts#1 new add function[^fn1]
-
-      [^fn1]:
-          the reason
-      """
-    Then the LSP response has no error
-    And the LSP response result points to ".gtd/REVIEW.md" at line 7
-    When the LSP client requests a definition at line 7 character 0 in ".gtd/REVIEW.md" containing:
-      """
-      # Review: abc1234
-      <!-- base: abc1234def5678901234567890123456789abcd -->
-
-      ## Add calculator
-
-      - [ ] ./src/calc.ts#1 new add function[^fn1]
-
-      [^fn1]:
-          the reason
-      """
-    Then the LSP response has no error
-    And the LSP response result points to ".gtd/REVIEW.md" at line 5 character 38
-
-  @inmem
-  Scenario: a marker in a qa file jumps to its definition — proving qa now serves pointerAt
+  Scenario: a definition round trip jumps from an annotation's marker to its note and back
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -386,95 +244,7 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
 
       export default async () => {
         await human("idle", { message: "go" })
-        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
-      }
-      """
-    # The LSP knows a steering file's mode from the rest `gtd next --json`
-    # reports, so the process first moves on to the step that declares it.
-    And a file "NOTE.md" with:
-      """
-      a note
-      """
-    And gtd lands "gtd(human): idle → working"
-    And I run the pin beat
-    And an LSP server started in the test project
-    When the LSP client sends an initialize request
-    Then the LSP response has no error
-    When the LSP client requests a definition at line 6 character 9 in ".gtd/PLAN.md" containing:
-      """
-      Build a calculator.
-
-      ## Open Questions
-
-      ### Which operations?
-
-      - [ ] add[^fn1]
-      - [ ] subtract
-      - [ ] _your answer_
-
-      [^fn1]:
-          why add is an option
-      """
-    Then the LSP response has no error
-    And the LSP response result points to ".gtd/PLAN.md" at line 10
-
-  @inmem
-  Scenario: a landing that moves HEAD is reflected on the very next request, without a server restart
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "go" })
-        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
-      }
-      """
-    And an LSP server started in the test project
-    When the LSP client sends an initialize request
-    Then the LSP response has no error
-    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
-      """
-      Build a calculator.
-
-      ## Open Questions
-
-      ### Which operations?
-
-      add and subtract.
-      """
-    Then the LSP response has no error
-    And the LSP response result is an empty symbol list
-    # Moves HEAD from OUTSIDE the running LSP session — no restart follows.
-    Given a file "NOTE.md" with:
-      """
-      a note
-      """
-    And gtd lands "gtd(human): idle → working"
-    And I run the pin beat
-    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
-      """
-      Build a calculator.
-
-      ## Open Questions
-
-      ### Which operations?
-
-      add and subtract.
-      """
-    Then the LSP response has no error
-    And the LSP response result contains a symbol named "[unanswered] Which operations?"
-
-  @inmem
-  Scenario: a thread in a qa document is a symbol nested under its question, waiting on you
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "go" })
-        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
+        await agent("working", "develop the plan", { file: ".gtd/PLAN.md" })
       }
       """
     And a file "NOTE.md" with:
@@ -486,106 +256,23 @@ Feature: gtd lsp — the steering-file LSP server (stdio)
     And an LSP server started in the test project
     When the LSP client sends an initialize request
     Then the LSP response has no error
-    When the LSP client requests document symbols for ".gtd/PLAN.md" containing:
+    When the LSP client requests a definition at line 2 character 15 in ".gtd/PLAN.md" containing:
       """
-      Build a calculator.
+      # Plan
 
-      ## Open Questions
+      Add a function[^fn1] to the calculator.
 
-      ### Which API?[^t1]
-
-      - [ ] REST
-      - [ ] GraphQL
-      - [ ] _your answer_
-
-      [^t1]:
-          - H: why GraphQL?
-          - A: it is typed
+      [^fn1]: Why a new one?
       """
     Then the LSP response has no error
-    And the LSP response result contains a symbol named "[^t1]" nested under "Which API?"
-    And the LSP response result contains a symbol named "[^t1]" with detail "waiting on you"
-
-  @inmem
-  Scenario: 'gtd: reply' on a qa thread's definition inserts an empty H entry and reveals right after it
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
+    And the LSP response result points to ".gtd/PLAN.md" at line 4
+    When the LSP client requests a definition at line 4 character 0 in ".gtd/PLAN.md" containing:
       """
-      import { agent, human } from "@pmelab/gtd/flows"
+      # Plan
 
-      export default async () => {
-        await human("idle", { message: "go" })
-        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
-      }
-      """
-    And a file "NOTE.md" with:
-      """
-      a note
-      """
-    And gtd lands "gtd(human): idle → working"
-    And I run the pin beat
-    And an LSP server started in the test project
-    When the LSP client sends an initialize request
-    Then the LSP response has no error
-    When the LSP client requests code actions at line 10 character 2 in ".gtd/PLAN.md" containing:
-      """
-      Build a calculator.
+      Add a function[^fn1] to the calculator.
 
-      ## Open Questions
-
-      ### Which API?[^t1]
-
-      - [ ] REST
-      - [ ] GraphQL
-      - [ ] _your answer_
-
-      [^t1]:
-          - H: why GraphQL?
-          - A: it is typed
+      [^fn1]: Why a new one?
       """
     Then the LSP response has no error
-    And the LSP response result contains a code action titled "gtd: reply"
-    When the LSP client applies the edits of the code action titled "gtd: reply"
-    Then the applied document matches "^    - H: $"
-    When the LSP client executes the command of the code action titled "gtd: reply"
-    Then the LSP response has no error
-    And the LSP client received a window/showDocument request for ".gtd/PLAN.md" with a selection at line 13 character 9, taking focus
-
-  @inmem
-  Scenario: 'gtd: reply' is not offered on a qa thread waiting on the agent
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { agent, human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "go" })
-        await agent("working", "develop the plan", { file: ".gtd/PLAN.md", mode: "qa" })
-      }
-      """
-    And a file "NOTE.md" with:
-      """
-      a note
-      """
-    And gtd lands "gtd(human): idle → working"
-    And I run the pin beat
-    And an LSP server started in the test project
-    When the LSP client sends an initialize request
-    Then the LSP response has no error
-    When the LSP client requests code actions at line 10 character 2 in ".gtd/PLAN.md" containing:
-      """
-      Build a calculator.
-
-      ## Open Questions
-
-      ### Which API?[^t1]
-
-      - [ ] REST
-      - [ ] GraphQL
-      - [ ] _your answer_
-
-      [^t1]:
-          - H: why GraphQL?
-      """
-    Then the LSP response has no error
-    And the LSP response result contains no code action titled "gtd: reply"
+    And the LSP response result points to ".gtd/PLAN.md" at line 2 character 14

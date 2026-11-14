@@ -24,8 +24,8 @@ Feature: CLI help and messages — point at the fix, not just the failure
     Given a test project
     When I run gtd with args "check -h"
     Then it succeeds
-    And stdout contains "Usage: gtd check <mode> <file> [options]"
-    And stdout contains "--open-questions"
+    And stdout contains "Usage: gtd check <file> [options]"
+    And stdout contains "--write"
 
   Scenario: bare gtd prints a short usage and points at gtd help
     Given a test project

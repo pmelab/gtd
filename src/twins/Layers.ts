@@ -256,8 +256,8 @@ export const ambientFlagEnv = (
   )
 
 /** Where the in-memory host's scratch files go when `TMPDIR` is unset. */
-export const IN_MEMORY_SCRATCH = "/scratch"
-export const IN_MEMORY_PID = 4242
+const IN_MEMORY_SCRATCH = "/scratch"
+const IN_MEMORY_PID = 4242
 
 /**
  * The in-memory `Host`: nothing read off the real process or `node:os`.

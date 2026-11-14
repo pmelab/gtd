@@ -13,9 +13,6 @@ export type ContentKind = "script" | "prompt" | "message"
 /** What a pin or unpin beat does to the pin; a driver may do it its own way instead of running the script. */
 export type PinMark = "add" | "remove"
 
-/** The name of a steering-file mode. Not a closed vocabulary: the valid set derives from the active definition (`BUILT_IN_MODES` plus whatever `modes:` declares). */
-export type StateMode = string
-
 /** One model's summed token cost — the shape `gtd summary`'s template iterates as `it.processCostByModel`, and `gtd next --json`'s `costByModel` entries. */
 export interface ModelCost {
   readonly model: string
@@ -50,7 +47,6 @@ export interface RenderedDemandSource {
   readonly label?: string
   readonly memory?: string
   readonly file?: string
-  readonly mode?: StateMode
   readonly judge?: string
   readonly skills?: readonly string[]
   readonly access?: StepAccess

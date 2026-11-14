@@ -236,20 +236,20 @@ falls back to the `gtd` on your `PATH`.
   time as Claude Code's question dialog (herdr marks the pane as waiting on you,
   and Collie shows tappable answers) and records each answer in the steering
   file the way the message describes. It answers your own questions read-only,
-  and offers to file one as a thread for gtd's agent when the answer should
-  change the plan. At a review gate it walks you through the diff and records
-  your notes. At an undecided judge gate it puts each judge question to you. A
-  stop you asked for (`/gtd stop`, a hand-off) wakes nothing.
+  and offers to record one as an annotation for gtd's agent when the answer
+  should change the document. For a review checklist it shows you each hunk's
+  diff. At an undecided judge gate it puts each judge question to you. A stop
+  you asked for (`/gtd stop`, a hand-off) wakes nothing.
 - The model moves gtd only through tools the mod serves, never through `gtd`
   itself: `continue` (only after you said to; it refuses once gtd has left that
-  rest, and runs the step's `gtd validate` first, sending any findings back
-  instead of landing), `note`, `handoff` and `browser`. A review gate you leave
-  untouched signs off, from every driver. `handoff` refuses while a step runs
-  and leaves the rest open, so `continue` still works.
+  rest, and checks the step's steering file with `gtd check` first, sending any
+  findings back instead of landing), `note`, `handoff` and `browser`. A review
+  gate you leave untouched signs off, from every driver. `handoff` refuses while
+  a step runs and leaves the rest open, so `continue` still works.
 - While a step runs, the session's model may not edit files (Bash is not
   checked): ask questions and it answers read-only, or ask for a change and it
-  is kept as a note for the next rest. At a question gate it may write only that
-  gate's steering file; at a review gate, code edits count as review feedback.
+  is kept as a note for the next rest. At a gate with a steering file it may
+  write only that file.
 - `gtd ui` starts only on request: ask Claude for the browser view, or run
   `/gtd ui`. Its exit never moves the process on.
 - The band above the prompt keeps a **Continue** button at every rest, which
@@ -268,34 +268,33 @@ falls back to the `gtd` on your `PATH`.
   as it was.
 - `/gtd <door> [args]` starts a process through one of the doors a bare
   `gtd start` lists, runs the script `gtd start <door>` prints, then drives like
-  `/gtd`. Which doors exist is the config's: gtd-workflows' `default` brings
-  `fix`, `review [base]`, and, where the config exports them, `rollout <flag>`
-  and `cleanup <flag>`. `/gtd <verb> …` enters a door only when one by that name
-  exists and the word count fits its args; otherwise the text, bare
-  `/gtd rollout` included, starts a process as requirements.
+  `/gtd`. Which doors exist is the config's. `/gtd <verb> …` enters a door only
+  when one by that name exists and the word count fits its args; otherwise the
+  text, bare `/gtd rollout` included, starts a process as requirements.
 - `/gtd pr` reads the unresolved review threads of the branch's pull request
   (`gh api`, the first 100 threads with up to 50 comments each) and adds each to
-  `.gtd/REVIEW.md` as a note headed `<path>:<line> (thread <id>)`, the comments
-  quoted (code, such as a suggestion, verbatim), ticked "fix as suggested". At a
-  review gate it adds them at once; otherwise it enters the `review` door and
-  adds them at its first review gate (refused while another process is
-  underway). A repository door named `pr` takes precedence. Untick to answer
-  otherwise: "won't fix" needs a reason written after it on the same line
-  (`- [x] won't fix: out of scope`), checked before `continue` lands the gate,
-  or write your own answer. Once the review door has acted on them and rests at
-  a review gate again or finishes, and before it wakes Claude there, the mod
-  replies to each thread — `Fixed in <sha>` naming the ship commit on the branch
-  that carries the fix (the first code change after that gate, outside `.gtd/`;
-  the mod pushes the branch first), your own answer, or `Won't fix: <reason>` —
-  and resolves it. On `gtd/<branch>` a "fix" reply waits for that ship (nothing
-  is sent or pushed meanwhile; `gtd/<branch>` is never pushed), and a process
-  that ends without shipping the fix replies "Fixed as suggested" with no commit
-  link. A failed push replies to nothing; the next review gate, or `/gtd pr` at
-  a review gate or the finished process, retries it, and until then, as while
-  threads still wait for the review door's first review gate, another `/gtd pr`
-  imports nothing. A thread whose reply fails is named and left open. Threads
-  are dropped unanswered when the process ends before a review gate, the branch
-  changes, or the history was reset past the import.
+  `.gtd/REVIEW.md` as a 🔘 widget headed `🔘 <path>:<line> (thread <id>)`, the
+  comments quoted (code, such as a suggestion, verbatim), ticked "fix as
+  suggested". At a review gate it adds them at once; otherwise it enters the
+  `review` door and adds them at its first review gate (refused while another
+  process is underway). A repository door named `pr` takes precedence. Tick
+  another box to answer otherwise: "won't fix" needs a reason written after it
+  on the same line (`- [x] won't fix: out of scope`), checked before `continue`
+  lands the gate, or write your own answer after ✏️. Once the review door has
+  acted on them and rests at a review gate again or finishes, and before it
+  wakes Claude there, the mod replies to each thread — `Fixed in <sha>` naming
+  the ship commit on the branch that carries the fix (the first code change
+  after that gate, outside `.gtd/`; the mod pushes the branch first), your own
+  answer, or `Won't fix: <reason>` — and resolves it. On `gtd/<branch>` a "fix"
+  reply waits for that ship (nothing is sent or pushed meanwhile; `gtd/<branch>`
+  is never pushed), and a process that ends without shipping the fix replies
+  "Fixed as suggested" with no commit link. A failed push replies to nothing;
+  the next review gate, or `/gtd pr` at a review gate or the finished process,
+  retries it, and until then, as while threads still wait for the review door's
+  first review gate, another `/gtd pr` imports nothing. A thread whose reply
+  fails is named and left open. Threads are dropped unanswered when the process
+  ends before a review gate, the branch changes, or the history was reset past
+  the import.
 - `/gtd stop` stops after the current beat. `/gtd status` prints `gtd next`.
   `/gtd ui` starts the browser view of the rest it waits at.
 - `/gtd throw` and its tool (`handoff`) answer at once and run in the
@@ -382,20 +381,19 @@ prints — e.g. the capture-then-pipe form the reference driver below uses, via
 `gtd land --json=script`.
 
 Every script gtd emits — `gtd land --json=script`, `gtd start <name>`,
-`gtd abandon`, `gtd restore`, `gtd repin`, `gtd judge answer --json=script`, and
-the format/validate script `gtd validate` prints — is POSIX `sh`, portable to
-`dash`: a driver may run any of them with any POSIX-compliant shell, not
-specifically bash. The same convention extends to a workflow's test command
-(gtd-workflows' `testCommand`, run through `sh -c`): it is expected to be POSIX
-sh-compatible too, but this is a DOCUMENTED CONVENTION only — gtd never inspects
-or validates its shell dialect.
+`gtd abandon`, `gtd restore`, `gtd repin` and `gtd judge answer --json=script` —
+is POSIX `sh`, portable to `dash`: a driver may run any of them with any
+POSIX-compliant shell, not specifically bash. The same convention extends to a
+workflow's test command (a setting the workflow defines, run through `sh -c`):
+it is expected to be POSIX sh-compatible too, but this is a DOCUMENTED
+CONVENTION only — gtd never inspects or validates its shell dialect.
 
 A `script` beat's content is the whole script, rendered from values the flow
 already decided — checks that run a test command, scripts that reverse-apply
 patches to the working tree, `rm`/`mv` bookkeeping. gtd itself runs none of them
-and writes nothing but `gtd uncheck`'s and `gtd ui`'s steering-file edits; what
-a script leaves is landed like any other check turn, by `gtd land`'s script,
-whatever its exit code.
+and writes nothing but `gtd check --write`'s and `gtd ui`'s steering-file edits;
+what a script leaves is landed like any other check turn, by `gtd land`'s
+script, whatever its exit code.
 
 - **The required half** is everything that decides what lands in git — the
   commit itself (`gtd land`, `gtd start <name>`, and `gtd judge answer`, the
@@ -405,10 +403,8 @@ whatever its exit code.
   landed: a transition or capture's changed-file rows, or the abandon/restore
   prose, resolved from the repository AFTER the write above it. Its own exit
   code IS the printed script's exit code — skipping it means the turn never
-  lands, and you never see what it did. A resting step's own steering-mode
-  `format:`/`validate:` commands are NOT part of this script — they're a
-  separate driver contract via `gtd next --json`'s own `validate` field (see
-  `gtd guide`'s obligation 6).
+  lands, and you never see what it did. A steering file is rewritten in its
+  canonical form (`gtd check --write`) ahead of the commit.
 - **The optional half** is presentation only, wrapped in a subshell whose own
   failure is swallowed (a warning on stderr, nothing more) — skip it (or let it
   fail) and the workflow is still driven correctly either way. No command
@@ -588,16 +584,15 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 27 keys (22 of them outside `kind: "prompt"`, which is
-the only kind that ever carries `session`/`validate`/`skills`/`access`, and
-`pin`, which only a pin or unpin beat carries; `fresh` is on every beat and is
-`null` except on a validator retry); a real driver reads 10 of the 27. The
-minimal driver below is the reference for exactly which: `kind`, `idle`,
-`content`, `log`, `session` (read as its two sub-paths,
-`session.id`/`session.resume`), `model`, `system`, `validate`, `fresh`, and
-`judge` — every `--json=<path>` selector its `case` arms touch. The remaining 17
-(`schema`, `initial`, `state`, `actor`, `workflow`, `label`, `memory`, `file`,
-`mode`, `changes`, `next`, `cost`, `costByModel`, `skills`, `access`,
+`gtd next --json` emits 25 keys (21 of them outside `kind: "prompt"`, which is
+the only kind that ever carries `session`/`skills`/`access`, and `pin`, which
+only a pin or unpin beat carries; `fresh` is on every beat and is `null` except
+on a validator retry); a real driver reads 9 of the 25. The minimal driver below
+is the reference for exactly which: `kind`, `idle`, `content`, `log`, `session`
+(read as its two sub-paths, `session.id`/`session.resume`), `model`, `system`,
+`fresh`, and `judge` — every `--json=<path>` selector its `case` arms touch. The
+remaining 16 (`schema`, `initial`, `state`, `actor`, `workflow`, `label`,
+`memory`, `file`, `changes`, `next`, `cost`, `costByModel`, `skills`, `access`,
 `approvals`, `pin`) are read only by a human looking at plain output, or by a
 driver author deciding what to log or preload — no `case` arm in THIS reference
 driver branches on them. This is a property of what a driver NEEDS, not a
@@ -713,10 +708,9 @@ while :; do
       resume="$(gtd next --json=session.resume)"
       model="$(gtd next --json=model)"
       system="$(gtd next --json=system)"
-      validate="$(gtd next --json=validate)"
       fresh="$(gtd next --json=fresh)"
       log="$(gtd next --json=log)"
-      # `model` is a hint, not a model name — gtd-workflows' default ships
+      # `model` is a hint, not a model name — a workflow may use hints like
       # `smart` and `base`, which `claude --model` rejects. Resolve them
       # from your environment; unset, the hint is dropped and the agent runs
       # its own default. Any other value is a real model name.
@@ -768,16 +762,6 @@ while :; do
         echo "agent turn failed — see $log" >&2
         exit 1
       }
-      n=0
-      while [ -n "${validate:-}" ] && ! fix="$(sh -c "$validate" 2>&1)"; do
-        n=$((n + 1)) && [ "$n" -gt 3 ] && { printf '%s\n' "$fix" >&2; exit 1; }
-        # $fix IS the fix prompt, verbatim.
-        printf '%s' "$fix" >"$log.prompt"
-        turn --resume "$session_id" <"$log.prompt" || {
-          echo "fix turn failed — see $log" >&2
-          exit 1
-        }
-      done
       rm -f "$log.prompt" "$log.fresh" ;;
   esac
 
@@ -819,16 +803,14 @@ the driver falls back to the human hand-off, leaving the gate to you. `capture`
 lands a human's already-made edit outright, no display needed; `script` reads
 its content off `--json=content` (the raw script, not plain `gtd next`'s prose)
 and runs it; `prompt` pipes plain `gtd next`'s own output to the agent over
-stdin, with `session.id`/`session.resume`/`model`/`system`/`validate` read as
-separate `--json=<path>` calls — `model` resolved from a hint to a real model
-name first — and mapped onto the agent's session flags — trying `resume`'s
-hinted flag first and falling back to the other on failure, since the session id
-is derived, not remembered (see [Driving the loop](#driving-the-loop) above) —
-and its own `validate` script's output re-prompted verbatim on failure (the
-driver owns only the retry cap). Every optional value (`model`, `system`,
-`validate`, `session.resume`, `idle`, `settled`) is read into a shell variable
-that command substitution always assigns — even to the empty string when the
-field is absent — so `set -u` never aborts on it; the guards
+stdin, with `session.id`/`session.resume`/`model`/`system` read as separate
+`--json=<path>` calls — `model` resolved from a hint to a real model name first
+— and mapped onto the agent's session flags — trying `resume`'s hinted flag
+first and falling back to the other on failure, since the session id is derived,
+not remembered (see [Driving the loop](#driving-the-loop) above). Every optional
+value (`model`, `system`, `session.resume`, `idle`, `settled`) is read into a
+shell variable that command substitution always assigns — even to the empty
+string when the field is absent — so `set -u` never aborts on it; the guards
 (`${var:-}`/`${var:+...}`) still matter for VALUE, not for `set -u`: an absent
 field prints nothing, so an unguarded `--model "$model"` on an absent field
 would pass `--model ""` and silently override the harness's own default, which
@@ -942,37 +924,16 @@ with only `$PATH` (a shim directory first) and `$HOME` on its process
 environment; a judge-answering driver that needs more than that is, correctly, a
 different paste from the reference one.
 
-### The self-validation gate
+### Steering steps check themselves
 
-After an agent turn at a step that declares `file` and `mode`, run the script:
-either `gtd next --json`'s own embedded `.validate` field (present at every
-`prompt` beat that hands over a validatable file), or, standalone,
-`gtd validate`'s own plain-text output — both resolve the exact same script from
-one shared resolver. This field is now populated even at a FIRST-WRITE beat,
-before the steering file exists at all: the script itself carries a leading
-`[ -f <file> ] || exit 0` guard rather than gtd checking existence ahead of
-time, so a driver's `while [ -n "$validate" ]` repair loop is armed from the
-very first turn at a step, not just the second and later ones. Exit 0 means the
-file is well-formed (or genuinely doesn't exist yet) — proceed to `gtd land`. A
-non-zero exit usually means the script's own captured output IS a complete,
-ready-to-send fix prompt (an instruction plus the findings): send it back to the
-same agent session verbatim, and cap how many fix attempts you allow yourself —
-the driver owns that retry count, not gtd. `gtd land` does NOT re-check for you:
-its emitted script carries no format/validate step of its own, so a steering
-file you never validated lands exactly as written, malformed or not. Running the
-validate script before `gtd land` is the driver's obligation, not gtd's.
-
-A non-zero exit can ALSO mean something the fix loop cannot fix: a mode whose
-`format:` command breaks its own validator, a config bug gtd detects by
-formatting a canonical sample and re-checking it before the real file's own
-findings are ever reported. That message is unmistakably different — it says
-this is a CONFIGURATION BUG, not the steering file, and tells the agent to stop
-and end its turn rather than edit anything. gtd's exit-code contract stays
-closed at five numbers (below), so nothing distinguishes the two cases at the
-process level — a driver's fix loop is still the CORRECT thing to run in both
-cases, it just can never win a contradiction: its 3-attempt cap is what ends
-one, not a fix. Reading the message text before re-prompting is what keeps an
-agent from thrashing on a document it cannot fix.
+At an agent step that declares a steering file, gtd checks the turn itself once
+it lands: the file must exist and hold well-formed widgets, with no annotation
+left and nothing else changed (see [Steering files](./steering.md)). A turn that
+fails comes back as the next `prompt` beat at the same step — the findings as
+`content`, the same session to resume, `fresh` carrying the original prompt for
+a driver that lost the session — so a driver needs no repair loop of its own.
+After the workflow's retry cap the process rests at `<step>.invalid` for a
+person.
 
 ### Failure taxonomy and recovery
 
@@ -1035,17 +996,12 @@ do not queue it, store it, or hand it to another worktree.
   scripts (`gtd land`, `gtd start <name>`, `gtd abandon`, `gtd restore`, …) are
   POSIX sh; captured, then piped into it (see
   [Writing your own driver](#writing-your-own-driver) above).
-- **`gtd` on `PATH`** — a mode's seeded `validate:` command (the one gtd fills
-  in for the built-in `qa`/`review`/`findings` formats) is literally the string
-  `gtd check <mode> '<file>'`, invoked by NAME from inside an emitted script,
-  not by absolute path. This is a deliberate trade: a readable, overridable,
-  copy-pasteable command in exchange for depending on shell name resolution at
-  the moment the script runs. The sharp edge: if the `gtd` binary you invoked to
-  GENERATE the script differs from the `gtd` that resolves on `PATH` when the
-  script later RUNS (a locally-built dev binary vs. a globally-installed
-  release, say), you can get version skew between the two — the command that
-  validates may not be the command that decided. Keep the two in sync (one `gtd`
-  on `PATH`, consistently) if you care about that gap.
+- **`gtd` on `PATH`** — a landing script rewrites the steering file with
+  `gtd check --write '<file>'`, invoked by NAME, not by absolute path. If the
+  `gtd` you invoked to GENERATE the script differs from the `gtd` that resolves
+  on `PATH` when the script later RUNS (a locally-built dev binary vs. a
+  globally-installed release, say), the two may format differently. Keep one
+  `gtd` on `PATH`.
 - **`sed` and `awk`** — the paste reads each turn's `total_cost_usd` out of JSON
   with them; both are POSIX.
 - **`GTD_LOOP_MODEL_SMART` / `GTD_LOOP_MODEL_BASE`** (optional) — the real model

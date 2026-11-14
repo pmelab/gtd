@@ -59,21 +59,13 @@ function gate(w: Wake) {
     fence(stop.text),
     "How to help:",
   ]
-  if (stop.mode === "review") {
-    lines.push(
-      `1. Read ${file} and the diff the instructions name. Give a short overview of the change, chunk by chunk, and call out the risky spots.`,
-      `2. Answer the person's questions about the change yourself, read-only. Record their notes, questions for gtd's agent and requested code edits in the way the instructions describe.`,
-      `3. Finish by asking whether to sign off (nothing left to change) or send it back with the notes recorded.`,
-    )
-  } else {
-    lines.push(
-      `1. Read ${file}. Summarise in two or three lines what it decides and what it asks.`,
-      `2. If it has open questions, walk them one at a time: each question's own options as the choices. Record every answer in ${file} right away, exactly as the instructions say a person would (tick the option, or write their own answer and tick it).`,
-      `3. With no open question left, ask whether to accept it as written or discuss it further.`,
-      `4. Answer the person's questions yourself, read-only. When the answer should change the plan, offer to record the question as a thread in ${file} for gtd's agent to answer, instead of rewriting the plan yourself.`,
-      `5. Write only what the instructions let a person write, and only to ${file}.`,
-    )
-  }
+  lines.push(
+    `1. Read ${file}. Summarise in two or three lines what it decides and what it asks.`,
+    `2. Walk its widgets one at a time — a heading opening with 🔘, ☑️, ❔ or 🔍. Put each one's checkboxes to the person as the choices, and record every answer in ${file} right away: tick the box, or write their own answer after ✏️. For a 🔍 checklist, show the diff of each hunk it points at and tick the hunks they have read.`,
+    `3. Answer the person's questions yourself, read-only. When the answer should change the document, offer to record it as a footnote annotation ([^1]) in ${file} for gtd's agent to work in, instead of rewriting it yourself.`,
+    `4. With nothing left to answer, ask whether to accept it as written or send it back with the annotations recorded.`,
+    `5. Write only to ${file}.`,
+  )
   if (w.isRepeat) {
     lines.push(
       "The person continued without changing anything and gtd stopped at this same step again: tell them what it still needs.",

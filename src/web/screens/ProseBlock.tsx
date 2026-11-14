@@ -1,7 +1,5 @@
-import { createContext, useContext, type ReactElement } from "react"
+import type { ReactElement } from "react"
 import type { BlockListItem, SteeringViewNode } from "../../steering/index.js"
-import { withReply } from "../notes.js"
-import { Thread } from "../Thread.js"
 import { Inline } from "./InlineRun.js"
 
 /** The heading tag a `block.heading`'s own `depth` renders as — three buckets covering all six markdown levels, never a literal `h1`..`h6` (this screen's own `h2` already labels "Open Questions"/"Already answered"). */
@@ -11,47 +9,10 @@ const headingTagFor = (depth: number): "h2" | "h3" | "h4" => {
   return "h4"
 }
 
-/** Free-form tick wiring: `pick` is the optimistic picked line of a list group (keyed by its first task item's line); absent context = read-only boxes. */
-interface TickWiring {
-  readonly pick: (groupLine: number) => number | undefined
-  readonly onTick: (groupLine: number, line: number) => void
-}
-export const TickContext = createContext<TickWiring | undefined>(undefined)
-
-/** A task item's box: tappable when tick wiring exists, else read-only. `picked` is the group's optimistic pick. */
-const TaskBox = ({
-  item,
-  groupLine,
-  picked,
-}: {
-  readonly item: BlockListItem
-  readonly groupLine: number | undefined
-  readonly picked: number | undefined
-}) => {
-  const ticks = useContext(TickContext)
-  const on = picked === undefined ? item.checked === true : item.line === picked
-  const line = item.line
-  const tappable = ticks !== undefined && groupLine !== undefined && line !== undefined
-  return (
-    <input
-      type="checkbox"
-      checked={on}
-      readOnly={!tappable}
-      onChange={() => {
-        if (tappable && !on) ticks.onTick(groupLine, line)
-      }}
-      className="mr-2 align-middle"
-    />
-  )
-}
-
-/** A list's pick-one group: its first task item's line, and the optimistic pick there. */
-const useGroupPick = (items: readonly BlockListItem[]) => {
-  const ticks = useContext(TickContext)
-  const groupLine = items.find((i) => i.checked !== undefined && i.line !== undefined)?.line
-  const picked = groupLine === undefined ? undefined : ticks?.pick(groupLine)
-  return { groupLine, picked }
-}
+/** A checkbox in static content: shown, never an input — only a widget's boxes are answers. */
+const TaskBox = ({ item }: { readonly item: BlockListItem }) => (
+  <input type="checkbox" checked={item.checked === true} readOnly className="mr-2 align-middle" />
+)
 
 /** One `list` block's own items, recursively — a nested `items` array renders as a nested `ul`/`ol` inside its parent's `li`. */
 const BlockList = ({
@@ -62,14 +23,11 @@ const BlockList = ({
   readonly ordered: boolean
 }) => {
   const ListTag = ordered ? "ol" : "ul"
-  const { groupLine, picked } = useGroupPick(items)
   return (
     <ListTag className={`m-0 list-outside pl-5 ${ordered ? "list-decimal" : "list-disc"}`}>
       {items.map((item, index) => (
         <li key={index}>
-          {item.checked !== undefined && (
-            <TaskBox item={item} groupLine={groupLine} picked={picked} />
-          )}
+          {item.checked !== undefined && <TaskBox item={item} />}
           <Inline inline={item.inline} fallback={item.text} />
           {item.items !== undefined && <BlockList items={item.items} ordered={ordered} />}
         </li>
@@ -198,14 +156,8 @@ const ProseBlock = ({
 }) => {
   const line = node.anchor.kind === "paragraph" ? node.anchor.line : index
   const override = noteOverrides[line]
-  const thread =
-    node.thread === undefined
-      ? undefined
-      : override === undefined
-        ? node.thread
-        : withReply(node.thread, override)
-  const noteText = thread === undefined ? (override ?? node.note) : undefined
-  const hasNote = thread !== undefined || (noteText !== undefined && noteText.length > 0)
+  const noteText = override ?? node.note
+  const hasNote = noteText !== undefined && noteText.length > 0
   const isCode = node.block?.kind === "code"
   const notable = !isCode && readOnly !== true
   return (
@@ -250,11 +202,6 @@ const ProseBlock = ({
       >
         {!isCode && hasNote && <NoteBadge index={index} />}
         <BlockBody node={node} />
-        {!isCode && thread !== undefined && (
-          <div className="px-3 pb-2">
-            <Thread thread={thread} testId={`paragraph-thread-${index}`} />
-          </div>
-        )}
         {!isCode && noteText !== undefined && noteText.length > 0 && (
           <div data-testid={`paragraph-note-${index}`} className="px-3 pb-2 text-small text-muted">
             {noteText}

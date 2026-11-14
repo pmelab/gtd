@@ -1,35 +1,15 @@
 import { describe, expect, it } from "vitest"
 import { compileConfig } from "./compile.js"
-import { seededValidateCommand } from "./index.js"
 
 const FILE = "/repo/gtd.config.ts"
 
 describe("compileConfig", () => {
-  it("compiles no config export to the built-in modes alone", () => {
+  it("compiles no config export to empty settings", () => {
     expect(compileConfig(undefined, FILE)).toEqual({
-      modes: {
-        qa: { validate: seededValidateCommand("qa") },
-        review: { validate: seededValidateCommand("review") },
-        findings: { validate: seededValidateCommand("findings") },
-      },
       skills: {},
       access: {},
       diagnostics: [],
     })
-  })
-
-  it("layers a mode over a built-in one per half, and adds a new one", () => {
-    const { modes } = compileConfig(
-      { modes: { qa: { format: "fmt" }, adr: { validate: "v" } } },
-      FILE,
-    )
-    expect(modes["qa"]).toEqual({ format: "fmt", validate: seededValidateCommand("qa") })
-    expect(modes["adr"]).toEqual({ validate: "v" })
-  })
-
-  it("keeps a built-in half a mode leaves undefined", () => {
-    const { modes } = compileConfig({ modes: { qa: { format: "fmt", validate: undefined } } }, FILE)
-    expect(modes["qa"]).toEqual({ format: "fmt", validate: seededValidateCommand("qa") })
   })
 
   it("reports every problem at the file, under config, and compiles nothing else", () => {

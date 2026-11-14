@@ -7,18 +7,13 @@ const withExtras = (
   extras: readonly string[],
 ): readonly string[] | null => (globs === undefined ? null : [...new Set([...globs, ...extras])])
 
-/**
- * Fold a step's own paths into a scope's access: each restricted side gets the
- * steering `file`, then the code threads waiting on the agent. An unrestricted
- * side stays `null`.
- */
+/** Fold a step's steering `file` into each restricted side of a scope's access. An unrestricted side stays `null`. */
 export const foldAccess = (
   scopeAccess: ScopeAccess | undefined,
   file: string | undefined,
-  threadPaths: readonly string[],
 ): AccessDef => {
   const access = scopeAccess ?? UNRESTRICTED
-  const extras = [...(file === undefined ? [] : [file]), ...threadPaths]
+  const extras = file === undefined ? [] : [file]
   return { read: withExtras(access.read, extras), write: withExtras(access.write, extras) }
 }
 

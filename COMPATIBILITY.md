@@ -56,14 +56,12 @@ histories written by an older or newer gtd.
 ## Follows package SemVer
 
 - **CLI** — every command (`next`, `land`, `start`, `abandon`, `restore`,
-  `repin`, `validate`, `check`, `uncheck`, `guide`, `bundle`, `summary`, `base`,
-  `strays`, `history list`, `history show`, `history metrics`, `history judges`,
-  `history fetch`, `version`, `help`, `ui`, `lsp`, `judge`, `judge answer`,
-  `judge run`), option and argument in [CLI reference](docs/cli.md) — the bare
-  `gtd start --json` and `gtd history list --json` arrays (bare arrays with no
-  `schema`), and `gtd history show --json`, `gtd history metrics --json`,
-  `gtd history judges --json` and its `--jsonl` lines (no `schema`; not driver
-  documents).
+  `repin`, `check`, `guide`, `bundle`, `summary`, `base`, `strays`,
+  `history list`, `history show`, `history fetch`, `version`, `help`, `ui`,
+  `lsp`, `judge`, `judge answer`, `judge run`), option and argument in
+  [CLI reference](docs/cli.md) — the bare `gtd start --json` and
+  `gtd history list --json` arrays (bare arrays with no `schema`), and
+  `gtd history show --json` (no `schema`; not a driver document).
 - **The error envelope and stream discipline** — `{ "state": "error", … }` on
   stderr with `--json`, stdout byte-empty on failure (`gtd ui` excepted). See
   [Error envelope](docs/cli.md#error-envelope).
@@ -91,10 +89,13 @@ histories written by an older or newer gtd.
   every workflow factory (or call of one) is a workflow, the `default` export is
   the ordinary start, `config` is the repository config, and the options
   `workflow()` and a factory build take (`defaults`, `envDefaults`, `doors`,
-  `base`, `skills`, `access`, `steering`, `summary`) keep their meaning. See
+  `base`, `skills`, `access`, `summary`) keep their meaning. See
   [Shape](docs/configuration.md#shape).
-- **The `config` export** — the keys `defineConfig` accepts (`modes`, `ui`,
-  `skills`, `access`) and their values. See
+- **The steering file format** — the widget syntax, the rules gtd checks a
+  steering file against and its canonical form. See
+  [Steering files](docs/steering.md).
+- **The `config` export** — the keys `defineConfig` accepts (`ui`, `skills`,
+  `access`) and their values. See
   [The `config` export](docs/configuration.md#the-config-export).
 - **Settings** — the `GTD_*` variables gtd itself reads (not `GTD_FLAG_*`, nor a
   `GTD_<NAME>` override of a workflow's setting), how a `flag_<name>` setting a
@@ -122,8 +123,7 @@ Anything not listed above, e.g.:
 
 **Workflows.** gtd ships none. A workflow's names, step names, the order its
 steps are reached in, its settings, doors, prompts and steering files are not
-gtd's public API: they belong to whichever repository the workflow comes from —
-[gtd-workflows](https://github.com/pmelab/gtd-workflows) for `default`. gtd's
+gtd's public API: they belong to the repository that writes the workflow. gtd's
 promise ends at the engine that replays them.
 
 ## Non-goals

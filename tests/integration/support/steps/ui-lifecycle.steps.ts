@@ -7,9 +7,9 @@ import type { GtdWorld } from "../world.js"
 // ── gtd ui's tailscale-serve front door (package 01, `@live` only — see world.ts#spawnGtdUiServeAndHandOff and hooks.ts's fake `tailscale` CLI) ──
 
 When(
-  "I hand off {string} in mode {string} with the text {string} to a spawned gtd ui using tailscale serve on port {int}",
-  async (world: GtdWorld, filePath: string, mode: string, text: string, servePort: number) => {
-    await world.spawnGtdUiServeAndHandOff(servePort, filePath, mode, text)
+  "I hand off {string} with the text {string} to a spawned gtd ui using tailscale serve on port {int}",
+  async (world: GtdWorld, filePath: string, text: string, servePort: number) => {
+    await world.spawnGtdUiServeAndHandOff(servePort, filePath, text)
   },
 )
 
@@ -46,9 +46,9 @@ Given(
 )
 
 When(
-  "I hand off {string} in mode {string} with the text {string} to a spawned gtd ui using tailscale serve on port {int}, falling back after the failed publish",
-  async (world: GtdWorld, filePath: string, mode: string, text: string, servePort: number) => {
-    await world.spawnGtdUiServePublishFailAndHandOff(servePort, filePath, mode, text)
+  "I hand off {string} with the text {string} to a spawned gtd ui using tailscale serve on port {int}, falling back after the failed publish",
+  async (world: GtdWorld, filePath: string, text: string, servePort: number) => {
+    await world.spawnGtdUiServePublishFailAndHandOff(servePort, filePath, text)
   },
 )
 
@@ -62,9 +62,9 @@ Given(
 )
 
 When(
-  "I hand off {string} in mode {string} with the text {string} to a spawned gtd ui using tailscale serve on the default port",
-  async (world: GtdWorld, filePath: string, mode: string, text: string) => {
-    await world.spawnGtdUiServeAndHandOffDefaultPort(filePath, mode, text)
+  "I hand off {string} with the text {string} to a spawned gtd ui using tailscale serve on the default port",
+  async (world: GtdWorld, filePath: string, text: string) => {
+    await world.spawnGtdUiServeAndHandOffDefaultPort(filePath, text)
   },
 )
 
@@ -94,16 +94,9 @@ Then(
 // ── gtd ui's handoff — a real done mutation against a real spawned process (`@live` only, see world.ts#spawnGtdUiAndHandOff) ──
 
 When(
-  "I hand off {string} in mode {string} with the text {string} to a spawned gtd ui",
-  async (world: GtdWorld, filePath: string, mode: string, text: string) => {
-    await world.spawnGtdUiAndHandOff(filePath, mode, text)
-  },
-)
-
-When(
-  "I hand off a note on question {int} of {string} in mode {string} with the text {string} to a spawned gtd ui",
-  async (world: GtdWorld, index: number, filePath: string, mode: string, text: string) => {
-    await world.spawnGtdUiAndHandOff(filePath, mode, text, { kind: "question", index })
+  "I hand off a note on widget {int} of {string} with the text {string} to a spawned gtd ui",
+  async (world: GtdWorld, widget: number, filePath: string, text: string) => {
+    await world.spawnGtdUiAndHandOff(filePath, text, { kind: "question", index: widget - 1 })
   },
 )
 
@@ -122,42 +115,14 @@ When("I hand off with no note to a spawned gtd ui", async (world: GtdWorld) => {
   await world.spawnGtdUiAndHandOffNoNote()
 })
 
-// ── gtd ui's setValue write-through — a real checkbox mutation against a real spawned process (`@live` only, see world.ts#spawnGtdUiAndSetValue) ──
+// ── a free-text answer — a real checkbox+text setValue mutation against a real spawned process ──
 
 When(
-  "I pick option {int} of question {int} in {string} mode {string} via a spawned gtd ui",
-  async (
-    world: GtdWorld,
-    optionIndex: number,
-    questionIndex: number,
-    filePath: string,
-    mode: string,
-  ) => {
+  "I answer option {int} of widget {int} in {string} with the text {string} via a spawned gtd ui",
+  async (world: GtdWorld, option: number, widget: number, filePath: string, text: string) => {
     await world.spawnGtdUiAndSetValue(
       filePath,
-      mode,
-      { kind: "option", questionIndex, index: optionIndex },
-      { checked: true },
-    )
-  },
-)
-
-// ── package 06's own free-text write-through — a real checkbox+text setValue mutation against a real spawned process (`@live` only, see world.ts#spawnGtdUiAndSetValue) ──
-
-When(
-  "I answer option {int} of question {int} in {string} mode {string} with the text {string} via a spawned gtd ui",
-  async (
-    world: GtdWorld,
-    optionIndex: number,
-    questionIndex: number,
-    filePath: string,
-    mode: string,
-    text: string,
-  ) => {
-    await world.spawnGtdUiAndSetValue(
-      filePath,
-      mode,
-      { kind: "option", questionIndex, index: optionIndex },
+      { kind: "option", questionIndex: widget - 1, index: option - 1 },
       { checked: true, text },
     )
   },
@@ -166,9 +131,9 @@ When(
 // ── gtd ui survives a reload then hands off — a real GET reload, then a real done mutation, against a real spawned process (`@live` only, see world.ts#spawnGtdUiReloadThenHandOff) ──
 
 When(
-  "I reload the client of a spawned gtd ui, then hand off {string} in mode {string} with the text {string}",
-  async (world: GtdWorld, filePath: string, mode: string, text: string) => {
-    await world.spawnGtdUiReloadThenHandOff(filePath, mode, text)
+  "I reload the client of a spawned gtd ui, then hand off {string} with the text {string}",
+  async (world: GtdWorld, filePath: string, text: string) => {
+    await world.spawnGtdUiReloadThenHandOff(filePath, text)
   },
 )
 
@@ -188,19 +153,19 @@ Then(
   },
 )
 
-// ── Package 01 Task 10 — the mode-less steering screen's own e2e coverage (`@live` only, see world.ts#spawnGtdUiAndReadView/#spawnGtdUiAndSetValueWithStaleHash/#spawnGtdUiAndWriteTwiceReusingHash) ──
+// ── the steering screen end to end (see world.ts#spawnGtdUiAndReadView/#spawnGtdUiAndSetValueWithStaleHash) ──
 
 When(
   "I hand off {string} with the text {string} to a spawned gtd ui",
   async (world: GtdWorld, filePath: string, text: string) => {
-    await world.spawnGtdUiAndHandOff(filePath, undefined, text)
+    await world.spawnGtdUiAndHandOff(filePath, text)
   },
 )
 
 When(
   "I read the view of {string} via a spawned gtd ui",
   async (world: GtdWorld, filePath: string) => {
-    await world.spawnGtdUiAndReadView(filePath, undefined)
+    await world.spawnGtdUiAndReadView(filePath)
   },
 )
 
@@ -223,7 +188,7 @@ Then(
 
 // ── Package 04 — a review hunk's diff resolution, end to end against a real spawned gtd ui (see world.ts#spawnGtdUiAndResolveDiff) ──
 
-/** Splits a scenario's `"path#start-end"` pointer literal into its path and range, mirroring `review.ts#POINTER_RANGE_RE` closely enough for a test fixture (no note text to strip here). */
+/** Splits a scenario's `"path#start-end"` pointer literal into its path and range. */
 function parsePointerLiteral(pointer: string): {
   path: string
   line: number | undefined
@@ -310,17 +275,16 @@ Then("the diff result is the whole-file banner", (world: GtdWorld) => {
 When(
   "I edit paragraph {int} of {string} with the text {string} via a spawned gtd ui",
   async (world: GtdWorld, line: number, filePath: string, text: string) => {
-    await world.spawnGtdUiAndSetValue(filePath, undefined, { kind: "paragraph", line }, { text })
+    await world.spawnGtdUiAndSetValue(filePath, { kind: "paragraph", line }, { text })
   },
 )
 
 When(
-  "I tick the box on line {int} of {string} via a spawned gtd ui",
-  async (world: GtdWorld, line: number, filePath: string) => {
+  "I pick option {int} of widget {int} in {string} via a spawned gtd ui",
+  async (world: GtdWorld, option: number, widget: number, filePath: string) => {
     await world.spawnGtdUiAndSetValue(
       filePath,
-      undefined,
-      { kind: "paragraph", line },
+      { kind: "option", questionIndex: widget - 1, index: option - 1 },
       { checked: true },
     )
   },
@@ -329,12 +293,7 @@ When(
 When(
   "I attempt to edit paragraph {int} of {string} with the text {string} using a stale token via a spawned gtd ui",
   async (world: GtdWorld, line: number, filePath: string, text: string) => {
-    await world.spawnGtdUiAndSetValueWithStaleHash(
-      filePath,
-      undefined,
-      { kind: "paragraph", line },
-      { text },
-    )
+    await world.spawnGtdUiAndSetValueWithStaleHash(filePath, { kind: "paragraph", line }, { text })
   },
 )
 
@@ -343,7 +302,6 @@ When(
   async (world: GtdWorld, line: number, filePath: string, text: string) => {
     await world.spawnGtdUiAndSetValueAgainstUnreadableFile(
       filePath,
-      undefined,
       { kind: "paragraph", line },
       { text },
     )
@@ -355,32 +313,6 @@ Then("the write is refused with reason {string}", (world: GtdWorld, reason: stri
     world.lastWriteRefusal?.reason,
     reason,
     `expected a writeRefusal with reason "${reason}", got: ${JSON.stringify(world.lastWriteRefusal)}`,
-  )
-})
-
-When(
-  "I write {string} then {string} to paragraph {int} of {string} via a spawned gtd ui, reusing the first write's returned hash",
-  async (
-    world: GtdWorld,
-    firstText: string,
-    secondText: string,
-    line: number,
-    filePath: string,
-  ) => {
-    await world.spawnGtdUiAndWriteTwiceReusingHash(
-      filePath,
-      undefined,
-      { kind: "paragraph", line },
-      firstText,
-      secondText,
-    )
-  },
-)
-
-Then("the second write succeeded", (world: GtdWorld) => {
-  assert.ok(
-    world.formatWriteResult?.secondOk === true,
-    `expected the second write to succeed, got: ${JSON.stringify(world.formatWriteResult)}`,
   )
 })
 

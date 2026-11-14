@@ -21,56 +21,11 @@ export type EmitStep =
       /**
        * Prompt text printed (with the command's captured output) on a
        * non-zero exit before propagating that exit code. Omitted for a step
-       * that should fail raw — e.g. a `format:` command's own broken-tooling
-       * failure, which an agent can't fix by editing the steering file.
+       * that should fail raw.
        */
       readonly onFailure?: string
     }
   | { readonly kind: "outcome"; readonly command: string }
-
-/** Exits 0 when the declared steering file is absent — nothing to format or validate yet. An OR list, not `if`: its left side failing never trips `set -e`. */
-export const fileExistsGuard = (file: string): string => `[ -f ${shellQuote(file)} ] || exit 0`
-
-/** A mode or `ui.format` command finds the file it works on in `$GTD_FILE`. */
-export const withFileVar = (command: string, file: string): string =>
-  `export GTD_FILE=${shellQuote(file)}\n${command}`
-
-const SIMPLE_LEADING_WORD_RE = /^[A-Za-z0-9_./-]+(?=[ \t]|$)/
-const SHELL_METACHARACTER_RE = /[|&;$<>(){}`]/
-// The file variable is an argument, never a second command.
-const FILE_VAR_RE = /"\$GTD_FILE"|"\$\{GTD_FILE\}"|\$GTD_FILE\b|\$\{GTD_FILE\}/g
-
-/** `command` with `file` written in for `$GTD_FILE` — one line an agent can copy, equivalent to running it under `withFileVar`. */
-export const commandForFile = (command: string, file: string): string =>
-  command.replace(FILE_VAR_RE, shellQuote(file))
-
-/**
- * The leading word of a rendered `format:`/`validate:` command, when the
- * command has exactly one unambiguous binary to probe — `undefined` for
- * anything a shell metacharacter could hide a second command behind. A missing
- * guard degrades to a raw exit; a wrong guard would refuse a working command.
- */
-export const extractLeadingBinary = (command: string): string | undefined => {
-  if (command.includes("\n")) return undefined
-  if (SHELL_METACHARACTER_RE.test(command.replace(FILE_VAR_RE, ""))) return undefined
-  const match = SIMPLE_LEADING_WORD_RE.exec(command)
-  return match === null ? undefined : match[0]
-}
-
-/**
- * Names a typo'd or uninstalled binary and the `$PATH` it was looked up on.
- * `$PATH` is a shell word the DRIVER's shell expands at run time, so gtd never
- * resolves it in-process. Exits 127, matching bash's "command not found".
- */
-export const binaryGuard = (binary: string, mode: string, key: "format" | "validate"): string => {
-  const messageQ = shellQuote(`gtd: mode "${mode}": "${key}" command not found: ${binary}`)
-  return [
-    `command -v ${shellQuote(binary)} >/dev/null 2>&1 || {`,
-    `  printf '%s\\n%s\\n' ${messageQ} '$PATH: '"$PATH"`,
-    `  exit 127`,
-    `}`,
-  ].join("\n")
-}
 
 /**
  * Prints `prompt` plus the captured output on a non-zero exit, then propagates

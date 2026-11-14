@@ -11,15 +11,7 @@ import { Context, Deferred, Effect, FileSystem, Layer } from "effect"
 import generatedClientHtml from "./client.generated.html"
 import { readStep, type BeatDeps, type Step, type StepRead } from "./Beat.js"
 import { pickBindHost } from "./Bind.js"
-import {
-  UiError,
-  UiHost,
-  UiShell,
-  UiUsageError,
-  type RunInWorktree,
-  type UiHandler,
-} from "./Ports.js"
-import { withFileVar } from "./Quote.js"
+import { UiError, UiHost, UiShell, UiUsageError, type UiHandler } from "./Ports.js"
 import { resolveDiff, type DiffDeps } from "./Diff.js"
 import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
 import { appRouter, type RouterContext } from "./Router.js"
@@ -37,7 +29,6 @@ export interface UiConfig {
   readonly host?: string | undefined
   readonly cert?: string | undefined
   readonly key?: string | undefined
-  readonly format?: string | undefined
 }
 
 /** Where `gtd ui` prints its URL; `flush` hands it to stdout before the server blocks. */
@@ -372,26 +363,8 @@ export const resolveClientHtml = (
 export type UiRequirements = UiShell | FileSystem.FileSystem | UiListener | UiHost
 
 /**
- * `undefined` when `ui.format` is unset — `writeDeps` must not even carry the
- * field then. Runs through the same `bash -c` spawn a mode's own commands use,
- * so a worktree-local `node_modules/.bin` resolves identically. Never throws:
- * a formatting failure must not refuse or revert the write already on disk.
- */
-export const buildFormatCommand = (
-  format: string | undefined,
-  worktreeRoot: string,
-  run: RunInWorktree,
-): WriteDeps["formatCommand"] => {
-  if (format === undefined) return undefined
-  return async (absPath: string) => {
-    const outcome = await run(worktreeRoot, withFileVar(format, absPath))
-    return { ok: outcome.status === 0, command: format, exitCode: outcome.status }
-  }
-}
-
-/**
- * A rest is renderable iff its ACTOR is human. `mode` is not part of the axis
- * — an unregistered one falls back to free-form. Nor is `kind`: content kind
+ * A rest is renderable iff its ACTOR is human and names a steering file. Not
+ * `kind`: content kind
  * shifts under the human's own editing (a `message` rest turns `capture` the
  * moment the tree is dirtied), so it is the wrong axis whatever the list. Same
  * axis `verifyForWrite` gates writes on, so startup and write agree.
@@ -773,13 +746,11 @@ export const runUiCommand = (
     // reachable by anything on the tailnet.
     const clientHtml = yield* resolveClientHtml(options.dev, runner, fs)
 
-    const formatCommand = buildFormatCommand(config?.format, root, host.run)
     const writeDeps: WriteDeps = {
       headSha: host.headSha,
       actorAt: actorVia(host.run),
       readFile: host.readFile,
       writeFile: host.writeFile,
-      ...(formatCommand !== undefined ? { formatCommand } : {}),
     }
     const diffDeps: DiffDeps = { run: host.run }
     const readDeps: ReadSteeringFileDeps = { headSha: host.headSha, readFile: host.readFile }

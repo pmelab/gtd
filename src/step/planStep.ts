@@ -23,17 +23,9 @@ export type StepOutcome =
       readonly steps: readonly LandStep[]
     }
 
-/**
- * Clear ticks at the human review gate, a tick is read-progress. Keep them when
- * the next step is an agent turn: the agent reads them.
- */
-const uncheckStep = (snapshot: RepoSnapshot, keepTicks: boolean): readonly LandStep[] =>
-  !keepTicks &&
-  snapshot.stepDef.actor === "human" &&
-  snapshot.stepDef.mode === "review" &&
-  snapshot.file !== undefined
-    ? [{ kind: "uncheck", file: snapshot.file }]
-    : []
+/** A steering file lands in its canonical form. */
+const formatStep = (snapshot: RepoSnapshot): readonly LandStep[] =>
+  snapshot.file !== undefined ? [{ kind: "format", file: snapshot.file }] : []
 
 const gitWriteOf = (landing: Extract<Landing, { kind: "commit" }>, message: string): GitWrite => {
   if (landing.ship !== undefined) return { kind: "ship", message, ...landing.ship }
@@ -71,6 +63,7 @@ export const planStep = (
       to: snapshot.state,
       subject: landing.subject,
       steps: [
+        ...formatStep(snapshot),
         { kind: "gitWrite", write: { kind: "commitAll", message } },
         { kind: "outcome", outcome: { kind: "commit", subject: landing.subject } },
       ],
@@ -94,7 +87,7 @@ export const planStep = (
     subject,
     steps: [
       ...writeIf(landing.startBranch, (branch) => ({ kind: "switchBranch", branch })),
-      ...uncheckStep(snapshot, landing.keepTicks === true),
+      ...formatStep(snapshot),
       { kind: "gitWrite", write: gitWriteOf(landing, message) },
       ...writeIf(historyRef, (ref) => ({ kind: "updateRef", ref, target: "HEAD" })),
       ...writeIf(landing.leaveBranch, (branch) => ({ kind: "switchTo", branch })),

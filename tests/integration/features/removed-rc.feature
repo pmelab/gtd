@@ -28,7 +28,7 @@ Feature: a leftover .gtdrc fails loudly
     And stderr contains "vars    → an option of the workflow factory in gtd.config.ts, or `workflow(flow, { defaults })`"
     And stderr contains "env     → an option of the workflow factory in gtd.config.ts, or `workflow(flow, { envDefaults })`"
     And stderr contains "judge   → ~/.config/gtd/judge.json, or GTD_JUDGE_PROVIDER / GTD_JUDGE_MODEL"
-    And stderr contains "modes, ui, skills, access → the `config` export of gtd.config.ts (`defineConfig`)"
+    And stderr contains "ui, skills, access → the `config` export of gtd.config.ts (`defineConfig`)"
     And stderr contains "docs/configuration.md#migrating-from-gtdrc"
 
   @inmem

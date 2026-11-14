@@ -8,10 +8,10 @@ Feature: a repository without a package.json runs its workflows
     And a gtd config file at "gtd.config.ts" with:
       """
       import { agent, human } from "@pmelab/gtd/flows"
-      import { FIX_BOX } from "@pmelab/gtd/steering"
+      import { CUSTOM_ANSWER_EMOJI } from "@pmelab/gtd/steering"
 
       export default async () => {
-        await human("idle", { message: `write NOTE.md to start a process (${FIX_BOX})` })
+        await human("idle", { message: `write NOTE.md to start a process (${CUSTOM_ANSWER_EMOJI})` })
         await agent("working", "develop the note, then sign off")
       }
       """
@@ -55,10 +55,10 @@ Feature: a repository without a package.json runs its workflows
     And a gtd config file at "gtd.config.ts" with:
       """
       import { human } from "@pmelab/gtd/flows"
-      import { FIX_BOX } from "@pmelab/gtd/steering"
+      import { CUSTOM_ANSWER_EMOJI } from "@pmelab/gtd/steering"
 
       export default async () => {
-        await human("idle", { message: `nothing to do (${FIX_BOX})` })
+        await human("idle", { message: `nothing to do (${CUSTOM_ANSWER_EMOJI})` })
       }
       """
     When I run gtd next with "--json"

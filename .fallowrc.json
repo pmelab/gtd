@@ -24,8 +24,6 @@
     // Vitest config for Stryker mutation testing — loaded by Stryker CLI, not imported.
     "vitest.stryker.config.ts",
 
-    // gtd evaluates this repository's own workflows config; nothing imports it.
-    "gtd.config.ts",
     // The Claude Code mod: Claude Code loads it by the path hooks/hooks.json names.
     "claude/hooks/register.tsx",
     // Run by .releaserc.json's prepareCmd, which no package.json script names.
@@ -46,13 +44,7 @@
   // Same for src/ui/Server.ts's `import ... from "./client.generated.html"`: that
   // file is written by scripts/inline-web-client.mjs during `build` and is
   // gitignored, so it is absent on a fresh checkout when `analyze` runs.
-  // gtd.config.ts imports its workflows from a checkout of pmelab/gtd-workflows
-  // pinned on the developer's machine, by absolute path: absent anywhere else.
-  "ignoreUnresolvedImports": [
-    "**/main.css",
-    "**/client.generated.html",
-    "**/gtd/workflows/dist/*.mjs"
-  ],
+  "ignoreUnresolvedImports": ["**/main.css", "**/client.generated.html"],
   // jiti runs the TypeScript scripts package.json names, not a direct import.
   // Stryker packages are CLI tools invoked via npx/scripts, not imported in TypeScript source.
   // react/react-dom/@tanstack/react-query/@trpc/client/@trpc/react-query are imported from

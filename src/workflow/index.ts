@@ -24,17 +24,10 @@ export {
 } from "./vars.js"
 export { resolveScopeAccess, resolveScopeSkills } from "./skills.js"
 export {
-  declaredValidateCommand,
-  seededValidateCommand,
-  isSeededValidateCommand,
-} from "./SteeringFormats.js"
-export {
   type ChangeStatus,
   type PendingChange,
   type StepDef,
   type WorkflowDefinition,
-  knownModes,
-  type StateMode,
   type StateName,
 } from "./Workflow.js"
 export type { ConfigFingerprint } from "./fingerprint.js"

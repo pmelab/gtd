@@ -17,7 +17,6 @@ const fake = (beats: Beat[], landings: Landing[] = [], over: Partial<Io> = {}) =
       return landings.shift() ?? { script: "true" }
     },
     sh: async (script) => (calls.push(`sh:${script}`), 0),
-    check: async () => ({ ok: true, out: "" }),
     judge: async () => undefined,
     turn: async (t) => (calls.push(`turn:${t.memory}:${t.resume}:${t.prompt}`), { ok: true }),
     resume: async (memory, text) => (calls.push(`resume:${memory}:${text}`), { ok: true }),
@@ -43,33 +42,6 @@ describe("drive", () => {
     expect(calls).toEqual(["land", "sh:true"])
   })
 
-  test("runs an agent turn, feeds validation output back to the same scope", async () => {
-    const checks = [
-      { ok: false, out: "fix line 3" },
-      { ok: true, out: "" },
-    ]
-    const { io, calls } = fake(
-      [
-        {
-          kind: "prompt",
-          content: "do it",
-          memory: "build#abc",
-          session: { resume: "true" },
-          validate: "v",
-        },
-      ],
-      [{ script: "commit", settled: true, idle: true }],
-      { check: async () => checks.shift()! },
-    )
-    expect(await drive(io)).toMatchObject({ kind: "done", text: "plain" })
-    expect(calls).toEqual([
-      "turn:build#abc:true:do it",
-      "resume:build#abc:fix line 3",
-      "land",
-      "sh:commit",
-    ])
-  })
-
   test("a retry beat hands the turn its fresh prompt", async () => {
     const turns: Array<{ prompt: string; fresh?: string }> = []
     const { io } = fake(
@@ -89,60 +61,6 @@ describe("drive", () => {
     expect(turns).toEqual([{ prompt: "fix", fresh: "do it\n\nfix" }])
   })
 
-  test("a lost subagent's findings go to a fresh one with the step's prompt", async () => {
-    const checks = [
-      { ok: false, out: "fix line 3" },
-      { ok: true, out: "" },
-    ]
-    const { io, calls } = fake(
-      [{ kind: "prompt", content: "review it", memory: "build.review#abc", validate: "v" }],
-      [{ script: "commit", settled: true, idle: true }],
-      {
-        check: async () => checks.shift()!,
-        resume: async (memory, text) => (
-          calls.push(`resume:${memory}:${text}`),
-          { ok: false, isLost: true, why: `no live subagent for ${memory}` }
-        ),
-      },
-    )
-    expect(await drive(io)).toMatchObject({ kind: "done" })
-    expect(calls).toEqual([
-      "turn:build.review#abc:false:review it",
-      "resume:build.review#abc:fix line 3",
-      `turn:build.review#abc:false:review it\n\n${LOST}\n\nfix line 3`,
-      "land",
-      "sh:commit",
-    ])
-  })
-
-  test("a lost subagent on a beat with a fresh prompt starts from that prompt", async () => {
-    const checks = [
-      { ok: false, out: "fix line 3" },
-      { ok: true, out: "" },
-    ]
-    const turns: Array<{ prompt: string; fresh?: string }> = []
-    const { io } = fake(
-      [{ kind: "prompt", content: "fix", fresh: "do it\n\nfix", memory: "m", validate: "v" }],
-      [{ script: "commit", settled: true, idle: true }],
-      {
-        check: async () => checks.shift()!,
-        turn: async (t) => (turns.push({ prompt: t.prompt, fresh: t.fresh }), { ok: true }),
-        resume: async () => ({ ok: false, isLost: true, why: "no live subagent for m" }),
-      },
-    )
-    await drive(io)
-    expect(turns[1]).toEqual({ prompt: `do it\n\nfix\n\n${LOST}\n\nfix line 3`, fresh: undefined })
-  })
-
-  test("a follow-up that fails for any other reason stops the step", async () => {
-    const { io, calls } = fake([{ kind: "prompt", memory: "m", validate: "v" }], [], {
-      check: async () => ({ ok: false, out: "bad" }),
-      resume: async () => ({ ok: false, why: "agent turn ended: aborted" }),
-    })
-    expect(await drive(io)).toMatchObject({ kind: "error", text: "agent turn ended: aborted" })
-    expect(calls.filter((c) => c.startsWith("turn"))).toHaveLength(1)
-  })
-
   test("a turn carries the beat's skills and the memory scope", async () => {
     const turns: Turn[] = []
     const run = async (skills?: string[]) => {
@@ -157,15 +75,6 @@ describe("drive", () => {
       [["a", "b"], "build"],
       [[], "build"],
     ])
-  })
-
-  test("gives up after three failed fixes", async () => {
-    const { io, calls } = fake([{ kind: "prompt", memory: "m", validate: "v" }], [], {
-      check: async () => ({ ok: false, out: "bad" }),
-    })
-    expect(await drive(io)).toMatchObject({ kind: "error" })
-    expect(calls.filter((c) => c.startsWith("resume"))).toHaveLength(3)
-    expect(calls).not.toContain("land")
   })
 
   test("a failed agent turn lands nothing", async () => {
@@ -222,9 +131,9 @@ describe("drive", () => {
     ])
   })
 
-  test("a gate carries its steering file's mode", async () => {
-    const { io } = fake([{ kind: "capture" }, { kind: "message", file: "R.md", mode: "qa" }])
-    expect(await drive(io)).toMatchObject({ kind: "gate", file: "R.md", mode: "qa" })
+  test("a gate carries its steering file", async () => {
+    const { io } = fake([{ kind: "capture" }, { kind: "message", file: "R.md" }])
+    expect(await drive(io)).toMatchObject({ kind: "gate", file: "R.md" })
   })
 
   test("a failing landing script stops the loop", async () => {
@@ -271,6 +180,20 @@ describe("access refusal", () => {
     expect(turns[0]!.access).toEqual(access)
   })
 
+  test("a steering file makes the turn a steering turn", async () => {
+    const turns: Turn[] = []
+    const { io } = fake(
+      [
+        { kind: "prompt", memory: "m", file: ".gtd/PLAN.md" },
+        { kind: "prompt", memory: "n" },
+      ],
+      [],
+      { turn: async (t) => (turns.push(t), { ok: true }) },
+    )
+    await drive(io)
+    expect(turns.map((t) => t.steering)).toEqual([".gtd/PLAN.md", undefined])
+  })
+
   test("one re-prompt with the refusal text, then a successful land", async () => {
     const { io, calls } = fake([{ kind: "prompt", memory: "m" }], [], { land: refusing(1) })
     expect(await drive(io)).toMatchObject({ kind: "done" })
@@ -282,18 +205,6 @@ describe("access refusal", () => {
     expect(await drive(io)).toMatchObject({ kind: "error" })
     expect(calls.filter((c) => c.startsWith("resume"))).toHaveLength(1)
     expect(calls).not.toContain("sh:commit")
-  })
-
-  test("validate re-runs before the second land", async () => {
-    const order: string[] = []
-    const lands = refusing(1)
-    const { io } = fake([{ kind: "prompt", memory: "m", validate: "v" }], [], {
-      land: async () => (order.push("land"), lands()),
-      check: async () => (order.push("check"), { ok: true, out: "" }),
-      resume: async () => (order.push("resume"), { ok: true }),
-    })
-    await drive(io)
-    expect(order).toEqual(["check", "land", "resume", "check", "land"])
   })
 
   test("a lost subagent's refusal goes to a fresh one", async () => {

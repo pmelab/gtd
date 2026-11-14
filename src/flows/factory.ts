@@ -3,7 +3,6 @@ import type {
   AccessExport,
   Flow,
   SkillsExport,
-  Steering,
   Summary,
   WorkflowBase,
   WorkflowDoors,
@@ -28,8 +27,6 @@ export interface WorkflowBuild {
   readonly skills?: SkillsExport | undefined
   /** This workflow's scope access; a `config.access` entry wins over the same scope here. */
   readonly access?: AccessExport | undefined
-  /** This workflow's steering files, path -> mode. */
-  readonly steering?: Steering | undefined
   /** `gtd summary`'s prompt for this workflow. */
   readonly summary?: Summary | undefined
 }

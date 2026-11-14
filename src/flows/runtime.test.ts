@@ -19,11 +19,8 @@ import {
   type AgentOptions,
   type HumanOptions,
   type Judgment,
-  type DeclaredMode,
-  type ModeName,
   type RunOptions,
   type Settings,
-  type SteeringOptions,
   type StepRequest,
 } from "./runtime.js"
 
@@ -58,11 +55,10 @@ describe("the flows protocol handshake", () => {
     )
   })
 
-  // Must go red once FLOWS_PROTOCOL passes 1: a pre-handshake engine is v1.
-  it("accepts an engine that installs no protocol number", () => {
+  it("refuses an engine that installs no protocol number: it speaks protocol 1", () => {
     delete globals[PROTOCOL_KEY]
     globals[CONTEXT_KEY] = context
-    expect(head()).toBe("h1")
+    expect(() => head()).toThrow(FlowsProtocolError)
   })
 
   it("keeps the outside-a-replay error when nothing is installed", () => {
@@ -89,12 +85,11 @@ describe("mark()", () => {
     ])
   })
 
-  it("throws the upgrade message on a context without mark, protocol still 1", () => {
+  it("throws the upgrade message on a context without mark", () => {
     installContext(context)
     expect(() => mark("a", "b")).toThrow(
       "gtd: mark() needs a newer gtd — upgrade the gtd that runs it",
     )
-    expect(FLOWS_PROTOCOL).toBe(1)
   })
 
   it.each(["", "Risk", "1a", "a_b", "-a", "risk-tier\n"])("rejects the name %j", (name) => {
@@ -136,12 +131,11 @@ describe("kept()", () => {
     expect(kept("other")).toBeUndefined()
   })
 
-  it("throws the upgrade message on a context without kept, protocol still 1", () => {
+  it("throws the upgrade message on a context without kept", () => {
     installContext(context)
     expect(() => kept("naive")).toThrow(
       "gtd: kept() needs a newer gtd — upgrade the gtd that runs it",
     )
-    expect(FLOWS_PROTOCOL).toBe(1)
   })
 })
 
@@ -183,13 +177,11 @@ describe("human()", () => {
 describe("judge()", () => {
   const question = { id: "ok", instructions: "Is it?", criteria: "yes or no" } as const
 
-  it("hands a yesno question on as noul, and passes file, mode and base through", async () => {
+  it("hands a yesno question on as noul, and passes base through", async () => {
     const requests = recording({ answers: {}, truncated: [] })
     await judge("judging", {
       questions: [{ ...question, primitive: "yesno" }],
       evidence: { a: "b" },
-      file: ".gtd/J.md",
-      mode: "qa",
       base: "abc",
       label: "Judging",
     })
@@ -199,7 +191,7 @@ describe("judge()", () => {
         name: "judging",
         questions: [{ ...question, primitive: "noul" }],
         evidence: { a: "b" },
-        options: { file: ".gtd/J.md", mode: "qa", base: "abc", label: "Judging" },
+        options: { base: "abc", label: "Judging" },
       },
     ])
   })
@@ -298,24 +290,14 @@ describe("workflow()", () => {
 
 describe("step options", () => {
   it("reject the combinations replay refuses", () => {
-    expectTypeOf<{ file: ".gtd/A.md"; mode: "qa" }>().toMatchTypeOf<RunOptions>()
-    expectTypeOf<{ file: string | undefined }>().toMatchTypeOf<RunOptions>()
-    // @ts-expect-error -- mode requires file
-    expectTypeOf<{ mode: "qa" }>().toMatchTypeOf<RunOptions>()
+    // @ts-expect-error -- a run step rests on no steering file
+    expectTypeOf<{ file: ".gtd/A.md" }>().toMatchTypeOf<RunOptions>()
+    expectTypeOf<{ file: ".gtd/A.md"; widgets: ["boolean"] }>().toMatchTypeOf<AgentOptions>()
     expectTypeOf<{ approve: true; message: "m" }>().toMatchTypeOf<HumanOptions>()
     // @ts-expect-error -- approve excludes file
     expectTypeOf<{ approve: true; file: ".gtd/A.md" }>().toMatchTypeOf<HumanOptions>()
     expectTypeOf<{ keep: true; allowEmpty: false }>().toMatchTypeOf<AgentOptions>()
     // @ts-expect-error -- keep excludes allowEmpty
     expectTypeOf<{ keep: true; allowEmpty: true }>().toMatchTypeOf<AgentOptions>()
-  })
-})
-
-describe("mode", () => {
-  it("names the built-in modes and still takes any string", () => {
-    expectTypeOf<"qa">().toMatchTypeOf<ModeName>()
-    expectTypeOf<string>().toMatchTypeOf<ModeName>()
-    expectTypeOf<ModeName>().toMatchTypeOf<string>()
-    expectTypeOf<SteeringOptions["mode"]>().toEqualTypeOf<ModeName | DeclaredMode | undefined>()
   })
 })

@@ -40,17 +40,11 @@ for (const key of Object.keys(process.env)) {
     delete process.env[key]
 }
 
-// A seeded steering-mode validate: command (`SteeringFormats.ts`'s
-// `seededValidateCommand`) is the literal template `gtd check <mode> <file>`
-// — readable at the cost of resolving `gtd` by NAME off `$PATH`, rather than
-// by an absolute path. Nothing guarantees a `gtd` on the host's PATH at all
-// (a dev machine may have none), and even if one exists it may be a stale
-// global install — either way, running the seeded command for real against
-// whatever `gtd.bundle.mjs` happens to be on PATH would silently test the
-// wrong binary. This shim makes `gtd` resolve to THIS build's own bundle for
-// the whole live-tier subprocess tree (the spawned gtd process itself, and
-// anything the WORLD shells out to on its behalf — e.g. `sh -c` running a
-// mode's emitted validate: command, since gtd itself never executes one).
+// An emitted landing script calls `gtd check --write <file>` by NAME off
+// `$PATH`. Nothing guarantees a `gtd` on the host's PATH at all, and one that
+// exists may be a stale global install. This shim makes `gtd` resolve to THIS
+// build's own bundle for the whole live-tier subprocess tree (the spawned gtd
+// process itself, and anything the world shells out to on its behalf).
 function createPathShim(): string {
   const dir = mkdtempSync(join(tmpdir(), "gtd-path-shim-"))
   const shim = join(dir, "gtd")

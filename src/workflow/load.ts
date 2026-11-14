@@ -5,7 +5,7 @@ import { accessShapeFault, replay, type TreeView } from "../replay/index.js"
 // The published facade: what a config's `@pmelab/gtd/flows` import is served.
 import * as flows from "../flows/index.js"
 import { configure, isFactoryWorkflow, markedOptions, type OptionIssue } from "../flows/internal.js"
-import type { StateMode, WorkflowDefinition } from "./Workflow.js"
+import type { WorkflowDefinition } from "./Workflow.js"
 import type { Door, Flow, ScopeAccess } from "../flows/index.js"
 import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
 import { compileConfig, type CompiledConfig } from "./compile.js"
@@ -93,7 +93,7 @@ export const refuseLegacyRc: Effect.Effect<void, GtdError, Host | ConfigDiscover
           "    vars    → an option of the workflow factory in gtd.config.ts, or `workflow(flow, { defaults })`",
           "    env     → an option of the workflow factory in gtd.config.ts, or `workflow(flow, { envDefaults })`",
           "    judge   → ~/.config/gtd/judge.json, or GTD_JUDGE_PROVIDER / GTD_JUDGE_MODEL",
-          "    modes, ui, skills, access → the `config` export of gtd.config.ts (`defineConfig`)",
+          "    ui, skills, access → the `config` export of gtd.config.ts (`defineConfig`)",
           "    $schema → nothing; drop it",
           `  see ${MIGRATION_DOC}`,
         ].join("\n"),
@@ -109,7 +109,7 @@ const configModule: Effect.Effect<WorkflowModule, Error, Host | ConfigDiscovery>
     const missing: Diagnostic = {
       severity: "error",
       path: [],
-      message: `no workflows configured: no ${WORKFLOW_MODULE} here or above — gtd ships no workflow; \`gtd guide\` says where to get one`,
+      message: `no workflows configured: no ${WORKFLOW_MODULE} here or above — gtd ships no workflow; write your own — \`gtd guide\` says how`,
       origin: host.root,
     }
     return yield* Effect.fail(configError([missing]))
@@ -171,8 +171,6 @@ export const load: Effect.Effect<
     flow: entry.flow,
     summary: entry.summary,
     base: (w, v) => entry.base?.(w, v),
-    steering: entry.steering as Record<string, StateMode>,
-    modes: compiled.modes,
     skills: entry.skills,
     configuredSkills: compiled.skills,
     access: entry.access,
@@ -246,7 +244,7 @@ interface LoadedFile {
    * Every file bundled evaluating this module — `origin` itself plus every
    * local module it (transitively) imports, in NO particular order. A caller
    * that needs to know when a workflow's DEFINITION might have changed (the
-   * LSP's steering-map memo) must watch this whole set, not just `origin`: a
+   * LSP's memo) must watch this whole set, not just `origin`: a
    * `gtd.config.ts` re-exporting a sibling module is a documented pattern.
    */
   readonly dependencyFiles: readonly string[]
@@ -254,7 +252,7 @@ interface LoadedFile {
 
 /** A startable workflow, built from a factory or a `workflow()` call's options. */
 interface LoadedWorkflow
-  extends Settings, Pick<WorkflowDefinition, "summary" | "steering" | "skills" | "access"> {
+  extends Settings, Pick<WorkflowDefinition, "summary" | "skills" | "access"> {
   readonly flow: Flow
   readonly file: LoadedFile
   readonly doors?: flows.WorkflowDoors | undefined
@@ -357,7 +355,7 @@ const requiredOnUse = (
   })
 }
 
-/** `what` names the value in an error: `workflow "x"'s "steering"`. */
+/** `what` names the value in an error: `workflow "x"'s "defaults"`. */
 const stringRecord = (value: unknown, what: string): Readonly<Record<string, string>> => {
   const record = value ?? {}
   if (
@@ -452,7 +450,10 @@ const retiredExports = (exports: Record<string, unknown>, origin: string): Diagn
       severity: "error",
       path: [name],
       origin,
-      message: `the "${name}" export is no longer read — pass it to the workflow it configures: \`workflow(flow, { ${name} })\`, or the build a workflow factory returns`,
+      message:
+        name === "steering"
+          ? `the "steering" export is no longer read — a step's \`file\` is all gtd needs to know a steering file`
+          : `the "${name}" export is no longer read — pass it to the workflow it configures: \`workflow(flow, { ${name} })\`, or the build a workflow factory returns`,
     }))
 
 /** The rules every declared setting meets. */
@@ -923,7 +924,7 @@ const defaultExport = (exports: Record<string, unknown>): unknown => {
   const value = exports.default
   if (value === undefined) {
     throw new Error(
-      "no default export — export the workflow an ordinary start runs; `gtd guide` says where to get one, or write your own",
+      "no default export — export the workflow an ordinary start runs; write one — `gtd guide` says how",
     )
   }
   if (typeof value !== "function" && !isFactoryWorkflow(value)) {
@@ -959,7 +960,6 @@ const BUILD_KEYS: ReadonlySet<string> = new Set([
   "base",
   "skills",
   "access",
-  "steering",
   "summary",
 ])
 
@@ -992,7 +992,6 @@ const checkedBuild = (
     defaults,
     envDefaults,
     summary: optionalFunction<flows.Summary>(build.summary, what("summary")),
-    steering: stringRecord(build.steering, what("steering")),
     skills: skillsFrom(build.skills, what("skills")),
     access: accessFrom(build.access, what("access")),
     doors: build.doors,

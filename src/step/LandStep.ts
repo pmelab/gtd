@@ -35,14 +35,14 @@ export type Outcome =
  * One step of a landing script, as DATA — no step carries a literal shell
  * string; `GitScript.ts`'s `ScriptSurface` is the only place any of these
  * becomes shell text (and the only place a bare path becomes a quoted
- * argument). `"uncheck"` is the human-review-gate's reset command
- * (`gtd uncheck <file>`, ahead of the commit); `"command"`'s own `command`
+ * argument). `"format"` writes the steering file in its canonical form
+ * ahead of the commit; `"command"`'s own `command`
  * is a driver-facing shell fragment `src/step/` never constructs today (no
  * current emitter produces one) but the shape stays available for a future
  * step that genuinely needs an arbitrary command.
  */
 export type LandStep =
   | { readonly kind: "gitWrite"; readonly write: GitWrite }
-  | { readonly kind: "uncheck"; readonly file: string }
+  | { readonly kind: "format"; readonly file: string }
   | { readonly kind: "command"; readonly command: string; readonly onFailure?: string }
   | { readonly kind: "outcome"; readonly outcome: Outcome }

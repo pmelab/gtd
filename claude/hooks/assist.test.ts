@@ -11,7 +11,6 @@ const qa: Stop = {
   state: "design.gate.answer",
   label: "Awaiting your product answers",
   file: ".gtd/REQUIREMENTS.md",
-  mode: "qa",
 }
 
 describe("which stops wake the model", () => {
@@ -26,24 +25,15 @@ describe("which stops wake the model", () => {
 })
 
 describe("the wake prompt", () => {
-  test("a qa gate carries gtd's message verbatim, the walk, and the rest id", () => {
+  test("a gate carries gtd's message verbatim, the widget walk, and the rest id", () => {
     const p = wakePrompt({ stop: qa, rest: "abc:design" })
     expect(p).toContain("~~~~text\nTick exactly one box per question.\n~~~~")
     expect(p).toContain('"Awaiting your product answers"')
-    expect(p).toContain("walk them one at a time")
+    expect(p).toContain("Walk its widgets one at a time")
+    expect(p).toContain("footnote annotation")
     expect(p).toContain("only to .gtd/REQUIREMENTS.md")
     expect(p).toContain(`call ${TOOL.continue} with rest "abc:design"`)
     expect(p).toContain("explicitly says so")
-  })
-
-  test("a review gate starts with an overview and ends on sign-off or send-back", () => {
-    const p = wakePrompt({
-      stop: { ...qa, mode: "review", file: ".gtd/REVIEW.md" },
-      rest: "r",
-    })
-    expect(p).toContain("chunk by chunk")
-    expect(p).toContain("sign off")
-    expect(p).not.toContain("walk them one at a time")
   })
 
   test("a repeat says gtd is still waiting on the same thing", () => {

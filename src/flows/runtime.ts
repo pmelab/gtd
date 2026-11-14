@@ -5,15 +5,6 @@
 // gtd binary drive the same replay.
 import type { WorkflowBuild } from "./factory.js"
 
-/** A steering-file mode: a built-in format's name or a `config.modes` entry. */
-export type ModeName = "qa" | "review" | "findings" | (string & {})
-
-/** A format declared with `listFormat`/`sectionFormat` from `@pmelab/gtd/steering`, used as a step's mode. */
-export interface DeclaredMode {
-  readonly name: string
-  readonly spec: string
-}
-
 interface SteeringCommon {
   /** Display name for drivers and viewers. */
   readonly label?: string | undefined
@@ -21,20 +12,13 @@ interface SteeringCommon {
   readonly base?: string | undefined
 }
 
-/** A step's steering file: none, or a file with an optional mode. */
-type SteeringFile =
-  | {
-      /** The steering file — a repository path under `.gtd/`. */
-      readonly file?: string | undefined
-      readonly mode?: undefined
-    }
-  | {
-      readonly file: string
-      /** The steering file's mode — a built-in name, a `modes:` entry, or a declared format. Requires `file`. */
-      readonly mode: ModeName | DeclaredMode
-    }
+/** A step's steering file, read as widgets. */
+type SteeringFile = {
+  /** The steering file — a repository path under `.gtd/`. */
+  readonly file?: string | undefined
+}
 
-/** A steering-file declaration shared by the steps that rest on one. `mode` requires `file`. */
+/** A steering-file declaration shared by the steps that rest on one. */
 export type SteeringOptions = SteeringCommon & SteeringFile
 
 /** What a validator is told about the work so far. */
@@ -48,6 +32,10 @@ export type ValidateResult = string | readonly string[] | undefined
 interface AgentCommon {
   readonly model?: string | undefined
   readonly system?: string | undefined
+  /** With `file`: the widget kinds the steering file may hold. Static content is always allowed. */
+  readonly widgets?: readonly WidgetKind[] | undefined
+  /** With `file`: every change since the review base must be listed by a 🔍 widget. */
+  readonly coverage?: boolean | undefined
   /** Runs after each landed turn; errors it returns become the correction the next try gets. Only `check`, `run` and `judge` may run inside. */
   readonly validate?: ((turn: ValidateTurn) => Promise<ValidateResult>) | undefined
   /** Retries before `exhausted` runs. Default 3. */
@@ -96,29 +84,29 @@ export type HumanOptions = HumanCommon &
         /**
          * A sign-off gate: only a clean landing completes it, and that commit
          * carries `Gtd-Approved: {"step":"<step>#<n>","name":"<name>","email":"<email>"}`.
-         * A dirty landing is refused. Implies `acceptClean`. Excludes `mode` and
-         * `file`: an approval records exactly the judged tree.
+         * A dirty landing is refused. Implies `acceptClean`. Excludes `file`:
+         * an approval records exactly the judged tree.
          */
         readonly approve: true
         readonly file?: undefined
-        readonly mode?: undefined
       })
   )
 
-export type RunOptions = SteeringOptions & {
-  /**
-   * `"rest"`: a non-zero exit is recorded in the tree and the process rests at
-   * the step as `stalled`; any tree change runs the script again, and only a
-   * zero exit advances. Without it a failing body lands and the flow carries on.
-   */
-  readonly onFail?: "rest" | undefined
-}
+/** A step that rests on no steering file. */
+type NoSteeringFile = { readonly file?: undefined }
+
+export type RunOptions = SteeringCommon &
+  NoSteeringFile & {
+    /**
+     * `"rest"`: a non-zero exit is recorded in the tree and the process rests at
+     * the step as `stalled`; any tree change runs the script again, and only a
+     * zero exit advances. Without it a failing body lands and the flow carries on.
+     */
+    readonly onFail?: "rest" | undefined
+  }
 
 /** A ship step rests on no steering file. */
-export type ShipOptions = SteeringCommon & {
-  readonly file?: undefined
-  readonly mode?: undefined
-}
+export type ShipOptions = SteeringCommon & NoSteeringFile
 
 export type JudgePrimitive = "noul" | "choice" | "score"
 
@@ -139,13 +127,14 @@ export interface JudgeQuestionInput<Id extends string = string> extends Omit<
 }
 
 export type JudgeSpec<Q extends readonly JudgeQuestionInput[] = readonly JudgeQuestion[]> =
-  SteeringOptions & {
-    readonly questions: Q
-    /** What the judge sees. The `judgeBudgetBytes` budget is split evenly across the keys; a value over its share keeps its end. */
-    readonly evidence: Readonly<Record<string, string>>
-    /** The human-facing message a driver unaware of judge gates shows. */
-    readonly message?: string | undefined
-  }
+  SteeringCommon &
+    NoSteeringFile & {
+      readonly questions: Q
+      /** What the judge sees. The `judgeBudgetBytes` budget is split evenly across the keys; a value over its share keeps its end. */
+      readonly evidence: Readonly<Record<string, string>>
+      /** The human-facing message a driver unaware of judge gates shows. */
+      readonly message?: string | undefined
+    }
 
 /** One recorded answer. A `noul`'s boolean reads as `"yes"`/`"no"`, a `score` as its decimal string. */
 export interface JudgeAnswer {
@@ -193,9 +182,6 @@ export type AccessExport =
 export type SkillsExport =
   | Readonly<Record<string, readonly string[]>>
   | ((vars: Settings) => Readonly<Record<string, readonly string[]>>)
-
-/** A workflow's `steering` option: steering file path -> its mode. */
-export type Steering = Readonly<Record<string, ModeName>>
 
 /** Settings as flow code reads them; `K` narrows to the names a workflow declares. */
 export type Settings<K extends string = string> = Readonly<Record<K, string>>
@@ -246,7 +232,7 @@ export type StepRequest =
       readonly name: string
       readonly questions: readonly JudgeQuestion[]
       readonly evidence: Readonly<Record<string, string>>
-      readonly options: SteeringOptions & { readonly message?: string | undefined }
+      readonly options: SteeringCommon & NoSteeringFile & { readonly message?: string | undefined }
     }
   | { readonly kind: "restart" }
 
@@ -265,9 +251,9 @@ export interface FlowContext {
   readonly matches: (path: string, pattern: string) => boolean
   readonly sections: (text: string) => readonly string[]
   readonly sectionBodies: (text: string) => readonly Section[]
-  readonly openQuestions: (text: string) => readonly OpenQuestion[]
-  readonly threads: (text: string) => readonly ThreadInfo[]
-  readonly codeThreads: () => readonly CodeThreadInfo[]
+  readonly widgets: (text: string) => readonly Widget[]
+  /** Everything a steering step's turn must still fix in `file`, as `file:line: message` lines. */
+  readonly steeringFindings: (file: string, options: SteeringCheck) => readonly string[]
   readonly vars: Readonly<Record<string, string>>
   readonly env: Readonly<Record<string, string>>
   readonly head: () => string
@@ -290,7 +276,7 @@ export interface FlowContext {
  * members working or move the context to a new symbol key — pre-handshake
  * facades never read the protocol.
  */
-export const FLOWS_PROTOCOL = 1
+export const FLOWS_PROTOCOL = 2
 
 export class FlowsProtocolError extends Error {
   constructor(engine: number, flows: number) {
@@ -373,6 +359,32 @@ const noteValidatorPaths = (): void => {
 const errorList = (result: ValidateResult): readonly string[] =>
   result === undefined ? [] : typeof result === "string" ? [result] : result
 
+/**
+ * A steering step's own validator, in front of the workflow's: the file must
+ * exist and hold valid widgets, and the turn may change nothing else.
+ */
+const withSteeringCheck = (options: AgentOptions): AgentOptions["validate"] => {
+  const { file, validate } = options
+  if (file === undefined || options.keep === true) return validate
+  return async (turn) => {
+    const others = turn.changes.paths.filter((path) => path !== file)
+    const errors = [
+      ...ctx().steeringFindings(file, {
+        base: options.base,
+        widgets: options.widgets,
+        coverage: options.coverage,
+      }),
+      ...(others.length === 0
+        ? []
+        : [
+            `this step writes only ${file}; undo your changes to ${others.join(", ")} — say what should change in ${file} instead`,
+          ]),
+    ]
+    if (errors.length > 0) return errors
+    return validate === undefined ? undefined : validate(turn)
+  }
+}
+
 /** An agent turn: `prompt` is emitted, the driver lands the diff. */
 export const agent = async (
   name: string,
@@ -381,7 +393,8 @@ export const agent = async (
 ): Promise<void> => {
   noValidatorStep("agent", name)
   const context = ctx()
-  const { validate, cap = DEFAULT_CAP, exhausted, correction } = options
+  const { cap = DEFAULT_CAP, exhausted, correction } = options
+  const validate = withSteeringCheck(options)
   const base = typeof validate === "function" ? context.head() : ""
   await context.step({ kind: "agent", name, prompt, options })
   if (typeof validate !== "function") return
@@ -684,42 +697,80 @@ export interface Section {
 /** The top-level `## ` sections of markdown `text`, each with its own markdown. */
 export const sectionBodies = (text: string): readonly Section[] => ctx().sectionBodies(text)
 
-export interface OpenQuestion {
-  readonly question: string
-  /** The 1-based line of the question's heading. */
+export type WidgetKind =
+  | "review-checklist"
+  | "single-select"
+  | "multi-select"
+  | "boolean"
+  | "static"
+
+interface WidgetBase {
+  readonly title: string
+  /** The 1-based line the widget starts on. */
   readonly line: number
+  /** Labels of the annotations whose markers sit in the widget. */
+  readonly annotations: readonly string[]
+  /** `false` only for a single select with no answer and a review checklist with an unticked hunk. */
+  readonly answered: boolean
 }
 
-export interface ThreadInfo {
-  readonly name: string
-  /** The 1-based line of the thread's `[^name]:` definition. */
-  readonly line: number
-  /** `"human"` means the last entry is the agent's: the thread is open. */
-  readonly waitingOn: "human" | "agent"
-  /** Syntax faults, each already prefixed `Footnote thread "[^name]":`. */
-  readonly faults: readonly string[]
+interface InputWidgetBase extends WidgetBase {
+  /** The markdown between the widget's heading and its checkboxes. */
+  readonly description: string
 }
 
-/** Every `H:`/`A:` thread (a footnote) in `text`. */
-export const threads = (text: string): readonly ThreadInfo[] => ctx().threads(text)
+export interface WidgetChoice {
+  readonly label: string
+  readonly checked: boolean
+}
 
-export interface CodeThreadInfo {
+export interface WidgetCustomAnswer {
+  readonly text: string
+  readonly checked: boolean
+}
+
+export interface WidgetHunk {
+  readonly pointer: string
   readonly path: string
-  /** The 1-based line of the thread's first comment line. */
-  readonly line: number
-  /** `"human"` means the last entry is the agent's: the thread is open. */
-  readonly waitingOn: "human" | "agent"
-  /** The text of the opening `H:` entry. */
-  readonly first: string
-  /** Syntax faults, each already prefixed `Code thread at <path>:<line>:`. */
-  readonly faults: readonly string[]
+  readonly start: number
+  readonly end: number
+  readonly note: string
+  readonly checked: boolean
 }
 
-/** Every `H:`/`A:` thread in line comments of the files changed since the process's diff base. */
-export const codeThreads = (): readonly CodeThreadInfo[] => ctx().codeThreads()
+export type Widget =
+  | (InputWidgetBase & {
+      readonly kind: "single-select" | "multi-select"
+      readonly options: readonly WidgetChoice[]
+      readonly custom?: WidgetCustomAnswer
+    })
+  | (InputWidgetBase & {
+      readonly kind: "boolean"
+      readonly label: string
+      readonly checked: boolean
+    })
+  | (InputWidgetBase & { readonly kind: "review-checklist"; readonly hunks: readonly WidgetHunk[] })
+  | (WidgetBase & { readonly kind: "static"; readonly markdown: string })
 
-/** The qa-format questions in `text` that are still unanswered. */
-export const openQuestions = (text: string): readonly OpenQuestion[] => ctx().openQuestions(text)
+export interface SteeringCheck {
+  readonly base?: string | undefined
+  readonly widgets?: readonly WidgetKind[] | undefined
+  readonly coverage?: boolean | undefined
+}
+
+/** The widgets of steering file `file` in file order; none when it does not exist. */
+export const widgets = (file: string): readonly Widget[] => {
+  const text = ctx().read(file)
+  return text === undefined ? [] : ctx().widgets(text)
+}
+
+/** The widgets a person still has to answer: a single select, a review checklist with an unticked hunk. */
+export const unanswered = (list: readonly Widget[]): readonly Widget[] =>
+  list.filter((w) => !w.answered)
+
+/** The labels of every annotation marker in the widgets. */
+export const annotations = (list: readonly Widget[]): readonly string[] =>
+  list.flatMap((w) => w.annotations)
 
 // ── The workflow ────────────────────────────────────────────────────────────
 

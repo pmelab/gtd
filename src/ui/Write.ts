@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { readFile as readFileFs, mkdir, writeFile as writeFileFs } from "node:fs/promises"
 import { dirname } from "node:path"
 import type { SteeringAnchor, SteeringFormat } from "../steering/index.js"
-import { applySteeringEdits, steeringFormatOrFreeForm } from "../steering/internal.js"
+import { applySteeringEdits, serialize, widgetFormat } from "../steering/internal.js"
 import type { ReadFileResult, RunInWorktree } from "./Ports.js"
 import { resolveWithinRoot } from "./SafePath.js"
 
@@ -18,8 +18,7 @@ export const contentHashOf = (content: string): string =>
  * One distinct value per refusal, never a shared message string, so the phone
  * can render a different sentence for each. `note-collision` stays separate
  * from `anchor-unresolved`: the anchor resolved fine, the derived note id
- * collided. An absent or unregistered `mode` is never a refusal — it resolves
- * to the free-form format, which only ever resolves a `paragraph` anchor.
+ * collided.
  */
 export type WriteRefusalReason =
   | "stale-token"
@@ -35,18 +34,10 @@ export interface WriteRefusal {
   readonly moved?: "sha" | "content-hash"
 }
 
-/** A `ui.format` command that ran but failed — reported so the phone can name it, never turned into a refusal or a revert. */
-export interface WriteFormatNotice {
-  readonly command: string
-  /** `null` when the command's binary couldn't even be spawned — mirrors `Beat.ts#SpawnOutcome.status`'s own convention. */
-  readonly exitCode: number | null
-}
-
 export interface WriteSuccess {
   readonly ok: true
-  /** The hash of the bytes actually on disk AFTER `deps.formatCommand` ran (or of `nextContent` itself when no formatter is configured) — the token a client swaps in for its next write, so its own successful write never invalidates its own compare-and-swap token. */
+  /** The hash of the bytes written — the token a client swaps in for its next write, so its own successful write never invalidates its own compare-and-swap token. */
   readonly contentHash: string
-  readonly formatNotice?: WriteFormatNotice
 }
 
 export type WriteResult = WriteSuccess | WriteRefusal
@@ -59,7 +50,6 @@ export interface WriteNoteRequest {
   readonly expectedHeadSha: string
   /** The token's content-hash half (`contentHashOf` over the file's exact bytes at render time). */
   readonly expectedContentHash: string
-  readonly mode: string | undefined
   readonly anchor: SteeringAnchor
   /** The human's own typed note body — carried verbatim into the new footnote definition by `SteeringFormat.annotate`, never a placeholder. */
   readonly text: string
@@ -77,7 +67,6 @@ export interface WriteValueRequest {
   readonly filePath: string
   readonly expectedHeadSha: string
   readonly expectedContentHash: string
-  readonly mode: string | undefined
   readonly anchor: SteeringAnchor
   readonly checked?: boolean
   readonly text?: string
@@ -97,12 +86,6 @@ export interface WriteDeps {
   /** Tagged `absent`/`unreadable`/`content` — see `ReadFileResult`. Never thrown. */
   readonly readFile: (absPath: string) => Promise<ReadFileResult>
   readonly writeFile: (absPath: string, content: string) => Promise<void>
-  /** `ui.format`'s live spawn, `undefined` exactly when that key is unset. Read only to build a `WriteFormatNotice` — the write has already landed on disk by the time this runs. */
-  readonly formatCommand?: (absPath: string) => Promise<{
-    readonly ok: boolean
-    readonly command: string
-    readonly exitCode: number | null
-  }>
 }
 
 /** Per-path write queues: serializes read-check-apply-write so exactly one of two racing writes applies — the loser re-reads the winner's bytes and correctly refuses as stale. */
@@ -154,36 +137,15 @@ const verifyForWrite = async (
   return { ok: true, content }
 }
 
-/**
- * Runs `deps.formatCommand` after the bytes are on disk, then re-reads so the
- * returned `contentHash` is the POST-format text. A formatter failure becomes
- * a `formatNotice`, never a refusal — the write already succeeded.
- */
+/** Writes the edited file in its canonical form; its hash is the client's next token. */
 const finishWrite = async (
   absPath: string,
-  nextContent: string,
+  edited: string,
   deps: WriteDeps,
 ): Promise<WriteSuccess> => {
-  if (deps.formatCommand === undefined) {
-    return { ok: true, contentHash: contentHashOf(nextContent) }
-  }
-  // Whatever implementation a caller wires in, a throw here must still resolve
-  // as a `formatNotice` — the bytes already landed on disk above.
-  const outcome = await deps.formatCommand(absPath).catch((error: unknown) => ({
-    ok: false as const,
-    command: "<format command threw before naming itself>",
-    exitCode: null,
-    cause: error,
-  }))
-  const reread = await deps.readFile(absPath)
-  const formatted = reread.kind === "content" ? reread.content : nextContent
-  return {
-    ok: true,
-    contentHash: contentHashOf(formatted),
-    ...(outcome.ok
-      ? {}
-      : { formatNotice: { command: outcome.command, exitCode: outcome.exitCode } }),
-  }
+  const nextContent = serialize(edited)
+  await deps.writeFile(absPath, nextContent)
+  return { ok: true, contentHash: contentHashOf(nextContent) }
 }
 
 /** The one place a `SteeringAnnotateResult` refusal becomes a `WriteRefusalReason`. */
@@ -205,13 +167,9 @@ export const writeNote = (request: WriteNoteRequest, deps: WriteDeps): Promise<W
     const verified = await verifyForWrite(request, absPath, deps)
     if (!verified.ok) return verified
 
-    const format = steeringFormatOrFreeForm(request.mode)
-    const annotated = format.annotate(verified.content, request.anchor, request.text)
+    const annotated = widgetFormat.annotate(verified.content, request.anchor, request.text)
     if (!annotated.ok) return annotateRefusal(annotated.reason)
-
-    const nextContent = applySteeringEdits(verified.content, annotated.edits)
-    await deps.writeFile(absPath, nextContent)
-    return finishWrite(absPath, nextContent, deps)
+    return finishWrite(absPath, applySteeringEdits(verified.content, annotated.edits), deps)
   })
 }
 
@@ -223,16 +181,12 @@ export const writeValue = (request: WriteValueRequest, deps: WriteDeps): Promise
     const verified = await verifyForWrite(request, absPath, deps)
     if (!verified.ok) return verified
 
-    const format = steeringFormatOrFreeForm(request.mode)
-    const applied = format.apply(verified.content, request.anchor, {
+    const applied = widgetFormat.apply(verified.content, request.anchor, {
       ...(request.checked !== undefined ? { checked: request.checked } : {}),
       ...(request.text !== undefined ? { text: request.text } : {}),
     })
     if (!applied.ok) return annotateRefusal(applied.reason)
-
-    const nextContent = applySteeringEdits(verified.content, applied.edits)
-    await deps.writeFile(absPath, nextContent)
-    return finishWrite(absPath, nextContent, deps)
+    return finishWrite(absPath, applySteeringEdits(verified.content, applied.edits), deps)
   })
 }
 
@@ -269,7 +223,7 @@ export const liveReadFile = async (absPath: string): Promise<ReadFileResult> => 
 
 /**
  * `mkdir -p` the containing directory first — Task 4's "a missing served
- * file reads as empty" means the FIRST write to a mode-less file can target a
+ * file reads as empty" means the FIRST write to a steering file can target a
  * `.gtd/` that doesn't exist yet in this worktree at all (`Install.ts#`'s own
  * `mkdir -p "$(dirname "$f")"` covers the same class of file for the CLI's
  * own writes); a plain `writeFile` would throw `ENOENT` instead of creating

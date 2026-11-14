@@ -6,8 +6,8 @@ import { describe, expect, it } from "vitest"
  * T6: "no selection gesture is required to place a note" — the honest gate
  * is a source-grep, not a prose comment claiming there's nothing to assert
  * (`NoteSheet.stories.tsx` used to just say so). The sheet opens purely from
- * an `anchor` prop (`Plan.tsx`/`Review.tsx`/`Hunk.tsx` each call `openNoteSheet`
- * with a `SteeringAnchor` they already have), so `window.getSelection()` and
+ * an `anchor` prop (`Document.tsx` opens it with a `SteeringAnchor` it
+ * already has), so `window.getSelection()` and
  * the `Range` API have no reason to appear anywhere in this file OR any of
  * its callers — their presence would mean a selection gesture crept back in.
  */
@@ -16,12 +16,7 @@ const stripComments = (source: string): string =>
   source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/\/\/.*$/gm, "")
 
 describe("NoteSheet.tsx and its callers use no selection gesture", () => {
-  const FILES = [
-    "./NoteSheet.tsx",
-    "./screens/Plan.tsx",
-    "./screens/Review.tsx",
-    "./screens/Hunk.tsx",
-  ]
+  const FILES = ["./NoteSheet.tsx", "./screens/Document.tsx", "./screens/ProseBlock.tsx"]
 
   it("contains no window.getSelection()/Range usage anywhere a note sheet is opened", () => {
     for (const relativePath of FILES) {

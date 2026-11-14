@@ -5,7 +5,6 @@ import {
   agent,
   changes,
   changesSince,
-  codeThreads,
   head,
   human,
   judge,
@@ -17,7 +16,6 @@ import {
   run,
   ship,
   scope,
-  threads,
   type Flow,
   type ScopeAccess,
 } from "../flows/index.js"
@@ -249,102 +247,6 @@ describe("replay", () => {
       }),
       { numRuns: 40 },
     )
-  })
-
-  it("threads() gives a flow each thread's name, 1-based line and waitingOn", async () => {
-    const doc = "a.[^q]\n\n[^q]:\n    - H: why?\n    - A: because\n"
-    const flow = async () => {
-      await human("idle")
-      const open = threads(read("NOTES.md") ?? "").filter((t) => t.waitingOn === "human")
-      await human(
-        open.length === 1 && open[0]!.name === "q" && open[0]!.line === 3 ? "open" : "none",
-      )
-    }
-    const h = new History().land("human", "idle", 1, "open", { "NOTES.md": doc })
-    expect(restName(await replayOf(flow, h))).toBe("open#1")
-  })
-
-  it("threads() carries each thread's own syntax faults, prefixed with its name", async () => {
-    const doc = "a.[^q] b.[^r]\n\n[^q]:\n    - H: why?\n    - H: again\n\n[^r]:\n    - H: ok\n"
-    const flow = async () => {
-      await human("idle")
-      const [q, r] = threads(read("NOTES.md") ?? "")
-      const ok =
-        q!.faults.length === 1 &&
-        q!.faults[0]!.startsWith('Footnote thread "[^q]": two consecutive') &&
-        r!.faults.length === 0
-      await human(ok ? "open" : "none")
-    }
-    const h = new History().land("human", "idle", 1, "open", { "NOTES.md": doc })
-    expect(restName(await replayOf(flow, h))).toBe("open#1")
-  })
-
-  it("codeThreads() returns threads of files changed since the process base only", async () => {
-    const thread = ["// H: why?", "// A: because"].join("\n")
-    const open = ["x", "// H: ask"].join("\n")
-    const flow = async () => {
-      await human("idle")
-      const found = codeThreads()
-      const ok =
-        found.length === 1 &&
-        found[0]!.path === "src/new.ts" &&
-        found[0]!.line === 2 &&
-        found[0]!.first === "ask" &&
-        found[0]!.waitingOn === "agent"
-      await human(ok ? "open" : "none")
-    }
-    const h = new History().land("human", "idle", 1, "open", { "src/new.ts": open })
-    h.files = { ...h.files, "src/old.ts": thread }
-    const episode = h.episode()
-    const withBase: Episode = {
-      ...episode,
-      base: {
-        ...episode.base,
-        tree: treeFromRecord({ "src/old.ts": thread, "src/gone.ts": open }),
-      },
-      commits: [
-        {
-          ...episode.commits[0]!,
-          tree: treeFromRecord({ "src/old.ts": thread, "src/new.ts": open }),
-        },
-      ],
-    }
-    const outcome = await replay({
-      flow,
-      episode: withBase,
-      vars: {},
-      env: {},
-      start: hashOf(0),
-      budgetBytes: 1024,
-    })
-    expect(restName(outcome)).toBe("open#1")
-  })
-
-  it("codeThreads() reaches back to a diff base older than the episode base", async () => {
-    // An entered process: its review base predates the opening commit, which
-    // is the episode base — so the opening commit's own edits still count.
-    const open = ["x", "// H: ask"].join("\n")
-    const flow = async () => {
-      await human("idle")
-      await human(codeThreads().length === 1 ? "open" : "none")
-    }
-    const h = new History()
-    h.files = { "src/a.ts": open }
-    h.land("human", "idle", 1, "open", { "TODO.md": "go" })
-    const episode = h.episode()
-    const outcome = await replay({
-      flow,
-      episode: {
-        ...episode,
-        base: { hash: hashOf(99), tree: treeFromRecord({ "src/a.ts": open }) },
-      },
-      vars: {},
-      env: {},
-      start: hashOf(98),
-      startTree: treeFromRecord({}),
-      budgetBytes: 1024,
-    })
-    expect(restName(outcome)).toBe("open#1")
   })
 
   describe("divergence", () => {
@@ -1017,15 +919,15 @@ describe("replay: access resolution", () => {
     })
   })
 
-  it("reads a scope() access, adding the step's steering file to each restricted side", async () => {
+  it("lets a steering step write its steering file and nothing else", async () => {
     const flow: Flow = async () => {
-      await scope({ name: "a", access: { read: ["docs/**"] } }, async () => {
+      await scope({ name: "a", access: { read: ["docs/**"], write: ["src/**"] } }, async () => {
         await agent("step", "prompt", { file: ".gtd/NOTES.md" })
       })
     }
     expect(await wireAccess(flow)).toEqual({
       read: ["docs/**", ".gtd/NOTES.md"],
-      write: null,
+      write: [".gtd/NOTES.md"],
     })
   })
 
@@ -1082,19 +984,6 @@ describe("replay: access resolution", () => {
     )
   })
 
-  it("adds a code thread waiting on the agent to the restricted sides", async () => {
-    const history = new History().land("human", "idle", 1, "a.step", {
-      "src/a.ts": "const a = 1\n// H: fix this\n",
-    })
-    const flow: Flow = async () => {
-      await human("idle")
-      await scope({ name: "a", access: { write: [] } }, step)
-    }
-    const outcome = await restOf(flow, {}, history)
-    if (outcome.kind !== "rest") throw new Error("expected a rest")
-    expect(outcome.rest.access).toEqual({ read: null, write: ["src/a.ts"] })
-  })
-
   it("runs two scope() calls of one memory scope with different access as two conversations", async () => {
     const flow: Flow = async () => {
       await scope({ name: "a", access: { write: ["one"] } }, () => agent("first", "prompt"))
@@ -1114,7 +1003,10 @@ describe("replay: access resolution", () => {
       })
     }
     const history = new History()
-    history.land("agent", "a.first", 1, "a.second", { "x.txt": "x" })
+    history.land("agent", "a.first", 1, "a.second", {
+      "README.md": "# x\n",
+      ".gtd/ONE.md": "# One\n",
+    })
     const outcome = await restOf(flow, {}, history)
     expect(outcome.kind).toBe("rest")
     if (outcome.kind === "rest") expect(outcome.rest.access?.write).toEqual([".gtd/TWO.md"])
@@ -1182,18 +1074,33 @@ describe("human({ approve })", () => {
     }
   })
 
-  it.each([
-    ["human", async () => human("gate", { mode: "qa" } as never)],
-    ["agent", async () => agent("gate", "p", { mode: "qa" } as never)],
-    ["run", async () => run("gate", "true", { mode: "qa" } as never)],
-  ] as const)("refuses a %s step's mode without a file", async (kind, flow) => {
+  it("refuses the removed mode option as an unknown key", async () => {
+    const flow = async () => agent("gate", "p", { file: ".gtd/A.md", mode: "qa" } as never)
     expect(await replayOf(flow, new History())).toEqual({
       kind: "failed",
-      message: `gtd: step "gate": mode requires file in ${kind}() options — name the steering file the mode checks`,
+      message: 'gtd: step "gate": unknown key(s) mode in agent() options',
     })
   })
 
-  describe("refuses mode and file", () => {
+  it("refuses a steering file on a run step", async () => {
+    const flow = async () => run("gate", "true", { file: ".gtd/A.md" } as never)
+    expect(await replayOf(flow, new History())).toEqual({
+      kind: "failed",
+      message: 'gtd: step "gate": unknown key(s) file in run() options',
+    })
+  })
+
+  it.each([
+    [{ widgets: ["boolean"] }, "widgets and coverage require file in agent() options"],
+    [{ file: ".gtd/A.md", widgets: ["select"] }, "widgets must list widget kinds"],
+    [{ file: ".gtd/A.md", coverage: "yes" }, "coverage must be a boolean in agent() options"],
+  ])("refuses agent options %j", async (options, message) => {
+    const flow = async () => agent("gate", "p", options as never)
+    const outcome = await replayOf(flow, new History())
+    expect(outcome.kind === "failed" && outcome.message).toContain(message)
+  })
+
+  describe("refuses approve with file", () => {
     const tail =
       "in human() options — an approval records exactly the judged tree, and a steering file is rewritten on landing"
     const outcomeOf = async (options: Record<string, unknown>) =>
@@ -1201,23 +1108,22 @@ describe("human({ approve })", () => {
         await human("gate", options as never)
       }, new History())
 
-    it.each([
-      [{ approve: true, mode: "review" }, "mode"],
-      [{ approve: true, file: ".gtd/REVIEW.md" }, "file"],
-      [{ approve: true, mode: "review", file: ".gtd/REVIEW.md" }, "mode, file"],
-    ])("fails on %j naming %s", async (options, keys) => {
-      expect(await outcomeOf(options)).toEqual({
-        kind: "failed",
-        message: `gtd: step "gate": approve cannot be combined with ${keys} ${tail}`,
-      })
-    })
+    it.each([[{ approve: true, file: ".gtd/REVIEW.md" }, "file"]])(
+      "fails on %j naming %s",
+      async (options, keys) => {
+        expect(await outcomeOf(options)).toEqual({
+          kind: "failed",
+          message: `gtd: step "gate": approve cannot be combined with ${keys} ${tail}`,
+        })
+      },
+    )
 
-    it("replays approve with label or base, and approve: false with mode", async () => {
+    it("replays approve with label or base, and approve: false with file", async () => {
       for (const options of [
         { approve: true, label: "x" },
         { approve: true, base: "start" },
-        { approve: false, mode: "review", file: ".gtd/REVIEW.md" },
-        { approve: true, mode: undefined },
+        { approve: false, file: ".gtd/REVIEW.md" },
+        { approve: true, file: undefined },
       ]) {
         expect((await outcomeOf(options)).kind).toBe("rest")
       }

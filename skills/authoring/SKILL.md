@@ -33,52 +33,27 @@ what a driver does.
 state (`gtd next`, `gtd lsp` and `gtd start` included). It is code the user's
 repository runs; write it with the same care as a build script.
 
-## Golden rule: start from an existing workflow, edit incrementally
+## Golden rule: start small, edit incrementally
 
-Do **not** write a workflow from a blank page unless the user wants something
-tiny. gtd ships no workflow; https://github.com/pmelab/gtd-workflows does. Its
-`default` (feature, review, fix, rollout, cleanup) is used from a checkout
-pinned on the machine — `bin/gtd-wf pin` there, then `bin/gtd-wf config default`
-prints a `gtd.config.ts` importing its bundle by absolute path. Every phase and
-single step that bundle is built from is a named export too, so a config can
-import what it keeps and write only what changes. Import phases by name; **never
-`export *` from it** — re-exported option names fail the load:
+gtd ships no workflow: the user's `gtd.config.ts` is the only one. There is no
+`extends`/merge: the innermost `gtd.config.ts` walking up from the current
+directory is the whole workflow. If one already exists, read it and edit it in
+place. Otherwise start from the smallest flow that does the job — a single agent
+step and a human gate — and grow it:
 
 ```ts
-import { start, workflow } from "@pmelab/gtd/flows"
-import {
-  afterTail,
-  buildTail,
-  defaults,
-  envDefaults,
-  feature,
-  skills,
-} from "/home/me/.local/share/gtd/workflows/dist/default.mjs"
+import { agent, human, workflow } from "@pmelab/gtd/flows"
 
-export default feature()
-
-export const hotfix = workflow(
-  async () => afterTail(await buildTail(start(), { fixFirst: true })),
-  { defaults, envDefaults, skills, doors: { hotfix: {} } },
-)
+export default workflow(async () => {
+  await agent("build", "Implement what TASK.md asks for.")
+  await human("approve", "Review the change, then run `gtd land`.", {
+    acceptClean: true,
+  })
+})
 ```
 
-`gtd start hotfix` starts it (the door of the same name too). Use the checkout's
-real path; `gtd-wf status` shows it.
-
-To change a phase itself, read its source in the checkout (`workflows/default/`)
-and either write your own version in `gtd.config.ts`, reusing its single steps,
-or copy the whole workflow in a clone of gtd-workflows
-(`bin/gtd-wf new <name> --from default`) and change it there, with its tests.
-
-There is no `extends`/merge: the innermost `gtd.config.ts` walking up from the
-current directory is the whole workflow. If one already exists, read it and edit
-it in place.
-
-Prefer the workflow's own parts over re-implementing them — `healthy`,
-`escalation`, `gate`, `design`, `seamBuild`, `implement`, `qualityLap`,
-`buildTail`, and single steps like `triage` or `fixCheck`. Their full step names
-are that workflow's versioned API, not gtd's.
+Reach for `@pmelab/gtd/workflow-kit`'s building blocks (`gate`, `healthy`,
+`qualityLap`, …) before re-implementing them.
 
 Make one small change, **verify it loads** (see "Verify"), then make the next. A
 workflow that fails to load breaks every gtd command in the repository.
@@ -155,13 +130,11 @@ copies under the same names.
   the last dot). Rename a step and every process resting on it diverges.
 - An episode ends when the flow returns or calls `restart()`; the next starts at
   the flow's first step on an ordinary start — that step is where a finished
-  process waits (gtd-workflows' default uses `human("idle", …)`).
+  process waits (typically a `human("idle", …)` step).
 - `gtd start <name>` starts a process on the exported workflow `<name>` (an
   unknown name is a usage error), or through a door `<name> [args]`; bare
   `gtd start` lists both. A workflow's `doors` option maps a door name to
-  `{ args?, vars? }`; exporting gtd-workflows' `fix`, `review`, `rollout` and
-  `cleanup` brings `fix`, `review [base]`, `rollout <flag>` and
-  `cleanup <flag>`. A `base: (workflow, vars) => commitish | undefined` option
+  `{ args?, vars? }`. A `base: (workflow, vars) => commitish | undefined` option
   fixes a started process's diff base (blank = default-branch merge-base).
   `--var <name>=<value>` only pins process settings: names the workflow's
   `defaults` declare — never an environment setting.
@@ -235,30 +208,28 @@ workflow.
 
 ## Worked example: add an approval gate before building
 
-In gtd-workflows' default, `planAndBuild` runs the design phase, then
-`buildFeature`: the naive pass and its seam judge, then the implementation (the
-pass itself on `land`), the quality lap and the human review (a review feedback
-lap re-runs design inside `buildFeature` and does not pass it again). Add a
-human sign-off before the first build:
+Given a flow that plans, then builds, add a human sign-off between the two:
 
 ```ts
-const planAndBuild = async (firstBase: string): Promise<void> => {
-  await design(firstBase)
+export default workflow(async () => {
+  await agent("plan", "Write the plan to .gtd/PLAN.md.", {
+    file: ".gtd/PLAN.md",
+  })
   await human("approve-plan", {
     message:
-      "`.gtd/REQUIREMENTS.md` is settled. Edit it to adjust the plan, or change nothing — then run `gtd land` to start building.",
+      "`.gtd/PLAN.md` is ready. Edit it to adjust the plan, or change nothing — then run `gtd land` to start building.",
     label: "Approve the plan",
     acceptClean: true,
   })
-  await buildFeature(firstBase)
-}
+  await agent("build", "Implement .gtd/PLAN.md, then delete it.")
+})
 ```
 
 `acceptClean: true` is what makes an untouched landing approve; without it the
 gate would wait for an edit. `approve-plan` sits in the `root` scope and is a
 new, unique name. Verify: `gtd next` loads without errors, and in a scratch
-repository a landing at `design.gate.answer` now leads to `approve-plan`, and an
-untouched landing there to `seam.naive`.
+repository a landing at `plan` now leads to `approve-plan`, and an untouched
+landing there to `build`.
 
 ## No migration
 
@@ -273,5 +244,4 @@ process before switching to the edited workflow.
 - This skill is versioned in the gtd repository, not auto-installed. When gtd is
   upgraded, re-copy it from the new version's `skills/authoring/SKILL.md`.
 - Where this file and the code disagree, the code wins: the step API's own doc
-  comments in `@pmelab/gtd/flows`, and the workflow's source in its own
-  repository (gtd-workflows' `workflows/default/`).
+  comments in `@pmelab/gtd/flows`.

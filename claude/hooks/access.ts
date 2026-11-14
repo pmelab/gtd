@@ -65,9 +65,9 @@ function searchDenial(raw: unknown, globs: string[] | null, root: string) {
 }
 
 // What the main session may write while gtd drives: nothing while a step runs
-// (gtd commits the tree when it ends), only the steering file at a rest whose
-// mode is `qa`, anything otherwise. A review rest takes code edits as feedback.
-export type MainPhase = { isRunning: boolean; mode?: string; file?: string }
+// (gtd commits the tree when it ends), only the steering file at a person's
+// gate that has one (ADR 0010: the file is the channel), anything otherwise.
+export type MainPhase = { isRunning: boolean; file?: string | undefined }
 
 export const RUNNING_DENIAL =
   "gtd is running a step and commits the working tree when it ends: don't edit files now. Answer read-only, or record the request with mcp__gtd__note for the next step that waits on the person. /gtd stop stops the run."
@@ -81,10 +81,29 @@ export function mainDenial(
   const key = WRITE[tool]
   if (!key) return undefined
   if (phase.isRunning) return RUNNING_DENIAL
-  if (phase.mode !== "qa" || !phase.file) return undefined
+  if (!phase.file) return undefined
   const raw = input[key]
   const rel = typeof raw === "string" ? inRepo(raw, root) : undefined
   return rel === phase.file
     ? undefined
     : `At this step only ${phase.file} may change: record the request there, as the step's instructions say.`
+}
+
+// A shell command that plainly writes: a redirect to a file, an in-place edit,
+// a file-moving tool or a git command that changes the tree. Best effort: `gtd
+// land` refuses whatever slips through.
+const WRITING_SHELL =
+  /(^|[^0-9&])>{1,2}\s*(?!\/dev\/null|&)[^\s]|\b(tee|touch|mv|cp|rm|mkdir|rmdir|ln|truncate|patch)\b|\bsed\s+(-[a-zA-Z]*i|--in-place)|\bperl\s+-[a-zA-Z]*i|\bgit\s+(add|commit|apply|checkout|restore|reset|stash|rm|mv|merge|rebase|cherry-pick)\b/
+
+/** What a steering step's agent may not do: ask in chat, or write through the shell. */
+export function steeringDenial(
+  tool: string,
+  input: Record<string, unknown>,
+  file: string,
+): string | undefined {
+  if (tool === "AskUserQuestion")
+    return `This step talks to the person only through ${file}: put the question there as a widget, and end your turn.`
+  if (tool === "Bash" && typeof input.command === "string" && WRITING_SHELL.test(input.command))
+    return `This step writes only ${file}, and only with Write or Edit: run read-only commands.`
+  return undefined
 }

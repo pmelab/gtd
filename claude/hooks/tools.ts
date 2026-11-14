@@ -61,7 +61,7 @@ export type Proceed = { refuse: string } | { refuse?: undefined; verdict?: strin
 export type ContinueIo = {
   // the rest gtd is at now; undefined when it cannot say
   current(): Promise<string | undefined>
-  // the rest's own `gtd validate` script, run; ok when there is nothing to check
+  // the rest's steering file checked with `gtd check`; ok when there is nothing to check
   validate(): Promise<{ ok: boolean; out: string }>
   judgment(): Promise<Judgment | undefined>
   // a hand-off running or queued: it writes the tree the driver would

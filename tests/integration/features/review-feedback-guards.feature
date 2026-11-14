@@ -13,9 +13,7 @@ Feature: requireProgress — deleting the feedback file without addressing it is
 
       export default async () => {
         await human("idle", { message: "write .gtd/FEEDBACK.md, then run `gtd land`" })
-        await agent("drafting", "address .gtd/FEEDBACK.md, then delete it", {
-          file: ".gtd/FEEDBACK.md",
-        })
+        await agent("drafting", "address .gtd/FEEDBACK.md, then delete it")
         requireProgress(".gtd/FEEDBACK.md")
         await human("done", { message: "feedback addressed" })
       }

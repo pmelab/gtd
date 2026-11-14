@@ -154,7 +154,7 @@ const blockListItemsOf = (
 /** The `title` an empty fenced code block (a `` ``` ``/`` ``` `` pair with nothing between them) falls back to — its real body is `""`, and every node still carries a non-empty title. */
 const EMPTY_CODE_BLOCK_TITLE = "(empty code block)"
 
-/** A `list`'s children with `options.skipListItem` removed. Filtering, never dropping the whole node: `qa`'s option items share a list with ordinary body bullets. */
+/** A `list`'s children with `options.skipListItem` removed. Filtering, never dropping the whole node: a caller's own items can share a list with ordinary bullets. */
 const visibleListItems = (node: List, options?: BlockWalkOptions): readonly ListItem[] =>
   options?.skipListItem
     ? node.children.filter((item) => !options.skipListItem!(item))
@@ -229,21 +229,14 @@ const blockOf = (
 /**
  * Lets a caller narrow the shared walk to its own document shape, so this
  * module hardcodes no format's rules. `skipListItem` matches by NODE
- * IDENTITY, never line arithmetic: `qa`'s option items share a source list
- * with ordinary body bullets, so a partly-filtered list stays in the walk.
+ * IDENTITY, never line arithmetic: a caller's own items can share a source
+ * list with ordinary bullets, so a partly-filtered list stays in the walk.
  */
 export interface BlockWalkOptions {
   readonly skipNode?: (content: string, node: RootContent) => boolean
   readonly skipLine?: (line: number) => boolean
   readonly skipListItem?: (item: ListItem) => boolean
-  /**
-   * Pre-parsed footnotes, for a caller that walks MULTIPLE runs of the SAME
-   * document (`qa.ts`'s one call per question, now one per option too) and
-   * must not pay `parseFootnotes`'s own whole-document walk again for each
-   * one. Absent means "parse it here" — every single-call caller (`review.ts`,
-   * `freeform.ts`, this module's own `blockNodesOf`) still gets that for
-   * free, unchanged.
-   */
+  /** Pre-parsed footnotes, for a caller that walks several runs of the same document; absent means "parse it here". */
   readonly footnotes?: Footnotes
 }
 
@@ -285,7 +278,7 @@ const visibleNodes = (
  * `parseFootnotes(content)` — see its own doc for why a caller walking many
  * runs of one document needs it.
  */
-export const blockNodesOfRun = (
+const blockNodesOfRun = (
   content: string,
   nodes: readonly RootContent[],
   options?: BlockWalkOptions,
@@ -313,8 +306,7 @@ export const blockNodesOf = (
 /**
  * A run of sibling nodes' own inline structure, flattened and joined exactly
  * the way `blockTitle`/`childrenText` flatten the SAME run into one string —
- * a caller's `detailInline` (`review.ts`'s chunk, `qa.ts`'s question)
- * builds this over the same node run its own `detail` string is built over,
+ * a caller's `detailInline` builds this over the same node run its own `detail` string is built over,
  * with the SAME `options` (so a skipped node/line/list-item is skipped in
  * both). Never itself collapses an image to alt text — a caller wanting the
  * compact-row rule (R2) applies `Inline.ts#collapseImages` to the result.

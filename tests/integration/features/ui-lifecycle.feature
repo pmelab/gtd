@@ -18,7 +18,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        await human("working", { file: ".gtd/PLAN.md", message: "answer the plan" })
       }
       """
     And a file "NOTE.md" with:
@@ -46,7 +46,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        await human("working", { file: ".gtd/PLAN.md", message: "answer the plan" })
       }
       """
     And a file "NOTE.md" with:
@@ -84,7 +84,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        await human("working", { file: ".gtd/PLAN.md", message: "answer the plan" })
       }
       """
     And a file "NOTE.md" with:
@@ -113,7 +113,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        await human("working", { file: ".gtd/PLAN.md", message: "answer the plan" })
       }
       """
     And a file "NOTE.md" with:
@@ -142,7 +142,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        await human("working", { file: ".gtd/PLAN.md", message: "answer the plan" })
       }
       """
     And a file "NOTE.md" with:
@@ -160,7 +160,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
       """
     # A real `done` mutation over a real tRPC round trip, then a `step`
     # query proving the server still answers.
-    When I hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back" to a spawned gtd ui
+    When I hand off ".gtd/PLAN.md" with the text "handed back" to a spawned gtd ui
     Then gtd ui is still serving after done
     And the file ".gtd/PLAN.md" contains "handed back"
 
@@ -173,7 +173,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        await human("working", { file: ".gtd/PLAN.md", message: "answer the plan" })
       }
       """
     And a file "NOTE.md" with:
@@ -202,7 +202,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("working", { file: ".gtd/REVIEW.md", mode: "review", message: "review it" })
+        await human("working", { file: ".gtd/REVIEW.md", message: "review it" })
       }
       """
     And a file "NOTE.md" with:
@@ -214,13 +214,11 @@ Feature: gtd ui's process lifecycle — one worktree, one step
     And I run the pin beat
     And a file ".gtd/REVIEW.md" with:
       """
-      # Review: abc1234
+      ## 🔍 calc
 
-      <!-- base: 0000000 -->
-
-      ## calc
-      - [ ] ./src/calc.ts#1
       new add function
+
+      - [ ] ./src/calc.ts#1-1
       """
     When I hand off with no note to a spawned gtd ui
     Then gtd ui is still serving after done
@@ -246,7 +244,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        await human("working", { file: ".gtd/PLAN.md", message: "answer the plan" })
       }
       """
     And a file "NOTE.md" with:
@@ -262,7 +260,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       Paragraph two here.
       """
-    When I hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back" to a spawned gtd ui using tailscale serve on port 18443
+    When I hand off ".gtd/PLAN.md" with the text "handed back" to a spawned gtd ui using tailscale serve on port 18443
     Then gtd ui is still serving after done
     And the file ".gtd/PLAN.md" contains "handed back"
     And no tailscale serve mapping or ownership record survives on port 18443
@@ -288,7 +286,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        await human("working", { file: ".gtd/PLAN.md", message: "answer the plan" })
       }
 
       export const config = {
@@ -313,7 +311,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
       Paragraph two here.
       """
     And the fake tailscale CLI's next serve publish fails
-    When I hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back" to a spawned gtd ui using tailscale serve on port 18447, falling back after the failed publish
+    When I hand off ".gtd/PLAN.md" with the text "handed back" to a spawned gtd ui using tailscale serve on port 18447, falling back after the failed publish
     Then gtd ui is still serving after done
     And the file ".gtd/PLAN.md" contains "handed back"
 
@@ -331,7 +329,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        await human("working", { file: ".gtd/PLAN.md", message: "answer the plan" })
       }
       """
     And a file "NOTE.md" with:
@@ -348,7 +346,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
       Paragraph two here.
       """
     And a foreign tailscale serve mapping already published on port 8443
-    When I hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back" to a spawned gtd ui using tailscale serve on the default port
+    When I hand off ".gtd/PLAN.md" with the text "handed back" to a spawned gtd ui using tailscale serve on the default port
     Then gtd ui is still serving after done
     And the file ".gtd/PLAN.md" contains "handed back"
     And the taken serve port is 10000
@@ -356,7 +354,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
     And the foreign tailscale serve mapping on port 8443 is untouched
 
   @inmem
-  Scenario: picking a question option writes the tick through to disk over a real setValue round trip
+  Scenario: a note on an answered widget lands as an annotation on its heading
     Given a test project
     And a gtd config file at "gtd.config.ts" with:
       """
@@ -364,7 +362,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        await human("working", { file: ".gtd/PLAN.md", message: "answer the plan" })
       }
       """
     And a file "NOTE.md" with:
@@ -378,63 +376,20 @@ Feature: gtd ui's process lifecycle — one worktree, one step
       """
       Sample plan.
 
-      ## Open Questions
-
-      ### Which option?
-
-      - [ ] Option A
-      - [ ] Option B
-      """
-    # `spawnGtdUiAndSetValue` drives a REAL `setValue` mutation over a REAL
-    # HTTPS tRPC round trip against a REAL spawned `gtd ui`, splicing through
-    # `SteeringFormat.apply` server-side — the same checkbox write path the
-    # phone client's `Question.tsx` uses when a human picks an option, never
-    # a note/`annotate`/`done` round trip. Unlike a handoff, `setValue` never
-    # ends the turn, so the process is torn down explicitly afterward.
-    When I pick option 0 of question 0 in ".gtd/PLAN.md" mode "qa" via a spawned gtd ui
-    Then the file ".gtd/PLAN.md" contains "[x] Option A"
-
-  @inmem
-  Scenario: a note on an already-answered question lands as a footnote on its heading
-    Given a test project
-    And a gtd config file at "gtd.config.ts" with:
-      """
-      import { human } from "@pmelab/gtd/flows"
-
-      export default async () => {
-        await human("idle", { message: "write NOTE.md to start" })
-        await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
-      }
-      """
-    And a file "NOTE.md" with:
-      """
-      a note
-      """
-    When I run gtd land
-    Then it succeeds
-    And I run the pin beat
-    And a file ".gtd/PLAN.md" with:
-      """
-      Sample plan.
-
-      ## Open Questions
-
-      ### Which option?
+      ## 🔘 Which option?
 
       - [ ] Option A
       - [ ] Option B
 
-      ## Answered Questions
-
-      ### Which colour?
+      ## 🔘 Which colour?
 
       - [x] Blue
       - [ ] Red
       """
-    When I hand off a note on question 1 of ".gtd/PLAN.md" in mode "qa" with the text "reconsider this" to a spawned gtd ui
+    When I hand off a note on widget 2 of ".gtd/PLAN.md" with the text "reconsider this" to a spawned gtd ui
     Then gtd ui is still serving after done
-    And the file ".gtd/PLAN.md" contains "### Which colour?[^"
-    And the file ".gtd/PLAN.md" contains "- H: reconsider this"
+    And the file ".gtd/PLAN.md" contains "## 🔘 Which colour?[^fn1]"
+    And the file ".gtd/PLAN.md" contains "[^fn1]: reconsider this"
 
   @inmem
   Scenario: a page reload does not kill gtd ui — it survives and still hands off through done
@@ -449,7 +404,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       export default async () => {
         await human("idle", { message: "write NOTE.md to start" })
-        await human("working", { file: ".gtd/PLAN.md", mode: "qa", message: "answer the plan" })
+        await human("working", { file: ".gtd/PLAN.md", message: "answer the plan" })
       }
       """
     And a file "NOTE.md" with:
@@ -465,7 +420,7 @@ Feature: gtd ui's process lifecycle — one worktree, one step
 
       Paragraph two here.
       """
-    When I reload the client of a spawned gtd ui, then hand off ".gtd/PLAN.md" in mode "qa" with the text "handed back"
+    When I reload the client of a spawned gtd ui, then hand off ".gtd/PLAN.md" with the text "handed back"
     Then gtd ui is still serving after done
     And the file ".gtd/PLAN.md" contains "handed back"
 

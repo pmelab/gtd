@@ -221,7 +221,7 @@ describe("currentRun", () => {
     const before = headOf(repo)
     const opening = await enter(repo, "side")
     expect(repo.lastCommitMessage(opening)).toBe(
-      `gtd(human): fixing\n\nGtd-Workflow: side\nGtd-Var: base=\nGtd-Var: reviewer=nobody\nGtd-Format: 4`,
+      `gtd(human): fixing\n\nGtd-Workflow: side\nGtd-Var: base=\nGtd-Var: reviewer=nobody\nGtd-Format: 5`,
     )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
@@ -254,7 +254,7 @@ export const again = workflow(async () => {
     const before = headOf(repo)
     const opening = await enter(repo, "again")
     expect(repo.lastCommitMessage(opening)).toBe(
-      `gtd(human): idle\n\nGtd-Workflow: again\nGtd-Format: 4`,
+      `gtd(human): idle\n\nGtd-Workflow: again\nGtd-Format: 5`,
     )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
@@ -435,7 +435,7 @@ export const again = workflow(async () => {
       const repo = repoWith(LINEAR)
       await land(repo, { "a.txt": "a\n" })
       await land(repo)
-      expect(repo.lastCommitMessage()).toBe("gtd(agent): building\n\nGtd-Format: 4")
+      expect(repo.lastCommitMessage()).toBe("gtd(agent): building\n\nGtd-Format: 5")
       const run = await provide(currentRun, repo)
       expect(run.headTurn).toEqual({
         state: "building",
@@ -836,7 +836,7 @@ describe("restAt", () => {
     expect(lines).toContain("rest resolved: building (awaits agent)\n")
   })
 
-  it("refuses a rest whose step names a mode no layer declares", async () => {
+  it("refuses the removed mode option", async () => {
     const repo = repoWith(`import { human } from "@pmelab/gtd/flows"
 
 export default async () => {
@@ -845,7 +845,7 @@ export default async () => {
 `)
     const exit = await provideExit(currentRest, repo)
     expect(Exit.isFailure(exit) && String(exit.cause)).toContain(
-      'step "idle": mode "adr" is not a mode this workflow knows (qa, review, findings)',
+      'step "idle": unknown key(s) mode in human() options',
     )
   })
 
