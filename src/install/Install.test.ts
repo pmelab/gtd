@@ -120,6 +120,10 @@ describe("renderBriefing", () => {
     expect(renderBriefing()).toMatch(/commit (it|the config).{0,40}before.{0,20}drive/is)
   })
 
+  it("lets a config outside the repository go uncommitted", () => {
+    expect(renderBriefing()).toMatch(/outside the repository needs no commit/)
+  })
+
   it("names the edit command's default path", () => {
     expect(renderBriefing()).toContain("~/.local/bin/gtd-edit")
   })

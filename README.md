@@ -86,6 +86,19 @@ the process for you. Ask your agent if you have any questions.
   bash loop, a CI job, or you reading it out loud to your sentient cat — the
   workflow doesn't care who executes it.
 
+## What gtd guarantees
+
+- **Any process.** gtd ships no workflow and assumes no forge, review model or
+  branching convention: pushing or opening a pull request is a step your
+  workflow writes
+  ([ADR 0006](https://github.com/pmelab/gtd/blob/main/docs/adr/0006-gtd-ships-no-workflow.md)).
+- **Any agent.** Nothing gtd prints or records names an agent; your driver picks
+  one and maps the prompt, model and session onto it
+  ([ADR 0012](https://github.com/pmelab/gtd/blob/main/docs/adr/0012-gtd-is-agent-agnostic.md)).
+- **Your environment.** gtd runs nothing and commits nothing itself: your driver
+  does, so secrets, commit signing, hooks and your shell work as usual
+  ([ADR 0001](https://github.com/pmelab/gtd/blob/main/docs/adr/0001-gtd-executes-nothing.md)).
+
 See [gtd --help](https://github.com/pmelab/gtd/blob/main/docs/cli.md) for the
 full command/flag reference,
 [Compatibility](https://github.com/pmelab/gtd/blob/main/COMPATIBILITY.md) for

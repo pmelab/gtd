@@ -427,10 +427,12 @@ follow in the same numbered list.
    Repository settings — steering-file modes, \`gtd ui\`, per-scope skills
    and access — go in the config's \`config\` export; workflow settings are
    options of the workflow factory it exports.
-3. **Commit the config before the first drive.** An uncommitted config is a
-   pending change, so starting a process without committing it first turns
-   the config into the very first thing the process plans against. Commit
-   it, THEN start driving.
+3. **Commit the config before the first drive, when it lives in the
+   repository.** An uncommitted config is a pending change, so starting a
+   process without committing it first turns the config into the very first
+   thing the process plans against. Commit it, THEN start driving. A config
+   in a parent directory outside the repository needs no commit and leaves
+   no trace in it.
 4. **Which agent should run the turns?** Probe \`PATH\` for the known
    coding-agent CLIs — \`claude\`, \`codex\`, \`gemini\`, \`cursor-agent\`,
    \`aider\`, \`opencode\`, \`amp\` — show the user which are actually

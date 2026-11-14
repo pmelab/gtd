@@ -14,3 +14,7 @@ function of the repository's history.
   what happens next.
 - gtd does evaluate `gtd.config.ts`, which is code. It carries the same trust as
   any other script in the repository.
+- The environment belongs to the driver. Secrets, commit signing, git hooks, the
+  shell and any sandbox work as they do for the user's own commands, because the
+  driver runs every script and makes every commit. gtd never needs a credential
+  or a configuration of its own for them.
