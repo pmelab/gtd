@@ -102,8 +102,8 @@ the process for you. Ask your agent if you have any questions.
   ([ADR 0011](https://github.com/pmelab/gtd/blob/main/docs/adr/0011-no-trace-on-shared-history.md)).
 - **Your environment.** gtd runs nothing and commits nothing itself: your driver
   does, so secrets, commit signing and your shell work as usual. Git hooks run
-  on every landing except an approval and a ship, which gtd builds with
-  `git commit-tree`
+  on every landing except an approval, a ship and a `keep: true` turn, which gtd
+  builds with `git commit-tree`
   ([ADR 0001](https://github.com/pmelab/gtd/blob/main/docs/adr/0001-gtd-executes-nothing.md)).
 
 See [gtd --help](https://github.com/pmelab/gtd/blob/main/docs/cli.md) for the

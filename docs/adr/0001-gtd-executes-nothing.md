@@ -17,5 +17,6 @@ function of the repository's history.
 - The environment belongs to the driver. Secrets, commit signing, the shell and
   any sandbox work as they do for the user's own commands, because the driver
   runs every script and makes every commit. gtd never needs a credential or a
-  configuration of its own for them. Git hooks are the exception: an approval
-  and a ship are built with `git commit-tree`, which runs none.
+  configuration of its own for them. Git hooks are the exception: an approval, a
+  ship and a `keep: true` turn are built with `git commit-tree`, which runs
+  none.

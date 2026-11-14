@@ -342,11 +342,8 @@ describe("reply on a process branch", () => {
       "git rev-parse --verify --quiet origin/feat": { code: 0 },
       ...tip,
     })
-  const byRef = { [`git rev-parse --verify --quiet refs/gtd/shipped/${SHIP}`]: { out: `${FIX}\n` } }
-  const byTrailer = {
-    "git rev-parse --verify --quiet refs/gtd/shipped/": { code: 1 },
-    "git show -s": { out: `feat: x\n\nGtd-Tip: ${FIX}\n` },
-  }
+  const byRef = { "git for-each-ref": { out: `${SHIP} ${FIX}\n` } }
+  const byTrailer = { "git log --first-parent --grep=^Gtd-Tip:": { out: `${SHIP} ${FIX}\n` } }
 
   test("a review gate on gtd/<b> before the ship sends and pushes nothing", async () => {
     const { calls, io } = repo({
