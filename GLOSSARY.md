@@ -252,6 +252,10 @@ process's tree minus `.gtd/`, made while the process keeps every turn on
 stay reachable through the `Gtd-History` ref it names. _Avoid_: squash (no
 commit is rewritten), merge, release
 
+**Trace**: Anything gtd leaves where someone other than the user would see it —
+a commit, trailer or file on the user's branch, a pushed ref, a pull request.
+gtd leaves none unless the workflow asks for it. _Avoid_: footprint, marker
+
 **Memory scope**: The span of a process over which one agent conversation
 persists — a step name up to its last dot, i.e. its `scope()` prefixes (`root`
 when there are none). One scope, one model, system prompt and skill list.
