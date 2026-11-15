@@ -159,7 +159,7 @@ export const workspaceRouter = t.router({
   }),
   /** Start: dispatches a proposed item; the `inbox` query shows how far it got. */
   startItem: t.procedure.input(itemRef).mutation(async ({ ctx, input }) => {
-    if (!(await ctx.dispatch.press("start", input.feed, input.key, ctx.caller.identity)))
+    if (!(await ctx.dispatch.press("start", input.feed, input.key, ctx.caller)))
       throw new TRPCError({
         code: "NOT_FOUND",
         message: `no proposed item ${input.feed}/${input.key}`,
@@ -167,7 +167,7 @@ export const workspaceRouter = t.router({
   }),
   /** Retry: dispatches a failed item again. */
   retryItem: t.procedure.input(itemRef).mutation(async ({ ctx, input }) => {
-    if (!(await ctx.dispatch.press("retry", input.feed, input.key, ctx.caller.identity)))
+    if (!(await ctx.dispatch.press("retry", input.feed, input.key, ctx.caller)))
       throw new TRPCError({
         code: "NOT_FOUND",
         message: `no failed item ${input.feed}/${input.key}`,

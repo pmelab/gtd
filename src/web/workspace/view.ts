@@ -68,6 +68,10 @@ export const statusText = (w: WorktreeView): string => {
 export const detailText = (w: WorktreeView): string =>
   [w.label, w.message].filter((s) => s !== undefined && s !== "").join(" — ")
 
+/** The worktree's note, when the status message does not already say it. */
+export const noteText = (w: WorktreeView): string | undefined =>
+  w.errorKind === "note" ? undefined : w.note?.message
+
 /** The control a worktree's status offers, if any. */
 export const pressFor = (w: WorktreeView): "proceed" | "retry" | undefined =>
   w.status === "needsYou" ? "proceed" : w.status === "error" ? "retry" : undefined

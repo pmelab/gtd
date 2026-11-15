@@ -20,6 +20,7 @@ import type { Drivers } from "./Drivers.js"
 import type { FeedRunner } from "./Feeds.js"
 import type { ProjectView } from "./Scan.js"
 import { processEnded } from "./Status.js"
+import type { Caller } from "./WorktreeChanges.js"
 
 export interface DispatchDeps {
   readonly feeds: FeedRunner
@@ -42,7 +43,7 @@ export interface Dispatcher {
     action: "start" | "retry",
     feed: string,
     key: string,
-    identity: string,
+    caller: Caller,
   ) => Promise<boolean>
   /** Dispatches each started item that can start now, in start order. */
   readonly pass: () => Promise<void>
@@ -177,15 +178,14 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
   }
 
   return {
-    press: async (action, feed, key, identity) => {
+    press: async (action, feed, key, caller) => {
       const item = deps.feeds.items().find((i) => i.feed === feed && i.key === key)
       if (item?.state !== (action === "start" ? "proposed" : "failed")) return false
       set(item, { state: "approved" })
       const procedure = action === "start" ? "startItem" : "retryItem"
       deps.audit.write({
         time: new Date(deps.now()).toISOString(),
-        identity,
-        endpoint: `/trpc/${procedure}`,
+        ...caller,
         project: item.project,
         worktree: branchOf(item),
         action: procedure,

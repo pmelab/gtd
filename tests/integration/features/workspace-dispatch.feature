@@ -72,8 +72,8 @@ Feature: Start and Retry dispatch an inbox item
     And the Inbox lists:
       | feed | key | title | state |
     And the audit log reads:
-      | time                     | identity          | endpoint   | project | worktree | action | outcome  |
-      | 2026-01-01T00:00:00.000Z | owner@example.com | /trpc/startItem | portal | board/7 | startItem | accepted |
+      | time                     | identity          | endpoint        | project | worktree | action    | outcome  |
+      | 2026-01-01T00:00:00.000Z | owner@example.com | /trpc/startItem | portal  | board/7  | startItem | accepted |
 
   Scenario: a started item ends when its worktree is removed
     Given the command "gh issue list" prints:

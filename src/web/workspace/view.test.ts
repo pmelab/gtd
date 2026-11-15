@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   linkedWorktree,
+  noteText,
   nowView,
   pressFor,
   statusText,
@@ -86,6 +87,27 @@ describe("worktreeName", () => {
     expect(worktreeName(worktree("plan", {}))).toBe("plan")
     const { branch: _, ...detached } = worktree("x", { path: "/ws/portal-detached" })
     expect(worktreeName(detached)).toBe("portal-detached")
+  })
+})
+
+describe("noteText", () => {
+  it("is the note, unless an error note already is the status message", () => {
+    expect(noteText(worktree("a", {}))).toBeUndefined()
+    expect(noteText(worktree("a", { note: { message: "merged", error: false } }))).toBe("merged")
+    const stalled = { status: "error", errorKind: "stalled" } as const
+    expect(
+      noteText(worktree("a", { ...stalled, note: { message: "deploy failed", error: true } })),
+    ).toBe("deploy failed")
+    expect(
+      noteText(
+        worktree("a", {
+          status: "error",
+          errorKind: "note",
+          message: "deploy failed",
+          note: { message: "deploy failed", error: true },
+        }),
+      ),
+    ).toBeUndefined()
   })
 })
 

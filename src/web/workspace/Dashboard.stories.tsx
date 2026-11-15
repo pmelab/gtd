@@ -25,7 +25,7 @@ const inbox = {
       feed: "boardReady",
       project: "portal",
       key: "2",
-      title: "Fix signup",
+      title: "Fix logout",
       action: "start:work",
       priority: 0,
       blockedBy: [],
@@ -65,10 +65,10 @@ const meta: Meta<typeof Dashboard> = {
             pressed.push(["dismiss", input])
           },
           startItem: (input) => {
-            pressed.push(["start", input])
+            pressed.push(["startItem", input])
           },
           retryItem: (input) => {
-            pressed.push(["retry", input])
+            pressed.push(["retryItem", input])
           },
           terminal: () => ({}),
         }}
@@ -129,8 +129,8 @@ export const DetailBesideTheListOnADesktop: Story = {
   },
 }
 
-/** The Inbox lists what waits and reports failing feeds; it starts or dismisses a proposed item and retries a failed one. */
-export const InboxStartsRetriesAndDismisses: Story = {
+/** The Inbox lists what waits and reports failing feeds; Start, Retry and Dismiss reach the supervisor. */
+export const InboxPressesAnItem: Story = {
   play: async ({ canvasElement }) => {
     pressed.length = 0
     const canvas = within(canvasElement)
@@ -144,13 +144,13 @@ export const InboxStartsRetriesAndDismisses: Story = {
       "feed reviews failing: gh: not logged in",
     )
     await userEvent.click(within(proposed!).getByRole("button", { name: "Start" }))
-    await userEvent.click(within(proposed!).getByRole("button", { name: "Dismiss" }))
     await userEvent.click(within(failed!).getByRole("button", { name: "Retry" }))
+    await userEvent.click(within(failed!).getByRole("button", { name: "Dismiss" }))
     await waitFor(() =>
       expect(pressed).toEqual([
-        ["start", { feed: "boardReady", key: "1" }],
-        ["dismiss", { feed: "boardReady", key: "1" }],
-        ["retry", { feed: "boardReady", key: "2" }],
+        ["startItem", { feed: "boardReady", key: "1" }],
+        ["retryItem", { feed: "boardReady", key: "2" }],
+        ["dismiss", { feed: "boardReady", key: "2" }],
       ]),
     )
   },

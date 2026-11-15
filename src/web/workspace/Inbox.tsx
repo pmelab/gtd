@@ -1,20 +1,45 @@
 import { Button } from "../Button.js"
 import type { FeedView, InboxItem } from "./view.js"
 
-export type InboxPress = "start" | "retry" | "dismiss"
+export type ItemPress = "start" | "retry" | "dismiss"
 
-const pressesOf = (item: InboxItem): readonly (readonly [InboxPress, string])[] =>
-  item.state === "proposed"
-    ? [
-        ["start", "Start"],
-        ["dismiss", "Dismiss"],
-      ]
-    : item.state === "failed"
-      ? [
-          ["retry", "Retry"],
-          ["dismiss", "Dismiss"],
-        ]
-      : []
+// Start on a proposed item, Retry on a failed one; both can be dismissed.
+const PRESSES: Partial<Record<InboxItem["state"], readonly [ItemPress, string][]>> = {
+  proposed: [
+    ["start", "Start"],
+    ["dismiss", "Dismiss"],
+  ],
+  failed: [
+    ["retry", "Retry"],
+    ["dismiss", "Dismiss"],
+  ],
+}
+
+const Presses = ({
+  item,
+  onPress,
+}: {
+  readonly item: InboxItem
+  readonly onPress: (press: ItemPress, item: InboxItem) => void
+}) => {
+  const presses = PRESSES[item.state]
+  if (presses === undefined) return null
+  return (
+    <div className="flex gap-2 pt-1">
+      {presses.map(([press, label]) => (
+        <Button
+          key={press}
+          variant={press === "dismiss" ? "ghost" : "primary"}
+          onClick={() => {
+            onPress(press, item)
+          }}
+        >
+          {label}
+        </Button>
+      ))}
+    </div>
+  )
+}
 
 /** What waits in the inbox, and the feeds whose last poll failed. */
 export const Inbox = ({
@@ -24,7 +49,7 @@ export const Inbox = ({
 }: {
   readonly items: readonly InboxItem[]
   readonly feeds: readonly FeedView[]
-  readonly onPress: (press: InboxPress, item: InboxItem) => void
+  readonly onPress: (press: ItemPress, item: InboxItem) => void
 }) => (
   <div className="flex flex-col gap-3">
     {feeds
@@ -59,25 +84,11 @@ export const Inbox = ({
           {item.blockedBy.length > 0 ? ` · blocked by ${item.blockedBy.join(", ")}` : ""}
         </span>
         {item.message !== undefined && (
-          <span className="text-small text-muted" data-testid="inbox-message">
+          <span className="text-small text-danger" data-testid="inbox-message">
             {item.message}
           </span>
         )}
-        {pressesOf(item).length > 0 && (
-          <div className="flex gap-2 pt-1">
-            {pressesOf(item).map(([press, label]) => (
-              <Button
-                key={press}
-                variant={press === "dismiss" ? "ghost" : "primary"}
-                onClick={() => {
-                  onPress(press, item)
-                }}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
-        )}
+        <Presses item={item} onPress={onPress} />
       </article>
     ))}
   </div>

@@ -319,8 +319,8 @@ export const runWorkspaceCommand = (
                   ...(identity !== undefined ? { identity } : {}),
                   endpoint: path,
                 }),
-              worktreeChanges: changes,
               dispatch,
+              worktreeChanges: changes,
               caller: { identity: identity ?? "-", endpoint: path },
             }),
           })
