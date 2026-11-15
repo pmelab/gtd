@@ -60,8 +60,8 @@ histories written by an older or newer gtd.
 - **CLI** — every command (`next`, `land`, `start`, `abandon`, `restore`,
   `repin`, `check`, `guide`, `bundle`, `summary`, `base`, `strays`,
   `history list`, `history show`, `history fetch`, `version`, `help`, `ui`,
-  `workspace`, `workspace proceed`, `workspace retry`, `lsp`, `judge`,
-  `judge answer`, `judge run`), option and argument in
+  `workspace`, `workspace proceed`, `workspace retry`, `workspace note`, `lsp`,
+  `judge`, `judge answer`, `judge run`), option and argument in
   [CLI reference](docs/cli.md) — the bare `gtd start --json` and
   `gtd history list --json` arrays (bare arrays with no `schema`), and
   `gtd history show --json` (no `schema`; not a driver document).

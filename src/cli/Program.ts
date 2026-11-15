@@ -161,6 +161,14 @@ export type Command =
       readonly config?: string
     }
   | {
+      readonly kind: "workspaceControl"
+      readonly command: "note"
+      readonly worktree: string
+      /** `null` takes the note off. */
+      readonly note: { readonly message: string; readonly error: boolean } | null
+      readonly config?: string
+    }
+  | {
       readonly kind: "land"
       readonly cost?: number
       readonly model?: string
@@ -1161,7 +1169,10 @@ const runWorkspaceControlCliCommand = (
     const host = yield* Host
     const paths = yield* Path.Path
     yield* (yield* ToolCommands).workspaceControl({
-      request: { command: command.command, worktree: command.worktree, commit: command.commit },
+      request:
+        command.command === "note"
+          ? { command: "note", worktree: command.worktree, note: command.note }
+          : { command: command.command, worktree: command.worktree, commit: command.commit },
       ...(command.config !== undefined ? { config: command.config } : {}),
       cwd: host.root,
       stateHome: stateHomeOf(host, paths),

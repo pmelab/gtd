@@ -31,6 +31,8 @@ Inspect:
                             Press Proceed on a worktree
   workspace retry <worktree> <commit>
                             Press Retry on a worktree
+  workspace note <worktree> [message]
+                            Put a note on a worktree
 
 Driver plumbing:
   guide                     Print a briefing for writing a driver
@@ -637,6 +639,30 @@ supervisor that is not running.
 Options:
   --config=<path>     Use this gtd.workspace.ts instead of the innermost one
                       from the current directory
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace note`
+
+```
+Usage: gtd workspace note <worktree> [message] [options]
+
+Put <message> on the worktree at the path <worktree>, in place of its last note,
+for example the outcome of a merge or a deploy. With --error the worktree status
+becomes an error of kind note. --clear takes the note off and needs no message.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is
+innermost from the current directory, or the one --config names, through a unix
+socket only you may open. When no supervisor runs, the note waits in the
+supervisor's state directory and applies when the supervisor starts. A path that
+is no worktree exits 1.
+
+Options:
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
+  --error             Make it an error note: the worktree status becomes an
+                      error of kind note
+  --clear             Take the worktree's note off
   -v, --verbose       Narrate on stderr what gtd resolved
 ```
 
