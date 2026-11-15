@@ -3,6 +3,7 @@ import { ActionRefusal, type ActionRuns } from "./Actions.js"
 import type { PressAction, PressOutcome } from "./Controls.js"
 import type { Dispatcher } from "./Dispatch.js"
 import type { FeedRunner } from "./Feeds.js"
+import { pauseScope, type Pauses, type PauseScope } from "./Pauses.js"
 import type { ProjectView } from "./Scan.js"
 import type { Banner } from "./Snapshot.js"
 import { WorktreeRefusal, type Caller, type WorktreeChanges } from "./WorktreeChanges.js"
@@ -24,12 +25,25 @@ interface WorkspaceRouterContext {
     input: { readonly worktree: string; readonly commit: string },
   ) => Promise<PressOutcome>
   readonly dispatch: Dispatcher
+  readonly pauses: Pauses
   readonly worktreeChanges: WorktreeChanges
   /** Who sent the request, and where, for the audit log. */
   readonly caller: Caller
 }
 
 const t = initTRPC.context<WorkspaceRouterContext>().create()
+
+const pauseInput = (value: unknown): PauseScope => {
+  const scope = pauseScope(value ?? {})
+  if (scope === undefined)
+    throw new TRPCError({ code: "BAD_REQUEST", message: "expected { project?, feed? }" })
+  return scope
+}
+
+const setPause = (ctx: WorkspaceRouterContext, scope: PauseScope, paused: boolean): void => {
+  const refusal = ctx.pauses.set(scope, paused, ctx.caller)
+  if (refusal !== undefined) throw new TRPCError({ code: "NOT_FOUND", message: refusal })
+}
 
 const text = (value: unknown, key: string): string => {
   const field = (value as Record<string, unknown> | null | undefined)?.[key]
@@ -153,6 +167,7 @@ export const workspaceRouter = t.router({
     items: ctx.feeds.items(),
     feeds: ctx.feeds.feeds(),
     drives: await ctx.dispatch.drives(),
+    paused: ctx.pauses.list(),
   })),
   dismiss: t.procedure.input(itemRef).mutation(({ ctx, input }) => {
     if (!ctx.feeds.dismiss(input.feed, input.key))
@@ -176,6 +191,13 @@ export const workspaceRouter = t.router({
         code: "NOT_FOUND",
         message: `no failed item ${input.feed}/${input.key}`,
       })
+  }),
+  /** Pauses dispatch in the workspace (`{}`), a project, or a feed of a project. */
+  pause: t.procedure.input(pauseInput).mutation(({ ctx, input }) => setPause(ctx, input, true)),
+  /** Takes off the pause of exactly that scope, and starts what can start now. */
+  resume: t.procedure.input(pauseInput).mutation(async ({ ctx, input }) => {
+    setPause(ctx, input, false)
+    await ctx.dispatch.pass()
   }),
 })
 

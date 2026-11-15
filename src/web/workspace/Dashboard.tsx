@@ -33,14 +33,21 @@ const InboxView = () => {
     retry: workspaceTrpc.retryItem.useMutation(settled),
     dismiss: workspaceTrpc.dismiss.useMutation(settled),
   }
+  const pause = workspaceTrpc.pause.useMutation(settled)
+  const resume = workspaceTrpc.resume.useMutation(settled)
   if (inbox.data === undefined) return <p className="text-muted">Loading…</p>
   return (
     <Inbox
       items={inbox.data.items}
       feeds={inbox.data.feeds}
       drives={inbox.data.drives}
+      paused={inbox.data.paused}
       onPress={(press, item) => {
         mutations[press].mutate({ feed: item.feed, key: item.key })
+      }}
+      onPause={(scope, paused) => {
+        if (paused) pause.mutate(scope)
+        else resume.mutate(scope)
       }}
     />
   )

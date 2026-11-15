@@ -422,6 +422,9 @@ export class WorkspaceBench {
       )
   }
 
+  /** A command started without waiting for it; `lastCommand` is set when it returns. */
+  runningCommand: Promise<void> | undefined
+
   /** Runs `gtd <args>` from the workspace root, as a script beside the supervisor does. */
   async command(args: readonly string[]): Promise<void> {
     const { io, result } = makeCapturingCliIo(
@@ -563,6 +566,7 @@ export class WorkspaceBench {
     items: readonly InboxItem[]
     feeds: readonly FeedView[]
     drives: { inUse: number; max?: number }
+    paused: readonly { project?: string; feed?: string }[]
   }> {
     const response = await this.request("/trpc/inbox")
     const body = (await response.json()) as {
@@ -571,6 +575,7 @@ export class WorkspaceBench {
           items: readonly InboxItem[]
           feeds: readonly FeedView[]
           drives: { inUse: number; max?: number }
+          paused: readonly { project?: string; feed?: string }[]
         }
       }
     }

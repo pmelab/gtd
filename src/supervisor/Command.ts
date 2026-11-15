@@ -19,7 +19,7 @@ import { actionRuns } from "./Actions.js"
 import { auditLog } from "./Audit.js"
 import { findWorkspaceModule, loadWorkspace, reloadWorkspace } from "./Config.js"
 import { controls, type Controls } from "./Controls.js"
-import { dispatcher } from "./Dispatch.js"
+import { dispatcher, type Dispatcher } from "./Dispatch.js"
 import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf } from "./Gate.js"
 import { acquireLock, stateDirectory } from "./Lock.js"
@@ -31,6 +31,7 @@ import type { ProjectView } from "./Scan.js"
 import { liveSnapshot, type Banner } from "./Snapshot.js"
 import { notes, type Notes } from "./Notes.js"
 import { notifier, type Notifier } from "./Notify.js"
+import { pauses as pausesOf, whenNoDrive, type Pauses } from "./Pauses.js"
 import {
   drainSpool,
   serveSocket,
@@ -51,16 +52,42 @@ export interface WorkspaceCommand {
 
 const TRPC = "/trpc"
 
+interface ControlDeps {
+  readonly noted: Notes
+  readonly control: Controls
+  readonly notify: Notifier
+  readonly projects: () => readonly ProjectView[]
+  readonly pauses: Pauses
+  readonly dispatch: Dispatcher
+  readonly after: (ms: number, run: () => void) => () => void
+}
+
+const reply = (refusal: string | undefined): ControlReply =>
+  refusal === undefined ? { ok: true } : { ok: false, message: refusal }
+
+type PauseRequest = Extract<ControlRequest, { readonly command: "pause" | "resume" }>
+
+const isPause = (request: ControlRequest): request is PauseRequest =>
+  request.command === "pause" || request.command === "resume"
+
 /** One dispatcher for the socket and the spool; `endpoint` goes into the audit log. */
 const controlHandler =
-  (noted: Notes, control: Controls, notify: Notifier, projects: () => readonly ProjectView[]) =>
+  ({ noted, control, notify, projects, pauses, dispatch, after }: ControlDeps) =>
   (endpoint: string) =>
   async (request: ControlRequest): Promise<ControlReply> => {
     if (request.command === "note") {
       const refusal = noted.note(request.worktree, request.note, endpoint)
-      if (refusal !== undefined) return { ok: false, message: refusal }
+      if (refusal !== undefined) return reply(refusal)
       if (request.note?.notify === true) notify.note(projects(), request.worktree, request.note)
-      return { ok: true }
+      return reply(undefined)
+    }
+    if (isPause(request)) {
+      const { command, wait, ...scope } = request
+      const refusal = pauses.set(scope, command === "pause", { identity: "-", endpoint })
+      if (refusal !== undefined) return reply(refusal)
+      if (command === "resume") await dispatch.pass()
+      if (wait === true) await whenNoDrive(() => dispatch.drivesIn(scope), after)
+      return reply(undefined)
     }
     const outcome = await control.press({
       action: request.command,
@@ -186,17 +213,6 @@ export const runWorkspaceCommand = (
         now: clock.now,
       })
       const projects = () => noted.withNotes(control.withRefusals(snapshot.projects()))
-      const handleControl = controlHandler(noted, control, notify, snapshot.projects)
-      // Before the socket opens: a spooled note is older than any sent to it.
-      const spoolRefusals = yield* Effect.tryPromise({
-        try: () => drainSpool(directory, handleControl("spool")),
-        catch: asUiError,
-      })
-      const socket = yield* Effect.tryPromise({
-        try: () => serveSocket(socketPath(directory), handleControl("cli")),
-        catch: asUiError,
-      })
-      closeSocket = socket.close
       const terminalTabs = terminalTab({
         worktrees,
         terminal,
@@ -231,6 +247,14 @@ export const runWorkspaceCommand = (
         settings: config,
         audit,
         now: clock.now,
+        paused: (item) => paused.holds(item),
+      })
+      const paused = pausesOf({
+        store,
+        projects: () => snapshot.projects().map((project) => project.id),
+        feeds: feeds.feeds,
+        audit,
+        now: clock.now,
       })
       const changes = worktreeChanges({
         worktrees,
@@ -245,6 +269,25 @@ export const runWorkspaceCommand = (
         audit,
         now: clock.now,
       })
+      const handleControl = controlHandler({
+        noted,
+        control,
+        notify,
+        projects: snapshot.projects,
+        pauses: paused,
+        dispatch,
+        after: host.after,
+      })
+      // Before the socket opens: a spooled note is older than any sent to it.
+      const spoolRefusals = yield* Effect.tryPromise({
+        try: () => drainSpool(directory, handleControl("spool")),
+        catch: asUiError,
+      })
+      const socket = yield* Effect.tryPromise({
+        try: () => serveSocket(socketPath(directory), handleControl("cli")),
+        catch: asUiError,
+      })
+      closeSocket = socket.close
 
       const reload = reloadWorkspace({
         file,
@@ -327,6 +370,7 @@ export const runWorkspaceCommand = (
                   endpoint: path,
                 }),
               dispatch,
+              pauses: paused,
               worktreeChanges: changes,
               caller: { identity: identity ?? "-", endpoint: path },
             }),

@@ -5,7 +5,7 @@ import type { Entry } from "../workspace/internal.js"
 /**
  * `state.json` in the state directory. Everything in it can be rebuilt: a
  * deleted or unreadable store loses only what a person decided, such as
- * dismissals, and the notes.
+ * dismissals, the notes and the pauses.
  */
 export interface Store {
   readonly dismissed: () => readonly string[]
@@ -19,6 +19,9 @@ export interface Store {
   /** The notification keys sent, oldest first; `undefined` when no supervisor kept any yet. */
   readonly notified: () => readonly string[] | undefined
   readonly saveNotified: (keys: readonly string[]) => void
+  /** The scopes where dispatch is paused, unchecked. */
+  readonly paused: () => readonly unknown[]
+  readonly savePaused: (scopes: readonly unknown[]) => void
 }
 
 type StoreData = Record<string, unknown>
@@ -76,5 +79,10 @@ export const openStore = (directory: string): Store => {
         : undefined
     },
     saveNotified: (keys) => write({ ...read(), notified: keys }),
+    paused: () => {
+      const scopes = read()["paused"]
+      return Array.isArray(scopes) ? scopes : []
+    },
+    savePaused: (paused) => write({ ...read(), paused }),
   }
 }

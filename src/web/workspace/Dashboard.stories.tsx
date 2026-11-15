@@ -49,6 +49,7 @@ const inbox = {
     },
   ],
   drives: { inUse: 2, max: 2 },
+  paused: [{ project: "api" }],
   feeds: [
     { feed: "boardReady", project: "portal", mode: "propose", every: "5m" },
     {
@@ -83,6 +84,12 @@ const meta: Meta<typeof Dashboard> = {
           },
           retryItem: (input) => {
             pressed.push(["retryItem", input])
+          },
+          pause: (input) => {
+            pressed.push(["pause", input])
+          },
+          resume: (input) => {
+            pressed.push(["resume", input])
           },
           terminal: () => ({}),
         }}
@@ -203,5 +210,30 @@ export const UnreachableSupervisor: Story = {
   play: async ({ canvasElement }) => {
     const notice = await within(canvasElement).findByTestId("dashboard-error")
     await expect(notice.textContent).toBe("Could not reach the supervisor: connection refused")
+  },
+}
+
+/** The Inbox pauses and resumes dispatch in the workspace, a project or a feed. */
+export const InboxPausesDispatch: Story = {
+  play: async ({ canvasElement }) => {
+    pressed.length = 0
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    const scopes = await canvas.findAllByTestId("pause-scope")
+    await expect(scopes.map((scope) => scope.firstChild?.textContent)).toEqual([
+      "workspace · dispatching",
+      "api · paused",
+      "feed reviews · dispatching",
+      "portal · dispatching",
+      "feed boardReady · dispatching",
+    ])
+    await userEvent.click(within(scopes[1]!).getByRole("button", { name: "Resume" }))
+    await userEvent.click(within(scopes[4]!).getByRole("button", { name: "Pause" }))
+    await waitFor(() =>
+      expect(pressed).toEqual([
+        ["resume", { project: "api" }],
+        ["pause", { project: "portal", feed: "boardReady" }],
+      ]),
+    )
   },
 }

@@ -47,17 +47,15 @@ When(
   },
 )
 
-Then("the command exits {int}", (world: GtdWorld, code: number) => {
+Then("the command exits {int}", async (world: GtdWorld, code: number) => {
+  await bench(world).runningCommand
   const run = bench(world).lastCommand
   assert.strictEqual(run?.exitCode, code, run?.stderr)
 })
 
-const exitsPrinting = (
-  world: GtdWorld,
-  code: number,
-  expected: string,
-  run = bench(world).lastCommand,
-) => {
+const exitsPrinting = async (world: GtdWorld, code: number, expected: string) => {
+  await bench(world).runningCommand
+  const run = bench(world).lastCommand
   assert.strictEqual(run?.exitCode, code, run?.stderr)
   assert.ok(run.stderr.includes(expected.trim()), `stderr was:\n${run.stderr}`)
 }

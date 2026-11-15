@@ -31,8 +31,8 @@ interface WorkspaceRequest {
   readonly loadModule: (path: string) => Promise<Readonly<Record<string, unknown>>>
 }
 
-/** `gtd workspace proceed|retry`: a request for the running supervisor. */
-interface WorkspaceControlRequest {
+/** `gtd workspace proceed|retry|note|pause|resume`: a request for the running supervisor. */
+export interface WorkspaceControlRequest {
   readonly request:
     | {
         readonly command: "proceed" | "retry"
@@ -48,6 +48,12 @@ interface WorkspaceControlRequest {
           /** Also send it as a notification. */
           readonly notify?: boolean
         } | null
+      }
+    | {
+        readonly command: "pause" | "resume"
+        readonly project?: string
+        readonly feed?: string
+        readonly wait?: boolean
       }
   readonly config?: string
   readonly cwd: string

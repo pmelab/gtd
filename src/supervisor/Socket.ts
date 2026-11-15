@@ -15,6 +15,7 @@ import { Effect } from "effect"
 import { UiError } from "../ui/index.js"
 import { findWorkspaceModule } from "./Config.js"
 import { stateDirectory } from "./Lock.js"
+import { pauseScope } from "./Pauses.js"
 
 /** One request per connection: a JSON line in, a JSON line back. */
 export type ControlRequest =
@@ -35,6 +36,15 @@ export type ControlRequest =
         readonly notify?: boolean
       } | null
     }
+  | {
+      readonly command: "pause" | "resume"
+      /** Absent: the workspace. */
+      readonly project?: string
+      /** A feed of `project`. */
+      readonly feed?: string
+      /** Answer once no driver runs in the scope. */
+      readonly wait?: boolean
+    }
 
 export type ControlReply = { readonly ok: true } | { readonly ok: false; readonly message: string }
 
@@ -45,15 +55,28 @@ const MAX_REQUEST_BYTES = 64 * 1024
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null
 
-const parseRequest = (line: string): ControlRequest | undefined => {
-  let value: unknown
+const parseJson = (line: string): unknown => {
   try {
-    value = JSON.parse(line)
+    return JSON.parse(line)
   } catch {
     return undefined
   }
+}
+
+const parseRequest = (line: string): ControlRequest | undefined => {
+  const value = parseJson(line)
   if (!isRecord(value)) return undefined
-  const { command, worktree, commit, note } = value
+  const { command } = value
+  if (command === "pause" || command === "resume") return parsePause(command, value)
+  return parseWorktreeRequest(value)
+}
+
+const parseWorktreeRequest = ({
+  command,
+  worktree,
+  commit,
+  note,
+}: Record<string, unknown>): ControlRequest | undefined => {
   if (typeof worktree !== "string") return undefined
   if (command === "note") {
     const parsed = parseNote(note)
@@ -62,6 +85,16 @@ const parseRequest = (line: string): ControlRequest | undefined => {
   if (command !== "proceed" && command !== "retry") return undefined
   if (typeof commit !== "string") return undefined
   return { command, worktree, commit }
+}
+
+const parsePause = (
+  command: "pause" | "resume",
+  value: Record<string, unknown>,
+): ControlRequest | undefined => {
+  const scope = pauseScope(value)
+  const { wait } = value
+  if (scope === undefined || (wait !== undefined && typeof wait !== "boolean")) return undefined
+  return { command, ...scope, ...(wait === true ? { wait } : {}) }
 }
 
 /** `null` clears; `undefined` is no note at all. */
@@ -236,7 +269,7 @@ const resolvePath = (cwd: string, path: string): string => {
 }
 
 /**
- * `gtd workspace proceed|retry|note`: hands the request to the running
+ * `gtd workspace proceed|retry|note|pause|resume`: hands the request to the running
  * supervisor. With none running, a note waits in the spool.
  */
 export const runControlCommand = (command: ControlCommand): Effect.Effect<void, UiError> =>
@@ -246,10 +279,10 @@ export const runControlCommand = (command: ControlCommand): Effect.Effect<void, 
       const file = findWorkspaceModule(command.cwd, command.config)
       const directory = stateDirectory(command.stateHome, dirname(file))
       const path = socketPath(directory)
-      const request = {
-        ...command.request,
-        worktree: resolvePath(command.cwd, command.request.worktree),
-      }
+      const request =
+        "worktree" in command.request
+          ? { ...command.request, worktree: resolvePath(command.cwd, command.request.worktree) }
+          : command.request
       const reply = await send(path, request).catch((error: unknown) => {
         throw new UiError(`${prefix}: ${error instanceof Error ? error.message : String(error)}`)
       })

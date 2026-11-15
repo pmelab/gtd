@@ -100,7 +100,7 @@ import {
   restoredOutcome,
 } from "../emit/index.js"
 import { GTD_VERSION, renderBriefing } from "../install/index.js"
-import { ToolCommands } from "./ToolCommands.js"
+import { ToolCommands, type WorkspaceControlRequest } from "./ToolCommands.js"
 import {
   normalizeScriptNewline,
   SelectorUsageError,
@@ -171,6 +171,14 @@ export type Command =
         /** Also send it as a notification. */
         readonly notify?: boolean
       } | null
+      readonly config?: string
+    }
+  | {
+      readonly kind: "workspaceControl"
+      readonly command: "pause" | "resume"
+      readonly project?: string
+      readonly feed?: string
+      readonly wait?: boolean
       readonly config?: string
     }
   | {
@@ -1166,7 +1174,23 @@ const runWorkspaceCliCommand = (
 const stateHomeOf = (host: HostOps, paths: Path.Path): string =>
   host.env["XDG_STATE_HOME"] || paths.join(host.home, ".local", "state")
 
-/** `gtd workspace proceed|retry`: handed to the running supervisor. */
+type ControlCommand = Extract<Command, { kind: "workspaceControl" }>
+
+const controlRequestOf = (command: ControlCommand): WorkspaceControlRequest["request"] => {
+  switch (command.command) {
+    case "note":
+      return { command: "note", worktree: command.worktree, note: command.note }
+    case "pause":
+    case "resume": {
+      const { kind: _kind, config: _config, ...request } = command
+      return request
+    }
+    default:
+      return { command: command.command, worktree: command.worktree, commit: command.commit }
+  }
+}
+
+/** `gtd workspace proceed|retry|note|pause|resume`: handed to the running supervisor. */
 const runWorkspaceControlCliCommand = (
   command: Extract<Command, { kind: "workspaceControl" }>,
 ): Effect.Effect<void, Error, ToolCommands | Host | Path.Path> =>
@@ -1174,10 +1198,7 @@ const runWorkspaceControlCliCommand = (
     const host = yield* Host
     const paths = yield* Path.Path
     yield* (yield* ToolCommands).workspaceControl({
-      request:
-        command.command === "note"
-          ? { command: "note", worktree: command.worktree, note: command.note }
-          : { command: command.command, worktree: command.worktree, commit: command.commit },
+      request: controlRequestOf(command),
       ...(command.config !== undefined ? { config: command.config } : {}),
       cwd: host.root,
       stateHome: stateHomeOf(host, paths),

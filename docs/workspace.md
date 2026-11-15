@@ -226,6 +226,7 @@ in the inbox. An item waits, queued, with the reason, when:
 - `limits.maxDrives` drives are in use in the workspace,
 - `wip` drives are in use in its project (`projects.<id>.wip`, else
   `limits.wip`),
+- dispatch is paused for it (see below),
 - its feed's `canStart` returns `false` or throws.
 
 To dispatch an item, gtd:
@@ -248,6 +249,29 @@ the item failed; a failed item stays when its feed stops returning it.
 
 **Dismiss** hides a proposed or failed item until its feed stops returning it. A
 later poll that returns the key again files it anew.
+
+### Pause
+
+A pause stops dispatch for the whole workspace, for one project, or for one feed
+of a project. The Inbox view has a pause control for each, and so has the
+command line:
+
+```sh
+gtd workspace pause                  # the workspace
+gtd workspace pause portal           # the project portal
+gtd workspace pause portal bugs      # the feed bugs of portal
+gtd workspace pause portal --wait    # and wait until no driver runs in portal
+gtd workspace resume portal          # take the pause of portal off
+```
+
+An item that a pause holds waits, queued, with the reason. Feeds go on polling,
+and drivers that run go on. `resume` takes off the pause of exactly that scope
+and starts the items that can start now; a pause of a wider scope still holds
+them. With `--wait`, `pause` returns once no driver runs in that scope and no
+item is starting in it; for a feed, that is the worktrees of its items. A ship
+script can then deploy, and resume after. The pauses stay when the supervisor
+restarts. The query `inbox` gives them as `paused: [{ project?, feed? }]`. An
+unknown project or feed, or a supervisor that is not running, exits 1.
 
 ## Worktree status
 
@@ -538,13 +562,13 @@ its directory 0700. These file permissions are the authentication.
 
 The supervisor keeps its state in `~/.local/state/gtd/workspace/` (or under
 `$XDG_STATE_HOME`). Nothing goes into your repositories. Deleting that state
-loses the dismissals, the notes, the sent notification keys (the next start is a
-silent baseline), the default ntfy topic and what gtd knows of started and
-failed items; the next polls file every waiting item again.
+loses the dismissals, the notes, the pauses, the sent notification keys (the
+next start is a silent baseline), the default ntfy topic and what gtd knows of
+started and failed items; the next polls file every waiting item again.
 
-Every state change (Proceed, Retry, Dismiss, New worktree, Remove, Note, a new
-shell pane, and Start and Retry of an item) adds one JSON line to `audit.log` in
-that directory: `time`, `identity` (the tailnet login, `-` when unknown),
-`endpoint`, `project`, `worktree`, `action` and `outcome`. It never holds the
-values of fields. When the log reaches 1 MiB, it moves to `audit.log.1`,
-replacing the older one.
+Every state change (Proceed, Retry, Dismiss, New worktree, Remove, a new shell
+pane, Start and Retry of an item, Note, Pause and Resume) adds one JSON line to
+`audit.log` in that directory: `time`, `identity` (the tailnet login, `-` when
+unknown), `endpoint`, `project`, `worktree`, `action` and `outcome`. It never
+holds the values of fields. When the log reaches 1 MiB, it moves to
+`audit.log.1`, replacing the older one.

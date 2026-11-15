@@ -262,6 +262,16 @@ const FLAGS: readonly FlagRow[] = [
     help: "Take the worktree's note off",
   },
   {
+    name: "--wait",
+    arity: 0,
+    repeatable: false,
+    scope: (_kind, token) => token === "workspace pause",
+    decode: () => Result.succeed(true),
+    scopeError: "gtd: --wait is only valid for `gtd workspace pause`",
+    valueHint: "",
+    help: "Return once no driver runs in that scope",
+  },
+  {
     name: "--dev",
     arity: 0,
     repeatable: false,
@@ -394,6 +404,8 @@ type Arity =
   | { readonly name: string; readonly second: string }
   // One or two positionals; the command itself judges when the second is missing.
   | { readonly name: string; readonly second: string; readonly optional: true }
+  // None, one, or two positionals.
+  | { readonly name: string; readonly second: string; readonly bare: true }
 
 type Group = "Core loop" | "Start and stop" | "Inspect" | "Driver plumbing"
 
@@ -579,6 +591,26 @@ It reaches the running supervisor of the workspace whose gtd.workspace.ts is inn
 It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. When no supervisor runs, the note waits in the supervisor's state directory and applies when the supervisor starts. A path that is no worktree exits 1.`,
   },
   {
+    token: "workspace pause",
+    kind: "workspaceControl",
+    arity: { name: "project", second: "feed", bare: true },
+    group: "Inspect",
+    summary: "Pause dispatch",
+    details: `Pause dispatch in the workspace, in the project <project>, or for its feed <feed>, as the dashboard's Inbox does: no item in that scope starts until \`gtd workspace resume\` with the same words. An item a pause holds waits, queued. Drivers that run go on; with --wait the command returns once no driver runs in that scope, for example before a deploy. The pause stays when the supervisor restarts.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. An unknown project or feed exits 1; so does a supervisor that is not running.`,
+  },
+  {
+    token: "workspace resume",
+    kind: "workspaceControl",
+    arity: { name: "project", second: "feed", bare: true },
+    group: "Inspect",
+    summary: "Resume dispatch",
+    details: `Take off the pause that \`gtd workspace pause\` with the same words put on, and start the items it held that can start now. A pause of a wider scope still holds them.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. An unknown project or feed exits 1; so does a supervisor that is not running.`,
+  },
+  {
     token: "guide",
     kind: "guide",
     arity: "none",
@@ -656,9 +688,18 @@ const OPTION_COLUMN = 22
 
 const synopsis = (row: CommandRow): string => {
   const { token, arity } = row
+  if (arity !== "none" && "bare" in arity && "second" in arity) {
+    return `${token} [${arity.name} [${arity.second}]]`
+  }
+  return pairlessSynopsis(token, arity)
+}
+
+const pairlessSynopsis = (token: string, arity: Arity): string => {
   if (arity === "none") return token
-  if ("bare" in arity) return `${token} [${arity.name}] [${arity.variadic}...]`
-  if ("variadic" in arity) return `${token} <${arity.name}> [${arity.variadic}...]`
+  if ("variadic" in arity) {
+    const name = "bare" in arity ? `[${arity.name}]` : `<${arity.name}>`
+    return `${token} ${name} [${arity.variadic}...]`
+  }
   if ("second" in arity && "optional" in arity) {
     return `${token} <${arity.name}> [${arity.second}]`
   }
@@ -968,6 +1009,9 @@ const pairError = (
 
 const arityError = (cmd: string, rest: readonly string[], arity: Arity): string | undefined => {
   if (arity === "none") return tooMany(cmd, rest, "none", 0)
+  if ("bare" in arity && "second" in arity) {
+    return tooMany(cmd, rest, `at most a ${arity.name} and a ${arity.second}`, 2)
+  }
   if ("bare" in arity) return undefined
   if ("second" in arity) return pairError(cmd, rest, arity)
   if ("optional" in arity) return tooMany(cmd, rest, `at most one ${arity.name}`, 1)
@@ -1188,6 +1232,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--error"?: boolean
     readonly "--notify"?: boolean
     readonly "--clear"?: boolean
+    readonly "--wait"?: boolean
   }
 
   // `present.has("--json")` alone can't distinguish bare `--json` (no value
@@ -1271,6 +1316,23 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
 
   if (kind === "workspaceControl" && row.token === "workspace note") {
     return buildNoteCommand(restPositionals, bag, json, verbose, jsonSeen)
+  }
+
+  if (row.token === "workspace pause" || row.token === "workspace resume") {
+    const [project, feed] = restPositionals
+    return {
+      kind: "command",
+      command: {
+        kind: "workspaceControl",
+        command: row.token === "workspace pause" ? "pause" : "resume",
+        ...(project !== undefined ? { project } : {}),
+        ...(feed !== undefined ? { feed } : {}),
+        ...(bag["--wait"] === true ? { wait: true } : {}),
+        ...(bag["--config"] !== undefined ? { config: bag["--config"] } : {}),
+      },
+      json,
+      verbose,
+    }
   }
 
   if (kind === "workspaceControl") {
