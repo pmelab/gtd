@@ -212,22 +212,24 @@ export class WorkspaceBench {
     return this.nextIn(path)
   }
 
-  /** A driver one-shot: answered while the worktree's newest pane runs, else exit 2. */
-  private async oneShot(argv: readonly string[], worktree: string): Promise<ExecResult> {
-    this.oneShots.push({ worktree, argv })
+  /** Whether a driver runs in the worktree's newest pane and answers one-shots. */
+  private async driverListens(worktree: string): Promise<boolean> {
     const pane = this.terminal
       .panes()
       .filter((p) => p.worktree === worktree)
       .at(-1)
-    const alive =
-      pane !== undefined && (await this.terminal.adapter.status(pane.handle))?.alive === true
-    if (!alive || this.silent.has(worktree)) {
+    if (pane === undefined || this.silent.has(worktree)) return false
+    return (await this.terminal.adapter.status(pane.handle))?.alive === true
+  }
+
+  /** A driver one-shot: answered while the driver listens, else exit 2. */
+  private async oneShot(argv: readonly string[], worktree: string): Promise<ExecResult> {
+    this.oneShots.push({ worktree, argv })
+    if (!(await this.driverListens(worktree))) {
       return { status: 2, stdout: "", stderr: "no driver runs\n" }
     }
     const refusal = this.refusing.get(worktree)
-    return refusal === undefined
-      ? { status: 0, stdout: "", stderr: "" }
-      : { status: 1, stdout: "", stderr: refusal }
+    return { status: refusal === undefined ? 0 : 1, stdout: "", stderr: refusal ?? "" }
   }
 
   private nextIn(path: string): SpawnOutcome {
