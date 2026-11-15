@@ -1,9 +1,9 @@
 # Workspace
 
 `gtd workspace` runs one dashboard and supervisor over all the projects of a
-workspace. It shows every worktree as a row, serves each worktree's gate page,
-starts your [driver](./driver.md#workspace-drivers), and dispatches work that
-your triggers find.
+workspace. It shows the status of every worktree, serves each worktree's gate
+page, starts your [driver](./driver.md#workspace-drivers), and dispatches work
+that your feeds find.
 
 gtd still runs no turn and makes no commit itself. Your driver and your actions
 do that.
@@ -24,8 +24,10 @@ on the tailnet interface when serve is not available, or with `--http` on
 loopback behind your own proxy. `--host`, `--port`, `--self-signed` and `--http`
 work as for `gtd ui`.
 
-Drivers keep running when the supervisor stops. When it starts again, it
-notifies you only about rows that changed while it was down, and it restarts
+gtd starts each driver, and each action, as the only command of a new terminal
+pane, in your login-shell environment, as you would start it yourself. Drivers
+keep running when the supervisor stops. When it starts again, it notifies you
+only about worktrees whose status changed while it was down, and it restarts
 drivers whose process waits for an agent or a check with no driver running.
 
 ## `gtd.workspace.ts`
@@ -34,15 +36,15 @@ The supervisor uses the innermost `gtd.workspace.ts` from the current directory,
 or the file given with `--config <path>`. The directory of that file is the
 workspace root.
 
-> **Trust.** `gtd.workspace.ts`, with its triggers and reactions, is code that
-> the supervisor runs in its own process. Give it the same trust as any script
-> in your workspace. There is no sandbox.
+> **Trust.** `gtd.workspace.ts`, with its feeds and reactions, is code that the
+> supervisor runs in its own process. Give it the same trust as any script in
+> your workspace. There is no sandbox.
 
 ```ts
-import { defineWorkspace, reaction, trigger } from "@pmelab/gtd/workspace"
-import { ntfy, worktrunk } from "@pmelab/gtd/workspace/adapters"
+import { defineWorkspace, feed, reaction } from "@pmelab/gtd/workspace";
+import { ntfy, worktrunk } from "@pmelab/gtd/workspace/adapters";
 
-export const boardReady = trigger({
+export const boardReady = feed({
   project: "portal",
   every: "5m",
   mode: "propose",
@@ -55,7 +57,7 @@ export const boardReady = trigger({
       "ready",
       "--json",
       "number,title,url",
-    ])
+    ]);
     return JSON.parse(out.stdout).map(
       (i: { number: number; title: string; url: string }) => ({
         key: String(i.number),
@@ -65,16 +67,16 @@ export const boardReady = trigger({
         priority: 0,
         data: { ship: "pr" },
       }),
-    )
+    );
   },
-})
+});
 
 export const triageErrors = reaction({
   on: { to: "error", errorKind: "driver" },
   run: async (change, ctx) => {
-    await ctx.action("error:triage", {})
+    await ctx.action("error:triage", {});
   },
-})
+});
 
 export const workspace = defineWorkspace({
   driver: ["my-driver"],
@@ -87,7 +89,7 @@ export const workspace = defineWorkspace({
   clean: { every: "30m" },
   projects: { portal: { name: "Portal", wip: 4 } },
   ui: { port: 8443, users: ["me@example.com"] },
-})
+});
 ```
 
 Each finding in the file is reported in the `gtd: config:` format, and unknown
@@ -112,16 +114,15 @@ The one reserved export, made with `defineWorkspace`. Every key is optional.
   `driver`, `wip`, `notify`, `clean`. An id that matches no project gives a
   dashboard warning.
 - **`notify`**: turn built-in notifications on or off: `needsYou`, `error`,
-  `proposed`, `triggerFailing`, `configError`, `mainStale`. All are on.
+  `proposed`, `feedFailing`, `configError`, `mainStale`. All are on.
 - **`clean`**: `{ every: "<duration>" }` turns on [auto-clean](#auto-clean). It
   is off by default.
 - **`ui`**: `port`, `host`, `cert`, `key`, as for `gtd ui`, and `users` (the
   tailnet logins that may use the dashboard; default: the owner of this node).
 
-### Triggers
+### Feeds
 
-A trigger is a named export made with `trigger()`. The export name is the
-trigger's name.
+A feed is a named export made with `feed()`. The export name is the feed's name.
 
 - **`project`**: the project id.
 - **`every`** (duration): how often `poll` runs.
@@ -136,13 +137,13 @@ trigger's name.
 
 An item has these fields:
 
-- **`key`**: unique for the trigger;
+- **`key`**: unique for the feed;
 - **`title`**, **`url`** (optional);
 - **`action`**: the start action that begins the work, for example
   `start:feature`;
 - **`priority`**: a higher number starts first;
 - **`blockedBy`** (optional): keys of items that must finish first. Use
-  `<trigger>/<key>` for an item of another trigger;
+  `<feed>/<key>` for an item of another feed;
 - **`branch`** (optional): start the work in the existing worktree of this
   branch. The item waits until that worktree is free: no process mid-flow, no
   driver running, no uncommitted changes;
@@ -157,65 +158,66 @@ stays in the inbox until you retry or dismiss it.
 
 ### Reactions
 
-A reaction is a named export made with `reaction()`. It runs once for each row
-change that matches `on`.
+A reaction is a named export made with `reaction()`. It runs once for each
+worktree status change that matches `on`.
 
 - **`on`**: for example `{ to: "error" }`,
   `{ to: "error", errorKind: "driver" }`, `{ to: "needsYou" }` or
   `{ to: "cleaned" }`.
 - **`run(change, ctx)`**: `change` has `project`, `worktree`, `from`, `to`,
-  `label`, `errorKind`, `rest` and `atStartup`. `ctx` has `action(id, values)`,
-  `proceed(rest)`, `retry(rest)`, `notify(…)`, `exec` and `log`.
+  `label`, `errorKind`, `commit` and `atStartup`. `ctx` has
+  `action(id, values)`, `proceed(commit)`, `retry(commit)`, `notify(…)`, `exec`
+  and `log`.
 
 A reaction that throws is reported on the dashboard. The other reactions and
-triggers keep running.
+feeds keep running.
 
-### Testing triggers and reactions
+### Testing feeds and reactions
 
-`@pmelab/gtd/testkit` has `testTrigger(trigger, { exec, fetch, clock })` and
+`@pmelab/gtd/testkit` has `testFeed(feed, { exec, fetch, clock })` and
 `testReaction(reaction, change, { … })`. They run under any test runner, like
 the [workflow testkit](./testing.md).
 
-## Rows
+## Worktree status
 
-| Status    | When                                                                                     |
-| --------- | ---------------------------------------------------------------------------------------- |
-| needs you | The process waits for a person or a judge, and its driver is waiting or not running.     |
-| working   | The driver reports that it works.                                                        |
-| error     | The driver reports an error, the driver crashed, the process stalled, or a mark says so. |
-| idle      | The process has ended, or the worktree has none.                                         |
+| Status    | When                                                                                    |
+| --------- | --------------------------------------------------------------------------------------- |
+| needs you | The process waits for a person or a judge, and its driver is waiting or not running.    |
+| working   | The driver reports that it works.                                                       |
+| error     | The driver reports an error, the driver crashed, the process stalled, or an error note. |
+| idle      | The process has ended, or the worktree has none.                                        |
 
 ## Actions
 
-Actions are the commands the dashboard offers on a row. With the bundled mise
-adapter, they are your mise tasks, chosen by name prefix:
+Actions are the commands the dashboard offers on a worktree. With the bundled
+mise adapter, they are your mise tasks, chosen by name prefix:
 
-| Prefix    | Shown on           |
-| --------- | ------------------ |
-| `start:*` | idle rows          |
-| `gate:*`  | rows that need you |
-| `error:*` | rows in error      |
-| `any:*`   | every row          |
+| Prefix    | Shown when the worktree status is |
+| --------- | --------------------------------- |
+| `start:*` | idle                              |
+| `gate:*`  | needs you                         |
+| `error:*` | error                             |
+| `any:*`   | any                               |
 
 The task's usage spec gives the fields. Each field value is passed as one
 argument, never through a shell. An action runs in its own terminal pane and
-gets the row as JSON in `GTD_WORKSPACE_ROW`: `status`, `errorKind` (`crashed`,
-`stalled`, `driver` or `mark`), `message` and `rest`. When a `start:*` action
-exits 0, gtd starts the driver.
+gets the worktree status as JSON in `GTD_WORKSPACE_STATUS`: `status`,
+`errorKind` (`crashed`, `stalled`, `driver` or `note`), `message` and `commit`.
+When a `start:*` action exits 0, gtd starts the driver.
 
 ## Commands for your scripts
 
-| Command                                                  | Effect                                                          |
-| -------------------------------------------------------- | --------------------------------------------------------------- |
-| `gtd workspace mark <worktree> --error <msg> [--notify]` | Put the row in error with this message.                         |
-| `gtd workspace mark <worktree> --note <msg> [--notify]`  | Show a note on the row.                                         |
-| `gtd workspace mark <worktree> --clear`                  | Remove the mark.                                                |
-| `gtd workspace proceed <worktree> <rest-id>`             | Proceed, as the dashboard does.                                 |
-| `gtd workspace retry <worktree> <rest-id>`               | Retry, as the dashboard does.                                   |
-| `gtd workspace pause [<project> [<trigger>]] [--wait]`   | Stop dispatch. With `--wait`, return when no driver runs there. |
-| `gtd workspace resume [<project> [<trigger>]]`           | Start dispatch again.                                           |
+| Command                                                  | Effect                                                            |
+| -------------------------------------------------------- | ----------------------------------------------------------------- |
+| `gtd workspace note <worktree> <msg> [--notify]`         | Show a note on the worktree.                                      |
+| `gtd workspace note <worktree> <msg> --error [--notify]` | Show the note and put the worktree status in error.               |
+| `gtd workspace note <worktree> --clear`                  | Remove the note.                                                  |
+| `gtd workspace proceed <worktree> <commit>`              | Proceed from the rest at that HEAD commit, as the dashboard does. |
+| `gtd workspace retry <worktree> <commit>`                | Retry the rest at that HEAD commit, as the dashboard does.        |
+| `gtd workspace pause [<project> [<feed>]] [--wait]`      | Stop dispatch. With `--wait`, return when no driver runs there.   |
+| `gtd workspace resume [<project> [<feed>]]`              | Start dispatch again.                                             |
 
-When the supervisor is not running, `mark` is kept and applied at its next
+When the supervisor is not running, `note` is kept and applied at its next
 start, and the other commands exit 1.
 
 A deploy script that must not run beside a driver can do this:
@@ -242,7 +244,7 @@ A worktree is never removed when:
 - its driver runs;
 - one of its terminal panes is busy;
 - an item for it is starting;
-- it has an error mark.
+- it has an error note.
 
 A removal stops the worktree's services, closes its idle panes, and deletes the
 worktree and its branch.

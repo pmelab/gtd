@@ -332,45 +332,44 @@ worktrees, actions or notifications. Each has a bundled default that a workspace
 can replace. _Avoid_: plugin, provider, backend
 
 **Driver command**: The command the supervisor starts in a worktree to drive its
-process. It takes no arguments and answers `proceed`, `retry` and `quit`.
-_Avoid_: agent command, runner
+process — as the only command of a new terminal pane, never as its own child. It
+takes no arguments and answers `proceed <commit>`, `retry <commit>` and `quit`,
+where the commit is the HEAD the person saw. _Avoid_: agent command, runner,
+rest id (the commit names the rest)
 
-**Rest id**: The identity of one [rest](#rest): the full HEAD commit and the
-step name. An action with a rest id is refused when a fresh read gives a
-different one. _Avoid_: gate id
+**Worktree status**: What a worktree needs, as the dashboard shows it: needs
+you, working, error or idle. Derived from `gtd next` and the driver's OSC
+record. _Avoid_: row, card, tile
 
-**Row**: One worktree on the dashboard, with its status: needs you, working,
-error or idle. _Avoid_: card, tile
+**Action**: A command a person can run on a worktree from the dashboard, with
+fields to fill in. Start actions begin work in an idle worktree. _Avoid_: task
+(in the dashboard), button, command
 
-**Action**: A command a person can run on a row from the dashboard, with fields
-to fill in. Start actions begin work in an idle worktree. _Avoid_: task (in the
-dashboard), button, command
-
-**Trigger**: Workspace code that looks at a source (a board, a tracker, open
-pull requests) and returns the [items](#item) that match now. _Avoid_: rule,
-watch, poller
+**Feed**: Workspace code that looks at a source (a board, a tracker, open pull
+requests) on a schedule and returns the [items](#item) that match now. _Avoid_:
+trigger, rule, watcher, poller
 
 **Inbox**: The items a workspace knows about that have not started, or failed to
 start. _Avoid_: queue, backlog
 
-**Item**: One piece of work a trigger found, with the start action that begins
-it. _Avoid_: queue item, ticket, job
+**Item**: One piece of work a feed found, with the start action that begins it.
+_Avoid_: queue item, ticket, job
 
-**Propose / Queue**: The two modes of a trigger. A proposed item waits for a
-person to Start or [Dismiss](#dismiss) it; a queued item is dispatched without
-one.
+**Propose / Queue**: The two modes of a feed. A proposed item waits for a person
+to Start or [Dismiss](#dismiss) it; a queued item is dispatched without one.
 
 **Dispatch**: Starting an item: making or choosing its worktree and running its
 start action, within the limits and pauses. _Avoid_: launch, schedule
 
-**Dismiss**: Hiding a proposed or failed item until its trigger stops returning
-it. _Avoid_: reject, delete
+**Dismiss**: Hiding a proposed or failed item until its feed stops returning it.
+_Avoid_: reject, delete
 
-**Mark**: A note or an error that workspace code puts on a row, for things gtd
-does not track itself, such as a failed ship. _Avoid_: event, label, flag
+**Note**: A message that workspace code puts on a worktree, for things gtd does
+not track itself, such as an open pull request or a failed deploy. An **error
+note** turns the worktree status to error. _Avoid_: mark, event, label, flag
 
-**Reaction**: Workspace code that runs when a row changes, for example to try a
-fix when a row turns to error. _Avoid_: hook, handler, listener
+**Reaction**: Workspace code that runs when a worktree status changes, for
+example to try a fix when it turns to error. _Avoid_: hook, handler, listener
 
 **Integrated**: Said of a worktree whose branch has commits of its own, all of
 them already on the default branch. Only an integrated worktree is cleaned up

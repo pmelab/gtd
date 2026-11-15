@@ -1020,35 +1020,36 @@ change. This is an extension that a driver can opt into.
 Set the driver command as `driver` in `gtd.workspace.ts` (an argv). gtd runs it
 in these forms, always with the worktree as the working directory:
 
-| Invocation                   | What the driver does                                                                                                                          | Exit codes                                              |
-| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
-| `<driver>`                   | Start. Take no arguments. Resume where `gtd next` rests, and wait there if it is a rest for a person or a judge. Do not land an opening beat. | Any; see [Exit codes](#exit-codes-of-a-started-driver). |
-| `<driver> proceed <rest-id>` | Tell the running driver to proceed from that rest.                                                                                            | `0` accepted, `1` refused, `2` no driver runs           |
-| `<driver> retry <rest-id>`   | Tell the running driver to retry the step at that rest.                                                                                       | `0` accepted, `1` refused, `2` no driver runs           |
-| `<driver> quit`              | Tell the running driver to stop.                                                                                                              | `0` accepted, `1` refused, `2` no driver runs           |
+| Invocation                  | What the driver does                                                                                                                          | Exit codes                                              |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `<driver>`                  | Start. Take no arguments. Resume where `gtd next` rests, and wait there if it is a rest for a person or a judge. Do not land an opening beat. | Any; see [Exit codes](#exit-codes-of-a-started-driver). |
+| `<driver> proceed <commit>` | Tell the running driver to proceed from the rest at that HEAD commit.                                                                         | `0` accepted, `1` refused, `2` no driver runs           |
+| `<driver> retry <commit>`   | Tell the running driver to retry the step that rests at that HEAD commit.                                                                     | `0` accepted, `1` refused, `2` no driver runs           |
+| `<driver> quit`             | Tell the running driver to stop.                                                                                                              | `0` accepted, `1` refused, `2` no driver runs           |
 
 `proceed`, `retry` and `quit` return at once. How they reach the running driver
 (a socket, a file, a signal) is up to the driver. Refuse with exit 1 and a
-one-line reason on stderr when the rest id is stale or the driver is busy. gtd
-shows that line on the dashboard.
+one-line reason on stderr when HEAD is no longer that commit or the driver is
+busy. gtd shows that line on the dashboard.
 
 When you press Proceed and no driver runs, gtd starts the driver and repeats
 `proceed` for a few seconds while it gets exit 2.
 
-### Rest id
+### Which rest
 
-`gtd next --json` reports `rest`: the full HEAD commit, `/`, and the step name.
-It names one rest. Compare the rest id of each `proceed` or `retry` with a fresh
-`gtd next --json` before you act on it, and refuse a different one.
+The commit in `proceed` and `retry` is the full HEAD commit the person saw.
+History is gtd's only state, so that commit names one rest. Compare it with the
+current HEAD before you act, and refuse a different one.
 
 ### Exit codes of a started driver
 
-gtd runs the driver through `gtd workspace drive -- <driver>`, which records how
-the driver ended and then opens a shell in the pane:
+gtd starts the driver as the only command of a new terminal pane, with no gtd
+process above it. The terminal reports how the driver ended, and the pane stays
+open so that you can read its last output:
 
 - exit 0 when the process has ended: done;
 - exit 0 while the process is mid-flow, or exit 130 or 143: quit;
-- any other exit: crashed. The row shows an error with Retry.
+- any other exit: crashed. The dashboard shows an error with Retry.
 
 gtd does not restart a crashed driver by itself. It restarts a driver only when
 the supervisor starts and finds a process that waits for an agent or a check
@@ -1058,10 +1059,13 @@ with no driver running.
 
 Print OSC 7501 records to show what the driver does. gtd reads the root record
 (no `id`): `state` (`working`, `blocked`, `error`, `done`), `kind`, `title` and
-`msg`. A driver that prints none still gets correct rows from `gtd next`.
+`msg`. A driver that prints none still gets a correct status from `gtd next`.
 
 ### Environment
 
+The driver runs in your login-shell environment: your shell's startup files run
+first, as in a terminal you open yourself. gtd adds only the variable below.
+
 - **`GTD_WORKSPACE_ITEM`**: when the driver starts for an inbox item, the item
   as JSON: `key`, `title`, `url`, `action`, `priority`, `blockedBy`, `branch`,
-  `data`, `trigger`, `project`.
+  `data`, `feed`, `project`.

@@ -35,5 +35,10 @@ action does, is userland code in `gtd.workspace.ts`.
 - A driver works the same with or without the supervisor. The supervisor reads
   the driver's status and sends it one-shot commands; it never types into a
   shell.
+- The supervisor never runs a driver or an action as its own child. It asks the
+  terminal adapter for a new pane with that command as its top process, in the
+  person's login-shell environment, as the person would start it. The pane and
+  the driver outlive the supervisor. The supervisor itself runs only short
+  subprocesses that run no turn: the driver's one-shots and `gtd next --json`.
 - `gtd.workspace.ts` is code that the supervisor runs in its own process. It has
   the same trust as `gtd.config.ts`.
