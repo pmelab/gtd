@@ -130,7 +130,7 @@ const allows = (wanted: OneOrMore<string> | undefined, value: string | undefined
   wanted === undefined ||
   (value !== undefined && (typeof wanted === "string" ? wanted === value : wanted.includes(value)))
 
-export const matches = (on: ReactionFilter, change: WorktreeChange): boolean =>
+const matches = (on: ReactionFilter, change: WorktreeChange): boolean =>
   allows(on.project, change.project) &&
   allows(on.from, change.from) &&
   allows(on.to, change.to) &&

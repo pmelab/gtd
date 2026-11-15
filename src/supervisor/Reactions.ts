@@ -62,6 +62,42 @@ const keptOf = (project: string, w: WorktreeView): Kept => ({
   ...(w.errorKind !== undefined ? { errorKind: w.errorKind } : {}),
 })
 
+const sameStatus = (a: Kept | undefined, b: Kept | undefined): boolean =>
+  a?.status === b?.status && a?.errorKind === b?.errorKind
+
+/** The statuses as of now; a project the adapter could not list keeps its last ones. */
+const statusesOf = (
+  projects: readonly ProjectView[],
+  kept: ReadonlyMap<string, Kept>,
+): Map<string, Kept> => {
+  const failed = new Set(projects.filter((p) => p.failure !== undefined).map((p) => p.id))
+  const next = new Map([...kept].filter(([, k]) => failed.has(k.project)))
+  for (const project of projects) {
+    for (const w of project.worktrees) next.set(w.path, keptOf(project.id, w))
+  }
+  return next
+}
+
+const changeOf = (
+  project: string,
+  w: WorktreeView,
+  before: Kept | undefined,
+  atStartup: boolean,
+): WorktreeChange =>
+  ({
+    project,
+    worktree: w.path,
+    ...(w.branch !== undefined ? { branch: w.branch } : {}),
+    ...(before !== undefined ? { from: before.status } : {}),
+    to: w.status,
+    ...(w.errorKind !== undefined ? { errorKind: w.errorKind } : {}),
+    ...(w.kind !== undefined ? { kind: w.kind } : {}),
+    label: w.label,
+    ...(w.message !== undefined ? { message: w.message } : {}),
+    commit: w.head,
+    atStartup,
+  }) as WorktreeChange
+
 const messageOf = (error: unknown): string =>
   typeof error === "object" && error !== null && "message" in error
     ? String(error.message)
@@ -128,40 +164,19 @@ export const reactionRunner = (deps: ReactionDeps): ReactionRunner => {
 
   /** Keeps the statuses as of now; delivers each one that differs from the kept one. */
   const compare = (projects: readonly ProjectView[], atStartup: boolean, quiet: boolean): void => {
-    const changes: WorktreeChange[] = []
-    const next = new Map<string, Kept>()
-    // A project the adapter could not list keeps its worktrees' last statuses.
-    for (const project of projects.filter((p) => p.failure !== undefined)) {
-      for (const [path, k] of kept) if (k.project === project.id) next.set(path, k)
-    }
-    for (const project of projects) {
-      for (const w of project.worktrees) {
-        const now = keptOf(project.id, w)
-        next.set(w.path, now)
-        const before = kept.get(w.path)
-        if (before?.status === now.status && before.errorKind === now.errorKind) continue
-        changes.push({
-          project: project.id,
-          worktree: w.path,
-          ...(w.branch !== undefined ? { branch: w.branch } : {}),
-          ...(before !== undefined ? { from: before.status as WorktreeChange["to"] } : {}),
-          to: w.status,
-          ...(w.errorKind !== undefined ? { errorKind: w.errorKind } : {}),
-          ...(w.kind !== undefined ? { kind: w.kind } : {}),
-          label: w.label,
-          ...(w.message !== undefined ? { message: w.message } : {}),
-          commit: w.head,
-          atStartup,
-        } as WorktreeChange)
-      }
-    }
-    const same =
-      next.size === kept.size &&
-      [...next].every(([path, k]) => JSON.stringify(kept.get(path)) === JSON.stringify(k))
+    const next = statusesOf(projects, kept)
+    const changes = projects.flatMap((project) =>
+      project.worktrees
+        .filter((w) => !sameStatus(kept.get(w.path), next.get(w.path)))
+        .map((w) => changeOf(project.id, w, kept.get(w.path), atStartup)),
+    )
+    const before = JSON.stringify(Object.fromEntries(kept))
     kept.clear()
     for (const [path, k] of next) kept.set(path, k)
     // Saved before any run starts: a change is delivered at most once, also across a restart.
-    if (!same || !saved) deps.store.saveStatuses(Object.fromEntries(kept))
+    if (!saved || before !== JSON.stringify(Object.fromEntries(kept))) {
+      deps.store.saveStatuses(Object.fromEntries(kept))
+    }
     saved = true
     if (!quiet) for (const change of changes) deliver(change)
   }
