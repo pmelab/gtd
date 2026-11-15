@@ -1,9 +1,12 @@
 # Workspace
 
 `gtd workspace` runs one dashboard and supervisor over all the projects of a
-workspace. It shows the status of every worktree of every project.
+workspace. It shows the status of every worktree of every project, serves each
+worktree's gate page, starts your [driver](./driver.md#workspace-drivers), and
+dispatches the work that your feeds find.
 
-gtd still runs no turn and makes no commit itself.
+gtd still runs no turn and makes no commit itself. Your driver and your actions
+do that.
 
 ## Running it
 
@@ -21,6 +24,22 @@ The dashboard is published like `gtd ui`: through `tailscale serve` by default,
 on the tailnet interface when serve is not available, or with `--http` on
 loopback behind your own proxy. `--host`, `--port`, `--self-signed` and `--http`
 work as for `gtd ui`.
+
+### Commands for your scripts
+
+| Command                                                        | See                                     |
+| -------------------------------------------------------------- | --------------------------------------- |
+| `gtd workspace proceed <worktree> <commit>`                    | [Proceed and Retry](#proceed-and-retry) |
+| `gtd workspace retry <worktree> <commit>`                      | [Proceed and Retry](#proceed-and-retry) |
+| `gtd workspace note <worktree> [message] [--error] [--notify]` | [Notes](#notes)                         |
+| `gtd workspace note <worktree> --clear`                        | [Notes](#notes)                         |
+| `gtd workspace pause [project [feed]] [--wait]`                | [Pause](#pause)                         |
+| `gtd workspace resume [project [feed]]`                        | [Pause](#pause)                         |
+
+Each finds the workspace like `gtd workspace` does, or uses the
+`gtd.workspace.ts` that `--config <path>` names, and reaches the running
+supervisor through its socket (see [Security](#security)). The
+[CLI reference](./cli.md#gtd-workspace) lists their options.
 
 ## Dashboard
 
@@ -78,16 +97,17 @@ code 1.
 
 The supervisor reloads the file each time you save it. A reload with a bad file
 keeps the last good config, and a banner above the projects shows the findings
-until a reload succeeds. A reload changes `driver`, `projects`, `clean` and the
-feeds. `adapters`, `pollEvery` and `ui` change only when the supervisor starts
-again.
+until a reload succeeds. A reload changes `driver`, `limits`, `projects`,
+`notify`, `clean`, the feeds and the reactions, and polls each feed at once.
+`adapters`, `pollEvery` and `ui` change only when the supervisor starts again.
 
 ### `workspace`
 
 The one reserved export, made with `defineWorkspace`. Every key is optional.
 
 - **`driver`**: the driver command, as an argv, for example `["my-driver"]`. See
-  [Workspace drivers](./driver.md#workspace-drivers).
+  [Workspace drivers](./driver.md#workspace-drivers). Without a driver command
+  for a project, gtd starts no driver there, and refuses Proceed and Retry.
 - **`adapters`**: `worktrees`, `terminal`, `services`, `actions`,
   `notifications`. An omitted adapter is the bundled default with its default
   options. See [Adapters](#adapters).
@@ -95,7 +115,8 @@ The one reserved export, made with `defineWorkspace`. Every key is optional.
   most drives in each project. No limit applies when a key is not set. See
   [Inbox](#inbox).
 - **`pollEvery`** (duration, default `"10s"`): how often the services are
-  listed, and how often a worktrees adapter without `watch()` is read.
+  listed, and how often a worktrees or terminal adapter without `watch()` is
+  read. A duration is a whole number with `ms`, `s`, `m` or `h`.
 - **`projects`**: settings per project id, as the worktrees adapter names the
   project: `name` (shown on the dashboard), `driver` (this project's driver
   command, instead of the workspace's), `wip` (instead of `limits.wip`),
@@ -163,7 +184,8 @@ writes to the supervisor's output.
 An item has these fields:
 
 - **`key`**: unique for the feed;
-- **`title`**, **`url`** (optional);
+- **`title`**;
+- **`url`** (optional);
 - **`action`**: the start action that begins the work, for example
   `start:feature`;
 - **`priority`**: a number; a higher number starts first;
@@ -174,8 +196,9 @@ An item has these fields:
 - **`data`** (optional): any JSON. gtd passes it on and never reads it.
 
 gtd adds `feed` and `project` to each item. A poll that throws, or that returns
-something other than a list of such items with unique keys, fails the feed
-(`feedFailing`): its items stay as they were, and the other feeds keep polling.
+something other than a list of such items with unique keys and no other fields,
+fails the feed (`feedFailing`): its items stay as they were, and the other feeds
+keep polling.
 
 ### Testing feeds
 
@@ -316,11 +339,12 @@ in the inbox. An item waits, queued, with the reason, when:
 
 To dispatch an item, gtd:
 
-1. picks the worktree: the item's `branch`, else the branch `<feed>/<key>`. When
-   a worktree is on that branch, gtd uses it only when it is free: its process
-   has ended, no driver runs in it, its tree is clean and no other item is
-   starting in it. Otherwise the item waits, queued, with the reason. When no
-   worktree is on the branch, gtd creates one.
+1. picks the worktree: the item's `branch`, else the branch `<feed>/<key>`, with
+   each run of characters other than letters, digits, `.`, `_` and `-` in the
+   key written as one `-`. When a worktree is on that branch, gtd uses it only
+   when it is free: its process has ended, no driver runs in it, its tree is
+   clean and no other item is starting in it. Otherwise the item waits, queued,
+   with the reason. When no worktree is on the branch, gtd creates one.
 2. starts the worktree's services,
 3. runs the item's start action in a pane of its own, with `GTD_WORKSPACE_ITEM`:
    the item as JSON (`key`, `title`, `url`, `action`, `priority`, `blockedBy`,
@@ -330,7 +354,8 @@ To dispatch an item, gtd:
 
 The item is then started and leaves the Inbox. A feed that still returns its key
 does not file it again until its worktree is removed. A step that fails makes
-the item failed; a failed item stays when its feed stops returning it.
+the item failed; a failed item stays when its feed stops returning it. An item
+that was starting when the supervisor stopped is failed when it starts again.
 
 **Dismiss** hides a proposed or failed item until its feed stops returning it. A
 later poll that returns the key again files it anew.
@@ -364,12 +389,12 @@ The supervisor runs `gtd next --json` in each worktree, so a process that was
 handed over runs on its own pin. It also reads the status that the worktree's
 driver reports in its terminal pane.
 
-| Status    | When                                                                                                                          |
-| --------- | ----------------------------------------------------------------------------------------------------------------------------- |
-| needs you | The process waits for a person or a judge, and its driver is waiting or not running.                                          |
-| working   | The driver reports that it works, or it runs while the process waits for an agent or check.                                   |
-| error     | The driver reports an error, the driver crashed, the process stalled, `gtd next` failed, or an error note is on the worktree. |
-| idle      | The process has ended, or the worktree has none.                                                                              |
+| Status    | When                                                                                                                                                                  |
+| --------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| needs you | The process waits for a person or a judge, the driver reports that it is blocked, or the process waits for an agent or a check and no driver runs ("no driver runs"). |
+| working   | The driver reports that it works, or it runs while the process waits for an agent or check.                                                                           |
+| error     | The driver reports an error, the driver crashed, the process stalled, `gtd next` failed, or an error note is on the worktree.                                         |
+| idle      | The process has ended, or the worktree has none.                                                                                                                      |
 
 The supervisor starts the driver in its own terminal pane. The driver outlives
 the supervisor. When the supervisor starts, it starts the driver of each
@@ -396,8 +421,9 @@ starts and then every `pollEvery`.
 
 A worktree that needs you has Proceed. A worktree in error has Retry. Each sends
 the HEAD commit that the page showed. gtd refuses the press when the worktree's
-HEAD is now a different commit. Else it runs `<driver> proceed <commit>` or
-`<driver> retry <commit>` in the worktree (see
+status no longer fits the button, when its HEAD is now a different commit, or
+when its project has no driver command. Else it runs `<driver> proceed <commit>`
+or `<driver> retry <commit>` in the worktree (see
 [Workspace drivers](./driver.md#workspace-drivers)). When the driver answers
 that no driver runs (exit 2), gtd starts the driver and sends the press again
 for up to 5 seconds. A refusal shows on the worktree, with the driver's first
@@ -418,11 +444,19 @@ runs. Its audit line has the endpoint `cli`.
 
 ## New worktree and Remove
 
+The dashboard has no buttons for these yet. They are the tRPC mutations
+`createWorktree` with `{ project, branch, base }` (`base` is optional) and
+`removeWorktree` with `{ project, worktree, confirmed }`, where `worktree` is
+the worktree's `path` as the query `projects` returns it. A branch or base that
+New worktree refuses answers 400, a worktree that Remove keeps 409, an unknown
+project or worktree 404, and a worktrees adapter without `create` or
+`remove` 412.
+
 New worktree takes a project and a branch name. The supervisor refuses a name
 that git does not take as a new branch, and a branch that a worktree of the
 project is on already. Then it creates the worktree with the worktrees adapter
-and starts its services. A worktree whose services do not start stays, and the
-dashboard shows why.
+and starts its services. It answers `{ path }`, the new worktree's path. A
+worktree whose services do not start stays, and the answer's `failure` says why.
 
 Remove stops the worktree's services, closes the terminal panes that gtd opened
 in it, then removes the worktree and its branch. It returns when the worktree is
@@ -436,8 +470,9 @@ gone. Remove keeps a worktree, and says why, when:
 - it has an error note.
 
 Remove asks for confirmation when the tree has uncommitted changes (untracked
-files count) or when the branch is not integrated. A confirmed Remove throws
-away those changes and commits.
+files count) or when the branch is not integrated: without `confirmed: true`, it
+answers `{ confirm }`, the list of what would be lost, and removes nothing. A
+confirmed Remove throws away those changes and commits.
 
 ## Auto-clean
 
@@ -541,7 +576,13 @@ that worktree at once.
 The factories come from `@pmelab/gtd/workspace/adapters`. To use another tool,
 give an object that implements the adapter's interface from
 `@pmelab/gtd/workspace`, and test it with the contract-test kit from
-`@pmelab/gtd/workspace/adapters/testkit`:
+`@pmelab/gtd/workspace/adapters/testkit`. It has one function per adapter:
+`worktreesContract`, `terminalContract`, `servicesContract`, `actionsContract`
+and `notificationsContract`. Each takes a harness `{ setup }`, where `setup`
+returns a fresh fixture for one case: your adapter, the world it looks at, and
+`dispose`. The fixture types (`WorktreesFixture`, `TerminalFixture`, …) say what
+each kit needs. Each function returns the cases, each `{ name, run }`, for any
+test runner:
 
 ```ts
 import { worktreesContract } from "@pmelab/gtd/workspace/adapters/testkit"
@@ -610,7 +651,8 @@ checkouts. A project added after the supervisor started is found by the next
 
 `rex({ server, shell })` opens one Rex session per project id and one window per
 pane. `server` is a Rex server address as `rex -S` takes it; `shell` is the
-login shell (Rex's default when absent).
+login shell (Rex's default when absent). It has `watch()` but no `attach`, so
+its Terminal tab can only open the shell pane.
 
 ### `services`
 
@@ -639,8 +681,9 @@ reports the URL of pitchfork's proxy as each daemon's URL.
 
 The supervisor checks the values against the fields, then runs the argv in a new
 terminal pane in the worktree, never in the driver's pane and never through a
-shell. Every action gets `GTD_WORKSPACE_STATUS`, a JSON object with `status`,
-`errorKind` and `message` (when the worktree has them) and `commit` (the
+shell. Every action gets `GTD_WORKSPACE_STATUS`, a JSON object with `status`
+(`idle`, `needsYou`, `working` or `error`), `errorKind` (`stalled`, `crashed`,
+`driver` or `note`) and `message` (when the worktree has them) and `commit` (the
 worktree's HEAD commit). When a start action exits 0, the supervisor starts the
 driver.
 
@@ -663,28 +706,33 @@ flags (for example `--dry`) as that flag, so `mise()` refuses such a value.
 (default `https://ntfy.sh`), with `token` as an access token for a protected
 topic. Anyone who knows a topic on a public server can read it. Without a
 `notifications` adapter, the supervisor publishes to a random topic on
-`https://ntfy.sh`, kept in `ntfy-topic` in its state directory: subscribe to
-that topic in the ntfy app.
+`https://ntfy.sh`, kept in the file `ntfy-topic` in its
+[state directory](#security). gtd does not print it: read it there, and
+subscribe to that topic in the ntfy app.
 
 ## Security
 
 Every request, to the dashboard and to the gate pages, must come from a tailnet
-user in `ui.users`. Other users get 403. Requests that change state must be
-POSTs with a JSON body from the dashboard's own origin.
+user in `ui.users`. Other users get 403. With `--http`, your proxy is trusted to
+check the user. Requests that change state must be POSTs with a JSON body from
+the dashboard's own origin.
 
 The commands for your scripts reach the supervisor through the unix socket
 `socket` in its state directory. Only you can open it: the socket is 0600 and
 its directory 0700. These file permissions are the authentication.
 
-The supervisor keeps its state in `~/.local/state/gtd/workspace/` (or under
-`$XDG_STATE_HOME`). Nothing goes into your repositories. Deleting that state
-loses the dismissals, the notes, the pauses, the sent notification keys (the
-next start is a silent baseline), the default ntfy topic and what gtd knows of
-started and failed items; the next polls file every waiting item again.
+The supervisor keeps its state in a directory of its own for each workspace,
+below `~/.local/state/gtd/workspace/` (`$XDG_STATE_HOME/gtd/workspace/` when
+that is set). The directory's name is a hash of the workspace root. Nothing goes
+into your repositories. Deleting that state loses the dismissals, the notes, the
+pauses, the sent notification keys (the next start is a silent baseline), the
+default ntfy topic and what gtd knows of started and failed items; the next
+polls file every waiting item again.
 
-Every state change (Proceed, Retry, Dismiss, New worktree, Remove, a new shell
-pane, Start and Retry of an item, Note, Pause and Resume, and each auto-clean
-removal) adds one JSON line to `audit.log` in that directory: `time`, `identity`
-(the tailnet login, `-` when unknown), `endpoint`, `project`, `worktree`,
-`action` and `outcome`. It never holds the values of fields. When the log
-reaches 1 MiB, it moves to `audit.log.1`, replacing the older one.
+These state changes add one JSON line: Proceed, Retry, Dismiss, New worktree,
+Remove, a new shell pane, Start and Retry of an item, Note, Pause and Resume,
+and each auto-clean removal. A run of an action adds none. The lines go to
+`audit.log` in that directory, with `time`, `identity` (the tailnet login, `-`
+when unknown), `endpoint`, `project`, `worktree`, `action` and `outcome`. It
+never holds the values of fields. When the log reaches 1 MiB, it moves to
+`audit.log.1`, replacing the older one.

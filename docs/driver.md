@@ -1031,6 +1031,9 @@ in these forms, always with the worktree as the working directory:
 | `<driver> retry <commit>`   | Tell the running driver to retry the step that rests at that HEAD commit.                                                                     | `0` accepted, `1` refused, `2` no driver runs           |
 | `<driver> quit`             | Tell the running driver to stop.                                                                                                              | `0` accepted, `1` refused, `2` no driver runs           |
 
+gtd runs `<driver>`, `proceed` and `retry`. It does not run `quit` yet, but
+`quit` is part of the contract: implement it all the same.
+
 `proceed`, `retry` and `quit` return at once. How they reach the running driver
 (a socket, a file, a signal) is up to the driver. Refuse with exit 1 and a
 one-line reason on stderr when HEAD is no longer that commit or the driver is
