@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process"
+import { watch } from "node:fs"
+import { basename, dirname } from "node:path"
 import { Context, Layer } from "effect"
 import { liveRunInWorktree, type SpawnOutcome } from "../ui/index.js"
 import { mise, pitchfork, rex, worktrunk } from "../workspace-adapters/index.js"
@@ -28,6 +30,26 @@ interface SupervisorHostOps {
   readonly isPidAlive: (pid: number) => boolean
   /** Runs `run` once after `ms`; the result cancels it. The twin's clock moves only when a test moves it. */
   readonly after: (ms: number, run: () => void) => () => void
+  /** Calls `changed` after `file` was written; the result stops watching. */
+  readonly watchFile: (file: string, changed: () => Promise<void>) => () => void
+}
+
+// An editor's save is several events (write, rename, chmod); one call after they stop covers them.
+const SAVE_SETTLE_MS = 200
+
+const watchFile = (file: string, changed: () => Promise<void>): (() => void) => {
+  let timer: NodeJS.Timeout | undefined
+  // The directory, not the file: an editor that saves by rename replaces the watched inode.
+  const watcher = watch(dirname(file), (_event, name) => {
+    if (name !== basename(file)) return
+    clearTimeout(timer)
+    timer = setTimeout(() => void changed(), SAVE_SETTLE_MS)
+  })
+  watcher.on("error", () => {})
+  return () => {
+    clearTimeout(timer)
+    watcher.close()
+  }
 }
 
 const isPidAlive = (pid: number): boolean => {
@@ -54,6 +76,7 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
       const timer = setTimeout(run, ms)
       return () => clearTimeout(timer)
     },
+    watchFile,
   })
 }
 
