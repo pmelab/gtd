@@ -46,7 +46,14 @@ import {
   type UiHandler,
 } from "../../../src/ui/index.js"
 import { GtdError, GtdUsageError, NodeServices } from "../../../src/platform/index.js"
-import { inMemoryUiHost, inMemoryUiLayers, type FakeTailnet } from "./ui-host.js"
+import {
+  fakeTailnet,
+  inMemoryUiHost,
+  inMemoryUiLayers,
+  TAILNET_OWNER,
+  TAILNET_PEER,
+  type FakeTailnet,
+} from "./ui-host.js"
 import type { SteeringAnchor, SteeringView } from "../../../src/steering/index.js"
 
 const PROJECT_ROOT = resolve(import.meta.dirname, "../../..")
@@ -94,12 +101,46 @@ const UI_ARGS = (target: UiTarget): string[] =>
       ? []
       : ["--port", String(target)]
 
+/** How a request reaches `gtd ui`: a direct bind, `tailscale serve`, or a local proxy (`--http`). */
+export type UiExposure = "direct" | "serve" | "http"
+
+const EXPOSURE_ARGS: Readonly<Record<UiExposure, readonly string[]>> = {
+  direct: UI_ARGS("direct"),
+  serve: UI_ARGS(8443),
+  http: ["--http"],
+}
+
+/** A raw HTTP request as a scenario writes it: request line, header lines, a blank line, the body. */
+const parseRawRequest = (
+  raw: string,
+): { method: string; path: string; headers: Headers; body?: string } => {
+  const [head = "", body] = raw.split(/\n\n/, 2)
+  const [requestLine = "", ...headerLines] = head.split("\n")
+  const [method = "GET", path = "/"] = requestLine.trim().split(/\s+/)
+  const headers = new Headers()
+  for (const line of headerLines) {
+    const colon = line.indexOf(":")
+    headers.append(line.slice(0, colon).trim(), line.slice(colon + 1).trim())
+  }
+  return { method, path, headers, ...(body !== undefined ? { body } : {}) }
+}
+
+/** What a browser on the owner's phone sends: tailscale serve's identity header, and the same-origin marker. */
+const UI_CLIENT_HEADERS = {
+  "tailscale-user-login": TAILNET_OWNER,
+  "sec-fetch-site": "same-origin",
+}
+
 /** A `fetch` answered by `handler` in-process; its after-response callbacks run once the response is out. */
 const bridgeFetch =
   (handler: UiHandler): typeof globalThis.fetch =>
   async (input, init) => {
     const after: Array<() => void> = []
-    const response = await handler(new Request(input, init), (callback) => after.push(callback))
+    const response = await handler(
+      new Request(input, init),
+      (callback) => after.push(callback),
+      TAILNET_PEER,
+    )
     setImmediate(() => after.forEach((callback) => callback()))
     return response
   }
@@ -312,7 +353,7 @@ export class GtdWorld extends QuickPickleWorld {
   /** `~/.gtd/serve` in memory. */
   serveRecords = new Map<number, ServeRecord>()
   /** The tailnet a fake `tailscale` reports in memory. */
-  tailnet: FakeTailnet = { mappings: new Map(), failPublish: false }
+  tailnet: FakeTailnet = fakeTailnet()
   private uiScratch = new Map<string, string>()
   /** Files outside the repository in memory, by absolute path — user-level config. */
   userFiles = new Map<string, string>()
@@ -362,6 +403,8 @@ export class GtdWorld extends QuickPickleWorld {
   lastSteeringView: SteeringView | undefined = undefined
   /** Package 04's own `diff` proof: a real `gtd ui` subprocess, a real `diff` query against it — stashed for a later `Then` step to assert a range's resolved shape (hunk lines, the whole-file banner, or a pure-deletion fallback) against. */
   lastDiffResult: DiffResult | undefined = undefined
+  /** The status `gtd ui` answered the last raw request with. */
+  lastUiStatus: number | undefined = undefined
   /** Package 01 Task 10's own stale-write proof: the typed refusal `spawnGtdUiAndSetValueWithStaleHash` reads off a real rejected `setValue` mutation, or `undefined` if the write unexpectedly succeeded. */
   lastWriteRefusal: { readonly reason: string; readonly moved?: string } | undefined = undefined
   /** A temp dir OUTSIDE the repo holding a doc's extracted bash paste (the minimal driver, the run-gtd worked example) — proves the paste needs nothing inside the project. */
@@ -1016,7 +1059,9 @@ export class GtdWorld extends QuickPickleWorld {
     const { createTRPCClient, httpBatchLink } = await import("@trpc/client")
     const connect = (url: string, fetch: typeof globalThis.fetch = globalThis.fetch) =>
       createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${url}trpc`, fetch: fetch as never })],
+        links: [
+          httpBatchLink({ url: `${url}trpc`, fetch: fetch as never, headers: UI_CLIENT_HEADERS }),
+        ],
       })
     if (this.repo !== undefined) return this.openUiInMem(target, connect)
     const previousTlsReject = process.env["NODE_TLS_REJECT_UNAUTHORIZED"]
@@ -1036,7 +1081,7 @@ export class GtdWorld extends QuickPickleWorld {
       client: connect(base),
       headSha: () => execSync("git rev-parse HEAD", { cwd: this.repoDir, encoding: "utf8" }).trim(),
       read: (path) => this.readRepoFile(path),
-      reload: async () => (await fetch(base)).status,
+      reload: async () => (await fetch(base, { headers: UI_CLIENT_HEADERS })).status,
       finished,
       stop: async () => {
         spawned.child.kill("SIGTERM")
@@ -1072,7 +1117,8 @@ export class GtdWorld extends QuickPickleWorld {
       client: connect("http://inmem/", fetchInMem),
       headSha: () => this.repo!.resolveRef("HEAD")!,
       read: (path) => this.readRepoFile(path),
-      reload: async () => (await fetchInMem("http://inmem/")).status,
+      reload: async () =>
+        (await fetchInMem("http://inmem/", { headers: UI_CLIENT_HEADERS })).status,
       finished: run.then((result) => ({ code: result.exitCode, signal: null })),
       stop: async () => {
         abort.abort()
@@ -1281,7 +1327,12 @@ export class GtdWorld extends QuickPickleWorld {
       // fallback bind is actually REACHABLE, not just that a listener object
       // exists somewhere.
       const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `https://${bindHost}:${servePort}/trpc` })],
+        links: [
+          httpBatchLink({
+            url: `https://${bindHost}:${servePort}/trpc`,
+            headers: UI_CLIENT_HEADERS,
+          }),
+        ],
       })
       await client.done.mutate(doneNoteRequest(filePath, headSha, contentHashOf(content), text))
       this.uiStepAfterDone = (await client.step.query()).status
@@ -1423,6 +1474,28 @@ export class GtdWorld extends QuickPickleWorld {
       this.lastWriteRefusal = data!.writeRefusal
     } finally {
       await session.stop()
+    }
+  }
+
+  /**
+   * One raw request to an in-memory `gtd ui`, sent as the tailnet user
+   * `login`: `tailscale whois` names `login` for the peer on a direct bind,
+   * and `tailscale serve` sets its identity header.
+   */
+  async requestGtdUi(exposure: UiExposure, login: string, raw: string): Promise<void> {
+    assert.ok(this.repo !== undefined, "raw gtd ui requests run @inmem only")
+    this.tailnet.peers.set(TAILNET_PEER, login)
+    const abort = new AbortController()
+    const run = this.gtdInMemUntil(abort.signal, "", "ui", ...EXPOSURE_ARGS[exposure])
+    try {
+      const handler = await this.boundUiHandler(run)
+      const { path, ...init } = parseRawRequest(raw)
+      if (exposure === "serve") init.headers.set("tailscale-user-login", login)
+      const response = await bridgeFetch(handler)(`http://inmem${path}`, init)
+      this.lastUiStatus = response.status
+    } finally {
+      abort.abort()
+      await run
     }
   }
 

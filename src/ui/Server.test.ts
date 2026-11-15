@@ -109,6 +109,19 @@ afterEach(() => {
 
 const noShell = UiShell.layer(() => Effect.fail(new Error("UiShell unexpectedly invoked")))
 
+/** A tailnet where every peer is `owner@example.com`, the user allowed in. */
+const ownerWhois = (command: string) =>
+  command.startsWith("tailscale whois ")
+    ? Effect.succeed({ status: 0, output: '{"UserProfile":{"LoginName":"owner@example.com"}}' })
+    : undefined
+const ownerShell = UiShell.layer(
+  (command) =>
+    ownerWhois(command) ?? Effect.fail(new Error(`UiShell unexpectedly invoked: ${command}`)),
+)
+const OWNER_ONLY = { users: ["owner@example.com"] }
+/** What a browser sends with a same-origin request. */
+const SAME_ORIGIN = { "sec-fetch-site": "same-origin" }
+
 /**
  * A real, minimal git repo at `dir` — every `runUiCommand` call reads the
  * served worktree's beat before doing anything else, so even a test that
@@ -2251,7 +2264,7 @@ describe("runUiCommand", () => {
     const bashCalls: string[] = []
     const runner = UiShell.layer((command) => {
       bashCalls.push(command)
-      return Effect.succeed({ status: 0, output: "" })
+      return ownerWhois(command) ?? Effect.succeed({ status: 0, output: "" })
     })
     const devFs = FileSystem.makeNoop({
       readFileString: (path: string) =>
@@ -2273,7 +2286,7 @@ describe("runUiCommand", () => {
     const fiber = Effect.runFork(
       runUiCommand(
         { selfSigned: false, dev: true },
-        { host: "100.90.1.2", cert: certPath, key: keyPath },
+        { host: "100.90.1.2", cert: certPath, key: keyPath, ...OWNER_ONLY },
         out,
         tmpDir,
       ).pipe(
@@ -2291,7 +2304,11 @@ describe("runUiCommand", () => {
     const registeredHandler = handler
 
     const fakeReqRes = async (): Promise<{ body: string[] }> => {
-      const response = await registeredHandler(new Request("http://localhost/"), () => {})
+      const response = await registeredHandler(
+        new Request("http://localhost/"),
+        () => {},
+        "100.64.0.2",
+      )
       return { body: [await response.text()] }
     }
 
@@ -2555,12 +2572,12 @@ const startRealServer = async (
   const fiber = Effect.runFork(
     runUiCommand(
       { selfSigned: false, dev: false, port: 0 },
-      { host: "127.0.0.1", cert: certPath, key: keyPath, port: 0 },
+      { host: "127.0.0.1", cert: certPath, key: keyPath, port: 0, ...OWNER_ONLY },
       out,
       dir,
     ).pipe(
       Effect.provide(UiListener.Live),
-      Effect.provide(noShell),
+      Effect.provide(ownerShell),
       Effect.provide(liveUiHost),
       Effect.provide(NodeServices.layer),
     ),
@@ -2605,7 +2622,7 @@ describe("the tRPC API surface mounted under /trpc", () => {
     // client does against `gtd ui --self-signed` today.
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+        links: [httpBatchLink({ url: `${boundUrl}trpc`, headers: SAME_ORIGIN })],
       })
 
       const viewResult = await client.view.query({ content: "x" })
@@ -2624,7 +2641,7 @@ describe("the tRPC API surface mounted under /trpc", () => {
     const { boundUrl, fiber } = await startRealServer(tmpDir)
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+        links: [httpBatchLink({ url: `${boundUrl}trpc`, headers: SAME_ORIGIN })],
       })
       // renderablePromptJson names "NOTES.md" — a request for ANY other
       // path inside the worktree, including a real file like .git/config
@@ -2643,7 +2660,7 @@ describe("the tRPC API surface mounted under /trpc", () => {
     const { boundUrl, fiber } = await startRealServer(tmpDir)
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+        links: [httpBatchLink({ url: `${boundUrl}trpc`, headers: SAME_ORIGIN })],
       })
       const casFields = {
         filePath: "seed.txt",
@@ -2667,7 +2684,7 @@ describe("the tRPC API surface mounted under /trpc", () => {
     const { boundUrl, fiber } = await startRealServer(tmpDir)
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+        links: [httpBatchLink({ url: `${boundUrl}trpc`, headers: SAME_ORIGIN })],
       })
       const step = await client.step.query()
       expect(step).toMatchObject({ status: "ok", kind: "prompt", file: "NOTES.md" })
@@ -2679,7 +2696,7 @@ describe("the tRPC API surface mounted under /trpc", () => {
     const { boundUrl, fiber } = await startRealServer(tmpDir)
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+        links: [httpBatchLink({ url: `${boundUrl}trpc`, headers: SAME_ORIGIN })],
       })
       const first = await client.step.query()
       expect(first.status).toBe("ok")
@@ -2725,7 +2742,7 @@ describe("done saves without ending the server", () => {
 
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+        links: [httpBatchLink({ url: `${boundUrl}trpc`, headers: SAME_ORIGIN })],
       })
       const result = await client.done.mutate({
         note: {
@@ -2763,7 +2780,7 @@ describe("done saves without ending the server", () => {
 
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+        links: [httpBatchLink({ url: `${boundUrl}trpc`, headers: SAME_ORIGIN })],
       })
       const error = await client.done
         .mutate({
@@ -2802,7 +2819,7 @@ describe("package 02: gtd ui binds on an idle worktree", () => {
     const { boundUrl, fiber } = await startRealServer(tmpDir, idleBeatJson("message"))
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+        links: [httpBatchLink({ url: `${boundUrl}trpc`, headers: SAME_ORIGIN })],
       })
       const before = await client.step.query()
       expect(before.status).toBe("ok")
@@ -2838,7 +2855,7 @@ describe("package 02: gtd ui binds on an idle worktree", () => {
     const { boundUrl, fiber } = await startRealServer(tmpDir, idleBeatJson("message"))
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+        links: [httpBatchLink({ url: `${boundUrl}trpc`, headers: SAME_ORIGIN })],
       })
       const before = await client.step.query()
       expect(before).toMatchObject({ status: "ok", kind: "message" })
@@ -2857,7 +2874,7 @@ describe("package 02: gtd ui binds on an idle worktree", () => {
     const { boundUrl, fiber } = await startRealServer(tmpDir, idleBeatJson("message"))
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc` })],
+        links: [httpBatchLink({ url: `${boundUrl}trpc`, headers: SAME_ORIGIN })],
       })
       const result = await client.done.mutate({})
       expect(result).toEqual({ ok: true })

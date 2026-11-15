@@ -68,11 +68,12 @@ export interface ServeRecord {
 /**
  * One request in, one response out. `afterResponse` runs a callback once the
  * response has reached the client — a hand-off must not end the server
- * before its own reply is out.
+ * before its own reply is out. `peer` is the remote IP address.
  */
 export type UiHandler = (
   request: Request,
   afterResponse: (callback: () => void) => void,
+  peer?: string,
 ) => Promise<Response>
 
 /**
