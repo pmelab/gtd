@@ -115,35 +115,44 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     )
   }
 
-  // Runs the item up to its start action's pane; the action's exit settles it.
-  const dispatch = async (item: InboxItem): Promise<void> => {
-    const branch = branchOf(item)
+  // The worktree on the item's branch, `undefined` for none, or a failed or waiting dispatch.
+  const target = async (
+    item: InboxItem,
+    branch: string,
+  ): Promise<Worktree | Dispatch | undefined> => {
     const problem = branchProblem(branch)
-    if (problem !== undefined) return set(item, { state: "failed", message: problem })
+    if (problem !== undefined) return { state: "failed", message: problem }
     let found: Worktree | undefined
     try {
       found = (await deps.worktrees.list(item.project)).find((w) => w.branch === branch)
     } catch (error) {
-      return set(item, { state: "approved", waits: messageOf(error) })
+      return { state: "approved", waits: messageOf(error) }
     }
-    if (found !== undefined) {
-      const reasons = await busy(found)
-      if (reasons.length > 0) {
-        const waits = `${item.project}/${branch} is not free: ${reasons.join(", ")}`
-        return set(item, { state: "approved", waits })
-      }
+    const reasons = found === undefined ? [] : await busy(found)
+    if (reasons.length === 0) return found
+    return {
+      state: "approved",
+      waits: `${item.project}/${branch} is not free: ${reasons.join(", ")}`,
     }
+  }
+
+  const create = async (item: InboxItem, branch: string): Promise<string> => {
+    if (deps.worktrees.create === undefined)
+      throw new Error("the worktrees adapter creates no worktrees")
+    const path = await deps.worktrees.create(item.project, branch)
+    set(item, { state: "starting", worktree: path })
+    await deps.refresh(item.project)
+    return path
+  }
+
+  // Runs the item up to its start action's pane; the action's exit settles it.
+  const dispatch = async (item: InboxItem): Promise<void> => {
+    const branch = branchOf(item)
+    const found = await target(item, branch)
+    if (found !== undefined && "state" in found) return set(item, found)
     set(item, { state: "starting", ...(found ? { worktree: found.path } : {}) })
-    let path = found?.path
     try {
-      if (path === undefined) {
-        if (deps.worktrees.create === undefined)
-          throw new Error("the worktrees adapter creates no worktrees")
-        path = await deps.worktrees.create(item.project, branch)
-        set(item, { state: "starting", worktree: path })
-        await deps.refresh(item.project)
-      }
-      const worktree = path
+      const worktree = found?.path ?? (await create(item, branch))
       await deps.services.up(item.project, worktree)
       const env = { GTD_WORKSPACE_ITEM: itemVariable(item) }
       await deps.actions.run(item.project, worktree, item.action, {}, env, (run) => {
