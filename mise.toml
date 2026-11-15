@@ -1,6 +1,8 @@
 [tools]
 node = "lts"
 shellcheck = "latest"
+# The worktrees adapter's contract test runs the real `wt`.
+"aqua:max-sixty/worktrunk" = "0.81.0"
 
 [env]
 _.path = ["dist"]

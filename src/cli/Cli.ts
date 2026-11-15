@@ -171,14 +171,14 @@ const FLAGS: readonly FlagRow[] = [
     name: "--port",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "ui",
+    scope: (kind) => kind === "ui" || kind === "workspace",
     decode: ([raw]) => {
       const n = Number(raw)
       return raw !== undefined && Number.isInteger(n) && n >= 0 && n <= 65535
         ? Result.succeed(n)
         : Result.fail(`gtd: --port must be an integer 0–65535 (got '${raw ?? ""}')`)
     },
-    scopeError: "gtd: --port is only valid for `gtd ui`",
+    scopeError: "gtd: --port is only valid for `gtd ui` and `gtd workspace`",
     valueHint: "<n>",
     help: "The tailscale serve port (default: the first free of 8443, 10000, 443), or with --host or --http the port to bind (default: any free one)",
   },
@@ -186,12 +186,12 @@ const FLAGS: readonly FlagRow[] = [
     name: "--host",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "ui",
+    scope: (kind) => kind === "ui" || kind === "workspace",
     decode: ([raw]) =>
       raw === undefined || raw.trim() === "" || /[\r\n]/.test(raw)
         ? Result.fail("gtd: --host must be a non-empty, single-line value")
         : Result.succeed(raw),
-    scopeError: "gtd: --host is only valid for `gtd ui`",
+    scopeError: "gtd: --host is only valid for `gtd ui` and `gtd workspace`",
     valueHint: "<addr>",
     help: "Bind this address directly instead of publishing through tailscale serve",
   },
@@ -199,9 +199,9 @@ const FLAGS: readonly FlagRow[] = [
     name: "--self-signed",
     arity: 0,
     repeatable: false,
-    scope: (kind) => kind === "ui",
+    scope: (kind) => kind === "ui" || kind === "workspace",
     decode: () => Result.succeed(true),
-    scopeError: "gtd: --self-signed is only valid for `gtd ui`",
+    scopeError: "gtd: --self-signed is only valid for `gtd ui` and `gtd workspace`",
     valueHint: "",
     help: "Bind directly with a throwaway self-signed certificate instead of the configured ui.cert/ui.key",
   },
@@ -209,11 +209,24 @@ const FLAGS: readonly FlagRow[] = [
     name: "--http",
     arity: 0,
     repeatable: false,
-    scope: (kind) => kind === "ui",
+    scope: (kind) => kind === "ui" || kind === "workspace",
     decode: () => Result.succeed(true),
-    scopeError: "gtd: --http is only valid for `gtd ui`",
+    scopeError: "gtd: --http is only valid for `gtd ui` and `gtd workspace`",
     valueHint: "",
     help: "Serve plain HTTP for a local TLS-terminating proxy; binds 127.0.0.1 unless a loopback --host is given",
+  },
+  {
+    name: "--config",
+    arity: 1,
+    repeatable: false,
+    scope: (kind) => kind === "workspace",
+    decode: ([raw]) =>
+      raw === undefined || raw === ""
+        ? Result.fail("gtd: --config must be a non-empty path")
+        : Result.succeed(raw),
+    scopeError: "gtd: --config is only valid for `gtd workspace`",
+    valueHint: "<path>",
+    help: "Use this gtd.workspace.ts instead of the innermost one from the current directory",
   },
   {
     name: "--dev",
@@ -489,6 +502,14 @@ Prints a sorted JSON array ([] when clean) and a summary on stderr; --verbose ad
     group: "Inspect",
     summary: "Serve the web and phone client",
     details: `Serve gtd's web and phone client for this worktree. By default it publishes through \`tailscale serve\`, reachable from anywhere on the tailnet, on the first of ports 8443, 10000 and 443 that works; when none does it serves HTTPS locally instead of refusing. Done saves the steering file and keeps serving; the server exits when the worktree moves on to another step, or on a signal.`,
+  },
+  {
+    token: "workspace",
+    kind: "workspace",
+    arity: "none",
+    group: "Inspect",
+    summary: "Serve the dashboard of a workspace",
+    details: `Run the supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, and serve its dashboard: every worktree of every project, each with its worktree status. It is published like \`gtd ui\`. Only one supervisor runs for a workspace: a second one exits 1 and prints the pid and URL of the first. It runs until a signal ends it.`,
   },
   {
     token: "guide",
@@ -1032,6 +1053,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--dev"?: boolean
     readonly "--provider"?: "fixed" | "jev" | "llm"
     readonly "--answers"?: string
+    readonly "--config"?: string
   }
 
   // `present.has("--json")` alone can't distinguish bare `--json` (no value
@@ -1088,6 +1110,25 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
         selfSigned: bag["--self-signed"] ?? false,
         ...(bag["--http"] === true ? { http: true } : {}),
         dev: bag["--dev"] ?? false,
+      },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "workspace") {
+    if (bag["--http"] === true && bag["--self-signed"] === true) {
+      return usagePlan("gtd: --http and --self-signed cannot be combined", jsonSeen)
+    }
+    return {
+      kind: "command",
+      command: {
+        kind: "workspace",
+        ...(bag["--config"] !== undefined ? { config: bag["--config"] } : {}),
+        ...(bag["--host"] !== undefined ? { host: bag["--host"] } : {}),
+        ...(bag["--port"] !== undefined ? { port: bag["--port"] } : {}),
+        selfSigned: bag["--self-signed"] ?? false,
+        ...(bag["--http"] === true ? { http: true } : {}),
       },
       json,
       verbose,

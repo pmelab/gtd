@@ -15,6 +15,8 @@ export const makeCapturingCliIo = (
   env: Readonly<Record<string, string | undefined>> = {},
   tools: Partial<ToolCommands["Service"]> = {},
   stdin = "",
+  /** The working directory gtd sees; `testLayers`' default when absent. */
+  root?: string,
 ): { readonly io: CliIo; readonly result: () => CapturedCliResult } => {
   let stdout: Buffer = Buffer.alloc(0)
   let stderr = ""
@@ -39,6 +41,7 @@ export const makeCapturingCliIo = (
         verbose,
         tools,
         stdin,
+        ...(root !== undefined ? { root } : {}),
       }),
   }
   return {

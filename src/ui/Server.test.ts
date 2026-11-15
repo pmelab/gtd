@@ -213,13 +213,7 @@ describe("resolveCertPair", () => {
   it("--self-signed generates a certificate even when ui.cert/ui.key are configured — the explicit flag wins", async () => {
     const config: UiConfig = { cert: "/some/cert.pem", key: "/some/key.pem" }
     const thrown = await Effect.runPromise(
-      resolveCertPair(
-        { selfSigned: true, dev: false },
-        config,
-        "100.90.1.2",
-        "100.90.1.2",
-        undefined,
-      ).pipe(
+      resolveCertPair({ selfSigned: true }, config, "100.90.1.2", "100.90.1.2", undefined).pipe(
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
         Effect.provide(NodeServices.layer),
@@ -241,13 +235,7 @@ describe("resolveCertPair", () => {
       return Effect.succeed({ status: 0, output: "" })
     })
     await Effect.runPromiseExit(
-      resolveCertPair(
-        { selfSigned: true, dev: false },
-        undefined,
-        "localhost",
-        "localhost",
-        undefined,
-      ).pipe(
+      resolveCertPair({ selfSigned: true }, undefined, "localhost", "localhost", undefined).pipe(
         Effect.provide(runner),
         Effect.provide(liveUiHost),
         Effect.provide(NodeServices.layer),
@@ -269,16 +257,10 @@ describe("resolveCertPair", () => {
       return Effect.succeed({ status: 0, output: "" })
     })
     await Effect.runPromiseExit(
-      resolveCertPair(
-        { selfSigned: true, dev: false },
-        undefined,
-        "100.90.1.2",
-        "host.tailnet.ts.net",
-        {
-          hostname: "host.tailnet.ts.net",
-          certDomains: [],
-        },
-      ).pipe(
+      resolveCertPair({ selfSigned: true }, undefined, "100.90.1.2", "host.tailnet.ts.net", {
+        hostname: "host.tailnet.ts.net",
+        certDomains: [],
+      }).pipe(
         Effect.provide(runner),
         Effect.provide(liveUiHost),
         Effect.provide(NodeServices.layer),
@@ -298,7 +280,7 @@ describe("resolveCertPair", () => {
 
     const pair = await Effect.runPromise(
       resolveCertPair(
-        { selfSigned: false, dev: false },
+        { selfSigned: false },
         { cert: certPath, key: keyPath },
         "100.90.1.2",
         "100.90.1.2",
@@ -315,13 +297,7 @@ describe("resolveCertPair", () => {
 
   it("refuses with a UiError naming both remedies when neither --self-signed nor a configured pair is given", async () => {
     const thrown = await Effect.runPromise(
-      resolveCertPair(
-        { selfSigned: false, dev: false },
-        undefined,
-        "100.90.1.2",
-        "100.90.1.2",
-        undefined,
-      ).pipe(
+      resolveCertPair({ selfSigned: false }, undefined, "100.90.1.2", "100.90.1.2", undefined).pipe(
         Effect.provide(noShell),
         Effect.provide(liveUiHost),
         Effect.provide(NodeServices.layer),
@@ -337,7 +313,7 @@ describe("resolveCertPair", () => {
   it("names the missing half when only ui.cert is configured — not the generic 'no certificate is configured'", async () => {
     const thrown = await Effect.runPromise(
       resolveCertPair(
-        { selfSigned: false, dev: false },
+        { selfSigned: false },
         { cert: "/some/cert.pem" },
         "100.90.1.2",
         "100.90.1.2",
@@ -358,7 +334,7 @@ describe("resolveCertPair", () => {
   it("names the missing half when only ui.key is configured — not the generic 'no certificate is configured'", async () => {
     const thrown = await Effect.runPromise(
       resolveCertPair(
-        { selfSigned: false, dev: false },
+        { selfSigned: false },
         { key: "/some/key.pem" },
         "100.90.1.2",
         "100.90.1.2",
@@ -394,7 +370,7 @@ describe("resolveCertPair", () => {
       return Effect.succeed({ status: 0, output: "" })
     })
     const pair = await Effect.runPromise(
-      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", "100.90.1.2", {
+      resolveCertPair({ selfSigned: false }, undefined, "100.90.1.2", "100.90.1.2", {
         hostname: "host.tailnet.ts.net",
         certDomains: ["host.tailnet.ts.net"],
       }).pipe(
@@ -440,7 +416,7 @@ describe("resolveCertPair", () => {
     })
     const pair = await Effect.runPromise(
       resolveCertPair(
-        { selfSigned: false, dev: false },
+        { selfSigned: false },
         undefined,
         "100.90.1.2",
         "100.90.1.2",
@@ -459,7 +435,7 @@ describe("resolveCertPair", () => {
 
   it("falls through to the refusal, naming the Tailscale path, when the probe answered but certDomains is empty", async () => {
     const thrown = await Effect.runPromise(
-      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", "100.90.1.2", {
+      resolveCertPair({ selfSigned: false }, undefined, "100.90.1.2", "100.90.1.2", {
         hostname: "host.tailnet.ts.net",
         certDomains: [],
       }).pipe(
@@ -481,7 +457,7 @@ describe("resolveCertPair", () => {
       Effect.succeed({ status: 1, output: "tailscale cert: rate limited\n" }),
     )
     const thrown = await Effect.runPromise(
-      resolveCertPair({ selfSigned: false, dev: false }, undefined, "100.90.1.2", "100.90.1.2", {
+      resolveCertPair({ selfSigned: false }, undefined, "100.90.1.2", "100.90.1.2", {
         hostname: "host.tailnet.ts.net",
         certDomains: ["host.tailnet.ts.net"],
       }).pipe(

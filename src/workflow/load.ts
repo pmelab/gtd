@@ -692,6 +692,17 @@ const evaluate = async (
   return { exports: execute(paths, chunk, module.filepath, require), files }
 }
 
+/** Evaluates a TypeScript module from disk the way `gtd.config.ts` is, and returns its exports. */
+export const evaluateModule = async (
+  paths: Path.Path,
+  filepath: string,
+): Promise<Readonly<Record<string, unknown>>> => {
+  const source = readFromDisk(filepath)
+  if (source === undefined) throw new Error(`cannot read ${filepath}`)
+  const { exports } = await evaluate(paths, { filepath, source }, await shippedModules(paths))
+  return exports as Readonly<Record<string, unknown>>
+}
+
 /**
  * What a pin registers: its workflow bundled, its origin relative to the
  * repository root, and the fingerprint of the files it was bundled from — the

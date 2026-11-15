@@ -589,14 +589,17 @@ signer refuses the approval. `gtd next --json` lists the process's approvals as
 gtd is one package, `@pmelab/gtd`, and every entrypoint shares its version and
 [SemVer promise](https://github.com/pmelab/gtd/blob/main/COMPATIBILITY.md).
 
-| Import                        | What it is                                                                                                                                                                                                                         |
-| ----------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@pmelab/gtd/flows`           | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, `workflow()`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                                                     |
-| `@pmelab/gtd/wire`            | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                                                                       |
-| `@pmelab/gtd/steering`        | The [steering-file](https://github.com/pmelab/gtd/blob/main/docs/steering.md) format as plain functions: `parseWidgets`, `serialize`, the answer rules, and `sections`/`sectionBodies`.                                            |
-| `@pmelab/gtd/workflow-kit`    | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails. See [Workflow kit](https://github.com/pmelab/gtd/blob/main/docs/workflow-kit.md).                            |
-| `@pmelab/gtd/testkit`         | Runs any workflow against the real engine in an in-memory repository, under any test runner, plus a flow-context harness for rendering prompts. See [Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md). |
-| `@pmelab/gtd/testkit/gherkin` | The testkit as quickpickle steps for vitest. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                                                                                         |
+| Import                                   | What it is                                                                                                                                                                                                                         |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `@pmelab/gtd/flows`                      | The flow API a workflow is written in: the steps (`agent`, `human`, `run`, …), `scope`, `workflow()`, workflow factories, `defineConfig` and `FLOWS_PROTOCOL`.                                                                     |
+| `@pmelab/gtd/wire`                       | The driver protocol: `WIRE_SCHEMA`, the exit codes and the types of every `--json` document.                                                                                                                                       |
+| `@pmelab/gtd/steering`                   | The [steering-file](https://github.com/pmelab/gtd/blob/main/docs/steering.md) format as plain functions: `parseWidgets`, `serialize`, the answer rules, and `sections`/`sectionBodies`.                                            |
+| `@pmelab/gtd/workflow-kit`               | Policy-free building blocks to compose a workflow from: health checks, quality laps, scenario freezing, review tails. See [Workflow kit](https://github.com/pmelab/gtd/blob/main/docs/workflow-kit.md).                            |
+| `@pmelab/gtd/testkit`                    | Runs any workflow against the real engine in an in-memory repository, under any test runner, plus a flow-context harness for rendering prompts. See [Testing a workflow](https://github.com/pmelab/gtd/blob/main/docs/testing.md). |
+| `@pmelab/gtd/testkit/gherkin`            | The testkit as quickpickle steps for vitest. Needs `vitest` and `quickpickle`, optional peer dependencies.                                                                                                                         |
+| `@pmelab/gtd/workspace`                  | `defineWorkspace` and the adapter interfaces of a `gtd.workspace.ts`. See [Workspace](https://github.com/pmelab/gtd/blob/main/docs/workspace.md).                                                                                  |
+| `@pmelab/gtd/workspace/adapters`         | The bundled adapter factories, such as `worktrunk()`.                                                                                                                                                                              |
+| `@pmelab/gtd/workspace/adapters/testkit` | The adapter contract-test kit, such as `worktreesContract`, under any test runner.                                                                                                                                                 |
 
 Types come from the TypeScript sources the package ships. Configs never need an
 install for any of these but the testkit's: gtd resolves a `gtd.config.ts`'s
@@ -605,7 +608,7 @@ install for any of these but the testkit's: gtd resolves a `gtd.config.ts`'s
 The `gtd` bin's commands — `next`, `land`, `start`, `abandon`, `restore`,
 `repin`, `check`, `guide`, `bundle`, `summary`, `base`, `version`, `help`,
 `history list`, `history show`, `history fetch`, `strays`, the tools `ui`,
-`lsp`, `judge` (`judge answer`, `judge run`) — are listed in the
+`workspace`, `lsp`, `judge` (`judge answer`, `judge run`) — are listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md). Every
 command that prints a script takes `--json=script`, and `--` ends the options.
 
