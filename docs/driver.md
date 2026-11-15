@@ -584,21 +584,21 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 25 keys (21 of them outside `kind: "prompt"`, which is
+`gtd next --json` emits 26 keys (22 of them outside `kind: "prompt"`, which is
 the only kind that ever carries `session`/`skills`/`access`, and `pin`, which
 only a pin or unpin beat carries; `fresh` is on every beat and is `null` except
-on a validator retry); a real driver reads 9 of the 25. The minimal driver below
+on a validator retry); a real driver reads 9 of the 26. The minimal driver below
 is the reference for exactly which: `kind`, `idle`, `content`, `log`, `session`
 (read as its two sub-paths, `session.id`/`session.resume`), `model`, `system`,
 `fresh`, and `judge` — every `--json=<path>` selector its `case` arms touch. The
-remaining 16 (`schema`, `initial`, `state`, `actor`, `workflow`, `label`,
+remaining 17 (`schema`, `initial`, `state`, `actor`, `workflow`, `label`,
 `memory`, `file`, `changes`, `next`, `cost`, `costByModel`, `skills`, `access`,
-`approvals`, `pin`) are read only by a human looking at plain output, or by a
-driver author deciding what to log or preload — no `case` arm in THIS reference
-driver branches on them. This is a property of what a driver NEEDS, not a
-smaller wire: every key stays on every `gtd next --json` line, unconditionally,
-so `--json=<path>` keeps resolving the same way for a human poking at one field
-as for the reference driver reading ten of them in a loop.
+`approvals`, `pin`, `judgeFile`) are read only by a human looking at plain
+output, or by a driver author deciding what to log or preload — no `case` arm in
+THIS reference driver branches on them. This is a property of what a driver
+NEEDS, not a smaller wire: every key stays on every `gtd next --json` line,
+unconditionally, so `--json=<path>` keeps resolving the same way for a human
+poking at one field as for the reference driver reading ten of them in a loop.
 
 (`gtd land --json` is a separate command with its own eight-key document —
 `schema`/`script`/`settled`/`idle`/`state`/`subject`/`cost`/`model` — never a
@@ -851,15 +851,19 @@ green suite can catch.)
 
 A judge gate is a `judge()` step (actor `judge`) and a `kind: "message"` rest
 whose `--json=judge` field is non-empty — the rendered JSON document
-`{ schema, state, questions: [...] }` the pending judgment asks about. The gtd
-engine never calls a model — `gtd judge run` is an answerer a driver chooses to
-pipe through. The reference driver above is an aware driver: it reads
-`--json=judge` and, when non-empty, pipes `gtd judge --json | gtd judge run`
-into `gtd judge answer --json=script | sh`, with no `--provider` (auto
-selection, below). If `gtd judge run` fails it stops at the gate for you, as for
-any message. A driver that wants a different judgment model pipes the same
-document to it and the verdict it gets back into
-`gtd judge answer --json=script` on stdin.
+`{ schema, state, questions: [...] }` the pending judgment asks about. When the
+step declares one, `--json=judgeFile` names the repository file the judgment is
+about (for example `.gtd/REQUIREMENTS.md`), so a driver or dashboard can open it
+for a person without keeping its own map of judge steps to files; it is absent
+at a judge gate that declares none and at every other rest. The gtd engine never
+calls a model — `gtd judge run` is an answerer a driver chooses to pipe through.
+The reference driver above is an aware driver: it reads `--json=judge` and, when
+non-empty, pipes `gtd judge --json | gtd judge run` into
+`gtd judge answer --json=script | sh`, with no `--provider` (auto selection,
+below). If `gtd judge run` fails it stops at the gate for you, as for any
+message. A driver that wants a different judgment model pipes the same document
+to it and the verdict it gets back into `gtd judge answer --json=script` on
+stdin.
 
 Whose-turn-is-it status reporting (like the herdr wrapper above) should treat
 `actor` as an ALLOWLIST, not a denylist: stand down — report the run as resting

@@ -134,6 +134,8 @@ export type JudgeSpec<Q extends readonly JudgeQuestionInput[] = readonly JudgeQu
       readonly evidence: Readonly<Record<string, string>>
       /** The human-facing message a driver unaware of judge gates shows. */
       readonly message?: string | undefined
+      /** The repository file this judgment is about — `gtd next --json`'s `judgeFile`. Not a steering file. */
+      readonly judgeFile?: string | undefined
     }
 
 /** One recorded answer. A `noul`'s boolean reads as `"yes"`/`"no"`, a `score` as its decimal string. */
@@ -232,7 +234,11 @@ export type StepRequest =
       readonly name: string
       readonly questions: readonly JudgeQuestion[]
       readonly evidence: Readonly<Record<string, string>>
-      readonly options: SteeringCommon & NoSteeringFile & { readonly message?: string | undefined }
+      readonly options: SteeringCommon &
+        NoSteeringFile & {
+          readonly message?: string | undefined
+          readonly judgeFile?: string | undefined
+        }
     }
   | { readonly kind: "restart" }
 

@@ -1,15 +1,15 @@
 /**
- * gtd's ports onto its environment: `Workspace` (repo file content —
+ * gtd's ports onto its environment: `RepoFiles` (repo file content —
  * working-tree reads/writes plus the read-at-ref path), `Host` (root,
  * home, env, scratch, process identity, stdio) and `SyncIo`, the reads that
- * must stay synchronous, which only `Node*.ts` implements against Node. `GitService` moved in alongside `Workspace` since
+ * must stay synchronous, which only `Node*.ts` implements against Node. `GitService` moved in alongside `RepoFiles` since
  * `committed` IS `git.readFileAtRef` — one module owns every read.
  *
  * Seam rule, stated once: a seam is a `Context.Service` unless the consuming
  * code is synchronous, non-Effect code that cannot `yield*` — replay's flow
  * reads are that exception, and use the `*Sync` members.
  */
-export { Workspace, type WorkspaceOps } from "./Workspace.js"
+export { RepoFiles, type RepoFilesOps } from "./RepoFiles.js"
 export {
   Host,
   nodeStdio,

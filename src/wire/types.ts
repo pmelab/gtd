@@ -48,6 +48,7 @@ export interface RenderedDemandSource {
   readonly memory?: string
   readonly file?: string
   readonly judge?: string
+  readonly judgeFile?: string
   readonly skills?: readonly string[]
   readonly access?: StepAccess
   readonly pin?: PinMark

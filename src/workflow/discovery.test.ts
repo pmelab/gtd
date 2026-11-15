@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { Effect, Layer, type Path } from "effect"
 import { afterEach, describe, expect, it } from "vitest"
-import { GitService, Host, Narrator, Workspace, NodeServices } from "../platform/index.js"
+import { GitService, Host, Narrator, RepoFiles, NodeServices } from "../platform/index.js"
 import { InMemRepo, testLayers } from "../twins/index.js"
 import { ConfigDiscovery, ConfigService } from "./index.js"
 
@@ -34,7 +34,7 @@ const config = (imports: string): string =>
   ].join("\n")
 
 const loadWith = (
-  layer: Layer.Layer<ConfigService | Narrator | Workspace | Host | Path.Path | ConfigDiscovery>,
+  layer: Layer.Layer<ConfigService | Narrator | RepoFiles | Host | Path.Path | ConfigDiscovery>,
 ) =>
   Effect.runPromise(
     Effect.flatMap(ConfigService, (service) => service.load).pipe(
@@ -63,14 +63,14 @@ const live = (): Tier => {
       }
       const host = Host.layer({ root, home: root, env: {} })
       const git = GitService.Live.pipe(Layer.provide(Layer.merge(host, NodeServices.layer)))
-      const workspace = Workspace.Live.pipe(
+      const repoFiles = RepoFiles.Live.pipe(
         Layer.provide(Layer.mergeAll(host, git, NodeServices.layer)),
       )
       return loadWith(
         Layer.mergeAll(
           ConfigService.Live,
           ConfigDiscovery.Live,
-          workspace,
+          repoFiles,
           Narrator.layer(() => {}, false),
         ).pipe(Layer.provideMerge(host), Layer.provideMerge(NodeServices.layer)),
       )

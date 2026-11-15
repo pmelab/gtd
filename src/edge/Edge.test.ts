@@ -22,7 +22,7 @@ import {
 } from "./Edge.js"
 import { GTD_VERSION } from "../install/index.js"
 import { keptRef, processHistoryRef, shippedRef } from "../platform/index.js"
-import { GitService, Workspace, type GitOperations, type WorkspaceOps } from "../platform/index.js"
+import { GitService, RepoFiles, type GitOperations, type RepoFilesOps } from "../platform/index.js"
 import type { Mark } from "../flows/index.js"
 import { formatCommitMessage, type CommitSpec } from "../replay/index.js"
 import { StartFlags } from "../workflow/index.js"
@@ -31,7 +31,7 @@ import {
   InMemRepo,
   applyEmittedScript,
   makeCapturingCliIo,
-  makeInMemoryWorkspaceOps,
+  makeInMemoryRepoFilesOps,
   takePinBeat,
   testLayers,
 } from "../twins/index.js"
@@ -63,14 +63,14 @@ const provideWithGit = <A>(
     eff.pipe(Effect.provideService(GitService, git), Effect.provide(testLayers(repo, { env }))),
   )
 
-/** Like `provideWithGit`, but with `workspace` swapping in for the run's `Workspace` — for tests observing exactly when `worktreeSync` runs. */
-const provideWithWorkspace = <A>(
+/** Like `provideWithGit`, but with `repoFiles` swapping in for the run's `RepoFiles` — for tests observing exactly when `worktreeSync` runs. */
+const provideWithRepoFiles = <A>(
   eff: Effect.Effect<A, Error, RestRequirements>,
-  workspace: WorkspaceOps,
+  repoFiles: RepoFilesOps,
   repo: InMemRepo,
 ): Promise<A> =>
   Effect.runPromise(
-    eff.pipe(Effect.provideService(Workspace, workspace), Effect.provide(testLayers(repo, {}))),
+    eff.pipe(Effect.provideService(RepoFiles, repoFiles), Effect.provide(testLayers(repo, {}))),
   )
 
 const write = (repo: InMemRepo, files: Files): void => {
@@ -1293,14 +1293,14 @@ export default async () => {
 })
 
 describe("the pending working tree is read at most once per restAt, and never stale across a long-lived reuse", () => {
-  const countingWorkspace = (
+  const countingRepoFiles = (
     repo: InMemRepo,
     root = "/repo",
-  ): { readonly workspace: WorkspaceOps; readonly calls: () => number } => {
-    const base = makeInMemoryWorkspaceOps(repo, root)
+  ): { readonly repoFiles: RepoFilesOps; readonly calls: () => number } => {
+    const base = makeInMemoryRepoFilesOps(repo, root)
     let calls = 0
     return {
-      workspace: {
+      repoFiles: {
         ...base,
         worktreeSync: () => {
           calls++
@@ -1314,30 +1314,30 @@ describe("the pending working tree is read at most once per restAt, and never st
   it("decideLanding reads the working tree exactly once for one rest, even though it's the same ReplaySetup entryRefusal would also reuse", async () => {
     const repo = repoWith(LINEAR)
     write(repo, { "scratch.txt": "dirty\n" }) // a pending change forces the real replay path, not cleanLanding's early return
-    const { workspace, calls } = countingWorkspace(repo)
-    const rest = await provideWithWorkspace(currentRest, workspace, repo)
+    const { repoFiles, calls } = countingRepoFiles(repo)
+    const rest = await provideWithRepoFiles(currentRest, repoFiles, repo)
     expect(calls()).toBe(0) // restAt itself never touches the pending tree
-    await provideWithWorkspace(snapshotFromRest(rest), workspace, repo)
+    await provideWithRepoFiles(snapshotFromRest(rest), repoFiles, repo)
     expect(calls()).toBe(1)
   })
 
-  it("a SECOND restAt call sharing the same Workspace instance (an LSP's long-lived runtimeCache reuse) reads the working tree fresh, not a stale first-request snapshot", async () => {
+  it("a SECOND restAt call sharing the same RepoFiles instance (an LSP's long-lived runtimeCache reuse) reads the working tree fresh, not a stale first-request snapshot", async () => {
     const repo = repoWith(LINEAR)
     write(repo, { "scratch.txt": "first\n" })
-    const { workspace, calls } = countingWorkspace(repo)
+    const { repoFiles, calls } = countingRepoFiles(repo)
 
-    const rest1 = await provideWithWorkspace(currentRest, workspace, repo)
-    const snap1 = await provideWithWorkspace(snapshotFromRest(rest1), workspace, repo)
+    const rest1 = await provideWithRepoFiles(currentRest, repoFiles, repo)
+    const snap1 = await provideWithRepoFiles(snapshotFromRest(rest1), repoFiles, repo)
     expect(snap1.changes.map((c) => c.path)).toContain("scratch.txt")
 
-    // Between two "requests" against the same long-lived Workspace, the tree changes.
+    // Between two "requests" against the same long-lived RepoFiles, the tree changes.
     write(repo, { "second.txt": "second\n" })
 
-    const rest2 = await provideWithWorkspace(currentRest, workspace, repo)
-    const snap2 = await provideWithWorkspace(snapshotFromRest(rest2), workspace, repo)
+    const rest2 = await provideWithRepoFiles(currentRest, repoFiles, repo)
+    const snap2 = await provideWithRepoFiles(snapshotFromRest(rest2), repoFiles, repo)
     expect(snap2.changes.map((c) => c.path)).toContain("second.txt")
 
-    // One worktreeSync call per request, not one total — a workspace-scoped
+    // One worktreeSync call per request, not one total — a repo-files-scoped
     // memo (rather than the per-`ReplaySetup` one) would have kept `calls()`
     // at 1 and `snap2` stuck on the first request's tree.
     expect(calls()).toBe(2)
@@ -1739,9 +1739,9 @@ export default async () => {
     let calls = 0
     const trail = await Effect.runPromise(
       Effect.gen(function* () {
-        const real = yield* Workspace
+        const real = yield* RepoFiles
         return yield* historyTrail(tip).pipe(
-          Effect.provideService(Workspace, {
+          Effect.provideService(RepoFiles, {
             ...real,
             episodeTrees: (...args: Parameters<typeof real.episodeTrees>) => {
               calls++

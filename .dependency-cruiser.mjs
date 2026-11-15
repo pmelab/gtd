@@ -55,7 +55,7 @@ const units = {
   drivers: "^claude/",
   tools: "^src/(ui|web|lsp|judges)/",
   testkit: "^src/testkit/",
-  // The in-memory twins of git, the workspace and the CLI io the testkit and
+  // The in-memory twins of git, the repo files and the CLI io the testkit and
   // gtd's own tests run on. Never a package subpath: their shape follows the engine.
   twins: "^src/twins/",
   // The testkit's opt-in quickpickle steps, `@pmelab/gtd/testkit/gherkin`.

@@ -14,7 +14,7 @@ const MIDDLE = "/home/user/project"
 const HOME = "/home/user"
 const ABOVE_HOME = "/home"
 
-/** Writes `content` at `dir/name`, using a repo-relative key inside `ROOT` and an absolute literal key outside it — matching `makeInMemoryWorkspaceOps.atPath`'s own root-relative/ancestor split. */
+/** Writes `content` at `dir/name`, using a repo-relative key inside `ROOT` and an absolute literal key outside it — matching `makeInMemoryRepoFilesOps.atPath`'s own root-relative/ancestor split. */
 const seed = (repo: InMemRepo, dir: string, name: string, content: string): void => {
   const filepath = `${dir}/${name}`
   const key = filepath.startsWith(`${ROOT}/`) ? filepath.slice(ROOT.length + 1) : filepath
