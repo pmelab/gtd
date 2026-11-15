@@ -5,6 +5,7 @@ import { basename, isAbsolute, join } from "node:path"
 import {
   AdapterError,
   type Project,
+  type RefreshResult,
   type WatchHint,
   type Worktree,
   type WorktreesAdapter,
@@ -257,6 +258,22 @@ const watchGitDirs = (projects: readonly Project[]): AsyncIterator<WatchHint> =>
   }
 }
 
+// Fetch, then fast-forward only: a main checkout that has moved apart stays as it is.
+const refreshMain = async (path: string): Promise<RefreshResult> => {
+  const upstream = await run("git", ["rev-parse", "--abbrev-ref", "@{upstream}"], path)
+  if (upstream.status !== 0) return { state: "ok" }
+  const fetched = await run("git", ["fetch", "--quiet"], path)
+  if (fetched.status !== 0) {
+    return { state: "stale", reason: `git fetch failed: ${fetched.stderr.trim()}` }
+  }
+  const merged = await run("git", ["merge", "--ff-only", "--quiet", "@{upstream}"], path)
+  if (merged.status !== 0) {
+    const ref = upstream.stdout.trim()
+    return { state: "stale", reason: `does not fast-forward to ${ref}: ${merged.stderr.trim()}` }
+  }
+  return { state: "ok" }
+}
+
 /** The bundled worktrees adapter: worktrunk (`wt`) for the worktrees, `git` for the branch history. */
 export const worktrunk = (options: WorktrunkOptions): WorktreesAdapter => {
   const roots = options.roots.map(resolveRoot)
@@ -284,6 +301,7 @@ export const worktrunk = (options: WorktrunkOptions): WorktreesAdapter => {
       [Symbol.asyncIterator]: () => watchGitDirs(projectsNow()),
     }),
     list: async (id) => worktreesOf(await projectOf(id, "list")),
+    refresh: async (id) => refreshMain((await projectOf(id, "refresh")).path),
     // The person's worktrunk config decides where the worktree goes, and its hooks run.
     create: async (id, branch, base) => {
       const project = await projectOf(id, "create")

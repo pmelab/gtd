@@ -10,7 +10,7 @@ import type { FeedView } from "./Feeds.js"
 import type { ProjectView, WorktreeView } from "./Scan.js"
 import type { Store } from "./Store.js"
 
-type Kind = Exclude<keyof NotifySettings, "mainStale">
+type Kind = keyof NotifySettings
 
 export interface NotifierDeps {
   readonly adapter: NotificationsAdapter
@@ -33,6 +33,8 @@ export interface Notifier {
   readonly polled: (feed: string, items: readonly InboxItem[], feeds: readonly FeedView[]) => void
   /** The config reloaded: `failure` is why it was not, or `undefined`. */
   readonly reloaded: (file: string, failure: string | undefined) => void
+  /** The project's main checkout refreshed: `reason` is why it is stale, or `undefined`. */
+  readonly mainStale: (project: string, reason: string | undefined) => void
   /** A note sent with `--notify`, on the worktree at `path`. */
   readonly note: (
     projects: readonly ProjectView[],
@@ -65,6 +67,7 @@ const PRIORITY: Readonly<Record<Kind | "note", NotificationPriority>> = {
   proposed: "default",
   feedFailing: "low",
   configError: "default",
+  mainStale: "default",
   note: "default",
 }
 
@@ -198,6 +201,27 @@ export const notifier = (deps: NotifierDeps): Notifier => {
             key: `configError:${failure}`,
             title: `${file} not reloaded`,
             body: failure,
+            link: "/",
+          },
+        ],
+        false,
+      )
+    },
+    mainStale: (project, reason) => {
+      const key = `mainStale:${project}`
+      if (reason === undefined) {
+        forget((sentKey) => sentKey !== key)
+        return
+      }
+      if (url === undefined) return
+      send(
+        [
+          {
+            kind: "mainStale",
+            project,
+            key,
+            title: `${project}: the main checkout is stale`,
+            body: reason,
             link: "/",
           },
         ],

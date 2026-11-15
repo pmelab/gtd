@@ -44,6 +44,8 @@ export interface ReactionRunner {
   readonly worktrees: (projects: readonly ProjectView[]) => void
   /** Runs these reactions from now on. */
   readonly replace: (reactions: ReadonlyMap<string, Reaction>) => void
+  /** Auto-clean removed the worktree: a `cleaned` change, from its last status. */
+  readonly cleaned: (project: string, worktree: WorktreeView) => void
 }
 
 interface Kept {
@@ -192,6 +194,13 @@ export const reactionRunner = (deps: ReactionDeps): ReactionRunner => {
     },
     replace: (next) => {
       reactions = next
+    },
+    cleaned: (project, w) => {
+      const before = kept.get(w.path)
+      kept.delete(w.path)
+      deps.store.saveStatuses(Object.fromEntries(kept))
+      saved = true
+      deliver({ ...changeOf(project, w, before, false), to: "cleaned" })
     },
   }
 }

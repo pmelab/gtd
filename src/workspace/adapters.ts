@@ -71,6 +71,11 @@ export interface WatchHint {
   readonly project?: string
 }
 
+/** How a main checkout's refresh ended. */
+export type RefreshResult =
+  | { readonly state: "ok" }
+  | { readonly state: "stale"; readonly reason: string }
+
 /** The worktrees adapter: which projects exist, and the worktrees of each. */
 export interface WorktreesAdapter {
   readonly projects: () => Promise<readonly Project[]>
@@ -93,6 +98,13 @@ export interface WorktreesAdapter {
     worktree: string,
     options: { readonly force: boolean },
   ) => Promise<void>
+  /**
+   * Brings the project's main checkout up to date with its upstream, so that
+   * `integrated` is told against a current default branch. It never resets or
+   * rebases: what cannot be brought up to date is `stale`, with the reason.
+   * Without it, gtd cleans against the main checkout as it is.
+   */
+  readonly refresh?: (project: string) => Promise<RefreshResult>
   /**
    * Hints while it is iterated, until gtd stops iterating. When the stream
    * ends or fails, gtd watches again and reads a full snapshot. Without it,
