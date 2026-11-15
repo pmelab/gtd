@@ -154,8 +154,6 @@ export class WorkspaceBench {
   lastSignal: { code: number | null; signal: NodeJS.Signals | null } | undefined
   /** The last `gtd workspace proceed|retry` run beside the supervisor. */
   lastCommand: CapturedCliResult | undefined
-  /** The mode bits of the supervisor's socket while a spawned supervisor served. */
-  socketMode: number | undefined
 
   writeFile(rel: string, content: string): void {
     const path = join(this.root, rel)
@@ -507,14 +505,13 @@ export class WorkspaceBench {
 
   /**
    * A real `gtd workspace --http`, spawned from the workspace root, sent
-   * `signal` once it serves — and once `beside`, the args of a second real
-   * gtd run from the root, has ended.
+   * `signal` once it serves and `whileServing` has ended.
    */
   async spawnAndSignal(
     gtdBin: string,
     env: NodeJS.ProcessEnv,
     signal: NodeJS.Signals,
-    beside?: readonly string[],
+    whileServing: () => Promise<void> = async () => {},
   ): Promise<void> {
     const child = spawn(process.execPath, [gtdBin, "workspace", "--http", "--port", "0"], {
       cwd: this.root,
@@ -533,16 +530,18 @@ export class WorkspaceBench {
       child.kill("SIGKILL")
       throw new Error(`gtd workspace never printed its URL: ${output}`)
     }
-    if (beside !== undefined) {
-      this.socketMode =
-        statSync(join(stateDirectory(this.stateHome, this.root), "socket")).mode & 0o777
-      this.lastCommand = await this.spawnBeside(gtdBin, env, beside)
-    }
+    await whileServing()
     child.kill(signal)
     this.lastSignal = await exited
   }
 
-  private spawnBeside(
+  /** The mode bits of the supervisor's socket. */
+  socketMode(): number {
+    return statSync(join(stateDirectory(this.stateHome, this.root), "socket")).mode & 0o777
+  }
+
+  /** A real `gtd <args>`, spawned from the workspace root, until it ends. */
+  spawnGtd(
     gtdBin: string,
     env: NodeJS.ProcessEnv,
     args: readonly string[],

@@ -358,7 +358,7 @@ type Arity =
   // At most one trailing positional.
   | { readonly name: string; readonly optional: true }
   // Exactly two positionals.
-  | { readonly name: string; readonly then: string }
+  | { readonly name: string; readonly second: string }
 
 type Group = "Core loop" | "Start and stop" | "Inspect" | "Driver plumbing"
 
@@ -516,7 +516,7 @@ Prints a sorted JSON array ([] when clean) and a summary on stderr; --verbose ad
   {
     token: "workspace proceed",
     kind: "workspaceControl",
-    arity: { name: "worktree", then: "commit" },
+    arity: { name: "worktree", second: "commit" },
     group: "Inspect",
     summary: "Press Proceed on a worktree",
     details: `Press Proceed on the worktree at the path <worktree>, as the dashboard does. <commit> is the full HEAD commit you saw: gtd refuses when the worktree's HEAD is now another commit, and else runs the driver's \`proceed <commit>\` in the worktree.
@@ -526,7 +526,7 @@ It reaches the running supervisor of the workspace whose gtd.workspace.ts is inn
   {
     token: "workspace retry",
     kind: "workspaceControl",
-    arity: { name: "worktree", then: "commit" },
+    arity: { name: "worktree", second: "commit" },
     group: "Inspect",
     summary: "Press Retry on a worktree",
     details: `Press Retry on the worktree at the path <worktree>, as the dashboard does. <commit> is the full HEAD commit you saw: gtd refuses when the worktree's HEAD is now another commit, and else runs the driver's \`retry <commit>\` in the worktree.
@@ -615,7 +615,7 @@ const synopsis = (row: CommandRow): string => {
   if ("bare" in arity) return `${token} [${arity.name}] [${arity.variadic}...]`
   if ("variadic" in arity) return `${token} <${arity.name}> [${arity.variadic}...]`
   if ("optional" in arity) return `${token} [${arity.name}]`
-  if ("then" in arity) return `${token} <${arity.name}> <${arity.then}>`
+  if ("second" in arity) return `${token} <${arity.name}> <${arity.second}>`
   return `${token} <${arity.name}>`
 }
 
@@ -909,9 +909,9 @@ const arityError = (cmd: string, rest: readonly string[], arity: Arity): string 
   if ("bare" in arity) return undefined
   if ("optional" in arity) return tooMany(cmd, rest, `at most one ${arity.name}`, 1)
   if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
-  if ("then" in arity) {
-    if (rest.length === 1) return `gtd ${cmd}: missing ${arity.then} argument`
-    return tooMany(cmd, rest, `a ${arity.name} and a ${arity.then}`, 2)
+  if ("second" in arity) {
+    if (rest.length === 1) return `gtd ${cmd}: missing ${arity.second} argument`
+    return tooMany(cmd, rest, `a ${arity.name} and a ${arity.second}`, 2)
   }
   return "variadic" in arity ? undefined : tooMany(cmd, rest, `one ${arity.name}`, 1)
 }

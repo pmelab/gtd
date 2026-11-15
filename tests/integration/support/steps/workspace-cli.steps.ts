@@ -11,6 +11,8 @@ const words = (command: string): string[] => {
   return args
 }
 
+const socketModes = new WeakMap<GtdWorld, number>()
+
 // `<HEAD of portal/plan>` stands for that worktree's HEAD commit.
 When("I run {string} in the workspace", async (world: GtdWorld, command: string) => {
   const b = bench(world)
@@ -28,7 +30,11 @@ When(
   "I send SIGTERM to a spawned gtd workspace, first running {string}",
   async (world: GtdWorld, command: string) => {
     const b = bench(world)
-    await b.spawnAndSignal(world.gtdBin, world.spawnEnv(), "SIGTERM", words(command))
+    const env = world.spawnEnv()
+    await b.spawnAndSignal(world.gtdBin, env, "SIGTERM", async () => {
+      socketModes.set(world, b.socketMode())
+      b.lastCommand = await b.spawnGtd(world.gtdBin, env, words(command))
+    })
     const { code, signal } = b.lastSignal!
     world.lastSignalExit = {
       code,
@@ -58,7 +64,7 @@ Then("the command exits {int}, printing:", exitsPrinting)
 Then("the command run beside the supervisor exited {int}, printing:", exitsPrinting)
 
 Then("the supervisor's socket had the mode 0600 while it served", (world: GtdWorld) => {
-  assert.strictEqual(bench(world).socketMode?.toString(8), "600")
+  assert.strictEqual(socketModes.get(world)?.toString(8), "600")
 })
 
 Then("the supervisor's state directory holds no socket", (world: GtdWorld) => {
