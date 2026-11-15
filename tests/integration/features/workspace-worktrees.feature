@@ -56,8 +56,8 @@ Feature: the dashboard creates and removes worktrees
       | portal  | login    | idle   | Idle  |
       | portal  | signup   | idle   | Idle  |
     And the audit log reads:
-      | time                     | identity          | endpoint     | project | worktree | action | outcome  |
-      | 2026-01-01T00:00:00.000Z | owner@example.com | /trpc/createWorktree | portal  | signup | create | accepted |
+      | time                     | identity          | endpoint             | project | worktree | action         | outcome  |
+      | 2026-01-01T00:00:00.000Z | owner@example.com | /trpc/createWorktree | portal  | signup   | createWorktree | accepted |
 
   Scenario: Remove stops the services, closes the idle panes, then removes the worktree
     Given a commit lands on "portal/login"
@@ -75,8 +75,8 @@ Feature: the dashboard creates and removes worktrees
       | project | worktree | status | label |
       | portal  | main     | idle   | Idle  |
     And the audit log reads:
-      | time                     | identity          | endpoint     | project | worktree | action | outcome  |
-      | 2026-01-01T00:00:00.000Z | owner@example.com | /trpc/removeWorktree | portal  | login | remove | accepted |
+      | time                     | identity          | endpoint             | project | worktree | action         | outcome  |
+      | 2026-01-01T00:00:00.000Z | owner@example.com | /trpc/removeWorktree | portal  | login    | removeWorktree | accepted |
 
   Scenario: Remove keeps the main checkout
     When I start gtd workspace

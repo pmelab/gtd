@@ -270,8 +270,7 @@ export const runWorkspaceCommand = (
                   endpoint: path,
                 }),
               worktreeChanges: changes,
-              identity: identity ?? "-",
-              endpoint: path,
+              caller: { identity: identity ?? "-", endpoint: path },
             }),
           })
         }

@@ -4,7 +4,7 @@ import type { PressAction, PressOutcome } from "./Controls.js"
 import type { FeedRunner } from "./Feeds.js"
 import type { ProjectView } from "./Scan.js"
 import type { Banner } from "./Snapshot.js"
-import { WorktreeRefusal, type WorktreeChanges } from "./WorktreeChanges.js"
+import { WorktreeRefusal, type Caller, type WorktreeChanges } from "./WorktreeChanges.js"
 
 interface WorkspaceRouterContext {
   /** Every project with its worktrees and their statuses, as of now. */
@@ -19,9 +19,8 @@ interface WorkspaceRouterContext {
     input: { readonly worktree: string; readonly commit: string },
   ) => Promise<PressOutcome>
   readonly worktreeChanges: WorktreeChanges
-  /** Who sent the request, and its path, for the audit log. */
-  readonly identity: string
-  readonly endpoint: string
+  /** Who sent the request, and where, for the audit log. */
+  readonly caller: Caller
 }
 
 const t = initTRPC.context<WorkspaceRouterContext>().create()
@@ -125,14 +124,16 @@ export const workspaceRouter = t.router({
   createWorktree: t.procedure
     .input(createWorktreeInput)
     .mutation(({ ctx, input }) =>
-      refusals(() => ctx.worktreeChanges.create(input.project, input.branch, input.base, ctx)),
+      refusals(() =>
+        ctx.worktreeChanges.create(input.project, input.branch, input.base, ctx.caller),
+      ),
     ),
   /** Remove: `{ confirm }` lists what a person must confirm first; `{ removed: true }` once it is gone. */
   removeWorktree: t.procedure
     .input(removeWorktreeInput)
     .mutation(({ ctx, input }) =>
       refusals(() =>
-        ctx.worktreeChanges.remove(input.project, input.worktree, input.confirmed, ctx),
+        ctx.worktreeChanges.remove(input.project, input.worktree, input.confirmed, ctx.caller),
       ),
     ),
   inbox: t.procedure.query(({ ctx }) => ({ items: ctx.feeds.items(), feeds: ctx.feeds.feeds() })),

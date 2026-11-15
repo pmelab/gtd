@@ -72,8 +72,9 @@ export interface WorktreeChangesDeps {
   readonly now: () => number
 }
 
-/** Who asked, and through which endpoint, for the audit log. */
+/** Who asked for a change, and through which endpoint. */
 export interface Caller {
+  /** The tailnet login, or `-` when gtd cannot know it. */
   readonly identity: string
   readonly endpoint: string
 }
@@ -141,7 +142,7 @@ export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
     }
   }
 
-  const audit = (caller: Caller, project: string, worktree: string, action: string): void =>
+  const audited = (caller: Caller, project: string, worktree: string, action: string): void =>
     deps.audit.write({
       time: new Date(deps.now()).toISOString(),
       ...caller,
@@ -164,7 +165,7 @@ export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
         refuse("invalid", `${project} has a worktree on ${branch} already`)
       }
       const path = await create.call(deps.worktrees, project, branch, base)
-      audit(caller, project, branch, "create")
+      audited(caller, project, branch, "createWorktree")
       let failure: string | undefined
       try {
         await deps.services.up(project, path)
@@ -191,7 +192,7 @@ export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
       for (const { handle } of await paneStates(path)) await deps.terminal.close(handle)
       deps.drivers.forget(path)
       await remove.call(deps.worktrees, project, path, { force: confirm.length > 0 })
-      audit(caller, project, nameOf(worktree), "remove")
+      audited(caller, project, nameOf(worktree), "removeWorktree")
       await deps.refresh(project)
       return { removed: true }
     },
