@@ -80,12 +80,13 @@ histories written by an older or newer gtd.
     `whenPrompted`, `inTurn` and `verdictWhen`, with their types, the
     re-exported `BeatDocument` type, the `TestkitWorld` type, and the
     flow-context harness `installContext` with its `FlowContext` and
-    `StepRequest` types
+    `StepRequest` types, and `testFeed` and `testReaction` with their types
   - `@pmelab/gtd/testkit/gherkin`: its `TestkitWorld` and the wording of every
     step it registers (see [Testing a workflow](docs/testing.md#steps)), with
     its optional peers `vitest` and `quickpickle`
-  - `@pmelab/gtd/workspace`: `defineWorkspace`, `AdapterError` and the adapter
-    interfaces — a change to an interface breaks userland adapters (ADR 0013)
+  - `@pmelab/gtd/workspace`: `defineWorkspace`, `feed`, `reaction`,
+    `AdapterError` and the adapter interfaces — a change to an interface breaks
+    userland adapters (ADR 0013)
   - `@pmelab/gtd/workspace/adapters`
   - `@pmelab/gtd/workspace/adapters/testkit`: the contract cases every adapter
     passes
