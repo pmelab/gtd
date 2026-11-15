@@ -2,6 +2,7 @@ import { Given, Then, When, type DataTable } from "quickpickle"
 import assert from "node:assert"
 import { join } from "node:path"
 import { parseRawRequest, type GtdWorld } from "../world.js"
+import { settle } from "../../../../src/twins/index.js"
 import { WorkspaceBench } from "../workspace.js"
 
 const benches = new WeakMap<GtdWorld, WorkspaceBench>()
@@ -25,7 +26,10 @@ Given("a workspace file {string} with:", (world: GtdWorld, path: string, content
 Given("the worktrees adapter reports these worktrees:", (world: GtdWorld, table: DataTable) => {
   const { root, worktrees } = bench(world)
   const known = new Set<string>()
-  for (const { project, branch } of table.hashes() as { project: string; branch: string }[]) {
+  for (const { project, branch } of table.hashes() as {
+    project: string
+    branch: string
+  }[]) {
     if (!known.has(project)) worktrees.addProject(project, `${root}/${project}`)
     known.add(project)
     if (branch !== "main") worktrees.addWorktree(project, branch)
@@ -61,7 +65,11 @@ When("I send SIGTERM to a spawned gtd workspace", async (world: GtdWorld) => {
   const b = bench(world)
   await b.spawnAndSignal(world.gtdBin, world.spawnEnv(), "SIGTERM")
   const { code, signal } = b.lastSignal!
-  world.lastSignalExit = { code, signal, status: signal === "SIGTERM" ? 143 : (code ?? -1) }
+  world.lastSignalExit = {
+    code,
+    signal,
+    status: signal === "SIGTERM" ? 143 : (code ?? -1),
+  }
 })
 
 Then("gtd workspace serves", async (world: GtdWorld) => {
@@ -220,7 +228,112 @@ Then(
   async (world: GtdWorld, ref: string) => {
     const b = bench(world)
     const path = await b.pathOf(ref)
+    await settle()
     const since = b.nextRuns.slice(savedAt.get(world) ?? 0)
     assert.ok(since.includes(path), `gtd next ran in: ${since.join(", ") || "nothing"}`)
   },
 )
+
+// ── change detection ──
+
+const worktreeView = async (b: WorkspaceBench, ref: string) => {
+  const [project, branch] = ref.split("/")
+  return (await b.projects())
+    .filter((p) => p.id === project)
+    .flatMap((p) => p.worktrees)
+    .find((w) => w.branch === branch)
+}
+
+const split = (ref: string): [string, string] => ref.split("/") as [string, string]
+
+Given("the worktrees adapter has no watch", (world: GtdWorld) => {
+  bench(world).watching = false
+})
+
+When("a commit lands on {string}", (world: GtdWorld, ref: string) => {
+  bench(world).worktrees.commit(...split(ref))
+})
+
+When("the worktrees adapter adds the worktree {string}", (world: GtdWorld, ref: string) => {
+  bench(world).worktrees.addWorktree(...split(ref))
+})
+
+When("the worktrees adapter's watch stream ends", (world: GtdWorld) => {
+  bench(world).worktrees.endWatch()
+})
+
+When(
+  "the worktrees adapter fails to list {string} with:",
+  (world: GtdWorld, project: string, message: string) => {
+    bench(world).worktrees.failList(project, message.trim())
+  },
+)
+
+When("the worktrees adapter answers again", async (world: GtdWorld) => {
+  const { worktrees } = bench(world)
+  for (const { id } of await worktrees.adapter.projects()) worktrees.failList(id, undefined)
+})
+
+When(/^(\d+(?:\.\d+)?) seconds? pass(?:es)?$/, async (world: GtdWorld, seconds: string) => {
+  await bench(world).clock.advance(Number(seconds) * 1000)
+})
+
+When("gtd next in {string} holds its answer", async (world: GtdWorld, ref: string) => {
+  const b = bench(world)
+  b.hold(await b.pathOf(ref))
+})
+
+When("gtd next in {string} gives its answer", async (world: GtdWorld, ref: string) => {
+  const b = bench(world)
+  await b.release(await b.pathOf(ref))
+})
+
+Then(
+  /^gtd next has run (\d+) times? in "([^"]+)"$/,
+  async (world: GtdWorld, times: string, ref: string) => {
+    const b = bench(world)
+    const path = await b.pathOf(ref)
+    assert.strictEqual(b.nextRuns.filter((p) => p === path).length, Number(times))
+  },
+)
+
+Then("gtd next never ran twice at once in {string}", async (world: GtdWorld, ref: string) => {
+  const b = bench(world)
+  assert.ok(!b.overlapped.has(await b.pathOf(ref)))
+})
+
+Then(
+  "the Projects view shows {string} as {string} with {string}",
+  async (world: GtdWorld, ref: string, status: string, label: string) => {
+    const found = await worktreeView(bench(world), ref)
+    assert.ok(found !== undefined, `the Projects view does not list ${ref}`)
+    assert.deepStrictEqual([found.status, found.label], [status, label])
+  },
+)
+
+Then("the Projects view does not list {string}", async (world: GtdWorld, ref: string) => {
+  assert.strictEqual(await worktreeView(bench(world), ref), undefined)
+})
+
+Then("the worktrees adapter has been watched {int} times", (world: GtdWorld, times: number) => {
+  assert.strictEqual(bench(world).worktrees.watched(), times)
+})
+
+Then("the dashboard shows the banner:", async (world: GtdWorld, message: string) => {
+  const banners = await bench(world).banners()
+  assert.deepStrictEqual(
+    banners.map((b) => b.message),
+    [message.trim()],
+  )
+})
+
+Then("the dashboard shows no banner", async (world: GtdWorld) => {
+  assert.deepStrictEqual(await bench(world).banners(), [])
+})
+
+Then("the Projects view greys no worktree", async (world: GtdWorld) => {
+  const greyed = (await bench(world).projects())
+    .flatMap((p) => p.worktrees)
+    .filter((w) => w.unavailable !== undefined)
+  assert.deepStrictEqual(greyed, [])
+})

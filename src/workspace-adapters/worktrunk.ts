@@ -1,10 +1,11 @@
 import { execFile } from "node:child_process"
-import { readdirSync, statSync } from "node:fs"
+import { existsSync, readdirSync, statSync, watch, type FSWatcher } from "node:fs"
 import { homedir } from "node:os"
 import { basename, isAbsolute, join } from "node:path"
 import {
   AdapterError,
   type Project,
+  type WatchHint,
   type Worktree,
   type WorktreesAdapter,
 } from "../workspace/index.js"
@@ -82,7 +83,10 @@ interface ListItem {
   readonly branch?: string | null
   readonly head?: { readonly sha?: string }
   readonly worktree?: { readonly path?: string; readonly main?: boolean }
-  readonly default_branch?: { readonly ahead?: number; readonly integration?: unknown }
+  readonly default_branch?: {
+    readonly ahead?: number
+    readonly integration?: unknown
+  }
 }
 
 const failure = (op: string, message: string, detail?: unknown): AdapterError =>
@@ -141,10 +145,109 @@ const worktreesOf = async (project: Project): Promise<readonly Worktree[]> => {
   )
 }
 
+const allDirectories = (dir: string): readonly string[] => {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+      .filter((entry) => entry.isDirectory())
+      .map((entry) => join(dir, entry.name))
+  } catch {
+    return []
+  }
+}
+
+/** `refs/` and every directory below it but `refs/remotes`: a fetch is no change to a worktree. */
+const refDirectories = (refs: string): readonly string[] => {
+  const walk = (dir: string): readonly string[] => [dir, ...allDirectories(dir).flatMap(walk)]
+  return [
+    refs,
+    ...allDirectories(refs)
+      .filter((dir) => basename(dir) !== "remotes")
+      .flatMap(walk),
+  ]
+}
+
+// The entries of a git dir whose change can move a worktree's HEAD or branch.
+const COMMON_ENTRIES = /^(HEAD|packed-refs|refs|worktrees|reftable)/
+const WORKTREE_ENTRIES = /^(HEAD|refs)/
+
+/**
+ * Hints from each project's git directories: the common dir, its `refs/`
+ * directories but `refs/remotes`, `worktrees/` and each `worktrees/<n>/`. One
+ * watch per directory, not a recursive one: Node's recursive watch on Linux
+ * drops the tail of a burst. Nothing is installed into the checkouts.
+ */
+const watchGitDirs = (projects: readonly Project[]): AsyncIterator<WatchHint> => {
+  const hints: WatchHint[] = []
+  const watchers = new Map<string, FSWatcher>()
+  let wake = (): void => {}
+  let ended = false
+
+  const hint = (project: string): void => {
+    if (ended || hints.some((h) => h.project === project)) return
+    hints.push({ project })
+    wake()
+  }
+  const watchDir = (dir: string, onChange: (file: string | null) => void): void => {
+    if (watchers.has(dir)) return
+    try {
+      const watcher = watch(dir, (_event, file) => onChange(file))
+      watcher.on("error", () => {
+        watcher.close()
+        watchers.delete(dir)
+      })
+      watchers.set(dir, watcher)
+    } catch {
+      // A directory that is gone has nothing to watch.
+    }
+  }
+  const arm = (project: Project): void => {
+    const common = join(project.path, ".git")
+    for (const [dir, watcher] of watchers) {
+      if (dir.startsWith(common) && !existsSync(dir)) {
+        watcher.close()
+        watchers.delete(dir)
+      }
+    }
+    // A new directory (a ref namespace, a worktree) is watched as soon as it appears.
+    const changed = (): void => {
+      arm(project)
+      hint(project.id)
+    }
+    watchDir(common, (file) => {
+      if (file === null || COMMON_ENTRIES.test(file)) changed()
+    })
+    for (const dir of refDirectories(join(common, "refs"))) watchDir(dir, changed)
+    const worktrees = join(common, "worktrees")
+    watchDir(worktrees, changed)
+    for (const dir of allDirectories(worktrees)) {
+      watchDir(dir, (file) => {
+        if (file === null || WORKTREE_ENTRIES.test(file)) hint(project.id)
+      })
+    }
+  }
+  for (const project of projects) arm(project)
+
+  return {
+    next: async () => {
+      while (hints.length === 0 && !ended) await new Promise<void>((resolve) => (wake = resolve))
+      const value = hints.shift()
+      return value === undefined ? { done: true, value: undefined } : { done: false, value }
+    },
+    return: async () => {
+      ended = true
+      for (const watcher of watchers.values()) watcher.close()
+      watchers.clear()
+      hints.length = 0
+      wake()
+      return { done: true, value: undefined }
+    },
+  }
+}
+
 /** The bundled worktrees adapter: worktrunk (`wt`) for the worktrees, `git` for the branch history. */
 export const worktrunk = (options: WorktrunkOptions): WorktreesAdapter => {
   const roots = options.roots.map(resolveRoot)
-  const projects = async (): Promise<readonly Project[]> => {
+  const projectsNow = (): readonly Project[] => {
     const found = new Map<string, Project>()
     for (const { path, matched } of roots.flatMap(expand)) {
       // A linked worktree's `.git` is a file; only a main checkout is a project.
@@ -158,8 +261,13 @@ export const worktrunk = (options: WorktrunkOptions): WorktreesAdapter => {
     }
     return [...found.values()]
   }
+  const projects = async (): Promise<readonly Project[]> => projectsNow()
   return {
     projects,
+    // The projects of the moment it starts; a new one is found by the next full read.
+    watch: () => ({
+      [Symbol.asyncIterator]: () => watchGitDirs(projectsNow()),
+    }),
     list: async (id) => {
       const project = (await projects()).find((p) => p.id === id)
       if (project === undefined) throw failure("list", `no project "${id}"`)

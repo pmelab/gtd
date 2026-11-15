@@ -14,7 +14,9 @@ import {
 } from "../../../src/supervisor/index.js"
 import {
   InMemRepo,
+  inMemoryClock,
   inMemoryWorktrees,
+  settle,
   makeCapturingCliIo,
   type CapturedCliResult,
 } from "../../../src/twins/index.js"
@@ -31,7 +33,12 @@ import { fakeTailnet, inMemoryUiLayers, TAILNET_OWNER, TAILNET_PEER } from "./ui
 type ToolWorkspace = NonNullable<NonNullable<Parameters<typeof makeCapturingCliIo>[2]>["workspace"]>
 
 /** What a worktree with no scripted `gtd next` answer reports: a process that has ended. */
-const IDLE_NEXT = JSON.stringify({ kind: "capture", actor: "human", idle: true, label: "Idle" })
+const IDLE_NEXT = JSON.stringify({
+  kind: "capture",
+  actor: "human",
+  idle: true,
+  label: "Idle",
+})
 
 interface Run {
   readonly abort: AbortController
@@ -48,9 +55,17 @@ export class WorkspaceBench {
   readonly root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-workspace-")))
   readonly stateHome = mkdtempSync(join(tmpdir(), "gtd-workspace-state-"))
   readonly worktrees = inMemoryWorktrees()
+  readonly clock = inMemoryClock()
+  /** Whether the default worktrees adapter offers a watch. */
+  watching = true
   private readonly answers = new Map<string, SpawnOutcome>()
   /** The worktree of each `gtd next` the supervisor ran, in order. */
   readonly nextRuns: string[] = []
+  /** Worktrees where `gtd next` waits for `release`, with what releases each waiting run. */
+  private readonly held = new Map<string, (() => void)[]>()
+  private readonly running = new Set<string>()
+  /** Worktrees where two `gtd next` ran at once. */
+  readonly overlapped = new Set<string>()
   /** Files inside worktrees, by absolute path. */
   readonly files = new Map<string, string>()
   private readonly tailnet = fakeTailnet()
@@ -77,6 +92,28 @@ export class WorkspaceBench {
 
   answer(path: string, outcome: SpawnOutcome): void {
     this.answers.set(path, outcome)
+  }
+
+  hold(path: string): void {
+    this.held.set(path, [])
+  }
+
+  /** Lets the held `gtd next` runs in `path` answer, and no longer holds new ones. */
+  async release(path: string): Promise<void> {
+    const waiting = this.held.get(path) ?? []
+    this.held.delete(path)
+    for (const resume of waiting) resume()
+    await settle()
+  }
+
+  private async runNext(path: string): Promise<SpawnOutcome> {
+    this.nextRuns.push(path)
+    if (this.running.has(path)) this.overlapped.add(path)
+    this.running.add(path)
+    const waiting = this.held.get(path)
+    if (waiting !== undefined) await new Promise<void>((resume) => waiting.push(resume))
+    this.running.delete(path)
+    return this.nextIn(path)
   }
 
   private nextIn(path: string): SpawnOutcome {
@@ -118,12 +155,13 @@ export class WorkspaceBench {
       scratch: (body) => body("/inmem-scratch", () => ""),
     }
     const host = Layer.succeed(SupervisorHost, {
-      next: async (path) => {
-        this.nextRuns.push(path)
-        return this.nextIn(path)
+      next: (path) => this.runNext(path),
+      defaultWorktrees: () => {
+        const { projects, list } = this.worktrees.adapter
+        return this.watching ? this.worktrees.adapter : { projects, list }
       },
-      defaultWorktrees: () => this.worktrees.adapter,
       isPidAlive: (pid) => pid === process.pid,
+      after: this.clock.after,
     })
     const ui = inMemoryUiLayers(uiHost, this.tailnet, new Map(), (handler) => {
       this.handler = handler
@@ -219,7 +257,17 @@ export class WorkspaceBench {
 
   async projects(): Promise<readonly ProjectView[]> {
     const response = await this.request("/trpc/projects")
-    const body = (await response.json()) as { result: { data: readonly ProjectView[] } }
+    const body = (await response.json()) as {
+      result: { data: readonly ProjectView[] }
+    }
+    return body.result.data
+  }
+
+  async banners(): Promise<readonly { kind: string; message: string }[]> {
+    const response = await this.request("/trpc/banners")
+    const body = (await response.json()) as {
+      result: { data: readonly { kind: string; message: string }[] }
+    }
     return body.result.data
   }
 
@@ -241,9 +289,10 @@ export class WorkspaceBench {
     let output = ""
     child.stdout.on("data", (chunk: Buffer) => (output += chunk.toString("utf8")))
     child.stderr.on("data", (chunk: Buffer) => (output += chunk.toString("utf8")))
-    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
-      child.once("exit", (code, died) => resolve({ code, signal: died })),
-    )
+    const exited = new Promise<{
+      code: number | null
+      signal: NodeJS.Signals | null
+    }>((resolve) => child.once("exit", (code, died) => resolve({ code, signal: died })))
     for (let i = 0; i < 600 && !output.includes("http://"); i++) await delay(50)
     if (!output.includes("http://")) {
       child.kill("SIGKILL")

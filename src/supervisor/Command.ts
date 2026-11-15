@@ -19,7 +19,7 @@ import { acquireLock, stateDirectory } from "./Lock.js"
 import { projectsPage } from "./Page.js"
 import { SupervisorHost } from "./Ports.js"
 import { workspaceRouter } from "./Router.js"
-import { recheck, scan, type ProjectView } from "./Scan.js"
+import { liveSnapshot } from "./Snapshot.js"
 
 export interface WorkspaceCommand {
   readonly flags: ExposeOptions & { readonly config?: string }
@@ -59,21 +59,24 @@ export const runWorkspaceCommand = (
       try: () => acquireLock(stateDirectory(command.stateHome, root), root, host.isPidAlive),
       catch: asUiError,
     })
+    let closeSnapshot = (): void => {}
     yield* Effect.gen(function* () {
       const { settings } = yield* Effect.tryPromise({
         try: () => loadWorkspace(file, command.loadModule),
         catch: asUiError,
       })
-      const deps = {
-        worktrees: settings.adapters?.worktrees ?? host.defaultWorktrees(root),
+      const worktrees = settings.adapters?.worktrees ?? host.defaultWorktrees(root)
+      const snapshot = liveSnapshot({
+        worktrees,
         next: host.next,
         settings,
-      }
-      const projects = (): Promise<readonly ProjectView[]> => scan(deps)
-      yield* Effect.tryPromise({ try: projects, catch: asUiError })
+        after: host.after,
+      })
+      closeSnapshot = snapshot.close
+      yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })
 
       const gatePage: UiHandler = async (request, afterResponse, peer) => {
-        const gate = await gateOf(new URL(request.url).pathname, deps.worktrees)
+        const gate = await gateOf(new URL(request.url).pathname, worktrees)
         if (gate === undefined) return new Response("not found\n", { status: 404 })
         const worktree = gate.worktree.path
         return gateHandler({
@@ -81,8 +84,8 @@ export const runWorkspaceCommand = (
           host: uiHost,
           endpoint: `${gate.base}${TRPC}`,
           ...currentRest(worktree, uiHost),
-          // The status a person just changed must not wait for the next scan.
-          onEdit: () => void recheck(deps, worktree),
+          // The status a person just changed must not wait for a hint.
+          onEdit: () => snapshot.recheckWorktree(worktree),
         })(request, afterResponse, peer)
       }
 
@@ -93,11 +96,11 @@ export const runWorkspaceCommand = (
             endpoint: TRPC,
             req: request,
             router: workspaceRouter,
-            createContext: () => ({ projects }),
+            createContext: () => snapshot,
           })
         }
         if (path !== "/") return gatePage(request, afterResponse, peer)
-        return new Response(projectsPage(await projects()), {
+        return new Response(projectsPage(snapshot.projects(), snapshot.banners()), {
           headers: { "content-type": "text/html; charset=utf-8" },
         })
       }
@@ -113,5 +116,12 @@ export const runWorkspaceCommand = (
       out.write(`${url}\n`)
       out.flush()
       yield* Effect.never.pipe(Effect.ensuring(close))
-    }).pipe(Effect.ensuring(Effect.sync(() => lock.release())))
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          closeSnapshot()
+          lock.release()
+        }),
+      ),
+    )
   })

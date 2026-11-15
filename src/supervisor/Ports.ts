@@ -13,6 +13,8 @@ interface SupervisorHostOps {
   /** The worktrees adapter of a workspace that names none. */
   readonly defaultWorktrees: (root: string) => WorktreesAdapter
   readonly isPidAlive: (pid: number) => boolean
+  /** Runs `run` once after `ms`; the result cancels it. The twin's clock moves only when a test moves it. */
+  readonly after: (ms: number, run: () => void) => () => void
 }
 
 const isPidAlive = (pid: number): boolean => {
@@ -32,5 +34,9 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
     // Each directory at the workspace root that is a repository's main checkout.
     defaultWorktrees: (root) => worktrunk({ roots: [`${root}/*`] }),
     isPidAlive,
+    after: (ms, run) => {
+      const timer = setTimeout(run, ms)
+      return () => clearTimeout(timer)
+    },
   })
 }

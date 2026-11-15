@@ -16,6 +16,7 @@ export {
   isAdapterFailure,
   type AdapterFailure,
   type Project,
+  type WatchHint,
   type Worktree,
   type WorktreesAdapter,
 } from "./adapters.js"
