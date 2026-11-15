@@ -215,3 +215,22 @@ export interface ActionsAdapter {
    */
   readonly argv: (worktree: string, id: string, values: ActionValues) => Promise<readonly string[]>
 }
+
+export type NotificationPriority = "high" | "default" | "low"
+
+/** One message to a person's phone. */
+export interface Notification {
+  /** gtd's own: no key is published twice. An adapter may ignore it. */
+  readonly key: string
+  readonly title: string
+  readonly body: string
+  /** Where a tap leads: the gate page or the worktree on the dashboard. */
+  readonly url: string | undefined
+  readonly priority: NotificationPriority
+}
+
+/** The notifications adapter: delivers what gtd publishes. */
+export interface NotificationsAdapter {
+  /** Resolves once delivered; fails with an adapter error. */
+  readonly publish: (notification: Notification) => Promise<void>
+}

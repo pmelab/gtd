@@ -345,3 +345,9 @@ export {
   type ActionsFixture,
   type ActionsHarness,
 } from "./actions.js"
+export {
+  notificationsContract,
+  type Delivered,
+  type NotificationsFixture,
+  type NotificationsHarness,
+} from "./notifications.js"

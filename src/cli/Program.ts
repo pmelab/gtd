@@ -165,7 +165,12 @@ export type Command =
       readonly command: "note"
       readonly worktree: string
       /** `null` takes the note off. */
-      readonly note: { readonly message: string; readonly error: boolean } | null
+      readonly note: {
+        readonly message: string
+        readonly error: boolean
+        /** Also send it as a notification. */
+        readonly notify?: boolean
+      } | null
       readonly config?: string
     }
   | {

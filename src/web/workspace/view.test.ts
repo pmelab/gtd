@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  linkedWorktree,
   noteText,
   nowView,
   pressFor,
@@ -107,5 +108,15 @@ describe("noteText", () => {
         }),
       ),
     ).toBeUndefined()
+  })
+})
+
+describe("linkedWorktree", () => {
+  it("reads the worktree a notification links to", () => {
+    expect(linkedWorktree("?worktree=%2Fws%2Fportal.wt%2Flogin")).toBe("/ws/portal.wt/login")
+  })
+
+  it("is undefined on the plain dashboard", () => {
+    expect(linkedWorktree("")).toBeUndefined()
   })
 })

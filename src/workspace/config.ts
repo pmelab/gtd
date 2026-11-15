@@ -1,5 +1,6 @@
 import type {
   ActionsAdapter,
+  NotificationsAdapter,
   ServicesAdapter,
   TerminalAdapter,
   WorktreesAdapter,
@@ -42,7 +43,7 @@ export interface WorkspaceAdapters {
   readonly terminal?: TerminalAdapter
   readonly services?: ServicesAdapter
   readonly actions?: ActionsAdapter
-  readonly notifications?: object
+  readonly notifications?: NotificationsAdapter
 }
 
 /** What `gtd.workspace.ts` exports as `workspace`. */
@@ -147,7 +148,7 @@ const settings = object({
     terminal: adapter(["run", "status", "close"]),
     services: adapter(["list", "up", "down"]),
     actions: adapter(["list", "argv"]),
-    notifications: adapter([]),
+    notifications: adapter(["publish"]),
   }),
   limits: object({ maxDrives: positiveInt, wip: positiveInt }),
   pollEvery: duration,

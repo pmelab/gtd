@@ -76,3 +76,7 @@ export const noteText = (w: WorktreeView): string | undefined =>
 /** The control a worktree's status offers, if any. */
 export const pressFor = (w: WorktreeView): "proceed" | "retry" | undefined =>
   w.status === "needsYou" ? "proceed" : w.status === "error" ? "retry" : undefined
+
+/** The worktree whose detail a link opens: `/?worktree=<path>`, as notifications link. */
+export const linkedWorktree = (search: string): string | undefined =>
+  new URLSearchParams(search).get("worktree") ?? undefined

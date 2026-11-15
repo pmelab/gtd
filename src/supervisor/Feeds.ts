@@ -61,6 +61,8 @@ export interface FeedDeps {
   readonly ended?: (inbox: Inbox) => Inbox
   /** Runs after each successful poll; the poll ends when it returns. */
   readonly polled?: () => Promise<void>
+  /** Runs after each poll, also one that failed. */
+  readonly afterPoll?: (feed: string) => void
 }
 
 // An item the last supervisor left starting never reports how its start ended.
@@ -128,6 +130,7 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
       failing.delete(name)
       await deps.polled?.()
     } finally {
+      deps.afterPoll?.(name)
       polling.delete(name)
     }
   }

@@ -27,6 +27,8 @@ export interface SnapshotDeps extends ScanDeps {
   readonly services?: ServicesAdapter
   /** The last action gtd ran in the worktree while this supervisor runs. */
   readonly lastAction?: (path: string) => ActionRun | undefined
+  /** Called after a worktree status may have changed. */
+  readonly changed?: () => void
 }
 
 /** The worktree statuses the supervisor keeps, and what keeps them current. */
@@ -141,6 +143,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
       const before = seen?.get(path)
       if (before !== undefined) seen!.set(path, { ...before, driver })
     }
+    if (found.length > 0) deps.changed?.()
   }
 
   const refreshDriver = async (path: string): Promise<void> => {
@@ -149,6 +152,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
       const before = project.seen.get(path)
       if (before !== undefined) project.seen.set(path, { ...before, driver })
     }
+    deps.changed?.()
   }
 
   let refreshing: Promise<void> | undefined
@@ -168,6 +172,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
             if (seen?.get(path)?.next === before.next) seen.set(path, { ...before, driver })
           }
         }
+        deps.changed?.()
       }
     })().finally(() => (refreshing = undefined))
   }
@@ -224,6 +229,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
     for (let want = wanted.get(id); want !== undefined; want = wanted.get(id)) {
       wanted.delete(id)
       await recheckProject(id, want).catch(() => {})
+      deps.changed?.()
     }
     running.delete(id)
   }

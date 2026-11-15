@@ -5,13 +5,14 @@ const worktrees = { projects: async () => [], list: async () => [] }
 const terminal = { run: async () => "h", status: async () => undefined, close: async () => {} }
 const services = { list: async () => [], up: async () => {}, down: async () => {} }
 const actions = { list: async () => [], argv: async () => [] }
+const notifications = { publish: async () => {} }
 
 describe("workspaceProblems", () => {
   it("accepts every documented key", () => {
     expect(
       workspaceProblems({
         driver: ["my-driver"],
-        adapters: { worktrees, terminal, services, actions, notifications: {} },
+        adapters: { worktrees, terminal, services, actions, notifications },
         limits: { maxDrives: 3, wip: 2 },
         pollEvery: "30s",
         projects: {
@@ -68,6 +69,12 @@ describe("workspaceProblems", () => {
         message: "must be false (auto-clean is on for every project)",
       },
       { path: ["clean", "every"], message: "is required" },
+    ])
+  })
+
+  it("names the publish a notifications adapter lacks", () => {
+    expect(workspaceProblems({ adapters: { notifications: {} } })).toEqual([
+      { path: ["adapters", "notifications", "publish"], message: "must be a function" },
     ])
   })
 

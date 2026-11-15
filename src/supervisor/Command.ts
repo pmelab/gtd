@@ -14,6 +14,7 @@ import {
   type UiOut,
   type UiShell,
 } from "../ui/index.js"
+import type { NotificationsAdapter, WorkspaceSettings } from "../workspace/index.js"
 import { actionRuns } from "./Actions.js"
 import { auditLog } from "./Audit.js"
 import { findWorkspaceModule, loadWorkspace, reloadWorkspace } from "./Config.js"
@@ -26,8 +27,10 @@ import { feedRunner } from "./Feeds.js"
 import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
+import type { ProjectView } from "./Scan.js"
 import { liveSnapshot, type Banner } from "./Snapshot.js"
 import { notes, type Notes } from "./Notes.js"
+import { notifier, type Notifier } from "./Notify.js"
 import {
   drainSpool,
   serveSocket,
@@ -50,12 +53,14 @@ const TRPC = "/trpc"
 
 /** One dispatcher for the socket and the spool; `endpoint` goes into the audit log. */
 const controlHandler =
-  (noted: Notes, control: Controls) =>
+  (noted: Notes, control: Controls, notify: Notifier, projects: () => readonly ProjectView[]) =>
   (endpoint: string) =>
   async (request: ControlRequest): Promise<ControlReply> => {
     if (request.command === "note") {
       const refusal = noted.note(request.worktree, request.note, endpoint)
-      return refusal === undefined ? { ok: true } : { ok: false, message: refusal }
+      if (refusal !== undefined) return { ok: false, message: refusal }
+      if (request.note?.notify === true) notify.note(projects(), request.worktree, request.note)
+      return { ok: true }
     }
     const outcome = await control.press({
       action: request.command,
@@ -65,6 +70,11 @@ const controlHandler =
     })
     return outcome.outcome === "accepted" ? { ok: true } : { ok: false, message: outcome.message }
   }
+
+const notificationsOf = (
+  settings: WorkspaceSettings,
+  byDefault: () => NotificationsAdapter,
+): NotificationsAdapter => settings.adapters?.notifications ?? byDefault()
 
 const asUiError = (error: unknown): UiError =>
   error instanceof UiError
@@ -123,6 +133,17 @@ export const runWorkspaceCommand = (
       const driverRuns = drivers(terminal, config, panes)
       const store = openStore(directory)
       const audit = auditLog(directory)
+      const log = (line: string): void => {
+        out.write(line)
+        out.flush()
+      }
+      const notify = notifier({
+        adapter: notificationsOf(settings, () => host.defaultNotifications(directory)),
+        store,
+        settings: config,
+        now: clock.now,
+        log,
+      })
       const noted = notes({
         store,
         projects: () => snapshot.projects(),
@@ -149,6 +170,8 @@ export const runWorkspaceCommand = (
         services,
         lastAction: actions.last,
         after: host.after,
+        // Notes notify only when sent with --notify: the raw statuses, without them.
+        changed: () => notify.worktrees(snapshot.projects()),
       })
       closeSnapshot = snapshot.close
       yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })
@@ -163,7 +186,7 @@ export const runWorkspaceCommand = (
         now: clock.now,
       })
       const projects = () => noted.withNotes(control.withRefusals(snapshot.projects()))
-      const handleControl = controlHandler(noted, control)
+      const handleControl = controlHandler(noted, control, notify, snapshot.projects)
       // Before the socket opens: a spooled note is older than any sent to it.
       const spoolRefusals = yield* Effect.tryPromise({
         try: () => drainSpool(directory, handleControl("spool")),
@@ -191,10 +214,8 @@ export const runWorkspaceCommand = (
         now: clock.now,
         every: clock.every,
         store,
-        log: (line) => {
-          out.write(line)
-          out.flush()
-        },
+        log,
+        afterPoll: (feed) => notify.polled(feed, feeds.items(), feeds.feeds()),
         ended: (inbox) => dispatch.endStarted(inbox),
         polled: () => dispatch.pass(),
       })
@@ -233,6 +254,7 @@ export const runWorkspaceCommand = (
           current = next.settings
           feeds.replace(next.feeds)
         },
+        reloaded: (failure) => notify.reloaded(basename(file), failure),
       })
       closeReload = reload.close
       const banners = (): readonly Banner[] => {
@@ -324,6 +346,7 @@ export const runWorkspaceCommand = (
         out,
       })
       lock.serving(url)
+      notify.begin(url, snapshot.projects())
       out.write(`${url}\n`)
       out.write(spoolRefusals.map((refusal) => `spool ${refusal}\n`).join(""))
       out.flush()
