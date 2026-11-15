@@ -33,7 +33,8 @@ export interface ScanDeps {
   readonly worktrees: WorktreesAdapter
   /** `gtd next --json`, run in the worktree. */
   readonly next: (worktree: string) => Promise<SpawnOutcome>
-  readonly settings: WorkspaceSettings
+  /** The config as last loaded: a reload changes it. */
+  readonly settings: () => WorkspaceSettings
   readonly drivers: Drivers
 }
 

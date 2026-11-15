@@ -49,6 +49,11 @@ Each finding in the file is reported in the `gtd: config:` format, and unknown
 keys are refused at every depth. A bad file stops the supervisor with exit
 code 1.
 
+The supervisor reloads the file each time you save it. A reload with a bad file
+keeps the last good config, and a banner above the projects shows the findings
+until a reload succeeds. A reload changes `driver`, `projects` and the feeds.
+`adapters`, `pollEvery` and `ui` change only when the supervisor starts again.
+
 ### `workspace`
 
 The one reserved export, made with `defineWorkspace`. Every key is optional.
@@ -59,8 +64,10 @@ The one reserved export, made with `defineWorkspace`. Every key is optional.
   default with its default options. See [Adapters](#adapters).
 - **`pollEvery`** (duration, default `"10s"`): how often a worktrees adapter
   without `watch()` is read.
-- **`projects`**: settings per project id: `name` (shown on the dashboard) and
-  `driver` (this project's driver command, instead of the workspace's).
+- **`projects`**: settings per project id, as the worktrees adapter names the
+  project: `name` (shown on the dashboard) and `driver` (this project's driver
+  command, instead of the workspace's). An id that no project has shows a
+  banner.
 - **`ui`**: `port`, `host`, `cert`, `key`, as for `gtd ui`, and `users` (the
   tailnet logins that may use the dashboard; default: the owner of this node).
 

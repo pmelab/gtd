@@ -37,8 +37,18 @@ export const findWorkspaceModule = (cwd: string, explicit: string | undefined): 
   ])
 }
 
+/** A `gtd.workspace.ts` that does not evaluate or does not check out. */
+export class WorkspaceConfigError extends UiError {
+  constructor(
+    file: string,
+    readonly findings: readonly string[],
+  ) {
+    super(`gtd: config:\n${findings.map((finding) => `  - ${file}: ${finding}`).join("\n")}`)
+  }
+}
+
 const configError = (file: string, findings: readonly string[]): UiError =>
-  new UiError(`gtd: config:\n${findings.map((finding) => `  - ${file}: ${finding}`).join("\n")}`)
+  new WorkspaceConfigError(file, findings)
 
 /** Evaluates `file` and checks its `workspace` export at every depth. */
 export const loadWorkspace = async (
@@ -58,4 +68,40 @@ export const loadWorkspace = async (
     Object.entries(exports).filter((entry): entry is [string, Feed] => isFeed(entry[1])),
   )
   return { root: dirname(file), file, settings: settings as WorkspaceSettings, feeds }
+}
+
+export interface WorkspaceReload {
+  /** Why the last reload failed, until one succeeds. */
+  readonly failure: () => string | undefined
+  readonly close: () => void
+}
+
+/**
+ * Loads `file` again after each change and hands each good load to `apply`.
+ * A bad one leaves the config as it was: an edit never takes the supervisor down.
+ */
+export const reloadWorkspace = (options: {
+  readonly file: string
+  readonly load: () => Promise<LoadedWorkspace>
+  readonly watchFile: (file: string, changed: () => Promise<void>) => () => void
+  readonly apply: (loaded: LoadedWorkspace) => void
+}): WorkspaceReload => {
+  let failure: string | undefined
+  let queue = Promise.resolve()
+  const reload = async (): Promise<void> => {
+    try {
+      options.apply(await options.load())
+      failure = undefined
+    } catch (error) {
+      failure =
+        error instanceof WorkspaceConfigError
+          ? error.findings.join("; ")
+          : error instanceof Error
+            ? error.message
+            : String(error)
+    }
+  }
+  // Loads run one at a time, so the last change is the one that stays.
+  const changed = (): Promise<void> => (queue = queue.then(reload))
+  return { failure: () => failure, close: options.watchFile(options.file, changed) }
 }

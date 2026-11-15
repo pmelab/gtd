@@ -42,7 +42,7 @@ export interface Drivers {
 
 export const drivers = (
   terminal: TerminalAdapter,
-  settings: WorkspaceSettings,
+  settings: () => WorkspaceSettings,
   panes: DriverPanes,
 ): Drivers => ({
   state: async (worktree) => {
@@ -56,7 +56,8 @@ export const drivers = (
     }
   },
   start: async (project, worktree) => {
-    const argv = settings.projects?.[project]?.driver ?? settings.driver
+    const { projects, driver } = settings()
+    const argv = projects?.[project]?.driver ?? driver
     if (argv === undefined) return false
     panes.set(worktree, await terminal.run(project, worktree, argv, {}))
     return true
