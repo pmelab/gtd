@@ -13,6 +13,7 @@ import {
   type UiOut,
   type UiShell,
 } from "../ui/index.js"
+import { actionRuns } from "./Actions.js"
 import { findWorkspaceModule, loadWorkspace } from "./Config.js"
 import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf } from "./Gate.js"
@@ -22,6 +23,7 @@ import { inboxPage, projectsPage } from "./Page.js"
 import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
+import { recheck, type ProjectView } from "./Scan.js"
 import { liveSnapshot } from "./Snapshot.js"
 
 export interface WorkspaceCommand {
@@ -72,25 +74,42 @@ export const runWorkspaceCommand = (
       catch: asUiError,
     })
     let closeSnapshot = (): void => {}
+    let stopActions = (): void => {}
     yield* Effect.gen(function* () {
       const { settings, feeds: feedExports } = yield* Effect.tryPromise({
         try: () => loadWorkspace(file, command.loadModule),
         catch: asUiError,
       })
       const worktrees = settings.adapters?.worktrees ?? host.defaultWorktrees(root)
-      const snapshot = liveSnapshot({
+      const terminal = settings.adapters?.terminal ?? host.defaultTerminal()
+      const deps = {
         worktrees,
         next: host.next,
         settings,
-        drivers: drivers(
-          settings.adapters?.terminal ?? host.defaultTerminal(),
-          settings,
-          driverPanes(directory),
-        ),
+        drivers: drivers(terminal, settings, driverPanes(directory)),
+      }
+      const snapshot = liveSnapshot({
+        ...deps,
         after: host.after,
         services: settings.adapters?.services ?? host.defaultServices(),
       })
       closeSnapshot = snapshot.close
+      const actions = actionRuns({
+        worktrees,
+        actions: settings.adapters?.actions ?? host.defaultActions(),
+        terminal,
+        drivers: deps.drivers,
+        status: (worktree) => recheck(deps, worktree),
+      })
+      stopActions = actions.stop
+      const projects = (): readonly ProjectView[] =>
+        snapshot.projects().map((project) => ({
+          ...project,
+          worktrees: project.worktrees.map((w) => {
+            const action = actions.last(w.path)
+            return action === undefined ? w : { ...w, action }
+          }),
+        }))
       yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })
       const feeds = feedRunner({
         feeds: feedExports,
@@ -129,8 +148,9 @@ export const runWorkspaceCommand = (
             req: request,
             router: workspaceRouter,
             createContext: () => ({
-              projects: snapshot.projects,
+              projects,
               banners: snapshot.banners,
+              actions,
               feeds,
             }),
           })
@@ -139,7 +159,7 @@ export const runWorkspaceCommand = (
           new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } })
         if (path === "/inbox") return html(inboxPage(feeds.items(), feeds.feeds()))
         if (path !== "/") return gatePage(request, afterResponse, peer)
-        return html(projectsPage(snapshot.projects(), snapshot.banners()))
+        return html(projectsPage(projects(), snapshot.banners()))
       }
 
       const { url, close } = yield* exposeHandler({
@@ -157,6 +177,7 @@ export const runWorkspaceCommand = (
     }).pipe(
       Effect.ensuring(
         Effect.sync(() => {
+          stopActions()
           closeSnapshot()
           lock.release()
         }),

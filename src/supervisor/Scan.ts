@@ -7,8 +7,9 @@ import {
   type WorkspaceSettings,
 } from "../workspace/index.js"
 import type { SpawnOutcome } from "../ui/index.js"
+import type { ActionRun } from "./Actions.js"
 import type { Drivers } from "./Drivers.js"
-import type { WorktreeStatus } from "./Status.js"
+import { worktreeStatus, type WorktreeStatus } from "./Status.js"
 
 export interface WorktreeView extends WorktreeStatus {
   readonly path: string
@@ -23,6 +24,8 @@ export interface WorktreeView extends WorktreeStatus {
   readonly gate: string
   /** The adapter read that failed: the status is the last one known, shown greyed. */
   readonly unavailable?: AdapterFailure
+  /** The last action gtd ran here while this supervisor runs. */
+  readonly action?: ActionRun
 }
 
 export interface ProjectView {
@@ -70,3 +73,10 @@ export const asFailure = (op: string, error: unknown): AdapterFailure =>
 
 export const byPath = (a: Worktree, b: Worktree): number =>
   Number(b.main) - Number(a.main) || a.path.localeCompare(b.path)
+
+/** One worktree's status as of now. */
+export const recheck = async (
+  deps: Pick<ScanDeps, "next" | "drivers">,
+  worktree: string,
+): Promise<WorktreeStatus> =>
+  worktreeStatus(await deps.next(worktree), await deps.drivers.state(worktree))
