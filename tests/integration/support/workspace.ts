@@ -257,6 +257,10 @@ export class WorkspaceBench {
         })
         await adapter.remove!(project, path, options)
       },
+      refresh: async (project) => {
+        this.calls.push({ call: "worktrees.refresh", worktree: project })
+        return adapter.refresh!(project)
+      },
     }
   }
 

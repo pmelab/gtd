@@ -312,6 +312,21 @@ export const worktreesContract = (harness: WorktreesHarness): readonly ContractC
     }),
   },
   {
+    name: "refresh(), when the adapter has it, answers ok or stale with a reason, and leaves the main checkout's HEAD where it was",
+    run: withFixture(harness, async (fixture) => {
+      if (fixture.adapter.refresh === undefined) return
+      const main = async () =>
+        (await fixture.adapter.list(fixture.project)).find((w) => w.main)?.head
+      const before = await main()
+      const result = await fixture.adapter.refresh(fixture.project)
+      const answered =
+        result.state === "ok" ||
+        (result.state === "stale" && typeof result.reason === "string" && result.reason !== "")
+      if (!answered) fail(`refresh() answered ${JSON.stringify(result)}`)
+      if ((await main()) !== before) fail("refresh() moved the main checkout's HEAD")
+    }),
+  },
+  {
     name: "list() of an unknown project fails with the adapter error shape",
     run: withFixture(harness, async (fixture) => {
       const failure = await fixture.adapter.list("no-such-project").then(

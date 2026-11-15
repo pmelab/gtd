@@ -68,6 +68,8 @@ export interface WorktreeChangesDeps {
   readonly errorNote?: (worktree: string) => boolean
   /** Reads the project again, so the Projects view shows the change at once. */
   readonly refresh: (project: string) => Promise<void>
+  /** Auto-clean removed the worktree; called before the project is read again. */
+  readonly cleaned?: (project: string, worktree: Worktree) => void
   readonly audit: AuditLog
   readonly now: () => number
 }
@@ -80,6 +82,12 @@ export interface Caller {
 }
 
 export type RemoveResult = { readonly removed: true } | { readonly confirm: readonly string[] }
+
+/** A worktree auto-clean tried to remove, and why that failed. */
+export interface CleanFailure {
+  readonly worktree: string
+  readonly message: string
+}
 
 export interface WorktreeChanges {
   /** The new worktree's path, and why its services did not start. */
@@ -95,7 +103,18 @@ export interface WorktreeChanges {
     confirmed: boolean,
     caller: Caller,
   ) => Promise<RemoveResult>
+  /**
+   * Removes each worktree of the project that the adapter reports as
+   * integrated, with a clean tree, that nothing protects.
+   */
+  readonly clean: (project: string) => Promise<readonly CleanFailure[]>
 }
+
+const CLEAN: Caller = { identity: "-", endpoint: "clean" }
+
+// Only `true` is integrated and only `false` is clean: what the adapter cannot tell stays.
+const cleanable = (worktree: Worktree): boolean =>
+  worktree.integrated === true && worktree.dirty === false && !worktree.main
 
 const refuse = (reason: WorktreeRefusalReason, message: string): never => {
   throw new WorktreeRefusal(reason, message)
@@ -152,6 +171,18 @@ export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
       outcome: "accepted",
     })
 
+  const removeNow = async (
+    remove: NonNullable<WorktreesAdapter["remove"]>,
+    project: string,
+    worktree: Worktree,
+    force: boolean,
+  ): Promise<void> => {
+    await deps.services.down(project, worktree.path)
+    for (const { handle } of await paneStates(worktree.path)) await deps.terminal.close(handle)
+    deps.drivers.forget(worktree.path)
+    await remove.call(deps.worktrees, project, worktree.path, { force })
+  }
+
   return {
     create: async (project, branch, base, caller) => {
       const create =
@@ -188,13 +219,31 @@ export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
       }
       const confirm = confirmations(worktree)
       if (confirm.length > 0 && !confirmed) return { confirm }
-      await deps.services.down(project, path)
-      for (const { handle } of await paneStates(path)) await deps.terminal.close(handle)
-      deps.drivers.forget(path)
-      await remove.call(deps.worktrees, project, path, { force: confirm.length > 0 })
+      await removeNow(remove, project, worktree, confirm.length > 0)
       audited(caller, project, nameOf(worktree), "removeWorktree")
       await deps.refresh(project)
       return { removed: true }
+    },
+
+    clean: async (project) => {
+      const remove = deps.worktrees.remove
+      if (remove === undefined) return []
+      const failures: CleanFailure[] = []
+      let removed = false
+      for (const worktree of (await deps.worktrees.list(project)).filter(cleanable)) {
+        if (protections(await factsOf(worktree)).length > 0) continue
+        try {
+          await removeNow(remove, project, worktree, false)
+        } catch (error) {
+          failures.push({ worktree: nameOf(worktree), message: messageOf(error) })
+          continue
+        }
+        removed = true
+        audited(CLEAN, project, nameOf(worktree), "clean")
+        deps.cleaned?.(project, worktree)
+      }
+      if (removed) await deps.refresh(project)
+      return failures
     },
   }
 }

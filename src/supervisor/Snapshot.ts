@@ -14,7 +14,7 @@ import { isOrphan, worktreeStatus, type DriverState } from "./Status.js"
 
 /** A problem with the workspace itself, shown above every project. */
 export interface Banner {
-  readonly kind: "adapterUnavailable" | "configError" | "unknownProject"
+  readonly kind: "adapterUnavailable" | "configError" | "unknownProject" | "mainStale"
   readonly message: string
 }
 

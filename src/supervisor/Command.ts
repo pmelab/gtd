@@ -17,6 +17,7 @@ import {
 import type { NotificationsAdapter, WorkspaceSettings } from "../workspace/index.js"
 import { actionRuns } from "./Actions.js"
 import { auditLog } from "./Audit.js"
+import { cleaner } from "./Clean.js"
 import { findWorkspaceModule, loadWorkspace, reloadWorkspace } from "./Config.js"
 import { controls, type Controls } from "./Controls.js"
 import { dispatcher, type Dispatcher } from "./Dispatch.js"
@@ -299,8 +300,24 @@ export const runWorkspaceCommand = (
         starting: dispatch.starting,
         refresh: snapshot.refresh,
         errorNote: noted.errorNote,
+        cleaned: (project, worktree) => {
+          const view = noted
+            .withNotes(snapshot.projects())
+            .flatMap((p) => p.worktrees)
+            .find((w) => w.path === worktree.path)
+          if (view !== undefined) reactions.cleaned(project, view)
+        },
         audit,
         now: clock.now,
+      })
+      const clean = cleaner({
+        settings: config,
+        worktrees,
+        projects: () => snapshot.projects().map((project) => project.id),
+        changes,
+        refreshed: notify.mainStale,
+        after: host.after,
+        log,
       })
       const handleControl = controlHandler({
         noted,
@@ -331,6 +348,7 @@ export const runWorkspaceCommand = (
           current = next.settings
           feeds.replace(next.feeds)
           reactions.replace(next.reactions)
+          clean.schedule()
         },
         reloaded: (failure) => notify.reloaded(basename(file), failure),
       })
@@ -347,6 +365,7 @@ export const runWorkspaceCommand = (
               ]
             : []),
           ...snapshot.banners(),
+          ...clean.banners(),
         ]
       }
 
@@ -431,8 +450,10 @@ export const runWorkspaceCommand = (
       out.write(spoolRefusals.map((refusal) => `spool ${refusal}\n`).join(""))
       out.flush()
       feeds.start()
+      clean.schedule()
       yield* Effect.never.pipe(
         Effect.ensuring(Effect.sync(feeds.stop)),
+        Effect.ensuring(Effect.sync(clean.stop)),
         Effect.ensuring(Effect.sync(() => actions.stop())),
         Effect.ensuring(close),
       )

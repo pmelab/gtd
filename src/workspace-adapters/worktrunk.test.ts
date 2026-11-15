@@ -84,3 +84,72 @@ describe("worktrunk roots", () => {
     }
   })
 })
+
+describe("worktrunk refresh", () => {
+  const git = (cwd: string, ...args: string[]): string =>
+    execFileSync("git", args, { cwd, env, encoding: "utf8" })
+  const commitIn = (cwd: string, file: string): void => {
+    writeFileSync(join(cwd, file), file)
+    git(cwd, "add", ".")
+    git(cwd, "commit", "-q", "-m", file)
+  }
+
+  // A project cloned from `origin`, so its main checkout has an upstream.
+  const withClone = async (
+    body: (paths: { root: string; origin: string; main: string }) => Promise<void>,
+  ): Promise<void> => {
+    const workspace = realpathSync(mkdtempSync(join(tmpdir(), "gtd-worktrunk-")))
+    try {
+      const origin = join(workspace, "origin")
+      execFileSync("git", ["init", "-q", "-b", "main", origin], { env })
+      commitIn(origin, "a.txt")
+      const main = join(workspace, "projects", "demo")
+      execFileSync("git", ["clone", "-q", origin, main], { env })
+      await body({ root: join(workspace, "projects", "*"), origin, main })
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  }
+
+  it("fast-forwards the main checkout to its upstream", async () => {
+    await withClone(async ({ root, origin, main }) => {
+      commitIn(origin, "b.txt")
+      expect(await worktrunk({ roots: [root] }).refresh!("demo")).toEqual({ state: "ok" })
+      expect(git(main, "rev-parse", "HEAD")).toBe(git(origin, "rev-parse", "HEAD"))
+    })
+  }, 30_000)
+
+  it("reports a main checkout that does not fast-forward as stale, and keeps its HEAD", async () => {
+    await withClone(async ({ root, origin, main }) => {
+      commitIn(origin, "b.txt")
+      commitIn(main, "c.txt")
+      const head = git(main, "rev-parse", "HEAD")
+      expect(await worktrunk({ roots: [root] }).refresh!("demo")).toMatchObject({
+        state: "stale",
+      })
+      expect(git(main, "rev-parse", "HEAD")).toBe(head)
+    })
+  }, 30_000)
+
+  it("reports a main checkout whose fetch fails as stale", async () => {
+    await withClone(async ({ root, origin }) => {
+      rmSync(origin, { recursive: true, force: true })
+      expect(await worktrunk({ roots: [root] }).refresh!("demo")).toMatchObject({
+        state: "stale",
+        reason: expect.stringMatching(/^git fetch failed/),
+      })
+    })
+  }, 30_000)
+
+  it("leaves a main checkout without an upstream as it is", async () => {
+    const workspace = realpathSync(mkdtempSync(join(tmpdir(), "gtd-worktrunk-")))
+    try {
+      execFileSync("git", ["init", "-q", "-b", "main", join(workspace, "demo")], { env })
+      expect(await worktrunk({ roots: [join(workspace, "*")] }).refresh!("demo")).toEqual({
+        state: "ok",
+      })
+    } finally {
+      rmSync(workspace, { recursive: true, force: true })
+    }
+  })
+})

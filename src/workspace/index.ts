@@ -27,6 +27,7 @@ export {
   type StatusRecord,
   type TerminalAdapter,
   type Project,
+  type RefreshResult,
   type WatchHint,
   type Service,
   type ServicesAdapter,

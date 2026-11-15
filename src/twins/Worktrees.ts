@@ -1,6 +1,7 @@
 import {
   AdapterError,
   type Project,
+  type RefreshResult,
   type WatchHint,
   type Worktree,
   type WorktreesAdapter,
@@ -41,6 +42,10 @@ export interface InMemoryWorktrees {
   readonly watched: () => number
   /** `list(project)` fails with `message`; `undefined` makes it answer again. */
   readonly failList: (project: string, message: string | undefined) => void
+  /** The branch's `integrated` is `value` from now on, whatever its commits say. */
+  readonly reportIntegrated: (project: string, branch: string, value: boolean | undefined) => void
+  /** `refresh(project)` reports the main checkout stale with `reason`; `undefined` makes it current again. */
+  readonly stale: (project: string, reason: string | undefined) => void
 }
 
 interface Stream {
@@ -53,6 +58,9 @@ interface Stream {
 export const inMemoryWorktrees = (): InMemoryWorktrees => {
   const projects = new Map<string, ProjectState>()
   const failing = new Map<string, string>()
+  const stale = new Map<string, string>()
+  // By `<project>/<branch>`.
+  const integration = new Map<string, boolean | undefined>()
   const streams = new Set<Stream>()
   let subscriptions = 0
   let commits = 0
@@ -107,15 +115,22 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
     if (found === undefined) throw new Error(`no branch "${branch}"`)
     return found
   }
-  const worktreeOf = (project: ProjectState, name: string, branch: Branch): Worktree => {
+  const worktreeOf = (
+    id: string,
+    project: ProjectState,
+    name: string,
+    branch: Branch,
+  ): Worktree => {
     const main = name === project.defaultBranch
+    const ref = `${id}/${name}`
     return {
       path: branch.path,
       branch: name,
       head: branch.head,
       main,
-      integrated:
-        !main && branch.own.length > 0 && branch.own.every((c) => project.integrated.has(c)),
+      integrated: integration.has(ref)
+        ? integration.get(ref)
+        : !main && branch.own.length > 0 && branch.own.every((c) => project.integrated.has(c)),
       dirty: branch.dirty,
     }
   }
@@ -142,7 +157,7 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
       const message = failing.get(id)
       if (message !== undefined)
         throw new AdapterError({ adapter: "worktrees", op: "list", message })
-      return [...project.branches].map(([name, branch]) => worktreeOf(project, name, branch))
+      return [...project.branches].map(([name, branch]) => worktreeOf(id, project, name, branch))
     },
     create: async (id, branch) => {
       const project = projectOf(id, "create")
@@ -160,6 +175,11 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
       if (!merged && !force) throw failure("remove", `${name} is not merged`)
       project.branches.delete(name)
       hint(id)
+    },
+    refresh: async (id): Promise<RefreshResult> => {
+      projectOf(id, "refresh")
+      const reason = stale.get(id)
+      return reason === undefined ? { state: "ok" } : { state: "stale", reason }
     },
     watch,
   }
@@ -204,6 +224,14 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
     failList: (id, message) => {
       if (message === undefined) failing.delete(id)
       else failing.set(id, message)
+    },
+    reportIntegrated: (id, branch, value) => {
+      integration.set(`${id}/${branch}`, value)
+      hint(id)
+    },
+    stale: (id, reason) => {
+      if (reason === undefined) stale.delete(id)
+      else stale.set(id, reason)
     },
   }
 }

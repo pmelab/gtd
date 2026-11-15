@@ -78,8 +78,9 @@ code 1.
 
 The supervisor reloads the file each time you save it. A reload with a bad file
 keeps the last good config, and a banner above the projects shows the findings
-until a reload succeeds. A reload changes `driver`, `projects` and the feeds.
-`adapters`, `pollEvery` and `ui` change only when the supervisor starts again.
+until a reload succeeds. A reload changes `driver`, `projects`, `clean` and the
+feeds. `adapters`, `pollEvery` and `ui` change only when the supervisor starts
+again.
 
 ### `workspace`
 
@@ -97,12 +98,14 @@ The one reserved export, made with `defineWorkspace`. Every key is optional.
   listed, and how often a worktrees adapter without `watch()` is read.
 - **`projects`**: settings per project id, as the worktrees adapter names the
   project: `name` (shown on the dashboard), `driver` (this project's driver
-  command, instead of the workspace's), `wip` (instead of `limits.wip`) and
-  `notify` (as below, for this project). An id that no project has shows a
-  banner.
+  command, instead of the workspace's), `wip` (instead of `limits.wip`),
+  `notify` (as below, for this project) and `clean: false` (no auto-clean in
+  this project). An id that no project has shows a banner.
 - **`notify`**: switches each notification kind on (`true`, the default) or off
-  (`false`): `needsYou`, `error`, `proposed`, `feedFailing`, `configError`. See
-  [Notifications](#notifications).
+  (`false`): `needsYou`, `error`, `proposed`, `feedFailing`, `configError`,
+  `mainStale`. See [Notifications](#notifications).
+- **`clean`**: `{ every: "<duration>" }` turns on [auto-clean](#auto-clean),
+  with a pass each `every`. Without it, nothing is cleaned.
 - **`ui`**: `port`, `host`, `cert`, `key`, as for `gtd ui`, and `users` (the
   tailnet logins that may use the dashboard; default: the owner of this node).
 
@@ -436,6 +439,29 @@ Remove asks for confirmation when the tree has uncommitted changes (untracked
 files count) or when the branch is not integrated. A confirmed Remove throws
 away those changes and commits.
 
+## Auto-clean
+
+With `clean: { every }`, the supervisor runs a clean pass each `every`, the
+first one `every` after it starts. A project with `clean: false` in `projects`
+is left out.
+
+A pass first refreshes the project's main checkout with the worktrees adapter's
+`refresh`, so that `integrated` is told against a current default branch. A
+refresh never resets or rebases. A main checkout that it cannot bring up to date
+is stale: a banner shows the reason until a pass refreshes it, and a `mainStale`
+notification is sent.
+
+Then the pass removes each worktree that the adapter reports as integrated
+(`true`; `undefined` never counts) and whose tree is clean (`dirty: false`),
+unless Remove would keep it (see
+[New worktree and Remove](#new-worktree-and-remove)). A removal is a Remove
+without force: it stops the services, closes the panes, removes the worktree and
+its branch, and writes an audit line with the endpoint `clean` and the action
+`clean`. The item started in the worktree ends: the next poll of its feed files
+it anew, or drops it. Each reaction whose `on` matches gets a change
+`to: "cleaned"`. A removal that fails is printed
+(`clean <project>/<worktree>: …`) and tried again on the next pass.
+
 ## Notes
 
 A note shows a shipping, merge or deploy outcome on a worktree. gtd does not
@@ -466,6 +492,7 @@ The supervisor sends a notification through the notifications adapter when:
 | `proposed`    | a feed proposes an item                             | the dashboard            | default  |
 | `feedFailing` | a feed's poll fails                                 | the dashboard            | low      |
 | `configError` | `gtd.workspace.ts` does not reload                  | the dashboard            | default  |
+| `mainStale`   | auto-clean cannot refresh a main checkout           | the dashboard            | default  |
 | note          | `gtd workspace note --notify` (high with `--error`) | the worktree's detail    | default  |
 | reaction      | a reaction's `ctx.notify`                           | the worktree's detail    | default  |
 
@@ -479,9 +506,9 @@ Each notification has a key, and no key is sent twice, also after a restart:
   `error:<project>/<worktree>:<commit>`, where `<commit>` is the worktree's HEAD
   commit. When the driver reports the status (what it waits for, an error, a
   crash), its label follows the commit.
-- `proposed:<feed>/<key>`, `feedFailing:<feed>` and `configError:<findings>`. A
-  feed that recovers, or a config that reloads, can notify again the next time
-  it fails.
+- `proposed:<feed>/<key>`, `feedFailing:<feed>`, `configError:<findings>` and
+  `mainStale:<project>`. A feed that recovers, a config that reloads, or a main
+  checkout that refreshes, can notify again the next time it fails.
 
 A kind that is off sends nothing, and turning it on later sends nothing for what
 happened while it was off. A notification that cannot be published is printed
@@ -543,6 +570,10 @@ has it.
   the path `worktree` and deletes its branch, and returns when the removal is
   complete. Without `force` it fails on a dirty tree and keeps a branch that is
   not merged. Without it, Remove is refused.
+- **`refresh(project)`** (optional): brings the project's main checkout up to
+  date, never by a reset or rebase, and answers `{ state: "ok" }` or
+  `{ state: "stale", reason }`. Auto-clean calls it before each pass; a throw
+  counts as stale. Without it, auto-clean uses the main checkout as it is.
 - **`watch()`** (optional): an async iterable of hints, `{ project }` or `{}`
   when any project may have changed. A hint carries no data: the supervisor
   reads `list(project)` again. When the stream ends or throws, the supervisor
@@ -556,10 +587,12 @@ matched, joined by `/`, or the directory's name when the root has no `*`.
 Without a `worktrees` adapter, every main checkout directly in the workspace
 root is a project. `create` runs `wt switch --create`, so your worktrunk config
 decides where the worktree goes, and its hooks run; `remove` runs
-`wt remove --foreground`. Its `watch()` watches the git directories of each
-project (not `refs/remotes`, so a fetch is no change) and installs nothing into
-your checkouts. A project added after the supervisor started is found by the
-next 30-second read.
+`wt remove --foreground`. `refresh` runs `git fetch` and `git merge --ff-only`
+against the main checkout's upstream; a main checkout without an upstream is
+left as it is. Its `watch()` watches the git directories of each project (not
+`refs/remotes`, so a fetch is no change) and installs nothing into your
+checkouts. A project added after the supervisor started is found by the next
+30-second read.
 
 ### `terminal`
 
@@ -650,8 +683,8 @@ next start is a silent baseline), the default ntfy topic and what gtd knows of
 started and failed items; the next polls file every waiting item again.
 
 Every state change (Proceed, Retry, Dismiss, New worktree, Remove, a new shell
-pane, Start and Retry of an item, Note, Pause and Resume) adds one JSON line to
-`audit.log` in that directory: `time`, `identity` (the tailnet login, `-` when
-unknown), `endpoint`, `project`, `worktree`, `action` and `outcome`. It never
-holds the values of fields. When the log reaches 1 MiB, it moves to
-`audit.log.1`, replacing the older one.
+pane, Start and Retry of an item, Note, Pause and Resume, and each auto-clean
+removal) adds one JSON line to `audit.log` in that directory: `time`, `identity`
+(the tailnet login, `-` when unknown), `endpoint`, `project`, `worktree`,
+`action` and `outcome`. It never holds the values of fields. When the log
+reaches 1 MiB, it moves to `audit.log.1`, replacing the older one.
