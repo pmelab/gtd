@@ -5,7 +5,7 @@ import { WorkspaceBench } from "../workspace.js"
 
 const benches = new WeakMap<GtdWorld, WorkspaceBench>()
 
-const bench = (world: GtdWorld): WorkspaceBench => {
+export const bench = (world: GtdWorld): WorkspaceBench => {
   let found = benches.get(world)
   if (found === undefined) {
     const created = new WorkspaceBench()
@@ -85,8 +85,10 @@ Then("gtd workspace exits 1, naming the running supervisor's pid and URL", (worl
   assert.ok(b.firstUrl !== undefined && run.stderr.includes(b.firstUrl), run.stderr)
 })
 
-const statusText = (w: { status: string; errorKind?: string }): string =>
-  w.errorKind === undefined ? w.status : `${w.status} (${w.errorKind})`
+const statusText = (w: { status: string; errorKind?: string; kind?: string }): string => {
+  const kind = w.errorKind ?? w.kind
+  return kind === undefined ? w.status : `${w.status} (${kind})`
+}
 
 Then("the Projects view lists:", async (world: GtdWorld, table: DataTable) => {
   const rows = (await bench(world).projects()).flatMap((project) =>

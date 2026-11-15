@@ -12,11 +12,12 @@ import {
   type UiShell,
 } from "../ui/index.js"
 import { findWorkspaceModule, loadWorkspace } from "./Config.js"
+import { driverPanes, drivers } from "./Drivers.js"
 import { acquireLock, stateDirectory } from "./Lock.js"
 import { projectsPage } from "./Page.js"
 import { SupervisorHost } from "./Ports.js"
 import { workspaceRouter } from "./Router.js"
-import { scan, type ProjectView } from "./Scan.js"
+import { restartOrphans, scan, type ProjectView } from "./Scan.js"
 
 export interface WorkspaceCommand {
   readonly flags: ExposeOptions & { readonly config?: string }
@@ -51,8 +52,9 @@ export const runWorkspaceCommand = (
       catch: asUiError,
     })
     const root = dirname(file)
+    const state = stateDirectory(command.stateHome, root)
     const lock = yield* Effect.try({
-      try: () => acquireLock(stateDirectory(command.stateHome, root), root, host.isPidAlive),
+      try: () => acquireLock(state, root, host.isPidAlive),
       catch: asUiError,
     })
     yield* Effect.gen(function* () {
@@ -64,9 +66,16 @@ export const runWorkspaceCommand = (
         worktrees: settings.adapters?.worktrees ?? host.defaultWorktrees(root),
         next: host.next,
         settings,
+        drivers: drivers(
+          settings.adapters?.terminal ?? host.defaultTerminal(),
+          settings,
+          driverPanes(state),
+        ),
       }
       const projects = (): Promise<readonly ProjectView[]> => scan(deps)
-      yield* Effect.tryPromise({ try: projects, catch: asUiError })
+      // Drivers run in their own panes and outlive this process; only the
+      // orphans are started here, and a crashed driver waits for Retry.
+      yield* Effect.tryPromise({ try: () => restartOrphans(deps), catch: asUiError })
 
       const handler: UiHandler = async (request) => {
         const path = new URL(request.url).pathname

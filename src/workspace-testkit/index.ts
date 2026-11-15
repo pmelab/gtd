@@ -142,3 +142,13 @@ export const worktreesContract = (harness: WorktreesHarness): readonly ContractC
     }),
   },
 ]
+
+export {
+  terminalContract,
+  type Probe,
+  type ProbeEnd,
+  type ProbeSight,
+  type ProbeSpec,
+  type TerminalFixture,
+  type TerminalHarness,
+} from "./terminal.js"

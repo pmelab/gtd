@@ -6,7 +6,8 @@ import {
   type WorkspaceSettings,
 } from "../workspace/index.js"
 import type { SpawnOutcome } from "../ui/index.js"
-import { worktreeStatus, type WorktreeStatus } from "./Status.js"
+import type { Drivers } from "./Drivers.js"
+import { isOrphan, worktreeStatus, type DriverState, type WorktreeStatus } from "./Status.js"
 
 export interface WorktreeView extends WorktreeStatus {
   readonly path: string
@@ -29,6 +30,7 @@ export interface ScanDeps {
   /** `gtd next --json`, run in the worktree. */
   readonly next: (worktree: string) => Promise<SpawnOutcome>
   readonly settings: WorkspaceSettings
+  readonly drivers: Drivers
 }
 
 // `gtd next` costs a process and a replay each; a few at a time keeps a large
@@ -64,8 +66,14 @@ const asFailure = (op: string, error: unknown): AdapterFailure =>
 const byPath = (a: Worktree, b: Worktree): number =>
   Number(b.main) - Number(a.main) || a.path.localeCompare(b.path)
 
-/** Every worktree of every project, each with its worktree status. */
-export const scan = async (deps: ScanDeps): Promise<readonly ProjectView[]> => {
+interface Surveyed {
+  readonly project: string
+  readonly worktree: Worktree
+  readonly next: SpawnOutcome
+  readonly driver: DriverState
+}
+
+const survey = async (deps: ScanDeps) => {
   const projects = [...(await deps.worktrees.projects())].sort((a, b) => a.id.localeCompare(b.id))
   const listed = await Promise.all(
     projects.map(async (project) => {
@@ -78,11 +86,24 @@ export const scan = async (deps: ScanDeps): Promise<readonly ProjectView[]> => {
       }
     }),
   )
-  const all = listed.flatMap((p) => p.worktrees)
-  const statuses = await mapLimited(all, NEXT_CONCURRENCY, (w) =>
-    deps.next(w.path).then(worktreeStatus),
+  const all = listed.flatMap((p) => p.worktrees.map((worktree) => ({ project: p.id, worktree })))
+  const surveyed = await mapLimited(
+    all,
+    NEXT_CONCURRENCY,
+    async ({ project, worktree }): Promise<Surveyed> => ({
+      project,
+      worktree,
+      next: await deps.next(worktree.path),
+      driver: await deps.drivers.state(worktree.path),
+    }),
   )
-  const statusOf = new Map(all.map((w, i) => [w, statuses[i]!]))
+  return { listed, surveyed }
+}
+
+/** Every worktree of every project, each with its worktree status. */
+export const scan = async (deps: ScanDeps): Promise<readonly ProjectView[]> => {
+  const { listed, surveyed } = await survey(deps)
+  const statusOf = new Map(surveyed.map((s) => [s.worktree, worktreeStatus(s.next, s.driver)]))
   return listed.map((project) => ({
     ...project,
     worktrees: project.worktrees.map((w) => ({
@@ -93,4 +114,12 @@ export const scan = async (deps: ScanDeps): Promise<readonly ProjectView[]> => {
       ...statusOf.get(w)!,
     })),
   }))
+}
+
+/** Starts the driver of each worktree that waits for an agent or a check with none running. */
+export const restartOrphans = async (deps: ScanDeps): Promise<void> => {
+  const { surveyed } = await survey(deps)
+  for (const s of surveyed) {
+    if (isOrphan(s.next, s.driver)) await deps.drivers.start(s.project, s.worktree.path)
+  }
 }

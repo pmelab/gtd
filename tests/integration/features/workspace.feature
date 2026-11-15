@@ -27,6 +27,7 @@ Feature: gtd workspace lists every worktree with its worktree status
       import { defineWorkspace } from "@pmelab/gtd/workspace"
 
       export const workspace = defineWorkspace({
+        driver: ["drive"],
         projects: { portal: { name: "Portal" } },
       })
       """

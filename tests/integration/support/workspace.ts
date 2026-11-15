@@ -7,6 +7,7 @@ import { setTimeout as delay } from "node:timers/promises"
 import { runCli } from "../../../src/cli/index.js"
 import { GtdError, GtdUsageError, NodeServices } from "../../../src/platform/index.js"
 import {
+  driverPanes,
   runWorkspaceCommand,
   stateDirectory,
   SupervisorHost,
@@ -14,6 +15,7 @@ import {
 } from "../../../src/supervisor/index.js"
 import {
   InMemRepo,
+  inMemoryTerminal,
   inMemoryWorktrees,
   makeCapturingCliIo,
   type CapturedCliResult,
@@ -46,6 +48,9 @@ export class WorkspaceBench {
   readonly root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-workspace-")))
   readonly stateHome = mkdtempSync(join(tmpdir(), "gtd-workspace-state-"))
   readonly worktrees = inMemoryWorktrees()
+  readonly terminal = inMemoryTerminal()
+  /** Panes that an earlier supervisor opened, before the scenario's first one. */
+  readonly seeded = new Set<string>()
   private readonly answers = new Map<string, SpawnOutcome>()
   private readonly tailnet = fakeTailnet()
   private readonly runs: Run[] = []
@@ -67,6 +72,35 @@ export class WorkspaceBench {
     const found = (await this.worktrees.adapter.list(project)).find((w) => w.branch === branch)
     if (found === undefined) throw new Error(`no worktree ${ref}`)
     return found.path
+  }
+
+  /** A driver pane that an earlier supervisor started in the worktree, still running. */
+  async seedDriver(ref: string): Promise<void> {
+    const [project] = ref.split("/") as [string]
+    const path = await this.pathOf(ref)
+    const handle = await this.terminal.adapter.run(project, path, ["drive"], {})
+    this.seeded.add(handle)
+    driverPanes(stateDirectory(this.stateHome, this.root)).set(path, handle)
+  }
+
+  /** A worktree's path to `<project>/<branch>`. */
+  async refOf(path: string): Promise<string> {
+    for (const project of await this.worktrees.adapter.projects()) {
+      const found = (await this.worktrees.adapter.list(project.id)).find((w) => w.path === path)
+      if (found !== undefined) return `${project.id}/${found.branch}`
+    }
+    throw new Error(`no worktree at ${path}`)
+  }
+
+  /** The handle of the newest pane opened in the worktree. */
+  async paneOf(ref: string): Promise<string> {
+    const path = await this.pathOf(ref)
+    const pane = this.terminal
+      .panes()
+      .filter((p) => p.worktree === path)
+      .at(-1)
+    if (pane === undefined) throw new Error(`no pane in ${ref}`)
+    return pane.handle
   }
 
   answer(path: string, outcome: SpawnOutcome): void {
@@ -94,6 +128,7 @@ export class WorkspaceBench {
     const host = Layer.succeed(SupervisorHost, {
       next: async (path) => this.answers.get(path) ?? { status: 0, stdout: IDLE_NEXT, stderr: "" },
       defaultWorktrees: () => this.worktrees.adapter,
+      defaultTerminal: () => this.terminal.adapter,
       isPidAlive: (pid) => pid === process.pid,
     })
     const ui = inMemoryUiLayers(uiHost, this.tailnet, new Map(), (handler) => {
