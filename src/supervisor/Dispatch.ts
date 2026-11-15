@@ -140,23 +140,26 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
   const total = (inUse: ReadonlyMap<string, ReadonlySet<string>>): number =>
     [...inUse.values()].reduce((n, worktrees) => n + worktrees.size, 0)
 
+  // Why the project's wip holds its items now; none when it does not.
+  const wipHolds = (project: string, used: number): string | undefined => {
+    const { limits, projects } = deps.settings()
+    const own = projects?.[project]?.wip
+    const wip = own ?? limits?.wip
+    if (wip === undefined || used < wip) return undefined
+    const key = own !== undefined ? `projects.${project}.wip` : "limits.wip"
+    return `${project}: ${used} of ${wip} drives in use (${key})`
+  }
+
   // Why the limits hold an item of the project now; none when it may start.
   const limited = (
     project: string,
     inUse: ReadonlyMap<string, ReadonlySet<string>>,
   ): string | undefined => {
-    const { limits, projects } = deps.settings()
+    const max = deps.settings().limits?.maxDrives
     const drives = total(inUse)
-    if (limits?.maxDrives !== undefined && drives >= limits.maxDrives)
-      return `${drives} of ${limits.maxDrives} drives in use (limits.maxDrives)`
-    const own = projects?.[project]?.wip
-    const wip = own ?? limits?.wip
-    const used = inUse.get(project)?.size ?? 0
-    if (wip !== undefined && used >= wip) {
-      const key = own !== undefined ? `projects.${project}.wip` : "limits.wip"
-      return `${project}: ${used} of ${wip} drives in use (${key})`
-    }
-    return undefined
+    if (max !== undefined && drives >= max)
+      return `${drives} of ${max} drives in use (limits.maxDrives)`
+    return wipHolds(project, inUse.get(project)?.size ?? 0)
   }
 
   // Drops each started item whose worktree is gone from a project gtd could list.
