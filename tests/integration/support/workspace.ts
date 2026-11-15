@@ -18,8 +18,10 @@ import {
   makeCapturingCliIo,
   type CapturedCliResult,
 } from "../../../src/twins/index.js"
+import { createTRPCClient, httpLink } from "@trpc/client"
 import {
   UiUsageError,
+  type AppRouter,
   type SpawnOutcome,
   type UiHandler,
   type UiHostOps,
@@ -47,6 +49,10 @@ export class WorkspaceBench {
   readonly stateHome = mkdtempSync(join(tmpdir(), "gtd-workspace-state-"))
   readonly worktrees = inMemoryWorktrees()
   private readonly answers = new Map<string, SpawnOutcome>()
+  /** The worktree of each `gtd next` the supervisor ran, in order. */
+  readonly nextRuns: string[] = []
+  /** Files inside worktrees, by absolute path. */
+  readonly files = new Map<string, string>()
   private readonly tailnet = fakeTailnet()
   private readonly runs: Run[] = []
   private handler: UiHandler | undefined
@@ -73,15 +79,35 @@ export class WorkspaceBench {
     this.answers.set(path, outcome)
   }
 
+  private nextIn(path: string): SpawnOutcome {
+    return this.answers.get(path) ?? { status: 0, stdout: IDLE_NEXT, stderr: "" }
+  }
+
+  private async headOf(path: string): Promise<string | undefined> {
+    for (const { id } of await this.worktrees.adapter.projects()) {
+      const found = (await this.worktrees.adapter.list(id)).find((w) => w.path === path)
+      if (found !== undefined) return found.head
+    }
+    return undefined
+  }
+
   /** The supervisor in memory: the real command, on the twins. */
   private tool(): ToolWorkspace {
     const serveRecords = new Map()
+    // A gate page reads its worktree through `gtd next` and git; git answers
+    // nothing in memory, which a gate page reads as unknown.
     const uiHost: UiHostOps = {
-      run: async () => ({ status: 127, stdout: "", stderr: "no shell in memory" }),
-      headSha: async () => undefined,
+      run: async (cwd, command) =>
+        command === "gtd next --json"
+          ? this.nextIn(cwd)
+          : { status: 127, stdout: "", stderr: "no shell in memory" },
+      headSha: async (path) => this.headOf(path),
       readLocalGtdVersion: async () => undefined,
-      readFile: async () => ({ kind: "absent" }),
-      writeFile: async () => {},
+      readFile: async (path) => {
+        const content = this.files.get(path)
+        return content === undefined ? { kind: "absent" } : { kind: "content", content }
+      },
+      writeFile: async (path, content) => void this.files.set(path, content),
       networkInterfaces: () => ({}),
       serveRecords: {
         read: (port) => serveRecords.get(port),
@@ -92,7 +118,10 @@ export class WorkspaceBench {
       scratch: (body) => body("/inmem-scratch", () => ""),
     }
     const host = Layer.succeed(SupervisorHost, {
-      next: async (path) => this.answers.get(path) ?? { status: 0, stdout: IDLE_NEXT, stderr: "" },
+      next: async (path) => {
+        this.nextRuns.push(path)
+        return this.nextIn(path)
+      },
       defaultWorktrees: () => this.worktrees.adapter,
       isPidAlive: (pid) => pid === process.pid,
     })
@@ -154,17 +183,38 @@ export class WorkspaceBench {
     this.handler = undefined
   }
 
-  async request(path: string, login = TAILNET_OWNER): Promise<Response> {
+  /** A request as a browser of `login` sends it through tailscale serve: same-origin unless `init` says otherwise. */
+  async request(path: string, login = TAILNET_OWNER, init: RequestInit = {}): Promise<Response> {
     if (this.handler === undefined) throw new Error("gtd workspace is not serving")
+    const headers = new Headers(init.headers)
+    if (!headers.has("sec-fetch-site")) headers.set("sec-fetch-site", "same-origin")
+    headers.set("tailscale-user-login", login)
     const response = await this.handler(
-      new Request(`http://inmem${path}`, {
-        headers: { "tailscale-user-login": login, "sec-fetch-site": "same-origin" },
-      }),
+      new Request(`http://inmem${path}`, { ...init, headers }),
       () => {},
       TAILNET_PEER,
     )
     this.lastStatus = response.status
     return response
+  }
+
+  /** A tRPC client of the gate page at `gate`, talking to it as the page's own script does. */
+  gateClient(gate: string) {
+    return createTRPCClient<AppRouter>({
+      links: [
+        httpLink({
+          url: `http://inmem${gate}/trpc`,
+          fetch: (input, init) => {
+            const url = new URL(input instanceof Request ? input.url : String(input))
+            return this.request(
+              `${url.pathname}${url.search}`,
+              TAILNET_OWNER,
+              (init ?? {}) as RequestInit,
+            )
+          },
+        }),
+      ],
+    })
   }
 
   async projects(): Promise<readonly ProjectView[]> {

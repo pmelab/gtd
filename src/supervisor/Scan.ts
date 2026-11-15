@@ -6,6 +6,7 @@ import {
   type WorkspaceSettings,
 } from "../workspace/index.js"
 import type { SpawnOutcome } from "../ui/index.js"
+import { gatePath } from "./Gate.js"
 import { worktreeStatus, type WorktreeStatus } from "./Status.js"
 
 export interface WorktreeView extends WorktreeStatus {
@@ -13,6 +14,8 @@ export interface WorktreeView extends WorktreeStatus {
   readonly branch?: string
   readonly head: string
   readonly main: boolean
+  /** The path of the worktree's gate page. */
+  readonly gate: string
 }
 
 export interface ProjectView {
@@ -64,6 +67,10 @@ const asFailure = (op: string, error: unknown): AdapterFailure =>
 const byPath = (a: Worktree, b: Worktree): number =>
   Number(b.main) - Number(a.main) || a.path.localeCompare(b.path)
 
+/** One worktree's status as of now. */
+export const recheck = (deps: Pick<ScanDeps, "next">, worktree: string): Promise<WorktreeStatus> =>
+  deps.next(worktree).then(worktreeStatus)
+
 /** Every worktree of every project, each with its worktree status. */
 export const scan = async (deps: ScanDeps): Promise<readonly ProjectView[]> => {
   const projects = [...(await deps.worktrees.projects())].sort((a, b) => a.id.localeCompare(b.id))
@@ -79,9 +86,7 @@ export const scan = async (deps: ScanDeps): Promise<readonly ProjectView[]> => {
     }),
   )
   const all = listed.flatMap((p) => p.worktrees)
-  const statuses = await mapLimited(all, NEXT_CONCURRENCY, (w) =>
-    deps.next(w.path).then(worktreeStatus),
-  )
+  const statuses = await mapLimited(all, NEXT_CONCURRENCY, (w) => recheck(deps, w.path))
   const statusOf = new Map(all.map((w, i) => [w, statuses[i]!]))
   return listed.map((project) => ({
     ...project,
@@ -90,6 +95,7 @@ export const scan = async (deps: ScanDeps): Promise<readonly ProjectView[]> => {
       ...(w.branch !== undefined ? { branch: w.branch } : {}),
       head: w.head,
       main: w.main,
+      gate: gatePath(project.id, w),
       ...statusOf.get(w)!,
     })),
   }))

@@ -71,6 +71,15 @@ handed over runs on its own pin.
 | error     | The process stalled, or `gtd next` failed in the worktree. |
 | idle      | The process has ended, or the worktree has none.           |
 
+## Gate pages
+
+The supervisor also serves the gate page of every worktree, at
+`/<project>/<worktree>/gate`. `<worktree>` is the branch, or the directory name
+of a worktree with a detached HEAD. A `/` in the project id or the branch is
+written `%2F`. The page is the page of `gtd ui` for the rest the worktree is at
+now. No `gtd ui` runs for it. An edit made on a gate page rechecks the status of
+that worktree at once.
+
 ## Adapters
 
 | Adapter     | Default   | Factory                |
@@ -110,9 +119,9 @@ root is a project.
 
 ## Security
 
-Every request must come from a tailnet user in `ui.users`. Other users get 403.
-Requests that change state must be POSTs with a JSON body from the dashboard's
-own origin.
+Every request, to the dashboard and to the gate pages, must come from a tailnet
+user in `ui.users`. Other users get 403. Requests that change state must be
+POSTs with a JSON body from the dashboard's own origin.
 
 The supervisor keeps its state in `~/.local/state/gtd/workspace/` (or under
 `$XDG_STATE_HOME`). Nothing goes into your repositories.

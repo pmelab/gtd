@@ -111,7 +111,7 @@ const EXPOSURE_ARGS: Readonly<Record<UiExposure, readonly string[]>> = {
 }
 
 /** A raw HTTP request as a scenario writes it: request line, header lines, a blank line, the body. */
-const parseRawRequest = (
+export const parseRawRequest = (
   raw: string,
 ): { method: string; path: string; headers: Headers; body?: string } => {
   const [head = "", body] = raw.split(/\n\n/, 2)
