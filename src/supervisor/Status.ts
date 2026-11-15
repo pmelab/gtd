@@ -101,8 +101,11 @@ export const worktreeStatus = (outcome: SpawnOutcome, driver: DriverState): Work
       ...(record.msg ? { message: record.msg } : {}),
     }
   }
-  if (record?.state === "working") return { status: "working", label: record.title ?? label }
-  if (record?.state === "blocked") {
+  // A pane that ended may still hold its last working/blocked record.
+  const live = driverRuns(driver)
+  if (live && record?.state === "working")
+    return { status: "working", label: record.title ?? label }
+  if (live && record?.state === "blocked") {
     return {
       status: "needsYou",
       label: record.title ?? label,
@@ -110,7 +113,7 @@ export const worktreeStatus = (outcome: SpawnOutcome, driver: DriverState): Work
     }
   }
   if (!DRIVEN_ACTORS.has(next.actor)) return { status: "needsYou", label }
-  if (driverRuns(driver)) return { status: "working", label }
+  if (live) return { status: "working", label }
   return { status: "needsYou", label, message: "no driver runs" }
 }
 
