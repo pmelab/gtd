@@ -9,6 +9,7 @@ import {
 import type { SpawnOutcome } from "../ui/index.js"
 import type { ActionRun } from "./Actions.js"
 import type { Drivers } from "./Drivers.js"
+import type { Note } from "./Notes.js"
 import type { WorktreeStatus } from "./Status.js"
 
 export interface WorktreeView extends WorktreeStatus {
@@ -28,6 +29,8 @@ export interface WorktreeView extends WorktreeStatus {
   readonly unavailable?: AdapterFailure
   /** The last action gtd ran here while this supervisor runs. */
   readonly action?: ActionRun
+  /** The last `gtd workspace note` on this worktree. */
+  readonly note?: Note
 }
 
 export interface ProjectView {

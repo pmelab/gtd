@@ -122,6 +122,16 @@ Feature: the dashboard creates and removes worktrees
       """
     And gtd made no adapter calls
 
+  Scenario: Remove keeps a worktree with an error note
+    When I start gtd workspace
+    And I run "gtd workspace note portal.wt/login 'deploy failed' --error" in the workspace
+    And I remove "portal/login" and confirm
+    Then gtd refuses the worktree change with:
+      """
+      gtd keeps portal/login: it has an error note
+      """
+    And gtd made no adapter calls
+
   Scenario: Remove asks before it throws away uncommitted changes
     Given a commit lands on "portal/login"
     And "portal/login" is merged into main

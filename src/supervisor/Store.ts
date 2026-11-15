@@ -5,7 +5,7 @@ import type { Entry } from "../workspace/internal.js"
 /**
  * `state.json` in the state directory. Everything in it can be rebuilt: a
  * deleted or unreadable store loses only what a person decided, such as
- * dismissals.
+ * dismissals, and the notes.
  */
 export interface Store {
   readonly dismissed: () => readonly string[]
@@ -13,6 +13,9 @@ export interface Store {
   /** The items a person started, and those gtd dispatched. */
   readonly items: () => readonly Entry[]
   readonly saveItems: (entries: readonly Entry[]) => void
+  /** Notes by worktree path, unchecked. */
+  readonly notes: () => Readonly<Record<string, unknown>>
+  readonly saveNotes: (notes: Readonly<Record<string, unknown>>) => void
 }
 
 type StoreData = Record<string, unknown>
@@ -56,5 +59,12 @@ export const openStore = (directory: string): Store => {
       return Array.isArray(entries) ? entries.filter(isEntry) : []
     },
     saveItems: (entries) => write({ ...read(), items: entries }),
+    notes: () => {
+      const notes = read()["notes"]
+      return typeof notes === "object" && notes !== null && !Array.isArray(notes)
+        ? (notes as Record<string, unknown>)
+        : {}
+    },
+    saveNotes: (notes) => write({ ...read(), notes }),
   }
 }

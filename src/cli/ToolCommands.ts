@@ -33,11 +33,17 @@ interface WorkspaceRequest {
 
 /** `gtd workspace proceed|retry`: a request for the running supervisor. */
 interface WorkspaceControlRequest {
-  readonly request: {
-    readonly command: "proceed" | "retry"
-    readonly worktree: string
-    readonly commit: string
-  }
+  readonly request:
+    | {
+        readonly command: "proceed" | "retry"
+        readonly worktree: string
+        readonly commit: string
+      }
+    | {
+        readonly command: "note"
+        readonly worktree: string
+        readonly note: { readonly message: string; readonly error: boolean } | null
+      }
   readonly config?: string
   readonly cwd: string
   readonly stateHome: string

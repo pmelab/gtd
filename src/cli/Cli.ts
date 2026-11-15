@@ -64,7 +64,8 @@ export type CliPlan =
 // Flag table
 // ---------------------------------------------------------------------------
 
-type FlagScope = (kind: Command["kind"] | undefined) => boolean
+// `token` tells apart the subcommands that share one kind.
+type FlagScope = (kind: Command["kind"] | undefined, token?: string) => boolean
 
 interface FlagRow {
   readonly name: string
@@ -149,6 +150,8 @@ const JSON_KINDS: ReadonlySet<Command["kind"] | undefined> = new Set<Command["ki
   "strays",
 ])
 
+const NOTE_FLAG_SCOPE = "gtd: --error and --clear are only valid for `gtd workspace note`"
+
 const FLAGS: readonly FlagRow[] = [
   {
     name: "--json",
@@ -227,6 +230,26 @@ const FLAGS: readonly FlagRow[] = [
     scopeError: "gtd: --config is only valid for `gtd workspace`",
     valueHint: "<path>",
     help: "Use this gtd.workspace.ts instead of the innermost one from the current directory",
+  },
+  {
+    name: "--error",
+    arity: 0,
+    repeatable: false,
+    scope: (_kind, token) => token === "workspace note",
+    decode: () => Result.succeed(true),
+    scopeError: NOTE_FLAG_SCOPE,
+    valueHint: "",
+    help: "Make it an error note: the worktree status becomes an error of kind note",
+  },
+  {
+    name: "--clear",
+    arity: 0,
+    repeatable: false,
+    scope: (_kind, token) => token === "workspace note",
+    decode: () => Result.succeed(true),
+    scopeError: NOTE_FLAG_SCOPE,
+    valueHint: "",
+    help: "Take the worktree's note off",
   },
   {
     name: "--dev",
@@ -359,6 +382,8 @@ type Arity =
   | { readonly name: string; readonly optional: true }
   // Exactly two positionals.
   | { readonly name: string; readonly second: string }
+  // One or two positionals; the command itself judges when the second is missing.
+  | { readonly name: string; readonly second: string; readonly optional: true }
 
 type Group = "Core loop" | "Start and stop" | "Inspect" | "Driver plumbing"
 
@@ -534,6 +559,16 @@ It reaches the running supervisor of the workspace whose gtd.workspace.ts is inn
 It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. A refusal exits 1 with the reason; so does a supervisor that is not running.`,
   },
   {
+    token: "workspace note",
+    kind: "workspaceControl",
+    arity: { name: "worktree", second: "message", optional: true },
+    group: "Inspect",
+    summary: "Put a note on a worktree",
+    details: `Put <message> on the worktree at the path <worktree>, in place of its last note, for example the outcome of a merge or a deploy. With --error the worktree status becomes an error of kind note. --clear takes the note off and needs no message.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. When no supervisor runs, the note waits in the supervisor's state directory and applies when the supervisor starts. A path that is no worktree exits 1.`,
+  },
+  {
     token: "guide",
     kind: "guide",
     arity: "none",
@@ -614,6 +649,9 @@ const synopsis = (row: CommandRow): string => {
   if (arity === "none") return token
   if ("bare" in arity) return `${token} [${arity.name}] [${arity.variadic}...]`
   if ("variadic" in arity) return `${token} <${arity.name}> [${arity.variadic}...]`
+  if ("second" in arity && "optional" in arity) {
+    return `${token} <${arity.name}> [${arity.second}]`
+  }
   if ("optional" in arity) return `${token} [${arity.name}]`
   if ("second" in arity) return `${token} <${arity.name}> <${arity.second}>`
   return `${token} <${arity.name}>`
@@ -701,9 +739,9 @@ const SHORT_USAGE = `Usage: gtd <command> [options]
 `
 
 const renderCommandHelp = (row: CommandRow): string => {
-  const options = FLAGS.filter((f) => f.name !== "--verbose" && f.scope(row.kind)).flatMap((f) =>
-    definition(flagHeader(f), f.helpFor?.[row.kind] ?? f.help, OPTION_COLUMN),
-  )
+  const options = FLAGS.filter(
+    (f) => f.name !== "--verbose" && f.scope(row.kind, row.token),
+  ).flatMap((f) => definition(flagHeader(f), f.helpFor?.[row.kind] ?? f.help, OPTION_COLUMN))
   const global = definition("-v, --verbose", "Narrate on stderr what gtd resolved", OPTION_COLUMN)
   return (
     `Usage: gtd ${synopsis(row)}${options.length > 0 ? " [options]" : ""}\n\n` +
@@ -876,9 +914,10 @@ const usagePlan = (message: string, json: boolean, stdout = ""): CliPlan => ({
 const scopeViolation = (
   kind: Command["kind"] | undefined,
   present: ReadonlySet<string>,
+  token?: string,
 ): string | undefined => {
   for (const row of FLAGS) {
-    if (present.has(row.name) && !row.scope(kind)) return row.scopeError
+    if (present.has(row.name) && !row.scope(kind, token)) return row.scopeError
   }
   return undefined
 }
@@ -904,15 +943,25 @@ const tooMany = (
     ? `gtd ${cmd}: too many arguments — expected ${expected}, got: ${rest.join(", ")}`
     : undefined
 
+const pairError = (
+  cmd: string,
+  rest: readonly string[],
+  arity: Extract<Arity, { readonly second: string }>,
+): string | undefined => {
+  if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
+  if ("optional" in arity) {
+    return tooMany(cmd, rest, `a ${arity.name} and at most one ${arity.second}`, 2)
+  }
+  if (rest.length === 1) return `gtd ${cmd}: missing ${arity.second} argument`
+  return tooMany(cmd, rest, `a ${arity.name} and a ${arity.second}`, 2)
+}
+
 const arityError = (cmd: string, rest: readonly string[], arity: Arity): string | undefined => {
   if (arity === "none") return tooMany(cmd, rest, "none", 0)
   if ("bare" in arity) return undefined
+  if ("second" in arity) return pairError(cmd, rest, arity)
   if ("optional" in arity) return tooMany(cmd, rest, `at most one ${arity.name}`, 1)
   if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
-  if ("second" in arity) {
-    if (rest.length === 1) return `gtd ${cmd}: missing ${arity.second} argument`
-    return tooMany(cmd, rest, `a ${arity.name} and a ${arity.second}`, 2)
-  }
   return "variadic" in arity ? undefined : tooMany(cmd, rest, `one ${arity.name}`, 1)
 }
 
@@ -943,6 +992,37 @@ const buildLandCommand = (bag: {
   ...(bag["--cost"] !== undefined ? { cost: bag["--cost"] } : {}),
   ...(bag["--model"] !== undefined ? { model: bag["--model"] } : {}),
 })
+
+const buildNoteCommand = (
+  [worktree = "", message]: readonly string[],
+  bag: { readonly "--error"?: boolean; readonly "--clear"?: boolean; readonly "--config"?: string },
+  json: JsonMode,
+  verbose: boolean,
+  jsonSeen: boolean,
+): CliPlan => {
+  const clear = bag["--clear"] === true
+  if (clear && bag["--error"] === true) {
+    return usagePlan("gtd workspace note: --clear and --error cannot be combined", jsonSeen)
+  }
+  if (clear && message !== undefined) {
+    return usagePlan("gtd workspace note: --clear takes no message", jsonSeen)
+  }
+  if (!clear && message === undefined) {
+    return usagePlan("gtd workspace note: missing message argument", jsonSeen)
+  }
+  return {
+    kind: "command",
+    command: {
+      kind: "workspaceControl",
+      command: "note",
+      worktree,
+      note: message === undefined ? null : { message, error: bag["--error"] === true },
+      ...(bag["--config"] !== undefined ? { config: bag["--config"] } : {}),
+    },
+    json,
+    verbose,
+  }
+}
 
 const HELP_FLAGS = new Set(["--help", "-h"])
 
@@ -1059,7 +1139,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     return usagePlan(arityMsg + hint, jsonSeen)
   }
 
-  const violation = scopeViolation(kind, present)
+  const violation = scopeViolation(kind, present, row.token)
   if (violation !== undefined) return usagePlan(violation, jsonSeen)
 
   const conflict = conflictViolation(present)
@@ -1081,6 +1161,8 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--provider"?: "fixed" | "jev" | "llm"
     readonly "--answers"?: string
     readonly "--config"?: string
+    readonly "--error"?: boolean
+    readonly "--clear"?: boolean
   }
 
   // `present.has("--json")` alone can't distinguish bare `--json` (no value
@@ -1160,6 +1242,10 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
       json,
       verbose,
     }
+  }
+
+  if (kind === "workspaceControl" && row.token === "workspace note") {
+    return buildNoteCommand(restPositionals, bag, json, verbose, jsonSeen)
   }
 
   if (kind === "workspaceControl") {

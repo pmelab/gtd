@@ -4,7 +4,7 @@ import type { PaneStatus } from "../workspace/index.js"
 export type StatusName = "needsYou" | "working" | "error" | "idle"
 
 /** Why a worktree is in error. */
-export type ErrorKind = "stalled" | "crashed" | "driver"
+export type ErrorKind = "stalled" | "crashed" | "driver" | "note"
 
 export interface WorktreeStatus {
   readonly status: StatusName
