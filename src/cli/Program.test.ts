@@ -1084,6 +1084,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     lsp: { kind: "lsp" },
     ui: { kind: "ui", selfSigned: false, dev: false },
     workspace: { kind: "workspace", selfSigned: false },
+    workspaceControl: { kind: "workspaceControl", command: "proceed", worktree: ".", commit: "x" },
     land: { kind: "land" },
     start: { kind: "start", name: "fix", args: [], vars: {} },
     abandon: { kind: "abandon" },

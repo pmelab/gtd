@@ -27,6 +27,10 @@ Inspect:
   history fetch [remote]    Print a script that fetches finished processes
   ui                        Serve the web and phone client
   workspace                 Serve the dashboard of a workspace
+  workspace proceed <worktree> <commit>
+                            Press Proceed on a worktree
+  workspace retry <worktree> <commit>
+                            Press Retry on a worktree
 
 Driver plumbing:
   guide                     Print a briefing for writing a driver
@@ -589,6 +593,48 @@ Options:
                       instead of the configured ui.cert/ui.key
   --http              Serve plain HTTP for a local TLS-terminating proxy; binds
                       127.0.0.1 unless a loopback --host is given
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace proceed`
+
+```
+Usage: gtd workspace proceed <worktree> <commit> [options]
+
+Press Proceed on the worktree at the path <worktree>, as the dashboard does.
+<commit> is the full HEAD commit you saw: gtd refuses when the worktree's HEAD
+is now another commit, and else runs the driver's `proceed <commit>` in the
+worktree.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is
+innermost from the current directory, or the one --config names, through a unix
+socket only you may open. A refusal exits 1 with the reason; so does a
+supervisor that is not running.
+
+Options:
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace retry`
+
+```
+Usage: gtd workspace retry <worktree> <commit> [options]
+
+Press Retry on the worktree at the path <worktree>, as the dashboard does.
+<commit> is the full HEAD commit you saw: gtd refuses when the worktree's HEAD
+is now another commit, and else runs the driver's `retry <commit>` in the
+worktree.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is
+innermost from the current directory, or the one --config names, through a unix
+socket only you may open. A refusal exits 1 with the reason; so does a
+supervisor that is not running.
+
+Options:
   --config=<path>     Use this gtd.workspace.ts instead of the innermost one
                       from the current directory
   -v, --verbose       Narrate on stderr what gtd resolved

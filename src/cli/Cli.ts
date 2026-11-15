@@ -219,7 +219,7 @@ const FLAGS: readonly FlagRow[] = [
     name: "--config",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "workspace",
+    scope: (kind) => kind === "workspace" || kind === "workspaceControl",
     decode: ([raw]) =>
       raw === undefined || raw === ""
         ? Result.fail("gtd: --config must be a non-empty path")
@@ -357,6 +357,8 @@ type Arity =
   | { readonly name: string; readonly variadic: string; readonly bare: true }
   // At most one trailing positional.
   | { readonly name: string; readonly optional: true }
+  // Exactly two positionals.
+  | { readonly name: string; readonly second: string }
 
 type Group = "Core loop" | "Start and stop" | "Inspect" | "Driver plumbing"
 
@@ -512,6 +514,26 @@ Prints a sorted JSON array ([] when clean) and a summary on stderr; --verbose ad
     details: `Run the supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, and serve its dashboard: every worktree of every project, each with its worktree status. It is published like \`gtd ui\`. Only one supervisor runs for a workspace: a second one exits 1 and prints the pid and URL of the first. It runs until a signal ends it.`,
   },
   {
+    token: "workspace proceed",
+    kind: "workspaceControl",
+    arity: { name: "worktree", second: "commit" },
+    group: "Inspect",
+    summary: "Press Proceed on a worktree",
+    details: `Press Proceed on the worktree at the path <worktree>, as the dashboard does. <commit> is the full HEAD commit you saw: gtd refuses when the worktree's HEAD is now another commit, and else runs the driver's \`proceed <commit>\` in the worktree.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. A refusal exits 1 with the reason; so does a supervisor that is not running.`,
+  },
+  {
+    token: "workspace retry",
+    kind: "workspaceControl",
+    arity: { name: "worktree", second: "commit" },
+    group: "Inspect",
+    summary: "Press Retry on a worktree",
+    details: `Press Retry on the worktree at the path <worktree>, as the dashboard does. <commit> is the full HEAD commit you saw: gtd refuses when the worktree's HEAD is now another commit, and else runs the driver's \`retry <commit>\` in the worktree.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. A refusal exits 1 with the reason; so does a supervisor that is not running.`,
+  },
+  {
     token: "guide",
     kind: "guide",
     arity: "none",
@@ -593,6 +615,7 @@ const synopsis = (row: CommandRow): string => {
   if ("bare" in arity) return `${token} [${arity.name}] [${arity.variadic}...]`
   if ("variadic" in arity) return `${token} <${arity.name}> [${arity.variadic}...]`
   if ("optional" in arity) return `${token} [${arity.name}]`
+  if ("second" in arity) return `${token} <${arity.name}> <${arity.second}>`
   return `${token} <${arity.name}>`
 }
 
@@ -886,6 +909,10 @@ const arityError = (cmd: string, rest: readonly string[], arity: Arity): string 
   if ("bare" in arity) return undefined
   if ("optional" in arity) return tooMany(cmd, rest, `at most one ${arity.name}`, 1)
   if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
+  if ("second" in arity) {
+    if (rest.length === 1) return `gtd ${cmd}: missing ${arity.second} argument`
+    return tooMany(cmd, rest, `a ${arity.name} and a ${arity.second}`, 2)
+  }
   return "variadic" in arity ? undefined : tooMany(cmd, rest, `one ${arity.name}`, 1)
 }
 
@@ -965,10 +992,10 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   if (first === "help") return helpCommandPlan(positionals.slice(1), jsonSeen)
 
   const isHistory = first === "history"
-  const row =
-    first === undefined
-      ? undefined
-      : commandByToken(isHistory ? `history ${positionals[1] ?? ""}` : first)
+  // `gtd workspace` alone is a command too; only a known second word makes a subcommand.
+  const pair = `${first ?? ""} ${positionals[1] ?? ""}`
+  const isSubcommand = isHistory || (first === "workspace" && commandByToken(pair) !== undefined)
+  const row = first === undefined ? undefined : commandByToken(isSubcommand ? pair : first)
 
   if (isHistory && row === undefined) {
     const subcommands = COMMAND_ROWS.filter((r) => r.token.startsWith("history ")).map(
@@ -1021,9 +1048,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   const kind: Command["kind"] = judgeAnswer ? "judgeAnswer" : judgeRun ? "judgeRun" : row.kind
 
   // `judgeAnswer` consumes TWO leading positionals ("judge" and "answer"), everything else one.
-  const restPositionals = positionals.slice(judgeAnswer || judgeRun || isHistory ? 2 : 1)
+  const restPositionals = positionals.slice(judgeAnswer || judgeRun || isSubcommand ? 2 : 1)
 
-  const arityMsg = arityError(isHistory ? row.token : first, restPositionals, row.arity)
+  const arityMsg = arityError(isSubcommand ? row.token : first, restPositionals, row.arity)
   if (arityMsg !== undefined) {
     const hint =
       afterBareJson !== undefined && restPositionals.includes(afterBareJson)
@@ -1129,6 +1156,22 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
         ...(bag["--port"] !== undefined ? { port: bag["--port"] } : {}),
         selfSigned: bag["--self-signed"] ?? false,
         ...(bag["--http"] === true ? { http: true } : {}),
+      },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "workspaceControl") {
+    const [worktree = "", commit = ""] = restPositionals
+    return {
+      kind: "command",
+      command: {
+        kind: "workspaceControl",
+        command: row.token === "workspace proceed" ? "proceed" : "retry",
+        worktree,
+        commit,
+        ...(bag["--config"] !== undefined ? { config: bag["--config"] } : {}),
       },
       json,
       verbose,

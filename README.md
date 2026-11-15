@@ -608,7 +608,8 @@ install for any of these but the testkit's: gtd resolves a `gtd.config.ts`'s
 The `gtd` bin's commands — `next`, `land`, `start`, `abandon`, `restore`,
 `repin`, `check`, `guide`, `bundle`, `summary`, `base`, `version`, `help`,
 `history list`, `history show`, `history fetch`, `strays`, the tools `ui`,
-`workspace`, `lsp`, `judge` (`judge answer`, `judge run`) — are listed in the
+`workspace` (`workspace proceed`, `workspace retry`), `lsp`, `judge`
+(`judge answer`, `judge run`) — are listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md). Every
 command that prints a script takes `--json=script`, and `--` ends the options.
 

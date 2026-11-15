@@ -937,7 +937,15 @@ describe("parseArgv — gtd strays", () => {
 
 describe("standaloneKinds / needsOf", () => {
   it("pins the standalone kinds", () => {
-    expect(standaloneKinds()).toEqual(["lsp", "check", "guide", "judgeRun", "strays", "workspace"])
+    expect(standaloneKinds()).toEqual([
+      "lsp",
+      "check",
+      "guide",
+      "judgeRun",
+      "strays",
+      "workspace",
+      "workspaceControl",
+    ])
   })
 
   it("needsOf matches none/fs for the standalone kinds and state for everything else", () => {

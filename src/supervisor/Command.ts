@@ -26,6 +26,7 @@ import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
 import { liveSnapshot, type Banner } from "./Snapshot.js"
+import { serveSocket, socketPath } from "./Socket.js"
 import { worktreeStatus } from "./Status.js"
 
 export interface WorkspaceCommand {
@@ -77,6 +78,7 @@ export const runWorkspaceCommand = (
     })
     let closeSnapshot = (): void => {}
     let closeReload = (): void => {}
+    let closeSocket = async (): Promise<void> => {}
     yield* Effect.gen(function* () {
       const loaded = yield* Effect.tryPromise({
         try: () => loadWorkspace(file, command.loadModule),
@@ -121,6 +123,22 @@ export const runWorkspaceCommand = (
         now: clock.now,
       })
       const projects = () => control.withRefusals(snapshot.projects())
+      const socket = yield* Effect.tryPromise({
+        try: () =>
+          serveSocket(socketPath(directory), async (request) => {
+            const outcome = await control.press({
+              action: request.command,
+              worktree: request.worktree,
+              commit: request.commit,
+              endpoint: "cli",
+            })
+            return outcome.outcome === "accepted"
+              ? { ok: true }
+              : { ok: false, message: outcome.message }
+          }),
+        catch: asUiError,
+      })
+      closeSocket = socket.close
       const feeds = feedRunner({
         feeds: loaded.feeds,
         root,
@@ -237,9 +255,10 @@ export const runWorkspaceCommand = (
       )
     }).pipe(
       Effect.ensuring(
-        Effect.sync(() => {
+        Effect.promise(async () => {
           closeReload()
           closeSnapshot()
+          await closeSocket()
           lock.release()
         }),
       ),
