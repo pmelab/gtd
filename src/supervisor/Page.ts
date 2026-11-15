@@ -1,3 +1,5 @@
+import type { InboxItem } from "../workspace/index.js"
+import type { FeedView } from "./Feeds.js"
 import type { ProjectView, WorktreeView } from "./Scan.js"
 
 const escape = (text: string): string =>
@@ -33,8 +35,29 @@ a{color:inherit}ul{list-style:none;padding:0}li{background:#222222;border-radius
 .status{font-size:.8rem;text-transform:uppercase}.label,.idle .status,.working .status{color:#b4b4b4}
 .needsYou .status{color:#ffca16}.error .status,.failure{color:#ff9592}`
 
+const NAV = `<nav><a href="/">Projects</a> · <a href="/inbox">Inbox</a></nav>`
+
+const itemRow = (item: InboxItem): string =>
+  `<li class="${item.state}"><span class="status">${item.state}</span> <b>${escape(item.title)}</b> <span class="label">${escape(`${item.feed} · ${item.project}`)}</span>${
+    item.state === "proposed"
+      ? ` <button data-feed="${escape(item.feed)}" data-key="${escape(item.key)}">Dismiss</button>`
+      : ""
+  }</li>`
+
+// The guard admits only JSON POSTs from this origin.
+const DISMISS_SCRIPT = `document.addEventListener("click",async(e)=>{const b=e.target.closest("button[data-feed]");if(!b)return;await fetch("/trpc/dismiss",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({feed:b.dataset.feed,key:b.dataset.key})});location.reload()})`
+
+/** The Inbox view: what feeds filed and is waiting, and the feeds that fail. */
+export const inboxPage = (items: readonly InboxItem[], feeds: readonly FeedView[]): string =>
+  `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>gtd workspace inbox</title><style>${STYLE}</style></head><body>${NAV}<h1>Inbox</h1>${feeds
+    .filter((f) => f.failing !== undefined)
+    .map((f) => `<p class="failure">${escape(`feed ${f.feed} failing: ${f.failing}`)}</p>`)
+    .join("")}${
+    items.length === 0 ? "<p>Nothing waits.</p>" : `<ul>${items.map(itemRow).join("")}</ul>`
+  }<script>${DISMISS_SCRIPT}</script></body></html>`
+
 /** The Projects view: every worktree of every project, grouped by project. */
 export const projectsPage = (projects: readonly ProjectView[]): string =>
-  `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>gtd workspace</title><style>${STYLE}</style></head><body><h1>Projects</h1>${
+  `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>gtd workspace</title><style>${STYLE}</style></head><body>${NAV}<h1>Projects</h1>${
     projects.length === 0 ? "<p>No projects found.</p>" : projects.map(projectSection).join("")
   }</body></html>`
