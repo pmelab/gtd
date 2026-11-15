@@ -1,12 +1,14 @@
 import {
   durationMs,
   type AdapterFailure,
+  type ServicesAdapter,
   type WatchHint,
   type Worktree,
 } from "../workspace/index.js"
 import type { SpawnOutcome } from "../ui/index.js"
 import { gatePath } from "./Gate.js"
-import { asFailure, byPath, type ProjectView, type ScanDeps } from "./Scan.js"
+import { asFailure, byPath, type ProjectView, type ScanDeps, type WorktreeView } from "./Scan.js"
+import { withServices } from "./Services.js"
 import { isOrphan, worktreeStatus, type DriverState } from "./Status.js"
 
 /** A problem with the workspace itself, shown above every project. */
@@ -18,6 +20,8 @@ export interface Banner {
 export interface SnapshotDeps extends ScanDeps {
   /** Runs `run` once after `ms`; the result cancels it. */
   readonly after: (ms: number, run: () => void) => () => void
+  /** Listed at the start and every `pollEvery`: it has no watch, and a read may cost a process per worktree. */
+  readonly services?: ServicesAdapter
 }
 
 /** The worktree statuses the supervisor keeps, and what keeps them current. */
@@ -92,6 +96,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
   const limited = limiter(NEXT_CONCURRENCY)
   let closed = false
   const streams = new Set<AsyncIterator<unknown>>()
+  const serviceViews = new Map<string, Pick<WorktreeView, "services" | "servicesFailure">>()
 
   const later = (ms: number, run: () => void): void => {
     const cancel = deps.after(ms, () => {
@@ -260,27 +265,43 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
     })
   }
 
+  const projects = (): readonly ProjectView[] =>
+    [...kept]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([id, project]) => {
+        const unavailable = project.failure ?? projectsFailure
+        return {
+          id,
+          name: project.name,
+          ...(project.failure !== undefined ? { failure: project.failure } : {}),
+          worktrees: project.worktrees.map((w) => ({
+            path: w.path,
+            ...(w.branch !== undefined ? { branch: w.branch } : {}),
+            head: w.head,
+            main: w.main,
+            gate: gatePath(id, w),
+            ...statusOf(project.seen.get(w.path)!),
+            ...(unavailable !== undefined ? { unavailable } : {}),
+            ...serviceViews.get(w.path),
+          })),
+        }
+      })
+
+  const refreshServices = async (): Promise<void> => {
+    if (deps.services === undefined) return
+    const listed = await withServices(projects(), deps.services)
+    serviceViews.clear()
+    for (const w of listed.flatMap((p) => p.worktrees)) {
+      const { services, servicesFailure } = w
+      serviceViews.set(w.path, {
+        ...(services !== undefined ? { services } : {}),
+        ...(servicesFailure !== undefined ? { servicesFailure } : {}),
+      })
+    }
+  }
+
   return {
-    projects: () =>
-      [...kept]
-        .sort(([a], [b]) => a.localeCompare(b))
-        .map(([id, project]) => {
-          const unavailable = project.failure ?? projectsFailure
-          return {
-            id,
-            name: project.name,
-            ...(project.failure !== undefined ? { failure: project.failure } : {}),
-            worktrees: project.worktrees.map((w) => ({
-              path: w.path,
-              ...(w.branch !== undefined ? { branch: w.branch } : {}),
-              head: w.head,
-              main: w.main,
-              gate: gatePath(id, w),
-              ...statusOf(project.seen.get(w.path)!),
-              ...(unavailable !== undefined ? { unavailable } : {}),
-            })),
-          }
-        }),
+    projects,
     banners: () => {
       const failures = [projectsFailure, ...[...kept.values()].map((p) => p.failure)]
       const messages = new Set(
@@ -308,6 +329,8 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
       }
       await readAll(true, true)
       await restartOrphans()
+      await refreshServices()
+      every(pollMs, refreshServices)
       every(RESCAN_MS, () => readAll(true))
       if (watch === undefined) every(pollMs, () => readAll(false))
       if (deps.drivers.watch === undefined) {

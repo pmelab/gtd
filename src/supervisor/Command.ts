@@ -88,6 +88,7 @@ export const runWorkspaceCommand = (
           driverPanes(directory),
         ),
         after: host.after,
+        services: settings.adapters?.services ?? host.defaultServices(),
       })
       closeSnapshot = snapshot.close
       yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })

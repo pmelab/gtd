@@ -251,3 +251,4 @@ export {
   type TerminalFixture,
   type TerminalHarness,
 } from "./terminal.js"
+export { servicesContract, type ServicesFixture, type ServicesHarness } from "./services.js"

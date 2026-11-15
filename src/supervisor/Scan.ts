@@ -1,6 +1,7 @@
 import {
   isAdapterFailure,
   type AdapterFailure,
+  type Service,
   type Worktree,
   type WorktreesAdapter,
   type WorkspaceSettings,
@@ -14,6 +15,10 @@ export interface WorktreeView extends WorktreeStatus {
   readonly branch?: string
   readonly head: string
   readonly main: boolean
+  /** The worktree's services, once the services adapter has listed them. */
+  readonly services?: readonly Service[]
+  /** The services adapter could not list them. */
+  readonly servicesFailure?: AdapterFailure
   /** The path of the worktree's gate page. */
   readonly gate: string
   /** The adapter read that failed: the status is the last one known, shown greyed. */
@@ -35,6 +40,23 @@ export interface ScanDeps {
   readonly next: (worktree: string) => Promise<SpawnOutcome>
   readonly settings: WorkspaceSettings
   readonly drivers: Drivers
+}
+
+export const mapLimited = async <A, B>(
+  items: readonly A[],
+  limit: number,
+  f: (item: A) => Promise<B>,
+): Promise<B[]> => {
+  const results: B[] = []
+  let next = 0
+  const worker = async (): Promise<void> => {
+    while (next < items.length) {
+      const index = next++
+      results[index] = await f(items[index]!)
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
+  return results
 }
 
 export const asFailure = (op: string, error: unknown): AdapterFailure =>

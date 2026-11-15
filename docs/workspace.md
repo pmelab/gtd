@@ -55,10 +55,11 @@ The one reserved export, made with `defineWorkspace`. Every key is optional.
 
 - **`driver`**: the driver command, as an argv, for example `["my-driver"]`. See
   [Workspace drivers](./driver.md#workspace-drivers).
-- **`adapters`**: `worktrees`, `terminal`. An omitted adapter is the bundled
-  default with its default options. See [Adapters](#adapters).
-- **`pollEvery`** (duration, default `"10s"`): how often a worktrees adapter
-  without `watch()` is read.
+- **`adapters`**: `worktrees`, `terminal`, `services`. An omitted adapter is the
+  bundled default with its default options. See [Adapters](#adapters).
+- **`pollEvery`** (duration, default `"10s"`): how often an adapter without
+  `watch()` is read. The services adapter has none: its services are read at
+  this interval.
 - **`projects`**: settings per project id: `name` (shown on the dashboard) and
   `driver` (this project's driver command, instead of the workspace's).
 - **`ui`**: `port`, `host`, `cert`, `key`, as for `gtd ui`, and `users` (the
@@ -199,6 +200,12 @@ When a worktrees adapter read fails, each worktree it covers keeps its last
 known status, greyed and marked "worktrees unavailable", and a banner above the
 projects shows the error. Both go away after the next good read.
 
+## Service chips
+
+Each worktree shows its services as chips: the name, whether the service runs,
+and its error. A chip with a URL links to it. gtd owns no DNS: the URL is the
+one the services adapter reports.
+
 ## Gate pages
 
 The supervisor also serves the gate page of every worktree, at
@@ -214,6 +221,7 @@ that worktree at once.
 | ----------- | --------- | ------------------------ |
 | `worktrees` | worktrunk | `worktrunk({ roots })`   |
 | `terminal`  | rex       | `rex({ server, shell })` |
+| `services`  | pitchfork | `pitchfork()`            |
 
 The factories come from `@pmelab/gtd/workspace/adapters`. To use another tool,
 give an object that implements the adapter's interface from
@@ -270,6 +278,19 @@ checkouts. A project added after the supervisor started is found by the next
 `rex({ server, shell })` opens one Rex session per project id and one window per
 pane. `server` is a Rex server address as `rex -S` takes it; `shell` is the
 login shell (Rex's default when absent).
+
+### `services`
+
+- **`list(project, worktree)`**: the worktree's services, as
+  `{ name, url, running, error }`. `url` and `error` are `undefined` when there
+  is none. `worktree` is the worktree's path.
+- **`up(project, worktree)`**: starts the worktree's services, and fails when
+  one of them does not start.
+- **`down(project, worktree)`**: stops the worktree's services, and no other
+  worktree's.
+
+`pitchfork()` uses the daemons of the worktree's own `pitchfork.toml`, and
+reports the URL of pitchfork's proxy as each daemon's URL.
 
 ## Security
 
