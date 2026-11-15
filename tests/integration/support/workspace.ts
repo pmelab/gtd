@@ -172,7 +172,8 @@ export class WorkspaceBench {
 
   /** `<project>/<branch>` to the worktree's path. */
   async pathOf(ref: string): Promise<string> {
-    const [project, branch] = ref.split("/") as [string, string]
+    const slash = ref.indexOf("/")
+    const [project, branch] = [ref.slice(0, slash), ref.slice(slash + 1)]
     const found = (await this.worktrees.adapter.list(project)).find((w) => w.branch === branch)
     if (found === undefined) throw new Error(`no worktree ${ref}`)
     return found.path

@@ -58,15 +58,23 @@ a{color:inherit}ul{list-style:none;padding:0}li{background:#222222;border-radius
 
 const NAV = `<nav><a href="/">Projects</a> · <a href="/inbox">Inbox</a></nav>`
 
+const button = (item: InboxItem, procedure: string, label: string): string =>
+  ` <button data-op="${procedure}" data-feed="${escape(item.feed)}" data-key="${escape(item.key)}">${label}</button>`
+
+const itemButtons = (item: InboxItem): string =>
+  item.state === "proposed"
+    ? button(item, "startItem", "Start") + button(item, "dismiss", "Dismiss")
+    : item.state === "failed"
+      ? button(item, "retryItem", "Retry") + button(item, "dismiss", "Dismiss")
+      : ""
+
 const itemRow = (item: InboxItem): string =>
   `<li class="${item.state}"><span class="status">${item.state}</span> <b>${escape(item.title)}</b> <span class="label">${escape(`${item.feed} · ${item.project}`)}</span>${
-    item.state === "proposed"
-      ? ` <button data-feed="${escape(item.feed)}" data-key="${escape(item.key)}">Dismiss</button>`
-      : ""
-  }</li>`
+    item.message === undefined ? "" : ` <span class="failure">${escape(item.message)}</span>`
+  }${itemButtons(item)}</li>`
 
 // The guard admits only JSON POSTs from this origin.
-const DISMISS_SCRIPT = `document.addEventListener("click",async(e)=>{const b=e.target.closest("button[data-feed]");if(!b)return;await fetch("/trpc/dismiss",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({feed:b.dataset.feed,key:b.dataset.key})});location.reload()})`
+const ITEM_SCRIPT = `document.addEventListener("click",async(e)=>{const b=e.target.closest("button[data-op]");if(!b)return;await fetch("/trpc/"+b.dataset.op,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({feed:b.dataset.feed,key:b.dataset.key})});location.reload()})`
 
 /** The Inbox view: what feeds filed and is waiting, and the feeds that fail. */
 export const inboxPage = (items: readonly InboxItem[], feeds: readonly FeedView[]): string =>
@@ -75,7 +83,7 @@ export const inboxPage = (items: readonly InboxItem[], feeds: readonly FeedView[
     .map((f) => `<p class="failure">${escape(`feed ${f.feed} failing: ${f.failing}`)}</p>`)
     .join("")}${
     items.length === 0 ? "<p>Nothing waits.</p>" : `<ul>${items.map(itemRow).join("")}</ul>`
-  }<script>${DISMISS_SCRIPT}</script></body></html>`
+  }<script>${ITEM_SCRIPT}</script></body></html>`
 
 /** The Projects view: every worktree of every project, grouped by project. */
 export const projectsPage = (

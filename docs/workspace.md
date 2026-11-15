@@ -166,19 +166,40 @@ set when the feed fails. `dismiss(key)` dismisses a proposed item, and
 
 ## Inbox
 
-The Inbox view (`/inbox`) lists the items that feeds filed and that wait, in
-start order: priority, then the order the poll returned them, then the time gtd
-first saw them. It also names each failing feed.
+The Inbox view (`/inbox`) lists the items that feeds filed and that have not
+started, in start order: priority, then the order the poll returned them, then
+the time gtd first saw them. It also names each failing feed.
 
-| State    | When                                                                      |
-| -------- | ------------------------------------------------------------------------- |
-| proposed | A `propose` feed filed it; it waits for a person.                         |
-| queued   | A `queue` feed filed it.                                                  |
-| blocked  | A `queue` feed filed it, and an item it names in `blockedBy` still waits. |
+| State    | When                                                                                    |
+| -------- | --------------------------------------------------------------------------------------- |
+| proposed | A `propose` feed filed it; it waits for a person.                                       |
+| queued   | A `queue` feed filed it, or a person started it and it waits for its worktree.          |
+| blocked  | It is queued, and an item it names in `blockedBy` is still in the inbox.                |
+| starting | gtd dispatches it: its worktree, services and start action are on their way.            |
+| failed   | Its dispatch failed. It stays, with the reason, until a person retries or dismisses it. |
 
-**Dismiss** hides a proposed item until its feed stops returning it. A later
-poll that returns the key again files it anew. Starting items is not available
-yet.
+**Start** dispatches a proposed item; **Retry** dispatches a failed one again.
+gtd then:
+
+1. picks the worktree: the item's `branch`, else the branch `<feed>/<key>`. When
+   a worktree is on that branch, gtd uses it only when it is free: its process
+   has ended, no driver runs in it, its tree is clean and no other item is
+   starting in it. Otherwise the item waits, queued, with the reason, and gtd
+   tries again after the next poll of a feed. When no worktree is on the branch,
+   gtd creates one.
+2. starts the worktree's services,
+3. runs the item's start action in a pane of its own, with `GTD_WORKSPACE_ITEM`:
+   the item as JSON (`key`, `title`, `url`, `action`, `priority`, `blockedBy`,
+   `branch`, `data`, `feed`, `project`),
+4. when the action exits 0, starts the driver with the same
+   `GTD_WORKSPACE_ITEM`.
+
+The item is then started and leaves the Inbox. A feed that still returns its key
+does not file it again until its worktree is removed. A step that fails makes
+the item failed; a failed item stays when its feed stops returning it.
+
+**Dismiss** hides a proposed or failed item until its feed stops returning it. A
+later poll that returns the key again files it anew.
 
 ## Worktree status
 
@@ -229,7 +250,8 @@ gone. Remove keeps a worktree, and says why, when:
 - it is the project's main checkout,
 - its process has not ended (`gtd next` does not report it as idle),
 - its driver runs,
-- a pane that gtd opened in it runs a command.
+- a pane that gtd opened in it runs a command,
+- an item is starting in it.
 
 Remove asks for confirmation when the tree has uncommitted changes (untracked
 files count) or when the branch is not integrated. A confirmed Remove throws
@@ -366,11 +388,13 @@ Every request, to the dashboard and to the gate pages, must come from a tailnet
 user in `ui.users`. Other users get 403. Requests that change state must be
 POSTs with a JSON body from the dashboard's own origin.
 
-Each New worktree and Remove adds one line to `audit.log` in the supervisor's
-state directory: a JSON object with `time`, `identity` (the tailnet login),
-`endpoint`, `project` and `worktree` (the branch). Field values are never
-written. At 1 MiB the log moves to `audit.log.1`.
+Each New worktree, Remove, Start and Retry adds one line to `audit.log` in the
+supervisor's state directory: a JSON object with `time`, `identity` (the tailnet
+login), `endpoint`, `project`, `worktree` (the branch) and, for Start and Retry,
+`action`. Field values are never written. At 1 MiB the log moves to
+`audit.log.1`.
 
 The supervisor keeps its state in `~/.local/state/gtd/workspace/` (or under
 `$XDG_STATE_HOME`). Nothing goes into your repositories. Deleting that state
-loses only the dismissals; the next polls file every waiting item again.
+loses the dismissals and what gtd knows of started and failed items; the next
+polls file every waiting item again.

@@ -170,5 +170,5 @@ Feature: feeds file items into the workspace inbox
     Then the Inbox page reads:
       """
       Inbox
-      proposed Add login boardReady · portal Dismiss
+      proposed Add login boardReady · portal Start Dismiss
       """

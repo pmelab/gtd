@@ -1,5 +1,6 @@
 import { initTRPC, TRPCError } from "@trpc/server"
 import { ActionRefusal, type ActionRuns } from "./Actions.js"
+import type { Dispatcher } from "./Dispatch.js"
 import type { FeedRunner } from "./Feeds.js"
 import type { ProjectView } from "./Scan.js"
 import type { Banner } from "./Snapshot.js"
@@ -12,6 +13,7 @@ interface WorkspaceRouterContext {
   readonly banners: () => readonly Banner[]
   readonly actions: ActionRuns
   readonly feeds: FeedRunner
+  readonly dispatch: Dispatcher
   readonly worktreeChanges: WorktreeChanges
   /** Who sent the request, for the audit log. */
   readonly identity: string
@@ -113,7 +115,23 @@ export const workspaceRouter = t.router({
     if (!ctx.feeds.dismiss(input.feed, input.key))
       throw new TRPCError({
         code: "NOT_FOUND",
+        message: `no proposed or failed item ${input.feed}/${input.key}`,
+      })
+  }),
+  /** Start: dispatches a proposed item; the `inbox` query shows how far it got. */
+  startItem: t.procedure.input(itemRef).mutation(async ({ ctx, input }) => {
+    if (!(await ctx.dispatch.press("start", input.feed, input.key, ctx.identity)))
+      throw new TRPCError({
+        code: "NOT_FOUND",
         message: `no proposed item ${input.feed}/${input.key}`,
+      })
+  }),
+  /** Retry: dispatches a failed item again. */
+  retryItem: t.procedure.input(itemRef).mutation(async ({ ctx, input }) => {
+    if (!(await ctx.dispatch.press("retry", input.feed, input.key, ctx.identity)))
+      throw new TRPCError({
+        code: "NOT_FOUND",
+        message: `no failed item ${input.feed}/${input.key}`,
       })
   }),
 })

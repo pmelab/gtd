@@ -16,6 +16,7 @@ import {
 import { actionRuns } from "./Actions.js"
 import { auditLog } from "./Audit.js"
 import { findWorkspaceModule, loadWorkspace, reloadWorkspace } from "./Config.js"
+import { dispatcher } from "./Dispatch.js"
 import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf } from "./Gate.js"
 import { acquireLock, stateDirectory } from "./Lock.js"
@@ -110,16 +111,7 @@ export const runWorkspaceCommand = (
       })
       closeSnapshot = snapshot.close
       yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })
-      const changes = worktreeChanges({
-        worktrees,
-        services,
-        terminal,
-        drivers: driverRuns,
-        next: host.next,
-        panes: actions.panes,
-        refresh: snapshot.refresh,
-        audit: auditLog(directory, clock.now),
-      })
+      const audit = auditLog(directory, clock.now)
       const feeds = feedRunner({
         feeds: loaded.feeds,
         root,
@@ -133,6 +125,30 @@ export const runWorkspaceCommand = (
           out.write(line)
           out.flush()
         },
+        ended: (inbox) => dispatch.endStarted(inbox),
+        polled: () => dispatch.pass(),
+      })
+      const dispatch = dispatcher({
+        feeds,
+        worktrees,
+        services,
+        actions,
+        drivers: driverRuns,
+        next: host.next,
+        projects: snapshot.projects,
+        refresh: snapshot.refresh,
+        audit,
+      })
+      const changes = worktreeChanges({
+        worktrees,
+        services,
+        terminal,
+        drivers: driverRuns,
+        next: host.next,
+        panes: actions.panes,
+        starting: dispatch.starting,
+        refresh: snapshot.refresh,
+        audit,
       })
 
       const reload = reloadWorkspace({
@@ -186,6 +202,7 @@ export const runWorkspaceCommand = (
               banners,
               actions,
               feeds,
+              dispatch,
               worktreeChanges: changes,
               identity: request.headers.get("tailscale-user-login") ?? peer ?? "unknown",
             }),
