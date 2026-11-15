@@ -132,14 +132,18 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
   }
 
   // The worktrees that hold a drive, by project: a driver runs, or an item is starting in it.
-  const drivesOf = (drivers: ReadonlyMap<string, readonly string[]>): Map<string, Set<string>> => {
-    const inUse = new Map([...drivers].map(([project, paths]) => [project, new Set(paths)]))
-    for (const [id, entry] of deps.feeds.inbox().entries)
-      if (entry.dispatch?.state === "starting")
-        inUse.set(
-          entry.project,
-          (inUse.get(entry.project) ?? new Set()).add(entry.dispatch.worktree ?? id),
-        )
+  // The starting items are read first: one that starts meanwhile then counts by its driver.
+  const drives = async (): Promise<Map<string, Set<string>>> => {
+    const starting = [...deps.feeds.inbox().entries].flatMap(([id, entry]) =>
+      entry.dispatch?.state === "starting"
+        ? [[entry.project, entry.dispatch.worktree ?? id] as const]
+        : [],
+    )
+    const inUse = new Map(
+      [...(await running())].map(([project, paths]) => [project, new Set(paths)]),
+    )
+    for (const [project, worktree] of starting)
+      inUse.set(project, (inUse.get(project) ?? new Set()).add(worktree))
     return inUse
   }
 
@@ -157,14 +161,16 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
   }
 
   // Why the limits hold an item of the project now; none when it may start.
-  const limited = (
-    project: string,
-    inUse: ReadonlyMap<string, ReadonlySet<string>>,
-  ): string | undefined => {
-    const max = deps.settings().limits?.maxDrives
-    const drives = total(inUse)
-    if (max !== undefined && drives >= max)
-      return `${drives} of ${max} drives in use (limits.maxDrives)`
+  // The drives are counted at each check: an item dispatched before may have started its driver.
+  const limited = async (project: string): Promise<string | undefined> => {
+    const { limits, projects } = deps.settings()
+    const max = limits?.maxDrives
+    if (max === undefined && (projects?.[project]?.wip ?? limits?.wip) === undefined)
+      return undefined
+    const inUse = await drives()
+    const used = total(inUse)
+    if (max !== undefined && used >= max)
+      return `${used} of ${max} drives in use (limits.maxDrives)`
     return wipHolds(project, inUse.get(project)?.size ?? 0)
   }
 
@@ -241,12 +247,9 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
       deps.feeds.change(endStarted)
       // Until every feed has polled, a blocker of another feed may be missing.
       if (!deps.feeds.ready()) return
-      const drivers = await running()
       for (const item of dispatchableItems(deps.feeds.inbox())) {
         const held =
-          deps.paused?.(item) ??
-          limited(item.project, drivesOf(drivers)) ??
-          (await deps.feeds.canStart(item))
+          deps.paused?.(item) ?? (await limited(item.project)) ?? (await deps.feeds.canStart(item))
         if (held === undefined) await dispatch(item)
         else if (item.message !== held) set(item, { state: "approved", waits: held })
       }
@@ -275,10 +278,10 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     pass,
     drives: async () => {
       const max = deps.settings().limits?.maxDrives
-      return { inUse: total(drivesOf(await running())), ...(max !== undefined ? { max } : {}) }
+      return { inUse: total(await drives()), ...(max !== undefined ? { max } : {}) }
     },
     drivesIn: async ({ project, feed }) => {
-      const inUse = drivesOf(await running())
+      const inUse = await drives()
       if (project === undefined) return total(inUse)
       const worktrees = [...(inUse.get(project) ?? [])]
       if (feed === undefined) return worktrees.length

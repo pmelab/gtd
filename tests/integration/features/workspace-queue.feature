@@ -115,6 +115,36 @@ Feature: queue feeds dispatch their items within the limits
       | api/board/2 | ["start:feature"] |
     And the Inbox counts "2 of 2" drives in use
 
+  Scenario: maxDrives counts the drivers that items started earlier in the same dispatch
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"], limits: { maxDrives: 2 } })
+
+      export const board = feed({
+        project: "api",
+        every: "5m",
+        mode: "queue",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "issue", "list"])).stdout),
+      })
+      """
+    And the command "gh issue list" prints:
+      """
+      [
+        { "key": "1", "title": "Add signup", "action": "start:feature", "priority": 2 },
+        { "key": "2", "title": "Add search", "action": "start:feature", "priority": 1 },
+        { "key": "3", "title": "Add export", "action": "start:feature", "priority": 0 }
+      ]
+      """
+    And the program "start:feature" exits 0 as soon as it starts
+    When I start gtd workspace
+    Then gtd opened these action panes:
+      | worktree    | argv              |
+      | api/board/1 | ["start:feature"] |
+      | api/board/2 | ["start:feature"] |
+    And the Inbox counts "2 of 2" drives in use
+
   Scenario: wip holds items while that many drivers run in the project
     Given a workspace file "gtd.workspace.ts" with:
       """
