@@ -19,6 +19,7 @@ export {
   type StatusRecord,
   type TerminalAdapter,
   type Project,
+  type WatchHint,
   type Worktree,
   type WorktreesAdapter,
 } from "./adapters.js"

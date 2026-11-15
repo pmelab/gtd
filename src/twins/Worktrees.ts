@@ -1,6 +1,7 @@
 import {
   AdapterError,
   type Project,
+  type WatchHint,
   type Worktree,
   type WorktreesAdapter,
 } from "../workspace/index.js"
@@ -29,18 +30,72 @@ export interface InMemoryWorktrees {
   readonly addWorktree: (project: string, branch: string, path?: string) => string
   readonly commit: (project: string, branch: string) => void
   readonly merge: (project: string, branch: string) => void
+  /** A hint on every open watch stream. Each change above gives one, as a real tool's watch would. */
+  readonly hint: (project?: string) => void
+  /** Ends every open watch stream. */
+  readonly endWatch: () => void
+  /** How many times the adapter has been watched. */
+  readonly watched: () => number
+  /** `list(project)` fails with `message`; `undefined` makes it answer again. */
+  readonly failList: (project: string, message: string | undefined) => void
+}
+
+interface Stream {
+  readonly hints: WatchHint[]
+  ended: boolean
+  wake: () => void
 }
 
 /** The worktrees adapter's in-memory twin: projects and branches as a small commit model. */
 export const inMemoryWorktrees = (): InMemoryWorktrees => {
   const projects = new Map<string, ProjectState>()
+  const failing = new Map<string, string>()
+  const streams = new Set<Stream>()
+  let subscriptions = 0
   let commits = 0
   const nextCommit = (): string => (++commits).toString(16).padStart(40, "0")
+
+  const hint = (project?: string): void => {
+    for (const stream of streams) {
+      stream.hints.push(project === undefined ? {} : { project })
+      stream.wake()
+    }
+  }
+  const end = (stream: Stream): void => {
+    stream.ended = true
+    streams.delete(stream)
+    stream.wake()
+  }
+
+  const watch = (): AsyncIterable<WatchHint> => ({
+    [Symbol.asyncIterator]: () => {
+      subscriptions++
+      const stream: Stream = { hints: [], ended: false, wake: () => {} }
+      streams.add(stream)
+      return {
+        next: async (): Promise<IteratorResult<WatchHint>> => {
+          while (stream.hints.length === 0 && !stream.ended) {
+            await new Promise<void>((resolve) => (stream.wake = resolve))
+          }
+          const value = stream.hints.shift()
+          return value === undefined ? { done: true, value: undefined } : { done: false, value }
+        },
+        return: async (): Promise<IteratorResult<WatchHint>> => {
+          end(stream)
+          return { done: true, value: undefined }
+        },
+      }
+    },
+  })
 
   const projectOf = (id: string, op: string): ProjectState => {
     const project = projects.get(id)
     if (project === undefined) {
-      throw new AdapterError({ adapter: "worktrees", op, message: `no project "${id}"` })
+      throw new AdapterError({
+        adapter: "worktrees",
+        op,
+        message: `no project "${id}"`,
+      })
     }
     return project
   }
@@ -63,11 +118,20 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
 
   const adapter: WorktreesAdapter = {
     projects: async () =>
-      [...projects].map(([id, project]): Project => ({ id, path: project.path })),
+      [...projects].map(
+        ([id, project]): Project => ({
+          id,
+          path: project.path,
+        }),
+      ),
     list: async (id) => {
       const project = projectOf(id, "list")
+      const message = failing.get(id)
+      if (message !== undefined)
+        throw new AdapterError({ adapter: "worktrees", op: "list", message })
       return [...project.branches].map(([name, branch]) => worktreeOf(project, name, branch))
     },
+    watch,
   }
 
   return {
@@ -80,18 +144,21 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
         branches: new Map([[defaultBranch, { path, head, own: [] }]]),
         integrated: new Set([head]),
       })
+      hint()
     },
     addWorktree: (id, branch, path) => {
       const project = projectOf(id, "create")
       const at = path ?? `${project.path}.wt/${branch}`
       const base = branchOf(project, project.defaultBranch)
       project.branches.set(branch, { path: at, head: base.head, own: [] })
+      hint(id)
       return at
     },
     commit: (id, name) => {
       const branch = branchOf(projectOf(id, "commit"), name)
       branch.head = nextCommit()
       branch.own.push(branch.head)
+      hint(id)
     },
     // A squash commit and a merge commit both carry the branch's change; the
     // model needs no ancestry to tell `integrated`.
@@ -101,6 +168,16 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
       const base = branchOf(project, project.defaultBranch)
       base.head = nextCommit()
       project.integrated.add(base.head)
+      hint(id)
+    },
+    hint,
+    endWatch: () => {
+      for (const stream of streams) end(stream)
+    },
+    watched: () => subscriptions,
+    failList: (id, message) => {
+      if (message === undefined) failing.delete(id)
+      else failing.set(id, message)
     },
   }
 }

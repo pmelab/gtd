@@ -57,11 +57,26 @@ export interface Worktree {
   readonly integrated: boolean | undefined
 }
 
+/**
+ * A watch's word that something may have changed. It carries no data: gtd
+ * reads the snapshot again to learn what changed.
+ */
+export interface WatchHint {
+  /** The project that may have changed; absent when any project may have. */
+  readonly project?: string
+}
+
 /** The worktrees adapter: which projects exist, and the worktrees of each. */
 export interface WorktreesAdapter {
   readonly projects: () => Promise<readonly Project[]>
   /** Fails with an adapter error for a project id `projects` does not report. */
   readonly list: (project: string) => Promise<readonly Worktree[]>
+  /**
+   * Hints while it is iterated, until gtd stops iterating. When the stream
+   * ends or fails, gtd watches again and reads a full snapshot. Without it,
+   * gtd reads the snapshot every `pollEvery`.
+   */
+  readonly watch?: () => AsyncIterable<WatchHint>
 }
 
 /**

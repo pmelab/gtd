@@ -57,6 +57,8 @@ The one reserved export, made with `defineWorkspace`. Every key is optional.
   [Workspace drivers](./driver.md#workspace-drivers).
 - **`adapters`**: `worktrees`, `terminal`. An omitted adapter is the bundled
   default with its default options. See [Adapters](#adapters).
+- **`pollEvery`** (duration, default `"10s"`): how often a worktrees adapter
+  without `watch()` is read.
 - **`projects`**: settings per project id: `name` (shown on the dashboard) and
   `driver` (this project's driver command, instead of the workspace's).
 - **`ui`**: `port`, `host`, `cert`, `key`, as for `gtd ui`, and `users` (the
@@ -188,6 +190,15 @@ the supervisor. When the supervisor starts, it starts the driver of each
 worktree that waits for an agent or a check with no driver running. It never
 restarts a driver that crashed.
 
+The statuses stay current while the supervisor runs. A commit, a new branch or a
+new worktree shows within a few seconds. An edit that is not committed shows
+within about 30 seconds: every 30 seconds the supervisor runs `gtd next` in
+every worktree again.
+
+When a worktrees adapter read fails, each worktree it covers keeps its last
+known status, greyed and marked "worktrees unavailable", and a banner above the
+projects shows the error. Both go away after the next good read.
+
 ## Gate pages
 
 The supervisor also serves the gate page of every worktree, at
@@ -227,13 +238,21 @@ has it.
   `{ path, branch, head, main, integrated }`. `integrated` is `true` when the
   branch has commits of its own and all of them are on the default branch
   (squash merges count), and `undefined` when the adapter cannot tell.
+- **`watch()`** (optional): an async iterable of hints, `{ project }` or `{}`
+  when any project may have changed. A hint carries no data: the supervisor
+  reads `list(project)` again. When the stream ends or throws, the supervisor
+  watches again and reads every project. Without `watch()`, the supervisor reads
+  every project each `pollEvery`.
 
 `worktrunk({ roots })` uses `wt` and `git`. Each root is an absolute path or
 starts with `~/`, and a `*` segment matches any directory. A matched directory
 is a project when it is a main checkout. Its id is what the `*` segments
 matched, joined by `/`, or the directory's name when the root has no `*`.
 Without a `worktrees` adapter, every main checkout directly in the workspace
-root is a project.
+root is a project. Its `watch()` watches the git directories of each project
+(not `refs/remotes`, so a fetch is no change) and installs nothing into your
+checkouts. A project added after the supervisor started is found by the next
+30-second read.
 
 ### `terminal`
 

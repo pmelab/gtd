@@ -26,8 +26,10 @@ import {
 } from "../../../src/supervisor/index.js"
 import {
   InMemRepo,
+  inMemoryClock,
   inMemoryTerminal,
   inMemoryWorktrees,
+  settle,
   makeCapturingCliIo,
   type CapturedCliResult,
 } from "../../../src/twins/index.js"
@@ -45,7 +47,12 @@ import { fakeTailnet, inMemoryUiLayers, TAILNET_OWNER, TAILNET_PEER } from "./ui
 type ToolWorkspace = NonNullable<NonNullable<Parameters<typeof makeCapturingCliIo>[2]>["workspace"]>
 
 /** What a worktree with no scripted `gtd next` answer reports: a process that has ended. */
-const IDLE_NEXT = JSON.stringify({ kind: "capture", actor: "human", idle: true, label: "Idle" })
+const IDLE_NEXT = JSON.stringify({
+  kind: "capture",
+  actor: "human",
+  idle: true,
+  label: "Idle",
+})
 
 /**
  * The supervisor's clock, moved by hand. A task runs when it is scheduled and
@@ -104,14 +111,24 @@ export class WorkspaceBench {
   readonly terminal = inMemoryTerminal()
   /** Panes that an earlier supervisor opened, before the scenario's first one. */
   readonly seeded = new Set<string>()
+  /** The timers of `SupervisorHost.after`. */
+  readonly clock = inMemoryClock()
+  /** Whether the default worktrees adapter offers a watch. */
+  watching = true
   private readonly answers = new Map<string, SpawnOutcome>()
   /** The worktree of each `gtd next` the supervisor ran, in order. */
   readonly nextRuns: string[] = []
+  /** Worktrees where `gtd next` waits for `release`, with what releases each waiting run. */
+  private readonly held = new Map<string, (() => void)[]>()
+  private readonly running = new Set<string>()
+  /** Worktrees where two `gtd next` ran at once. */
+  readonly overlapped = new Set<string>()
   /** Files inside worktrees, by absolute path. */
   readonly files = new Map<string, string>()
   /** A feed's `ctx.exec` answers, by argv joined with spaces. */
   readonly commands = new Map<string, ExecResult>()
-  readonly clock = new ManualClock()
+  /** The feeds' clock. */
+  readonly feedClock = new ManualClock()
   private readonly tailnet = fakeTailnet()
   private readonly runs: Run[] = []
   private handler: UiHandler | undefined
@@ -167,6 +184,28 @@ export class WorkspaceBench {
     this.answers.set(path, outcome)
   }
 
+  hold(path: string): void {
+    this.held.set(path, [])
+  }
+
+  /** Lets the held `gtd next` runs in `path` answer, and no longer holds new ones. */
+  async release(path: string): Promise<void> {
+    const waiting = this.held.get(path) ?? []
+    this.held.delete(path)
+    for (const resume of waiting) resume()
+    await settle()
+  }
+
+  private async runNext(path: string): Promise<SpawnOutcome> {
+    this.nextRuns.push(path)
+    if (this.running.has(path)) this.overlapped.add(path)
+    this.running.add(path)
+    const waiting = this.held.get(path)
+    if (waiting !== undefined) await new Promise<void>((resume) => waiting.push(resume))
+    this.running.delete(path)
+    return this.nextIn(path)
+  }
+
   private nextIn(path: string): SpawnOutcome {
     return this.answers.get(path) ?? { status: 0, stdout: IDLE_NEXT, stderr: "" }
   }
@@ -206,13 +245,14 @@ export class WorkspaceBench {
       scratch: (body) => body("/inmem-scratch", () => ""),
     }
     const host = Layer.succeed(SupervisorHost, {
-      next: async (path) => {
-        this.nextRuns.push(path)
-        return this.nextIn(path)
+      next: (path) => this.runNext(path),
+      defaultWorktrees: () => {
+        const { projects, list } = this.worktrees.adapter
+        return this.watching ? this.worktrees.adapter : { projects, list }
       },
-      defaultWorktrees: () => this.worktrees.adapter,
       defaultTerminal: () => this.terminal.adapter,
       isPidAlive: (pid) => pid === process.pid,
+      after: this.clock.after,
     })
     const tools = Layer.succeed(UserlandTools, {
       exec: async (argv) => {
@@ -225,8 +265,8 @@ export class WorkspaceBench {
       },
     })
     const clock = Layer.succeed(SupervisorClock, {
-      now: () => this.clock.now,
-      every: this.clock.every,
+      now: () => this.feedClock.now,
+      every: this.feedClock.every,
     })
     const ui = inMemoryUiLayers(uiHost, this.tailnet, new Map(), (handler) => {
       this.handler = handler
@@ -272,7 +312,7 @@ export class WorkspaceBench {
     // The URL is printed right after the listener binds; the first polls follow.
     await delay(0)
     run.url = result().stdout.split("\n")[0]!.trim()
-    await this.clock.settled()
+    await this.feedClock.settled()
   }
 
   /** The URL the first supervisor printed. */
@@ -321,6 +361,12 @@ export class WorkspaceBench {
     })
   }
 
+  /** Moves both supervisor clocks on by `ms`. */
+  async advance(ms: number): Promise<void> {
+    await this.feedClock.advance(ms)
+    await this.clock.advance(ms)
+  }
+
   async post(path: string, body: unknown): Promise<Response> {
     if (this.handler === undefined) throw new Error("gtd workspace is not serving")
     const response = await this.handler(
@@ -359,7 +405,17 @@ export class WorkspaceBench {
 
   async projects(): Promise<readonly ProjectView[]> {
     const response = await this.request("/trpc/projects")
-    const body = (await response.json()) as { result: { data: readonly ProjectView[] } }
+    const body = (await response.json()) as {
+      result: { data: readonly ProjectView[] }
+    }
+    return body.result.data
+  }
+
+  async banners(): Promise<readonly { kind: string; message: string }[]> {
+    const response = await this.request("/trpc/banners")
+    const body = (await response.json()) as {
+      result: { data: readonly { kind: string; message: string }[] }
+    }
     return body.result.data
   }
 
@@ -381,9 +437,10 @@ export class WorkspaceBench {
     let output = ""
     child.stdout.on("data", (chunk: Buffer) => (output += chunk.toString("utf8")))
     child.stderr.on("data", (chunk: Buffer) => (output += chunk.toString("utf8")))
-    const exited = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) =>
-      child.once("exit", (code, died) => resolve({ code, signal: died })),
-    )
+    const exited = new Promise<{
+      code: number | null
+      signal: NodeJS.Signals | null
+    }>((resolve) => child.once("exit", (code, died) => resolve({ code, signal: died })))
     for (let i = 0; i < 600 && !output.includes("http://"); i++) await delay(50)
     if (!output.includes("http://")) {
       child.kill("SIGKILL")

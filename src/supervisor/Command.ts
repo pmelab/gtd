@@ -22,7 +22,7 @@ import { inboxPage, projectsPage } from "./Page.js"
 import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
-import { recheck, restartOrphans, scan, type ProjectView } from "./Scan.js"
+import { liveSnapshot } from "./Snapshot.js"
 
 export interface WorkspaceCommand {
   readonly flags: ExposeOptions & { readonly config?: string }
@@ -71,13 +71,15 @@ export const runWorkspaceCommand = (
       try: () => acquireLock(directory, root, host.isPidAlive),
       catch: asUiError,
     })
+    let closeSnapshot = (): void => {}
     yield* Effect.gen(function* () {
       const { settings, feeds: feedExports } = yield* Effect.tryPromise({
         try: () => loadWorkspace(file, command.loadModule),
         catch: asUiError,
       })
-      const deps = {
-        worktrees: settings.adapters?.worktrees ?? host.defaultWorktrees(root),
+      const worktrees = settings.adapters?.worktrees ?? host.defaultWorktrees(root)
+      const snapshot = liveSnapshot({
+        worktrees,
         next: host.next,
         settings,
         drivers: drivers(
@@ -85,15 +87,14 @@ export const runWorkspaceCommand = (
           settings,
           driverPanes(directory),
         ),
-      }
-      const projects = (): Promise<readonly ProjectView[]> => scan(deps)
-      // Drivers run in their own panes and outlive this process; only the
-      // orphans are started here, and a crashed driver waits for Retry.
-      yield* Effect.tryPromise({ try: () => restartOrphans(deps), catch: asUiError })
+        after: host.after,
+      })
+      closeSnapshot = snapshot.close
+      yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })
       const feeds = feedRunner({
         feeds: feedExports,
         root,
-        worktrees: deps.worktrees,
+        worktrees,
         exec: tools.exec,
         fetch: tools.fetch,
         now: clock.now,
@@ -106,7 +107,7 @@ export const runWorkspaceCommand = (
       })
 
       const gatePage: UiHandler = async (request, afterResponse, peer) => {
-        const gate = await gateOf(new URL(request.url).pathname, deps.worktrees)
+        const gate = await gateOf(new URL(request.url).pathname, worktrees)
         if (gate === undefined) return new Response("not found\n", { status: 404 })
         const worktree = gate.worktree.path
         return gateHandler({
@@ -114,8 +115,8 @@ export const runWorkspaceCommand = (
           host: uiHost,
           endpoint: `${gate.base}${TRPC}`,
           ...currentRest(worktree, uiHost),
-          // The status a person just changed must not wait for the next scan.
-          onEdit: () => void recheck(deps, worktree),
+          // The status a person just changed must not wait for a hint.
+          onEdit: () => snapshot.recheckWorktree(worktree),
         })(request, afterResponse, peer)
       }
 
@@ -126,14 +127,18 @@ export const runWorkspaceCommand = (
             endpoint: TRPC,
             req: request,
             router: workspaceRouter,
-            createContext: () => ({ projects, feeds }),
+            createContext: () => ({
+              projects: snapshot.projects,
+              banners: snapshot.banners,
+              feeds,
+            }),
           })
         }
         const html = (body: string): Response =>
           new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } })
         if (path === "/inbox") return html(inboxPage(feeds.items(), feeds.feeds()))
         if (path !== "/") return gatePage(request, afterResponse, peer)
-        return html(projectsPage(await projects()))
+        return html(projectsPage(snapshot.projects(), snapshot.banners()))
       }
 
       const { url, close } = yield* exposeHandler({
@@ -148,5 +153,12 @@ export const runWorkspaceCommand = (
       out.flush()
       feeds.start()
       yield* Effect.never.pipe(Effect.ensuring(Effect.sync(feeds.stop)), Effect.ensuring(close))
-    }).pipe(Effect.ensuring(Effect.sync(() => lock.release())))
+    }).pipe(
+      Effect.ensuring(
+        Effect.sync(() => {
+          closeSnapshot()
+          lock.release()
+        }),
+      ),
+    )
   })

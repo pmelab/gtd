@@ -36,6 +36,8 @@ export interface Drivers {
   readonly state: (worktree: string) => Promise<DriverState>
   /** Opens a pane running the project's driver command; `false` when none is configured. */
   readonly start: (project: string, worktree: string) => Promise<boolean>
+  /** The terminal's hints, each a pane handle whose status may have changed. */
+  readonly watch?: () => AsyncIterable<string>
 }
 
 export const drivers = (
@@ -59,4 +61,5 @@ export const drivers = (
     panes.set(worktree, await terminal.run(project, worktree, argv, {}))
     return true
   },
+  ...(terminal.watch !== undefined ? { watch: terminal.watch.bind(terminal) } : {}),
 })

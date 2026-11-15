@@ -48,6 +48,14 @@ export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemor
   const closed = new Set<string>()
   let opened = 0
 
+  const streams = new Set<{ handles: string[]; ended: boolean; wake: () => void }>()
+  const hint = (handle: string): void => {
+    for (const stream of streams) {
+      stream.handles.push(handle)
+      stream.wake()
+    }
+  }
+
   const live = (handle: string): InMemoryPane | undefined =>
     closed.has(handle) ? undefined : panes.get(handle)
   const paneOf = (handle: string): InMemoryPane => {
@@ -63,9 +71,11 @@ export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemor
     if (pane.record?.state === "working" || pane.record?.state === "blocked") {
       pane.record = undefined
     }
+    hint(handle)
   }
   const report = (handle: string, record: StatusRecord): void => {
     paneOf(handle).record = record
+    hint(handle)
   }
 
   const adapter: TerminalAdapter = {
@@ -103,7 +113,32 @@ export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemor
       }
       return status
     },
-    close: async (handle) => void closed.add(handle),
+    close: async (handle) => {
+      closed.add(handle)
+      hint(handle)
+    },
+    // Hand-written so that `return()` ends a stream whose `next()` still waits.
+    watch: () => ({
+      [Symbol.asyncIterator]: () => {
+        const stream = { handles: [] as string[], ended: false, wake: () => {} }
+        streams.add(stream)
+        return {
+          next: async (): Promise<IteratorResult<string>> => {
+            while (stream.handles.length === 0 && !stream.ended) {
+              await new Promise<void>((resolve) => (stream.wake = resolve))
+            }
+            const value = stream.handles.shift()
+            return value === undefined ? { done: true, value: undefined } : { done: false, value }
+          },
+          return: async (): Promise<IteratorResult<string>> => {
+            stream.ended = true
+            streams.delete(stream)
+            stream.wake()
+            return { done: true, value: undefined }
+          },
+        }
+      },
+    }),
   }
 
   return {
@@ -111,7 +146,10 @@ export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemor
     panes: () => [...panes.values()],
     report,
     exit,
-    lose: (handle) => void closed.add(handle),
+    lose: (handle) => {
+      closed.add(handle)
+      hint(handle)
+    },
   }
 }
 

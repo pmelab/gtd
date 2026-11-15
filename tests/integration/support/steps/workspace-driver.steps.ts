@@ -1,5 +1,6 @@
 import { Given, Then, When, type DataTable } from "quickpickle"
 import assert from "node:assert"
+import { settle } from "../../../../src/twins/index.js"
 import type { StatusRecord } from "../../../../src/workspace/index.js"
 import type { GtdWorld } from "../world.js"
 import { bench } from "./workspace.steps.js"
@@ -14,16 +15,19 @@ Given(
 Given("the driver in {string} reports:", async (world: GtdWorld, ref: string, record: string) => {
   const b = bench(world)
   b.terminal.report(await b.paneOf(ref), JSON.parse(record) as StatusRecord)
+  await settle()
 })
 
 When("the driver in {string} exits {int}", async (world: GtdWorld, ref: string, code: number) => {
   const b = bench(world)
   b.terminal.exit(await b.paneOf(ref), code)
+  await settle()
 })
 
 Given("the driver pane of {string} is gone", async (world: GtdWorld, ref: string) => {
   const b = bench(world)
   b.terminal.lose(await b.paneOf(ref))
+  await settle()
 })
 
 Then("gtd opened these driver panes:", async (world: GtdWorld, table: DataTable) => {
