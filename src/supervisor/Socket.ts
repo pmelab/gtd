@@ -51,15 +51,21 @@ const parseRequest = (line: string): ControlRequest | undefined => {
   const { command, worktree, commit, note } = value
   if (typeof worktree !== "string") return undefined
   if (command === "note") {
-    if (note === null) return { command, worktree, note }
-    if (!isRecord(note)) return undefined
-    const { message, error } = note
-    if (typeof message !== "string" || typeof error !== "boolean") return undefined
-    return { command, worktree, note: { message, error } }
+    const parsed = parseNote(note)
+    return parsed === undefined ? undefined : { command, worktree, note: parsed }
   }
   if (command !== "proceed" && command !== "retry") return undefined
   if (typeof commit !== "string") return undefined
   return { command, worktree, commit }
+}
+
+/** `null` clears; `undefined` is no note at all. */
+const parseNote = (note: unknown): { message: string; error: boolean } | null | undefined => {
+  if (note === null) return null
+  if (!isRecord(note)) return undefined
+  const { message, error } = note
+  if (typeof message !== "string" || typeof error !== "boolean") return undefined
+  return { message, error }
 }
 
 const spoolOf = (stateDirectory: string): string => join(stateDirectory, "spool")

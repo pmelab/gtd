@@ -943,19 +943,25 @@ const tooMany = (
     ? `gtd ${cmd}: too many arguments — expected ${expected}, got: ${rest.join(", ")}`
     : undefined
 
+const pairError = (
+  cmd: string,
+  rest: readonly string[],
+  arity: Extract<Arity, { readonly second: string }>,
+): string | undefined => {
+  if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
+  if ("optional" in arity) {
+    return tooMany(cmd, rest, `a ${arity.name} and at most one ${arity.second}`, 2)
+  }
+  if (rest.length === 1) return `gtd ${cmd}: missing ${arity.second} argument`
+  return tooMany(cmd, rest, `a ${arity.name} and a ${arity.second}`, 2)
+}
+
 const arityError = (cmd: string, rest: readonly string[], arity: Arity): string | undefined => {
   if (arity === "none") return tooMany(cmd, rest, "none", 0)
   if ("bare" in arity) return undefined
-  if ("second" in arity && "optional" in arity) {
-    if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
-    return tooMany(cmd, rest, `a ${arity.name} and at most one ${arity.second}`, 2)
-  }
+  if ("second" in arity) return pairError(cmd, rest, arity)
   if ("optional" in arity) return tooMany(cmd, rest, `at most one ${arity.name}`, 1)
   if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
-  if ("second" in arity) {
-    if (rest.length === 1) return `gtd ${cmd}: missing ${arity.second} argument`
-    return tooMany(cmd, rest, `a ${arity.name} and a ${arity.second}`, 2)
-  }
   return "variadic" in arity ? undefined : tooMany(cmd, rest, `one ${arity.name}`, 1)
 }
 
