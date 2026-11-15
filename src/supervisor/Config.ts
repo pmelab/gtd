@@ -38,7 +38,7 @@ export const findWorkspaceModule = (cwd: string, explicit: string | undefined): 
 }
 
 /** A `gtd.workspace.ts` that does not evaluate or does not check out. */
-export class WorkspaceConfigError extends UiError {
+class WorkspaceConfigError extends UiError {
   constructor(
     file: string,
     readonly findings: readonly string[],
