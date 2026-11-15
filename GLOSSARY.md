@@ -313,3 +313,65 @@ title, a sentence on what it changes and why, and its hunk pointers.
 
 **Hunk**: One `- [ ] ./path/to/file.ts#42-70` pointer inside a chunk — a place
 to look, and a box a reviewer ticks.
+
+### Workspace
+
+**Workspace**: A directory of [projects](#project) that one dashboard covers,
+marked by a `gtd.workspace.ts` at its root. _Avoid_: bench, workbench, fleet
+
+**Project**: One repository in a workspace, with all its worktrees. Its id is
+what the worktrees [adapter](#adapter) reports. _Avoid_: repo (in the
+dashboard), site
+
+**Supervisor**: The one long-running `gtd workspace` process of a workspace. It
+reads every worktree, serves the dashboard and the gate pages, and dispatches.
+It decides nothing about a process. _Avoid_: daemon, server, orchestrator
+
+**Adapter**: The workspace's link to one outside tool: terminal, services,
+worktrees, actions or notifications. Each has a bundled default that a workspace
+can replace. _Avoid_: plugin, provider, backend
+
+**Driver command**: The command the supervisor starts in a worktree to drive its
+process. It takes no arguments and answers `proceed`, `retry` and `quit`.
+_Avoid_: agent command, runner
+
+**Rest id**: The identity of one [rest](#rest): the full HEAD commit and the
+step name. An action with a rest id is refused when a fresh read gives a
+different one. _Avoid_: gate id
+
+**Row**: One worktree on the dashboard, with its status: needs you, working,
+error or idle. _Avoid_: card, tile
+
+**Action**: A command a person can run on a row from the dashboard, with fields
+to fill in. Start actions begin work in an idle worktree. _Avoid_: task (in the
+dashboard), button, command
+
+**Trigger**: Workspace code that looks at a source (a board, a tracker, open
+pull requests) and returns the [items](#item) that match now. _Avoid_: rule,
+watch, poller
+
+**Inbox**: The items a workspace knows about that have not started, or failed to
+start. _Avoid_: queue, backlog
+
+**Item**: One piece of work a trigger found, with the start action that begins
+it. _Avoid_: queue item, ticket, job
+
+**Propose / Queue**: The two modes of a trigger. A proposed item waits for a
+person to Start or [Dismiss](#dismiss) it; a queued item is dispatched without
+one.
+
+**Dispatch**: Starting an item: making or choosing its worktree and running its
+start action, within the limits and pauses. _Avoid_: launch, schedule
+
+**Dismiss**: Hiding a proposed or failed item until its trigger stops returning
+it. _Avoid_: reject, delete
+
+**Mark**: A note or an error that workspace code puts on a row, for things gtd
+does not track itself, such as a failed ship. _Avoid_: event, label, flag
+
+**Reaction**: Workspace code that runs when a row changes, for example to try a
+fix when a row turns to error. _Avoid_: hook, handler, listener
+
+**Integrated**: Said of a worktree whose branch has commits of its own, all of
+them already on the default branch. Only an integrated worktree is cleaned up
+automatically. _Avoid_: merged, done

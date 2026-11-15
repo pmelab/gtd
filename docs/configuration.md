@@ -884,7 +884,7 @@ of `workflow()` (see [Settings](#settings)).
 
 ### `ui`
 
-`config.ui` holds `gtd ui`'s four settings, all optional — a flat struct, so an
+`config.ui` holds `gtd ui`'s five settings, all optional — a flat struct, so an
 unknown sub-key is rejected the same way any other unknown config key is.
 `gtd ui` serves exactly the ONE worktree it is invoked in — there is no
 roots/discovery setting, because there is no fleet to discover:
@@ -907,6 +907,12 @@ roots/discovery setting, because there is no fleet to discover:
   freshly generated throwaway pair, even when both are configured. `--http`
   ignores both: it serves plain HTTP on a loopback bind for a local
   TLS-terminating proxy.
+- **`users`** (array of strings, optional) — the tailnet logins that may use the
+  page. A request from any other login gets 403. The default is the login that
+  owns this node. With `--http`, the local proxy is trusted to check this.
+
+Every request that changes state must be a POST with a JSON body and come from
+the page's own origin.
 
 Flags (`--host`, `--port`, `--self-signed`, `--http`) always override the
 matching `ui` value; see `docs/cli.md`'s `ui` row for the full flag list.

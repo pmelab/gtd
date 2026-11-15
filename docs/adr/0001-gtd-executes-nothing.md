@@ -20,3 +20,20 @@ function of the repository's history.
   configuration of its own for them. Git hooks are the exception: an approval, a
   ship and a `keep: true` turn are built with `git commit-tree`, which runs
   none.
+
+## Amendment: the workspace supervisor
+
+`gtd workspace` is a bundled supervisor, like `gtd ui` is a bundled editor. It
+starts a configured driver command, runs configured actions, and dispatches
+inbox items by running the item's start action. It never decides what happens
+next in a process: the rest still comes only from replay, and only the driver
+and the actions run turns and make commits. Which items exist, and what an
+action does, is userland code in `gtd.workspace.ts`.
+
+- gtd ships no daemon unit. Machine setup starts the supervisor under any
+  process manager.
+- A driver works the same with or without the supervisor. The supervisor reads
+  the driver's status and sends it one-shot commands; it never types into a
+  shell.
+- `gtd.workspace.ts` is code that the supervisor runs in its own process. It has
+  the same trust as `gtd.config.ts`.

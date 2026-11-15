@@ -2,6 +2,8 @@
 
 - [Driving the loop](./driver.md) — running the loop, writing your own driver,
   the minimal reference driver
+- [Workspace](./workspace.md) — `gtd workspace`, the dashboard over many
+  projects, and `gtd.workspace.ts`
 - [CLI reference](./cli.md) — every command and flag, exit codes, the error
   envelope
 - [Configuration](./configuration.md) — `gtd.config.ts` (the workflow and its
