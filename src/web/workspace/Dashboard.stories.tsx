@@ -34,7 +34,21 @@ const inbox = {
       message: "start:work exited 1",
       firstSeen: "2026-01-01T00:00:00.000Z",
     },
+    {
+      feed: "reviews",
+      project: "api",
+      key: "pr-7",
+      title: "Review #7",
+      action: "start:review",
+      priority: 0,
+      blockedBy: [],
+      data: null,
+      state: "queued",
+      firstSeen: "2026-01-01T00:00:00.000Z",
+      message: "2 of 2 drives in use (limits.maxDrives)",
+    },
   ],
+  drives: { inUse: 2, max: 2 },
   feeds: [
     { feed: "boardReady", project: "portal", mode: "propose", every: "5m" },
     {
@@ -153,6 +167,20 @@ export const InboxPressesAnItem: Story = {
         ["dismiss", { feed: "boardReady", key: "2" }],
       ]),
     )
+  },
+}
+
+/** The Inbox shows the drives in use out of maxDrives, and why a queued item waits. */
+export const InboxSaysWhyAnItemWaits: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    await expect((await canvas.findByTestId("drives")).textContent).toBe("2 of 2 drives in use")
+    const queued = canvas.getAllByTestId("inbox-item")[2]
+    await expect(within(queued!).getByTestId("inbox-message").textContent).toBe(
+      "2 of 2 drives in use (limits.maxDrives)",
+    )
+    await expect(within(queued!).queryByRole("button")).not.toBeInTheDocument()
   },
 }
 

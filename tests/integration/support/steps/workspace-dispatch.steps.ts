@@ -48,3 +48,16 @@ Then(
     assert.deepStrictEqual(itemOf(world, handle), JSON.parse(expected))
   },
 )
+
+Given("the command {string} exits {int}", (world: GtdWorld, argv: string, status: number) => {
+  bench(world).commands.set(argv, { status, stdout: "", stderr: "" })
+})
+
+// "2 of 3", or "2" when no `limits.maxDrives` is set.
+Then("the Inbox counts {string} drives in use", async (world: GtdWorld, expected: string) => {
+  const { drives } = await bench(world).inbox()
+  assert.strictEqual(
+    drives.max === undefined ? `${drives.inUse}` : `${drives.inUse} of ${drives.max}`,
+    expected,
+  )
+})

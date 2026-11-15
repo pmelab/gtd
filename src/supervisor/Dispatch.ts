@@ -3,10 +3,11 @@ import {
   type InboxItem,
   type ServicesAdapter,
   type Worktree,
+  type WorkspaceSettings,
   type WorktreesAdapter,
 } from "../workspace/index.js"
 import {
-  approvedItems,
+  dispatchableItems,
   idOf,
   setDispatch,
   type Dispatch,
@@ -33,8 +34,16 @@ export interface DispatchDeps {
   readonly projects: () => readonly ProjectView[]
   /** Reads the project again, so the Projects view shows a new worktree at once. */
   readonly refresh: (project: string) => Promise<void>
+  /** The config as last loaded: its limits apply at each dispatch. */
+  readonly settings: () => WorkspaceSettings
   readonly audit: AuditLog
   readonly now: () => number
+}
+
+/** The drives in use, out of `limits.maxDrives` when it is set. */
+export interface DrivesView {
+  readonly inUse: number
+  readonly max?: number
 }
 
 export interface Dispatcher {
@@ -45,8 +54,9 @@ export interface Dispatcher {
     key: string,
     caller: Caller,
   ) => Promise<boolean>
-  /** Dispatches each started item that can start now, in start order. */
+  /** Dispatches each started or queued item that can start now, in start order. */
   readonly pass: () => Promise<void>
+  readonly drives: () => Promise<DrivesView>
   /** An item is starting in the worktree. */
   readonly starting: (worktree: string) => boolean
   /** The inbox without the started items whose worktree is gone. */
@@ -98,6 +108,59 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
         "its driver runs",
       worktree.dirty !== false && "the tree has uncommitted changes",
     ].filter((reason): reason is string => reason !== false)
+  }
+
+  // The worktrees where a driver runs, by project.
+  const running = async (): Promise<ReadonlyMap<string, readonly string[]>> => {
+    const listed = await Promise.all(
+      deps.projects().map(async (project) => {
+        const runs = await Promise.all(
+          project.worktrees.map(async ({ path }) => {
+            const driver = await deps.drivers.state(path)
+            return driver.kind === "unknown" || (driver.kind === "pane" && driver.pane.alive)
+          }),
+        )
+        return [project.id, project.worktrees.filter((_, i) => runs[i]).map((w) => w.path)] as const
+      }),
+    )
+    return new Map(listed)
+  }
+
+  // The worktrees that hold a drive, by project: a driver runs, or an item is starting in it.
+  const drivesOf = (drivers: ReadonlyMap<string, readonly string[]>): Map<string, Set<string>> => {
+    const inUse = new Map([...drivers].map(([project, paths]) => [project, new Set(paths)]))
+    for (const [id, entry] of deps.feeds.inbox().entries)
+      if (entry.dispatch?.state === "starting")
+        inUse.set(
+          entry.project,
+          (inUse.get(entry.project) ?? new Set()).add(entry.dispatch.worktree ?? id),
+        )
+    return inUse
+  }
+
+  const total = (inUse: ReadonlyMap<string, ReadonlySet<string>>): number =>
+    [...inUse.values()].reduce((n, worktrees) => n + worktrees.size, 0)
+
+  // Why the project's wip holds its items now; none when it does not.
+  const wipHolds = (project: string, used: number): string | undefined => {
+    const { limits, projects } = deps.settings()
+    const own = projects?.[project]?.wip
+    const wip = own ?? limits?.wip
+    if (wip === undefined || used < wip) return undefined
+    const key = own !== undefined ? `projects.${project}.wip` : "limits.wip"
+    return `${project}: ${used} of ${wip} drives in use (${key})`
+  }
+
+  // Why the limits hold an item of the project now; none when it may start.
+  const limited = (
+    project: string,
+    inUse: ReadonlyMap<string, ReadonlySet<string>>,
+  ): string | undefined => {
+    const max = deps.settings().limits?.maxDrives
+    const drives = total(inUse)
+    if (max !== undefined && drives >= max)
+      return `${drives} of ${max} drives in use (limits.maxDrives)`
+    return wipHolds(project, inUse.get(project)?.size ?? 0)
   }
 
   // Drops each started item whose worktree is gone from a project gtd could list.
@@ -171,7 +234,14 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
   const pass = (): Promise<void> => {
     const run = queue.then(async () => {
       deps.feeds.change(endStarted)
-      for (const item of approvedItems(deps.feeds.inbox())) await dispatch(item)
+      // Until every feed has polled, a blocker of another feed may be missing.
+      if (!deps.feeds.ready()) return
+      const drivers = await running()
+      for (const item of dispatchableItems(deps.feeds.inbox())) {
+        const held = limited(item.project, drivesOf(drivers)) ?? (await deps.feeds.canStart(item))
+        if (held === undefined) await dispatch(item)
+        else if (item.message !== held) set(item, { state: "approved", waits: held })
+      }
     })
     queue = run.catch(() => {})
     return run
@@ -195,6 +265,10 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
       return true
     },
     pass,
+    drives: async () => {
+      const max = deps.settings().limits?.maxDrives
+      return { inUse: total(drivesOf(await running())), ...(max !== undefined ? { max } : {}) }
+    },
     starting,
     endStarted,
   }

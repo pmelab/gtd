@@ -361,6 +361,9 @@ to Start or [Dismiss](#dismiss) it; a queued item is dispatched without one.
 **Dispatch**: Starting an item: making or choosing its worktree and running its
 start action, within the limits and pauses. _Avoid_: launch, schedule
 
+**Drive**: A worktree whose driver runs, or where an item is starting. The
+limits `maxDrives` and `wip` count drives. _Avoid_: slot, run, job
+
 **Dismiss**: Hiding a proposed or failed item until its feed stops returning it.
 _Avoid_: reject, delete
 

@@ -11,6 +11,7 @@ import {
   applyPoll,
   dismiss,
   emptyInbox,
+  idOf,
   inboxItems,
   runPoll,
   type Entry,
@@ -40,6 +41,10 @@ export interface FeedRunner {
   readonly inbox: () => Inbox
   /** Changes the inbox; what a person decided is saved. */
   readonly change: (next: (inbox: Inbox) => Inbox) => void
+  /** Runs the item's feed's `canStart`: why it holds the item, `undefined` when it may start. */
+  readonly canStart: (item: InboxItem) => Promise<string | undefined>
+  /** Every feed has polled once since it was added: a blocker of another feed is in the inbox. */
+  readonly ready: () => boolean
 }
 
 export interface FeedDeps {
@@ -74,6 +79,7 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
   let feeds = deps.feeds
   const failing = new Map<string, string>()
   const polling = new Set<string>()
+  const polled = new Set<string>()
 
   const setInbox = (next: Inbox): void => {
     const changed =
@@ -95,18 +101,22 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
     }
   }
 
+  const contextOf = async (name: string, feed: Feed): Promise<FeedContext> => {
+    const cwd = await projectPath(feed.project)
+    return {
+      exec: (argv, options) => deps.exec(argv, options?.cwd ?? cwd),
+      fetch: deps.fetch,
+      log: (message) => deps.log(`feed ${name}: ${message}\n`),
+    }
+  }
+
   const poll = async (name: string, feed: Feed): Promise<void> => {
     // A slow poll is not stacked on itself.
     if (polling.has(name)) return
     polling.add(name)
     try {
-      const cwd = await projectPath(feed.project)
-      const ctx: FeedContext = {
-        exec: (argv, options) => deps.exec(argv, options?.cwd ?? cwd),
-        fetch: deps.fetch,
-        log: (message) => deps.log(`feed ${name}: ${message}\n`),
-      }
-      const outcome = await runPoll(feed, ctx)
+      const outcome = await runPoll(feed, await contextOf(name, feed))
+      polled.add(name)
       if ("failure" in outcome) {
         if (failing.get(name) !== outcome.failure)
           deps.log(`feed ${name} failing: ${outcome.failure}\n`)
@@ -156,6 +166,18 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
     stop,
     inbox: () => inbox,
     change: (next) => setInbox(next(inbox)),
+    canStart: async (item) => {
+      const feed = feeds.get(item.feed)
+      const filed = inbox.entries.get(idOf(item.feed, item.key))?.item
+      if (feed?.canStart === undefined || filed === undefined) return undefined
+      try {
+        if (await feed.canStart(filed, await contextOf(item.feed, feed))) return undefined
+        return "its feed's canStart holds it"
+      } catch (error) {
+        return `its feed's canStart failed: ${error instanceof Error ? error.message : String(error)}`
+      }
+    },
+    ready: () => [...feeds.keys()].every((name) => polled.has(name)),
     replace: (next) => {
       const started = cancels !== undefined
       stop()

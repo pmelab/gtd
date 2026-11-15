@@ -1,7 +1,9 @@
 import { Button } from "../Button.js"
-import type { FeedView, InboxItem } from "./view.js"
+import type { DrivesView, FeedView, InboxItem } from "./view.js"
 
 export type ItemPress = "start" | "retry" | "dismiss"
+
+type OnPress = (press: ItemPress, item: InboxItem) => void
 
 // Start on a proposed item, Retry on a failed one; both can be dismissed.
 const PRESSES: Partial<Record<InboxItem["state"], readonly [ItemPress, string][]>> = {
@@ -15,13 +17,7 @@ const PRESSES: Partial<Record<InboxItem["state"], readonly [ItemPress, string][]
   ],
 }
 
-const Presses = ({
-  item,
-  onPress,
-}: {
-  readonly item: InboxItem
-  readonly onPress: (press: ItemPress, item: InboxItem) => void
-}) => {
+const Presses = ({ item, onPress }: { readonly item: InboxItem; readonly onPress: OnPress }) => {
   const presses = PRESSES[item.state]
   if (presses === undefined) return null
   return (
@@ -41,17 +37,61 @@ const Presses = ({
   )
 }
 
-/** What waits in the inbox, and the feeds whose last poll failed. */
+const Title = ({ item }: { readonly item: InboxItem }) =>
+  item.url === undefined ? (
+    item.title
+  ) : (
+    <a className="text-link" href={item.url} target="_blank" rel="noreferrer">
+      {item.title}
+    </a>
+  )
+
+// Where the item stands, and why it waits or failed.
+const Facts = ({ item }: { readonly item: InboxItem }) => (
+  <>
+    <span className="text-small text-muted">
+      {item.state} · {item.feed} · {item.project}
+      {item.blockedBy.length > 0 ? ` · blocked by ${item.blockedBy.join(", ")}` : ""}
+    </span>
+    {item.message !== undefined && (
+      <span
+        className={`text-small ${item.state === "failed" ? "text-danger" : "text-muted"}`}
+        data-testid="inbox-message"
+      >
+        {item.message}
+      </span>
+    )}
+  </>
+)
+
+const Item = ({ item, onPress }: { readonly item: InboxItem; readonly onPress: OnPress }) => (
+  <article className="flex flex-col gap-1 rounded-lg bg-surface p-3" data-testid="inbox-item">
+    <span>
+      <Title item={item} />
+    </span>
+    <Facts item={item} />
+    <Presses item={item} onPress={onPress} />
+  </article>
+)
+
+/** What waits in the inbox, the drives in use, and the feeds whose last poll failed. */
 export const Inbox = ({
   items,
   feeds,
+  drives,
   onPress,
 }: {
   readonly items: readonly InboxItem[]
   readonly feeds: readonly FeedView[]
-  readonly onPress: (press: ItemPress, item: InboxItem) => void
+  readonly drives: DrivesView
+  readonly onPress: OnPress
 }) => (
   <div className="flex flex-col gap-3">
+    <p className="text-small text-muted" data-testid="drives">
+      {drives.max === undefined
+        ? `${drives.inUse} drives in use`
+        : `${drives.inUse} of ${drives.max} drives in use`}
+    </p>
     {feeds
       .filter((f) => f.failing !== undefined)
       .map((f) => (
@@ -65,31 +105,7 @@ export const Inbox = ({
       ))}
     {items.length === 0 && <p className="py-12 text-center text-muted">The inbox is empty.</p>}
     {items.map((item) => (
-      <article
-        key={`${item.feed}/${item.key}`}
-        className="flex flex-col gap-1 rounded-lg bg-surface p-3"
-        data-testid="inbox-item"
-      >
-        <span>
-          {item.url === undefined ? (
-            item.title
-          ) : (
-            <a className="text-link" href={item.url} target="_blank" rel="noreferrer">
-              {item.title}
-            </a>
-          )}
-        </span>
-        <span className="text-small text-muted">
-          {item.state} · {item.feed} · {item.project}
-          {item.blockedBy.length > 0 ? ` · blocked by ${item.blockedBy.join(", ")}` : ""}
-        </span>
-        {item.message !== undefined && (
-          <span className="text-small text-danger" data-testid="inbox-message">
-            {item.message}
-          </span>
-        )}
-        <Presses item={item} onPress={onPress} />
-      </article>
+      <Item key={`${item.feed}/${item.key}`} item={item} onPress={onPress} />
     ))}
   </div>
 )

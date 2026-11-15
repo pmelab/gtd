@@ -38,6 +38,7 @@ const InboxView = () => {
     <Inbox
       items={inbox.data.items}
       feeds={inbox.data.feeds}
+      drives={inbox.data.drives}
       onPress={(press, item) => {
         mutations[press].mutate({ feed: item.feed, key: item.key })
       }}

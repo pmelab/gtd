@@ -10,6 +10,7 @@ export type Banner = Outputs["banners"][number]
 export type TerminalView = Outputs["terminal"]
 export type InboxItem = Outputs["inbox"]["items"][number]
 export type FeedView = Outputs["inbox"]["feeds"][number]
+export type DrivesView = Outputs["inbox"]["drives"]
 export type Action = Outputs["actions"]["actions"][number]
 export type ActionField = Action["fields"][number]
 

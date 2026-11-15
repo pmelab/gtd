@@ -2,7 +2,7 @@
 export { isFeed, runPoll } from "./feed.js"
 export {
   applyPoll,
-  approvedItems,
+  dispatchableItems,
   dismiss,
   emptyInbox,
   idOf,
