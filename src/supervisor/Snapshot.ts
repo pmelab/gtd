@@ -133,8 +133,8 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
     refreshing = (async () => {
       while (refreshAgain && !closed) {
         refreshAgain = false
-        for (const [id, project] of [...kept]) {
-          for (const [path, before] of [...project.seen]) {
+        for (const [id, project] of kept) {
+          for (const [path, before] of project.seen) {
             const driver = await deps.drivers.state(path)
             // A recheck may have replaced the project meanwhile: write into what is kept now.
             const seen = kept.get(id)?.seen
