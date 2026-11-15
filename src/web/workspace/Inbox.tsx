@@ -1,5 +1,6 @@
 import { Button } from "../Button.js"
-import type { DrivesView, FeedView, InboxItem } from "./view.js"
+import { Pauses } from "./Pauses.js"
+import type { DrivesView, FeedView, InboxItem, PauseScope } from "./view.js"
 
 export type ItemPress = "start" | "retry" | "dismiss"
 
@@ -74,17 +75,21 @@ const Item = ({
   </article>
 )
 
-/** What waits in the inbox, the drives in use, and the feeds whose last poll failed. */
+/** What waits in the inbox, the drives in use, the pauses, and the feeds whose last poll failed. */
 export const Inbox = ({
   items,
   feeds,
   drives,
+  paused,
   onPress,
+  onPause,
 }: {
   readonly items: readonly InboxItem[]
   readonly feeds: readonly FeedView[]
   readonly drives: DrivesView
+  readonly paused: readonly PauseScope[]
   readonly onPress: (press: ItemPress, item: InboxItem) => void
+  readonly onPause: (scope: PauseScope, pause: boolean) => void
 }) => (
   <div className="flex flex-col gap-3">
     <p className="text-small text-muted" data-testid="drives">
@@ -92,6 +97,7 @@ export const Inbox = ({
         ? `${drives.inUse} drives in use`
         : `${drives.inUse} of ${drives.max} drives in use`}
     </p>
+    <Pauses feeds={feeds} paused={paused} onPause={onPause} />
     {feeds
       .filter((f) => f.failing !== undefined)
       .map((f) => (

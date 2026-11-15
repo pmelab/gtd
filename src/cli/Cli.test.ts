@@ -169,6 +169,31 @@ describe("parseArgv — scope", () => {
     }
   })
 
+  it("gtd workspace pause takes at most a project and a feed, and --wait", () => {
+    expect(parseArgv(["node", "gtd.js", "workspace", "pause", "portal", "bugs", "--wait"])).toEqual(
+      expect.objectContaining({
+        command: {
+          kind: "workspaceControl",
+          command: "pause",
+          project: "portal",
+          feed: "bugs",
+          wait: true,
+        },
+      }),
+    )
+    const plan = parseArgv(["node", "gtd.js", "workspace", "pause", "portal", "bugs", "x"])
+    expect(plan.kind === "usage" && plan.message).toBe(
+      "gtd workspace pause: too many arguments — expected at most a project and a feed, got: portal, bugs, x",
+    )
+  })
+
+  it("--wait outside `gtd workspace pause` is rejected", () => {
+    const plan = parseArgv(["node", "gtd.js", "workspace", "resume", "--wait"])
+    expect(plan.kind === "usage" && plan.message).toBe(
+      "gtd: --wait is only valid for `gtd workspace pause`",
+    )
+  })
+
   it("--var outside `gtd start` is rejected", () => {
     for (const args of [
       ["land", "--var", "a=1"],

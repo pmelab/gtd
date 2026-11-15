@@ -19,6 +19,7 @@ import type { AuditLog } from "./Audit.js"
 import { branchProblem } from "./Branch.js"
 import type { Drivers } from "./Drivers.js"
 import type { FeedRunner } from "./Feeds.js"
+import type { PauseScope } from "./Pauses.js"
 import type { ProjectView } from "./Scan.js"
 import { processEnded } from "./Status.js"
 import type { Caller } from "./WorktreeChanges.js"
@@ -38,6 +39,8 @@ export interface DispatchDeps {
   readonly settings: () => WorkspaceSettings
   readonly audit: AuditLog
   readonly now: () => number
+  /** Why a pause holds an item now; none when no pause does. */
+  readonly paused?: (item: InboxItem) => string | undefined
 }
 
 /** The drives in use, out of `limits.maxDrives` when it is set. */
@@ -57,6 +60,8 @@ export interface Dispatcher {
   /** Dispatches each started or queued item that can start now, in start order. */
   readonly pass: () => Promise<void>
   readonly drives: () => Promise<DrivesView>
+  /** The drives in use in the workspace, a project, or among a feed's items in its project. */
+  readonly drivesIn: (scope: PauseScope) => Promise<number>
   /** An item is starting in the worktree. */
   readonly starting: (worktree: string) => boolean
   /** The inbox without the started items whose worktree is gone. */
@@ -238,7 +243,10 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
       if (!deps.feeds.ready()) return
       const drivers = await running()
       for (const item of dispatchableItems(deps.feeds.inbox())) {
-        const held = limited(item.project, drivesOf(drivers)) ?? (await deps.feeds.canStart(item))
+        const held =
+          deps.paused?.(item) ??
+          limited(item.project, drivesOf(drivers)) ??
+          (await deps.feeds.canStart(item))
         if (held === undefined) await dispatch(item)
         else if (item.message !== held) set(item, { state: "approved", waits: held })
       }
@@ -268,6 +276,24 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     drives: async () => {
       const max = deps.settings().limits?.maxDrives
       return { inUse: total(drivesOf(await running())), ...(max !== undefined ? { max } : {}) }
+    },
+    drivesIn: async ({ project, feed }) => {
+      const inUse = drivesOf(await running())
+      if (project === undefined) return total(inUse)
+      const worktrees = [...(inUse.get(project) ?? [])]
+      if (feed === undefined) return worktrees.length
+      const ofFeed = new Set(
+        [...deps.feeds.inbox().entries]
+          .filter(([, entry]) => entry.feed === feed && entry.project === project)
+          .flatMap(([id, { dispatch }]) =>
+            dispatch?.state === "started"
+              ? [dispatch.worktree]
+              : dispatch?.state === "starting"
+                ? [dispatch.worktree ?? id]
+                : [],
+          ),
+      )
+      return worktrees.filter((worktree) => ofFeed.has(worktree)).length
     },
     starting,
     endStarted,

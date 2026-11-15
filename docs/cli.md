@@ -33,6 +33,10 @@ Inspect:
                             Press Retry on a worktree
   workspace note <worktree> [message]
                             Put a note on a worktree
+  workspace pause [project [feed]]
+                            Pause dispatch
+  workspace resume [project [feed]]
+                            Resume dispatch
 
 Driver plumbing:
   guide                     Print a briefing for writing a driver
@@ -663,6 +667,50 @@ Options:
   --error             Make it an error note: the worktree status becomes an
                       error of kind note
   --clear             Take the worktree's note off
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace pause`
+
+```
+Usage: gtd workspace pause [project [feed]] [options]
+
+Pause dispatch in the workspace, in the project <project>, or for its feed
+<feed>, as the dashboard's Inbox does: no item in that scope starts until
+`gtd workspace resume` with the same words. An item a pause holds waits, queued.
+Drivers that run go on; with --wait the command returns once no driver runs in
+that scope, for example before a deploy. The pause stays when the supervisor
+restarts.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is
+innermost from the current directory, or the one --config names, through a unix
+socket only you may open. An unknown project or feed exits 1; so does a
+supervisor that is not running.
+
+Options:
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
+  --wait              Return once no driver runs in that scope
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace resume`
+
+```
+Usage: gtd workspace resume [project [feed]] [options]
+
+Take off the pause that `gtd workspace pause` with the same words put on, and
+start the items it held that can start now. A pause of a wider scope still holds
+them.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is
+innermost from the current directory, or the one --config names, through a unix
+socket only you may open. An unknown project or feed exits 1; so does a
+supervisor that is not running.
+
+Options:
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
   -v, --verbose       Narrate on stderr what gtd resolved
 ```
 
