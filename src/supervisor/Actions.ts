@@ -56,6 +56,8 @@ export interface ActionRuns {
     id: string,
     values: unknown,
     env?: Readonly<Record<string, string>>,
+    /** Told how the action ended, once its exit is known (`exit: null` when it is not). */
+    ended?: (run: ActionRun) => void,
   ) => Promise<void>
   readonly last: (worktree: string) => ActionRun | undefined
   /** The handles of the action panes gtd opened in the worktree while it runs. */
@@ -192,9 +194,13 @@ export const actionRuns = (deps: ActionRunsDeps): ActionRuns => {
     action: Action,
     handle: string,
     env: Readonly<Record<string, string>>,
+    ended: (run: ActionRun) => void,
   ): Promise<void> => {
-    const set = (run: Omit<ActionRun, "id" | "label">): void =>
-      void runs.set(path, { id: action.id, label: action.label, ...run })
+    const set = (fields: Omit<ActionRun, "id" | "label">): void => {
+      const run = { id: action.id, label: action.label, ...fields }
+      runs.set(path, run)
+      ended(run)
+    }
     try {
       const code = await exitOf(handle)
       if (code === undefined) {
@@ -214,7 +220,7 @@ export const actionRuns = (deps: ActionRunsDeps): ActionRuns => {
       const { status, actions } = await offered(path)
       return { status: status.status, actions }
     },
-    run: async (project, path, id, values, env = {}) => {
+    run: async (project, path, id, values, env = {}, ended = () => {}) => {
       const worktree = await worktreeOf(project, path)
       const { status, actions } = await offered(path)
       const action =
@@ -229,7 +235,7 @@ export const actionRuns = (deps: ActionRunsDeps): ActionRuns => {
         })
         opened.set(path, [...(opened.get(path) ?? []), handle])
         runs.set(path, { id, label: action.label, exit: null })
-        void follow(project, path, action, handle, env)
+        void follow(project, path, action, handle, env, ended)
       } catch (error) {
         runs.set(path, { id, label: action.label, exit: null, message: messageOf(error) })
         throw error

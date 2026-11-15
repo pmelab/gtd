@@ -128,8 +128,17 @@ When("I dismiss {string} in the Inbox", async (world: GtdWorld, ref: string) => 
 
 Then("the Inbox lists:", async (world: GtdWorld, table: DataTable) => {
   const { items } = await bench(world).inbox()
+  // Compares the columns the table has, such as `message`.
+  const columns: readonly string[] = table.raw()[0] ?? []
   assert.deepStrictEqual(
-    items.map(({ feed, key, title, state }) => ({ feed, key, title, state })),
+    items.map((item) =>
+      Object.fromEntries(
+        columns.map((column) => [
+          column,
+          (item as unknown as Record<string, string | undefined>)[column] ?? "",
+        ]),
+      ),
+    ),
     table.hashes(),
   )
 })

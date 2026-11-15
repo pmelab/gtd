@@ -5,7 +5,7 @@ import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { Dashboard } from "./Dashboard.js"
 import { workspace } from "./dashboard.fixture.js"
 
-const dismissed: unknown[] = []
+const pressed: unknown[] = []
 
 const inbox = {
   items: [
@@ -19,6 +19,19 @@ const inbox = {
       blockedBy: [],
       data: null,
       state: "proposed",
+      firstSeen: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      feed: "boardReady",
+      project: "portal",
+      key: "2",
+      title: "Fix signup",
+      action: "start:work",
+      priority: 0,
+      blockedBy: [],
+      data: null,
+      state: "failed",
+      message: "start:work exited 1",
       firstSeen: "2026-01-01T00:00:00.000Z",
     },
   ],
@@ -49,7 +62,13 @@ const meta: Meta<typeof Dashboard> = {
           ],
           inbox: () => inbox,
           dismiss: (input) => {
-            dismissed.push(input)
+            pressed.push(["dismiss", input])
+          },
+          startItem: (input) => {
+            pressed.push(["start", input])
+          },
+          retryItem: (input) => {
+            pressed.push(["retry", input])
           },
           terminal: () => ({}),
         }}
@@ -110,19 +129,30 @@ export const DetailBesideTheListOnADesktop: Story = {
   },
 }
 
-/** The Inbox lists what waits, reports failing feeds, and dismisses a proposed item. */
-export const InboxDismissesAProposedItem: Story = {
+/** The Inbox lists what waits and reports failing feeds; it starts or dismisses a proposed item and retries a failed one. */
+export const InboxStartsRetriesAndDismisses: Story = {
   play: async ({ canvasElement }) => {
-    dismissed.length = 0
+    pressed.length = 0
     const canvas = within(canvasElement)
     await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
-    const item = await canvas.findByTestId("inbox-item")
-    await expect(item.textContent).toContain("proposed · boardReady · portal")
+    const [proposed, failed] = await canvas.findAllByTestId("inbox-item")
+    await expect(proposed!.textContent).toContain("proposed · boardReady · portal")
+    await expect(within(failed!).getByTestId("inbox-message").textContent).toBe(
+      "start:work exited 1",
+    )
     await expect(canvas.getByTestId("feed-failing").textContent).toBe(
       "feed reviews failing: gh: not logged in",
     )
-    await userEvent.click(within(item).getByRole("button", { name: "Dismiss" }))
-    await waitFor(() => expect(dismissed).toEqual([{ feed: "boardReady", key: "1" }]))
+    await userEvent.click(within(proposed!).getByRole("button", { name: "Start" }))
+    await userEvent.click(within(proposed!).getByRole("button", { name: "Dismiss" }))
+    await userEvent.click(within(failed!).getByRole("button", { name: "Retry" }))
+    await waitFor(() =>
+      expect(pressed).toEqual([
+        ["start", { feed: "boardReady", key: "1" }],
+        ["dismiss", { feed: "boardReady", key: "1" }],
+        ["retry", { feed: "boardReady", key: "2" }],
+      ]),
+    )
   },
 }
 

@@ -1,15 +1,30 @@
 import { Button } from "../Button.js"
 import type { FeedView, InboxItem } from "./view.js"
 
+export type InboxPress = "start" | "retry" | "dismiss"
+
+const pressesOf = (item: InboxItem): readonly (readonly [InboxPress, string])[] =>
+  item.state === "proposed"
+    ? [
+        ["start", "Start"],
+        ["dismiss", "Dismiss"],
+      ]
+    : item.state === "failed"
+      ? [
+          ["retry", "Retry"],
+          ["dismiss", "Dismiss"],
+        ]
+      : []
+
 /** What waits in the inbox, and the feeds whose last poll failed. */
 export const Inbox = ({
   items,
   feeds,
-  onDismiss,
+  onPress,
 }: {
   readonly items: readonly InboxItem[]
   readonly feeds: readonly FeedView[]
-  readonly onDismiss: (item: InboxItem) => void
+  readonly onPress: (press: InboxPress, item: InboxItem) => void
 }) => (
   <div className="flex flex-col gap-3">
     {feeds
@@ -43,16 +58,24 @@ export const Inbox = ({
           {item.state} · {item.feed} · {item.project}
           {item.blockedBy.length > 0 ? ` · blocked by ${item.blockedBy.join(", ")}` : ""}
         </span>
-        {item.state === "proposed" && (
+        {item.message !== undefined && (
+          <span className="text-small text-muted" data-testid="inbox-message">
+            {item.message}
+          </span>
+        )}
+        {pressesOf(item).length > 0 && (
           <div className="flex gap-2 pt-1">
-            <Button
-              variant="ghost"
-              onClick={() => {
-                onDismiss(item)
-              }}
-            >
-              Dismiss
-            </Button>
+            {pressesOf(item).map(([press, label]) => (
+              <Button
+                key={press}
+                variant={press === "dismiss" ? "ghost" : "primary"}
+                onClick={() => {
+                  onPress(press, item)
+                }}
+              >
+                {label}
+              </Button>
+            ))}
           </div>
         )}
       </article>

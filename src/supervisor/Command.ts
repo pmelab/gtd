@@ -18,6 +18,7 @@ import { actionRuns } from "./Actions.js"
 import { auditLog } from "./Audit.js"
 import { findWorkspaceModule, loadWorkspace, reloadWorkspace } from "./Config.js"
 import { controls } from "./Controls.js"
+import { dispatcher } from "./Dispatch.js"
 import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf } from "./Gate.js"
 import { acquireLock, stateDirectory } from "./Lock.js"
@@ -127,17 +128,6 @@ export const runWorkspaceCommand = (
         now: clock.now,
       })
       const projects = () => control.withRefusals(snapshot.projects())
-      const changes = worktreeChanges({
-        worktrees,
-        services,
-        terminal,
-        drivers: driverRuns,
-        next: host.next,
-        panes: actions.panes,
-        refresh: snapshot.refresh,
-        audit,
-        now: clock.now,
-      })
       const socket = yield* Effect.tryPromise({
         try: () =>
           serveSocket(socketPath(directory), async (request) => {
@@ -175,6 +165,32 @@ export const runWorkspaceCommand = (
           out.write(line)
           out.flush()
         },
+        ended: (inbox) => dispatch.endStarted(inbox),
+        polled: () => dispatch.pass(),
+      })
+      const dispatch = dispatcher({
+        feeds,
+        worktrees,
+        services,
+        actions,
+        drivers: driverRuns,
+        next: host.next,
+        projects: snapshot.projects,
+        refresh: snapshot.refresh,
+        audit,
+        now: clock.now,
+      })
+      const changes = worktreeChanges({
+        worktrees,
+        services,
+        terminal,
+        drivers: driverRuns,
+        next: host.next,
+        panes: actions.panes,
+        starting: dispatch.starting,
+        refresh: snapshot.refresh,
+        audit,
+        now: clock.now,
       })
 
       const reload = reloadWorkspace({
@@ -257,6 +273,7 @@ export const runWorkspaceCommand = (
                   endpoint: path,
                 }),
               worktreeChanges: changes,
+              dispatch,
               caller: { identity: identity ?? "-", endpoint: path },
             }),
           })

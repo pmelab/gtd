@@ -13,6 +13,7 @@ import {
   emptyInbox,
   inboxItems,
   runPoll,
+  type Entry,
   type Inbox,
 } from "../workspace/internal.js"
 import type { Store } from "./Store.js"
@@ -36,6 +37,9 @@ export interface FeedRunner {
   readonly stop: () => void
   /** Polls these feeds from now on, each at once, keeping the inbox. */
   readonly replace: (feeds: ReadonlyMap<string, Feed>) => void
+  readonly inbox: () => Inbox
+  /** Changes the inbox; what a person decided is saved. */
+  readonly change: (next: (inbox: Inbox) => Inbox) => void
 }
 
 export interface FeedDeps {
@@ -48,11 +52,25 @@ export interface FeedDeps {
   readonly every: (ms: number, task: () => Promise<void>) => () => void
   readonly store: Store
   readonly log: (line: string) => void
+  /** Drops the items that ended, before a poll applies, so the poll can file their keys anew. */
+  readonly ended?: (inbox: Inbox) => Inbox
+  /** Runs after each successful poll; the poll ends when it returns. */
+  readonly polled?: () => Promise<void>
 }
+
+// An item the last supervisor left starting never reports how its start ended.
+const restored = (entry: Entry): Entry =>
+  entry.dispatch?.state === "starting"
+    ? { ...entry, dispatch: { state: "failed", message: "gtd stopped while the item started" } }
+    : entry
+
+const keptJson = (inbox: Inbox): string =>
+  JSON.stringify([...inbox.entries.values()].filter((entry) => entry.dispatch !== undefined))
 
 /** Polls every feed on its own schedule and keeps the inbox from the results. */
 export const feedRunner = (deps: FeedDeps): FeedRunner => {
-  let inbox: Inbox = emptyInbox(deps.store.dismissed())
+  let inbox: Inbox = emptyInbox(deps.store.dismissed(), deps.store.items().map(restored))
+  let saved = keptJson(inbox)
   let feeds = deps.feeds
   const failing = new Map<string, string>()
   const polling = new Set<string>()
@@ -63,6 +81,9 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
       [...next.dismissed].some((id) => !inbox.dismissed.has(id))
     inbox = next
     if (changed) deps.store.saveDismissed(inbox.dismissed)
+    const kept = keptJson(inbox)
+    if (kept !== saved) deps.store.saveItems(JSON.parse(kept) as Entry[])
+    saved = kept
   }
 
   // The project's main checkout, where a feed's commands run by default.
@@ -93,8 +114,9 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
         return
       }
       const source = { feed: name, project: feed.project, mode: feed.mode }
-      setInbox(applyPoll(inbox, source, outcome.items, deps.now()))
+      setInbox(applyPoll(deps.ended?.(inbox) ?? inbox, source, outcome.items, deps.now()))
       failing.delete(name)
+      await deps.polled?.()
     } finally {
       polling.delete(name)
     }
@@ -132,6 +154,8 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
     },
     start,
     stop,
+    inbox: () => inbox,
+    change: (next) => setInbox(next(inbox)),
     replace: (next) => {
       const started = cancels !== undefined
       stop()
