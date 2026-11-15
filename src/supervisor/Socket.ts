@@ -50,16 +50,28 @@ const MAX_REQUEST_BYTES = 64 * 1024
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null
 
-const parseRequest = (line: string): ControlRequest | undefined => {
-  let value: unknown
+const parseJson = (line: string): unknown => {
   try {
-    value = JSON.parse(line)
+    return JSON.parse(line)
   } catch {
     return undefined
   }
+}
+
+const parseRequest = (line: string): ControlRequest | undefined => {
+  const value = parseJson(line)
   if (!isRecord(value)) return undefined
-  const { command, worktree, commit, note } = value
+  const { command } = value
   if (command === "pause" || command === "resume") return parsePause(command, value)
+  return parseWorktreeRequest(value)
+}
+
+const parseWorktreeRequest = ({
+  command,
+  worktree,
+  commit,
+  note,
+}: Record<string, unknown>): ControlRequest | undefined => {
   if (typeof worktree !== "string") return undefined
   if (command === "note") {
     const parsed = parseNote(note)

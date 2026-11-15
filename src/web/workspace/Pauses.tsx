@@ -21,6 +21,36 @@ const scopesOf = (feeds: readonly FeedView[]): PauseScope[] => {
   ]
 }
 
+const ScopeRow = ({
+  scope,
+  paused,
+  onPause,
+}: {
+  readonly scope: PauseScope
+  readonly paused: boolean
+  readonly onPause: (scope: PauseScope, pause: boolean) => void
+}) => (
+  <li
+    className={`flex items-center justify-between gap-2 text-small ${indentOf(scope)}`}
+    data-testid="pause-scope"
+  >
+    <span>
+      {nameOf(scope)}
+      <span className={paused ? "text-warning" : "text-muted"}>
+        {paused ? " · paused" : " · dispatching"}
+      </span>
+    </span>
+    <Button
+      variant="secondary"
+      onClick={() => {
+        onPause(scope, !paused)
+      }}
+    >
+      {paused ? "Resume" : "Pause"}
+    </Button>
+  </li>
+)
+
 /** Pause and resume dispatch in the workspace, a project, or a feed. */
 export const Pauses = ({
   feeds,
@@ -32,30 +62,13 @@ export const Pauses = ({
   readonly onPause: (scope: PauseScope, pause: boolean) => void
 }) => (
   <ul className="flex flex-col gap-1" aria-label="Dispatch">
-    {scopesOf(feeds).map((scope) => {
-      const isPaused = paused.some((p) => same(p, scope))
-      return (
-        <li
-          key={`${scope.project ?? ""}/${scope.feed ?? ""}`}
-          className={`flex items-center justify-between gap-2 text-small ${indentOf(scope)}`}
-          data-testid="pause-scope"
-        >
-          <span>
-            {nameOf(scope)}
-            <span className={isPaused ? "text-warning" : "text-muted"}>
-              {isPaused ? " · paused" : " · dispatching"}
-            </span>
-          </span>
-          <Button
-            variant="secondary"
-            onClick={() => {
-              onPause(scope, !isPaused)
-            }}
-          >
-            {isPaused ? "Resume" : "Pause"}
-          </Button>
-        </li>
-      )
-    })}
+    {scopesOf(feeds).map((scope) => (
+      <ScopeRow
+        key={`${scope.project ?? ""}/${scope.feed ?? ""}`}
+        scope={scope}
+        paused={paused.some((p) => same(p, scope))}
+        onPause={onPause}
+      />
+    ))}
   </ul>
 )

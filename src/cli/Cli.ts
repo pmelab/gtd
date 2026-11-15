@@ -678,10 +678,18 @@ const OPTION_COLUMN = 22
 
 const synopsis = (row: CommandRow): string => {
   const { token, arity } = row
+  if (arity !== "none" && "bare" in arity && "second" in arity) {
+    return `${token} [${arity.name} [${arity.second}]]`
+  }
+  return pairlessSynopsis(token, arity)
+}
+
+const pairlessSynopsis = (token: string, arity: Arity): string => {
   if (arity === "none") return token
-  if ("bare" in arity && "second" in arity) return `${token} [${arity.name} [${arity.second}]]`
-  if ("bare" in arity) return `${token} [${arity.name}] [${arity.variadic}...]`
-  if ("variadic" in arity) return `${token} <${arity.name}> [${arity.variadic}...]`
+  if ("variadic" in arity) {
+    const name = "bare" in arity ? `[${arity.name}]` : `<${arity.name}>`
+    return `${token} ${name} [${arity.variadic}...]`
+  }
   if ("second" in arity && "optional" in arity) {
     return `${token} <${arity.name}> [${arity.second}]`
   }
