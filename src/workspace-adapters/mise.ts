@@ -5,6 +5,7 @@ import {
   type ActionField,
   type ActionsAdapter,
   type ActionStatus,
+  type ActionValues,
 } from "../workspace/index.js"
 
 export interface MiseOptions {
@@ -94,6 +95,61 @@ const visible = <A extends { readonly hide?: boolean }>(items: readonly A[] | un
   (items ?? []).filter((item) => item.hide !== true)
 
 /**
+ * usage reads a flag's value that spells one of the task's flags as that
+ * flag, even after `=`, and drops a `--`.
+ */
+const misreadAsFlag = (flags: readonly UsageFlag[]): ((value: string) => boolean) => {
+  const spellings = new Set(
+    flags.flatMap((f) => [
+      ...(f.long ?? []).map((l) => `--${l}`),
+      ...(f.short ?? []).map((s) => `-${s}`),
+    ]),
+  )
+  return (value) =>
+    value === "--" ||
+    spellings.has(value.split("=")[0]!) ||
+    (/^-[^-]/.test(value) && spellings.has(value.slice(0, 2)))
+}
+
+const flagArgs = (
+  flags: readonly UsageFlag[],
+  values: ActionValues,
+  refuse: (message: string) => never,
+): string[] => {
+  const misread = misreadAsFlag(flags)
+  return visible(flags).flatMap((flag) => {
+    const value = values[flag.name]
+    const long = flag.long?.[0] ?? flag.name
+    if (value === undefined || value === "") return []
+    if (value === true) return [`--${long}`]
+    if (misread(value)) refuse(`${flag.name}: mise would read ${JSON.stringify(value)} as a flag`)
+    return [`--${long}=${value}`]
+  })
+}
+
+const positionalArgs = (
+  args: readonly UsageArg[],
+  values: ActionValues,
+  refuse: (message: string) => never,
+): string[] => {
+  const given: string[] = []
+  let skipped: string | undefined
+  for (const arg of visible(args)) {
+    const value = values[arg.name]
+    if (typeof value !== "string") {
+      skipped ??= arg.name
+      continue
+    }
+    // Arguments are positional: one left empty shifts every later one.
+    if (skipped !== undefined) refuse(`${arg.name} needs ${skipped} filled in`)
+    // usage drops a `--` it finds after the separator.
+    if (value === "--") refuse(`${arg.name}: mise cannot pass "--" as a value`)
+    given.push(value)
+  }
+  return given
+}
+
+/**
  * The actions adapter over mise tasks: `start:*`, `gate:*`, `error:*` and
  * `any:*` are the actions for idle, needs-you, error and any worktree status.
  * A task's usage spec gives the fields; its description is the label.
@@ -156,43 +212,17 @@ export const mise = (options: MiseOptions = {}): ActionsAdapter => {
     argv: async (worktree, id, values) => {
       if (statusOf(id) === undefined) fail("argv", `${id} is not an action`)
       const cmd = (await info("argv", worktree, id)).usage_spec?.cmd
-      const spellings = new Set(
-        (cmd?.flags ?? []).flatMap((f) => [
-          ...(f.long ?? []).map((l) => `--${l}`),
-          ...(f.short ?? []).map((s) => `-${s}`),
-        ]),
-      )
-      // usage reads a flag's value that spells one of the task's flags as
-      // that flag, even after `=`.
-      const misread = (value: string): boolean =>
-        value === "--" ||
-        spellings.has(value.split("=")[0]!) ||
-        (/^-[^-]/.test(value) && spellings.has(value.slice(0, 2)))
-      const flags = visible(cmd?.flags).flatMap((flag) => {
-        const value = values[flag.name]
-        const long = flag.long?.[0] ?? flag.name
-        if (value === undefined || value === "") return []
-        if (value !== true && misread(value)) {
-          fail("argv", `${flag.name}: mise would read ${JSON.stringify(value)} as a flag`)
-        }
-        return value === true ? [`--${long}`] : [`--${long}=${value}`]
-      })
-      const args: string[] = []
-      let skipped: string | undefined
-      for (const arg of visible(cmd?.args)) {
-        const value = values[arg.name]
-        if (typeof value !== "string") {
-          skipped ??= arg.name
-          continue
-        }
-        // Arguments are positional: one left empty shifts every later one.
-        if (skipped !== undefined) fail("argv", `${arg.name} needs ${skipped} filled in`)
-        // usage drops a `--` it finds after the separator.
-        if (value === "--") fail("argv", `${arg.name}: mise cannot pass "--" as a value`)
-        args.push(value)
-      }
+      const refuse = (message: string): never => fail("argv", message)
       // The first `--` ends mise's own options; the second ends the task's flags.
-      return [bin, "run", id, "--", ...flags, "--", ...args]
+      return [
+        bin,
+        "run",
+        id,
+        "--",
+        ...flagArgs(cmd?.flags ?? [], values, refuse),
+        "--",
+        ...positionalArgs(cmd?.args ?? [], values, refuse),
+      ]
     },
   }
 }

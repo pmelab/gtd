@@ -72,25 +72,28 @@ const refuse = (reason: ActionRefusalReason, message: string): never => {
 const isOffered = (action: Action, status: StatusName): boolean =>
   action.status === "any" || action.status === status
 
-const checkField = (field: ActionField, value: unknown): string | true | undefined => {
-  if (field.type === "flag") {
-    if (typeof value !== "boolean" && value !== undefined) {
-      refuse("invalid", `${field.name} must be true or false`)
-    }
-    return value === true ? true : undefined
+const checkFlag = (field: ActionField, value: unknown): true | undefined => {
+  if (typeof value !== "boolean" && value !== undefined) {
+    refuse("invalid", `${field.name} must be true or false`)
   }
-  if (typeof value !== "string" && value !== undefined) {
-    refuse("invalid", `${field.name} must be a string`)
-  }
-  if (value === undefined || value === "") return undefined
-  if (field.type === "select" && !(field.choices ?? []).includes(value as string)) {
-    refuse("invalid", `${field.name} must be one of ${(field.choices ?? []).join(", ")}`)
-  }
-  return value as string
+  return value === true ? true : undefined
 }
 
+const checkText = (field: ActionField, value: unknown): string | undefined => {
+  if (value === undefined || value === "") return undefined
+  if (typeof value !== "string") return refuse("invalid", `${field.name} must be a string`)
+  const choices = field.choices ?? []
+  if (field.type === "select" && !choices.includes(value)) {
+    refuse("invalid", `${field.name} must be one of ${choices.join(", ")}`)
+  }
+  return value
+}
+
+const checkField = (field: ActionField, value: unknown): string | true | undefined =>
+  field.type === "flag" ? checkFlag(field, value) : checkText(field, value)
+
 /** The values a person gave, checked against the action's fields; empty ones left out. */
-export const checkValues = (fields: readonly ActionField[], values: unknown): ActionValues => {
+const checkValues = (fields: readonly ActionField[], values: unknown): ActionValues => {
   if (typeof values !== "object" || values === null || Array.isArray(values)) {
     return refuse("invalid", "values must be an object")
   }

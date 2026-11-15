@@ -89,14 +89,10 @@ When("the action in {string} exits {int}", async (world: GtdWorld, ref: string, 
   const b = bench(world)
   b.terminal.exit(await b.actionPaneOf(ref), code)
   const path = await b.pathOf(ref)
-  for (let i = 0; i < 200; i++) {
-    const shown = (await b.projects())
-      .flatMap((p) => p.worktrees)
-      .find((w) => w.path === path)?.action
-    if (shown?.exit === code) return
-    await delay(10)
-  }
-  assert.fail(`the supervisor never showed exit ${code} in ${ref}`)
+  const shownExit = async () =>
+    (await b.projects()).flatMap((p) => p.worktrees).find((w) => w.path === path)?.action?.exit
+  for (let i = 0; i < 200 && (await shownExit()) !== code; i++) await delay(10)
+  assert.strictEqual(await shownExit(), code, `the supervisor never showed exit ${code} in ${ref}`)
 })
 
 Then("the Projects view shows these last actions:", async (world: GtdWorld, table: DataTable) => {
