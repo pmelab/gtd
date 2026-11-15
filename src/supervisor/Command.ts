@@ -59,11 +59,10 @@ interface ControlDeps {
   readonly control: Controls
   readonly notify: Notifier
   readonly projects: () => readonly ProjectView[]
+  readonly noteChanged: () => void
   readonly pauses: Pauses
   readonly dispatch: Dispatcher
   readonly after: (ms: number, run: () => void) => () => void
-  /** Called after a note changed, so reactions see it. */
-  readonly noteChanged: () => void
 }
 
 const reply = (refusal: string | undefined): ControlReply =>
@@ -325,10 +324,10 @@ export const runWorkspaceCommand = (
         control,
         notify,
         projects: snapshot.projects,
+        noteChanged: () => reactions.worktrees(noted.withNotes(snapshot.projects())),
         pauses: paused,
         dispatch,
         after: host.after,
-        noteChanged: () => reactions.worktrees(noted.withNotes(snapshot.projects())),
       })
       // Before the socket opens: a spooled note is older than any sent to it.
       const spoolRefusals = yield* Effect.tryPromise({
