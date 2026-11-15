@@ -12,6 +12,7 @@ interface Branch {
   head: string
   /** Commits made on this branch since it was created. */
   readonly own: string[]
+  dirty: boolean
 }
 
 interface ProjectState {
@@ -30,6 +31,8 @@ export interface InMemoryWorktrees {
   readonly addWorktree: (project: string, branch: string, path?: string) => string
   readonly commit: (project: string, branch: string) => void
   readonly merge: (project: string, branch: string) => void
+  /** The worktree's tree has changes that are not committed, or no longer has them. */
+  readonly dirty: (project: string, branch: string, dirty: boolean) => void
   /** A hint on every open watch stream. Each change above gives one, as a real tool's watch would. */
   readonly hint: (project?: string) => void
   /** Ends every open watch stream. */
@@ -113,7 +116,17 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
       main,
       integrated:
         !main && branch.own.length > 0 && branch.own.every((c) => project.integrated.has(c)),
+      dirty: branch.dirty,
     }
+  }
+  const failure = (op: string, message: string): AdapterError =>
+    new AdapterError({ adapter: "worktrees", op, message })
+  const addBranch = (id: string, project: ProjectState, branch: string, path?: string): string => {
+    const at = path ?? `${project.path}.wt/${branch}`
+    const base = branchOf(project, project.defaultBranch)
+    project.branches.set(branch, { path: at, head: base.head, own: [], dirty: false })
+    hint(id)
+    return at
   }
 
   const adapter: WorktreesAdapter = {
@@ -131,6 +144,23 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
         throw new AdapterError({ adapter: "worktrees", op: "list", message })
       return [...project.branches].map(([name, branch]) => worktreeOf(project, name, branch))
     },
+    create: async (id, branch) => {
+      const project = projectOf(id, "create")
+      if (project.branches.has(branch)) throw failure("create", `a branch named ${branch} exists`)
+      return addBranch(id, project, branch)
+    },
+    remove: async (id, path, { force }) => {
+      const project = projectOf(id, "remove")
+      const found = [...project.branches].find(([, branch]) => branch.path === path)
+      if (found === undefined) throw failure("remove", `no worktree at ${path}`)
+      const [name, branch] = found
+      if (name === project.defaultBranch) throw failure("remove", "the main checkout stays")
+      if (branch.dirty && !force) throw failure("remove", `${path} has uncommitted changes`)
+      const merged = branch.own.every((c) => project.integrated.has(c))
+      if (!merged && !force) throw failure("remove", `${name} is not merged`)
+      project.branches.delete(name)
+      hint(id)
+    },
     watch,
   }
 
@@ -141,19 +171,12 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
       projects.set(id, {
         path,
         defaultBranch,
-        branches: new Map([[defaultBranch, { path, head, own: [] }]]),
+        branches: new Map([[defaultBranch, { path, head, own: [], dirty: false }]]),
         integrated: new Set([head]),
       })
       hint()
     },
-    addWorktree: (id, branch, path) => {
-      const project = projectOf(id, "create")
-      const at = path ?? `${project.path}.wt/${branch}`
-      const base = branchOf(project, project.defaultBranch)
-      project.branches.set(branch, { path: at, head: base.head, own: [] })
-      hint(id)
-      return at
-    },
+    addWorktree: (id, branch, path) => addBranch(id, projectOf(id, "create"), branch, path),
     commit: (id, name) => {
       const branch = branchOf(projectOf(id, "commit"), name)
       branch.head = nextCommit()
@@ -169,6 +192,9 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
       base.head = nextCommit()
       project.integrated.add(base.head)
       hint(id)
+    },
+    dirty: (id, name, dirty) => {
+      branchOf(projectOf(id, "dirty"), name).dirty = dirty
     },
     hint,
     endWatch: () => {
@@ -194,6 +220,7 @@ export const inMemoryWorktreesHarness: WorktreesHarness = {
       addWorktree: async (branch) => void twin.addWorktree("demo", branch),
       commit: async (branch) => twin.commit("demo", branch),
       merge: async (branch) => twin.merge("demo", branch),
+      makeDirty: async (branch) => twin.dirty("demo", branch, true),
       dispose: async () => {},
     }
   },

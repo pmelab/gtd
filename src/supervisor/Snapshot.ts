@@ -35,6 +35,8 @@ export interface Snapshot {
   readonly banners: () => readonly Banner[]
   /** Runs `gtd next` in the worktree at once, in turn with its project's other rechecks. */
   readonly recheckWorktree: (path: string) => void
+  /** Lists the project again at once, and runs `gtd next` where HEAD moved or the worktree is new. */
+  readonly refresh: (project: string) => Promise<void>
   /** Subscribes to the watches, starts orphaned drivers and reads the full snapshot. */
   readonly start: () => Promise<void>
   readonly close: () => void
@@ -339,6 +341,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
       const project = [...kept].find(([, p]) => p.worktrees.some((w) => w.path === path))
       if (project !== undefined) void request(project[0], false, path)
     },
+    refresh: (project) => request(project, false),
     start: async () => {
       const watch = deps.worktrees.watch
       const pollMs = durationMs(deps.settings().pollEvery ?? DEFAULT_POLL)

@@ -14,6 +14,7 @@ import {
   type UiShell,
 } from "../ui/index.js"
 import { actionRuns } from "./Actions.js"
+import { auditLog } from "./Audit.js"
 import { findWorkspaceModule, loadWorkspace, reloadWorkspace } from "./Config.js"
 import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf } from "./Gate.js"
@@ -24,6 +25,7 @@ import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
 import { liveSnapshot, type Banner } from "./Snapshot.js"
+import { worktreeChanges } from "./WorktreeChanges.js"
 import { worktreeStatus } from "./Status.js"
 
 export interface WorkspaceCommand {
@@ -86,6 +88,7 @@ export const runWorkspaceCommand = (
       const config = () => current
       const worktrees = settings.adapters?.worktrees ?? host.defaultWorktrees(root)
       const terminal = settings.adapters?.terminal ?? host.defaultTerminal()
+      const services = settings.adapters?.services ?? host.defaultServices()
       const driverRuns = drivers(terminal, config, driverPanes(directory))
       const actions = actionRuns({
         worktrees,
@@ -101,12 +104,22 @@ export const runWorkspaceCommand = (
         settings: config,
         configName: basename(file),
         drivers: driverRuns,
-        services: settings.adapters?.services ?? host.defaultServices(),
+        services,
         lastAction: actions.last,
         after: host.after,
       })
       closeSnapshot = snapshot.close
       yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })
+      const changes = worktreeChanges({
+        worktrees,
+        services,
+        terminal,
+        drivers: driverRuns,
+        next: host.next,
+        panes: actions.panes,
+        refresh: snapshot.refresh,
+        audit: auditLog(directory, clock.now),
+      })
       const feeds = feedRunner({
         feeds: loaded.feeds,
         root,
@@ -173,6 +186,8 @@ export const runWorkspaceCommand = (
               banners,
               actions,
               feeds,
+              worktreeChanges: changes,
+              identity: request.headers.get("tailscale-user-login") ?? peer ?? "unknown",
             }),
           })
         }

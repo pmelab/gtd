@@ -214,6 +214,27 @@ and its error. A chip with a URL links to it. gtd owns no DNS: the URL is the
 one the services adapter reports. The supervisor lists the services when it
 starts and then every `pollEvery`.
 
+## New worktree and Remove
+
+New worktree takes a project and a branch name. The supervisor refuses a name
+that git does not take as a new branch, and a branch that a worktree of the
+project is on already. Then it creates the worktree with the worktrees adapter
+and starts its services. A worktree whose services do not start stays, and the
+dashboard shows why.
+
+Remove stops the worktree's services, closes the terminal panes that gtd opened
+in it, then removes the worktree and its branch. It returns when the worktree is
+gone. Remove keeps a worktree, and says why, when:
+
+- it is the project's main checkout,
+- its process has not ended (`gtd next` does not report it as idle),
+- its driver runs,
+- a pane that gtd opened in it runs a command.
+
+Remove asks for confirmation when the tree has uncommitted changes (untracked
+files count) or when the branch is not integrated. A confirmed Remove throws
+away those changes and commits.
+
 ## Gate pages
 
 The supervisor also serves the gate page of every worktree, at
@@ -252,9 +273,18 @@ has it.
 - **`projects()`**: every project, as `{ id, path }`. Project settings are keyed
   by the id.
 - **`list(project)`**: the project's worktrees, as
-  `{ path, branch, head, main, integrated }`. `integrated` is `true` when the
-  branch has commits of its own and all of them are on the default branch
-  (squash merges count), and `undefined` when the adapter cannot tell.
+  `{ path, branch, head, main, integrated, dirty }`. `integrated` is `true` when
+  the branch has commits of its own and all of them are on the default branch
+  (squash merges count), and `undefined` when the adapter cannot tell. `dirty`
+  is `true` when the tree has uncommitted changes (untracked files count), and
+  `undefined` or absent when the adapter cannot tell.
+- **`create(project, branch, base)`** (optional): a new worktree on the new
+  branch `branch`, made from `base` (default: the default branch). Returns the
+  worktree's path. Without it, New worktree is refused.
+- **`remove(project, worktree, { force })`** (optional): removes the worktree at
+  the path `worktree` and deletes its branch, and returns when the removal is
+  complete. Without `force` it fails on a dirty tree and keeps a branch that is
+  not merged. Without it, Remove is refused.
 - **`watch()`** (optional): an async iterable of hints, `{ project }` or `{}`
   when any project may have changed. A hint carries no data: the supervisor
   reads `list(project)` again. When the stream ends or throws, the supervisor
@@ -266,10 +296,12 @@ starts with `~/`, and a `*` segment matches any directory. A matched directory
 is a project when it is a main checkout. Its id is what the `*` segments
 matched, joined by `/`, or the directory's name when the root has no `*`.
 Without a `worktrees` adapter, every main checkout directly in the workspace
-root is a project. Its `watch()` watches the git directories of each project
-(not `refs/remotes`, so a fetch is no change) and installs nothing into your
-checkouts. A project added after the supervisor started is found by the next
-30-second read.
+root is a project. `create` runs `wt switch --create`, so your worktrunk config
+decides where the worktree goes, and its hooks run; `remove` runs
+`wt remove --foreground`. Its `watch()` watches the git directories of each
+project (not `refs/remotes`, so a fetch is no change) and installs nothing into
+your checkouts. A project added after the supervisor started is found by the
+next 30-second read.
 
 ### `terminal`
 
@@ -333,6 +365,11 @@ flags (for example `--dry`) as that flag, so `mise()` refuses such a value.
 Every request, to the dashboard and to the gate pages, must come from a tailnet
 user in `ui.users`. Other users get 403. Requests that change state must be
 POSTs with a JSON body from the dashboard's own origin.
+
+Each New worktree and Remove adds one line to `audit.log` in the supervisor's
+state directory: a JSON object with `time`, `identity` (the tailnet login),
+`endpoint`, `project` and `worktree` (the branch). Field values are never
+written. At 1 MiB the log moves to `audit.log.1`.
 
 The supervisor keeps its state in `~/.local/state/gtd/workspace/` (or under
 `$XDG_STATE_HOME`). Nothing goes into your repositories. Deleting that state

@@ -82,7 +82,11 @@ const resolveRoot = (root: string): string => {
 interface ListItem {
   readonly branch?: string | null
   readonly head?: { readonly sha?: string }
-  readonly worktree?: { readonly path?: string; readonly main?: boolean }
+  readonly worktree?: {
+    readonly path?: string
+    readonly main?: boolean
+    readonly changes?: Readonly<Record<string, unknown>>
+  }
   readonly default_branch?: {
     readonly ahead?: number
     readonly integration?: unknown
@@ -119,6 +123,14 @@ const integratedOf = async (item: ListItem, path: string): Promise<boolean | und
   return hasOwnCommits(path, item.branch)
 }
 
+// The kinds of change `wt list` reports; `diff` is a count, not a kind.
+const CHANGES = ["staged", "modified", "untracked", "renamed", "deleted", "conflicted"]
+
+const dirtyOf = (item: ListItem): boolean | undefined => {
+  const changes = item.worktree?.changes
+  return changes === undefined ? undefined : CHANGES.some((kind) => changes[kind] === true)
+}
+
 const worktreesOf = async (project: Project): Promise<readonly Worktree[]> => {
   const listed = await run("wt", ["-C", project.path, "list", "--format=json"])
   if (listed.status !== 0) {
@@ -141,6 +153,7 @@ const worktreesOf = async (project: Project): Promise<readonly Worktree[]> => {
       head: item.head?.sha ?? "",
       main: item.worktree!.main === true,
       integrated: await integratedOf(item, item.worktree!.path!),
+      dirty: dirtyOf(item),
     })),
   )
 }
@@ -262,16 +275,47 @@ export const worktrunk = (options: WorktrunkOptions): WorktreesAdapter => {
     return [...found.values()]
   }
   const projects = async (): Promise<readonly Project[]> => projectsNow()
+  const projectOf = async (id: string, op: string): Promise<Project> =>
+    (await projects()).find((p) => p.id === id) ?? Promise.reject(failure(op, `no project "${id}"`))
   return {
     projects,
     // The projects of the moment it starts; a new one is found by the next full read.
     watch: () => ({
       [Symbol.asyncIterator]: () => watchGitDirs(projectsNow()),
     }),
-    list: async (id) => {
-      const project = (await projects()).find((p) => p.id === id)
-      if (project === undefined) throw failure("list", `no project "${id}"`)
-      return worktreesOf(project)
+    list: async (id) => worktreesOf(await projectOf(id, "list")),
+    // The person's worktrunk config decides where the worktree goes, and its hooks run.
+    create: async (id, branch, base) => {
+      const project = await projectOf(id, "create")
+      const args = ["-C", project.path, "switch", "--create", branch, "--yes", "--no-cd"]
+      const created = await run("wt", [
+        ...args,
+        ...(base === undefined ? [] : ["--base", base]),
+        "--format=json",
+      ])
+      if (created.status !== 0) {
+        throw failure("create", `wt switch --create ${branch} failed`, created.stderr.trim())
+      }
+      try {
+        return (JSON.parse(created.stdout) as { path: string }).path
+      } catch {
+        throw failure("create", "wt switch printed no JSON", created.stdout)
+      }
+    },
+    remove: async (id, path, { force }) => {
+      const project = await projectOf(id, "remove")
+      const removed = await run("wt", [
+        "-C",
+        project.path,
+        "remove",
+        "--yes",
+        "--foreground",
+        ...(force ? ["--force", "--force-delete"] : []),
+        path,
+      ])
+      if (removed.status !== 0) {
+        throw failure("remove", `wt remove ${path} failed`, removed.stderr.trim())
+      }
     },
   }
 }
