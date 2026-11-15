@@ -14,6 +14,7 @@ import {
 } from "../../../src/supervisor/index.js"
 import {
   InMemRepo,
+  inMemoryServices,
   inMemoryWorktrees,
   makeCapturingCliIo,
   type CapturedCliResult,
@@ -48,6 +49,7 @@ export class WorkspaceBench {
   readonly root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-workspace-")))
   readonly stateHome = mkdtempSync(join(tmpdir(), "gtd-workspace-state-"))
   readonly worktrees = inMemoryWorktrees()
+  readonly services = inMemoryServices()
   private readonly answers = new Map<string, SpawnOutcome>()
   /** The worktree of each `gtd next` the supervisor ran, in order. */
   readonly nextRuns: string[] = []
@@ -123,6 +125,7 @@ export class WorkspaceBench {
         return this.nextIn(path)
       },
       defaultWorktrees: () => this.worktrees.adapter,
+      defaultServices: () => this.services.adapter,
       isPidAlive: (pid) => pid === process.pid,
     })
     const ui = inMemoryUiLayers(uiHost, this.tailnet, new Map(), (handler) => {

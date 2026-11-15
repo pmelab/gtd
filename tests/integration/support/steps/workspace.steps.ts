@@ -6,7 +6,7 @@ import { WorkspaceBench } from "../workspace.js"
 
 const benches = new WeakMap<GtdWorld, WorkspaceBench>()
 
-const bench = (world: GtdWorld): WorkspaceBench => {
+export const bench = (world: GtdWorld): WorkspaceBench => {
   let found = benches.get(world)
   if (found === undefined) {
     const created = new WorkspaceBench()

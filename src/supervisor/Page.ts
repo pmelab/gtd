@@ -1,3 +1,4 @@
+import type { Service } from "../workspace/index.js"
 import type { ProjectView, WorktreeView } from "./Scan.js"
 
 const escape = (text: string): string =>
@@ -13,10 +14,25 @@ const STATUS_TEXT: Readonly<Record<WorktreeView["status"], string>> = {
   idle: "idle",
 }
 
+const serviceChip = (s: Service): string => {
+  const state = s.error !== undefined ? `error: ${s.error}` : s.running ? "running" : "stopped"
+  const kind = s.error !== undefined ? "error" : s.running ? "running" : "stopped"
+  const name =
+    s.url === undefined
+      ? escape(s.name)
+      : `<a class="service ${kind}" href="${escape(s.url)}">${escape(s.name)}</a>`
+  return ` <span class="chip ${kind}">${name} (${escape(state)})</span>`
+}
+
+const serviceChips = (w: WorktreeView): string =>
+  w.servicesFailure !== undefined
+    ? ` <span class="failure">${escape(`services unavailable: ${w.servicesFailure.message}`)}</span>`
+    : (w.services ?? []).map(serviceChip).join("")
+
 const worktreeRow = (w: WorktreeView): string => {
   const name = w.branch ?? w.path.split("/").at(-1) ?? w.path
   const detail = [w.label, w.message].filter((s) => s !== undefined && s !== "").join(" — ")
-  return `<li class="${w.status}"><span class="status">${STATUS_TEXT[w.status]}</span> <b><a href="${escape(w.gate)}">${escape(name)}</a></b> <span class="label">${escape(detail)}</span></li>`
+  return `<li class="${w.status}"><span class="status">${STATUS_TEXT[w.status]}</span> <b><a href="${escape(w.gate)}">${escape(name)}</a></b> <span class="label">${escape(detail)}</span>${serviceChips(w)}</li>`
 }
 
 const projectSection = (p: ProjectView): string =>
@@ -31,7 +47,8 @@ const STYLE = `body{background:#111111;color:#eeeeee;font:16px/1.5 system-ui,san
 h1{font-size:1.25rem}h2{font-size:1rem;border-bottom:1px solid #3a3a3a;padding-bottom:.25rem}
 a{color:inherit}ul{list-style:none;padding:0}li{background:#222222;border-radius:.5rem;margin:.25rem 0;padding:.5rem .75rem}
 .status{font-size:.8rem;text-transform:uppercase}.label,.idle .status,.working .status{color:#b4b4b4}
-.needsYou .status{color:#ffca16}.error .status,.failure{color:#ff9592}`
+.needsYou .status{color:#ffca16}.error .status,.failure,.chip.error{color:#ff9592}
+.chip{font-size:.8rem;margin-left:.5rem}.chip.stopped{color:#b4b4b4}`
 
 /** The Projects view: every worktree of every project, grouped by project. */
 export const projectsPage = (projects: readonly ProjectView[]): string =>

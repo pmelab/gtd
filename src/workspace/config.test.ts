@@ -2,13 +2,14 @@ import { describe, expect, it } from "vitest"
 import { defineWorkspace, durationMs, workspaceProblems } from "./config.js"
 
 const worktrees = { projects: async () => [], list: async () => [] }
+const services = { list: async () => [], up: async () => {}, down: async () => {} }
 
 describe("workspaceProblems", () => {
   it("accepts every documented key", () => {
     expect(
       workspaceProblems({
         driver: ["my-driver"],
-        adapters: { worktrees, terminal: {}, services: {}, actions: {}, notifications: {} },
+        adapters: { worktrees, terminal: {}, services, actions: {}, notifications: {} },
         limits: { maxDrives: 3, wip: 2 },
         pollEvery: "30s",
         projects: {
@@ -58,6 +59,13 @@ describe("workspaceProblems", () => {
         message: "must be false (auto-clean is on for every project)",
       },
       { path: ["clean", "every"], message: "is required" },
+    ])
+  })
+
+  it("names each method a services adapter lacks", () => {
+    expect(workspaceProblems({ adapters: { services: { list: services.list } } })).toEqual([
+      { path: ["adapters", "services", "up"], message: "must be a function" },
+      { path: ["adapters", "services", "down"], message: "must be a function" },
     ])
   })
 

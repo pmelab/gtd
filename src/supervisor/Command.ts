@@ -20,6 +20,7 @@ import { projectsPage } from "./Page.js"
 import { SupervisorHost } from "./Ports.js"
 import { workspaceRouter } from "./Router.js"
 import { recheck, scan, type ProjectView } from "./Scan.js"
+import { withServices } from "./Services.js"
 
 export interface WorkspaceCommand {
   readonly flags: ExposeOptions & { readonly config?: string }
@@ -69,7 +70,9 @@ export const runWorkspaceCommand = (
         next: host.next,
         settings,
       }
-      const projects = (): Promise<readonly ProjectView[]> => scan(deps)
+      const services = settings.adapters?.services ?? host.defaultServices()
+      const projects = (): Promise<readonly ProjectView[]> =>
+        scan(deps).then((views) => withServices(views, services))
       yield* Effect.tryPromise({ try: projects, catch: asUiError })
 
       const gatePage: UiHandler = async (request, afterResponse, peer) => {

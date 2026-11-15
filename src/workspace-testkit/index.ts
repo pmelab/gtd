@@ -142,3 +142,5 @@ export const worktreesContract = (harness: WorktreesHarness): readonly ContractC
     }),
   },
 ]
+
+export { servicesContract, type ServicesFixture, type ServicesHarness } from "./services.js"

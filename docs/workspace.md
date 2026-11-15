@@ -53,8 +53,8 @@ code 1.
 
 The one reserved export, made with `defineWorkspace`. Every key is optional.
 
-- **`adapters`**: `worktrees`. An omitted adapter is the bundled default with
-  its default options. See [Adapters](#adapters).
+- **`adapters`**: `worktrees`, `services`. An omitted adapter is the bundled
+  default with its default options. See [Adapters](#adapters).
 - **`projects`**: settings per project id: `name` (shown on the dashboard).
 - **`ui`**: `port`, `host`, `cert`, `key`, as for `gtd ui`, and `users` (the
   tailnet logins that may use the dashboard; default: the owner of this node).
@@ -71,6 +71,12 @@ handed over runs on its own pin.
 | error     | The process stalled, or `gtd next` failed in the worktree. |
 | idle      | The process has ended, or the worktree has none.           |
 
+## Service chips
+
+Each worktree shows its services as chips: the name, whether the service runs,
+and its error. A chip with a URL links to it. gtd owns no DNS: the URL is the
+one the services adapter reports.
+
 ## Gate pages
 
 The supervisor also serves the gate page of every worktree, at
@@ -85,6 +91,7 @@ that worktree at once.
 | Adapter     | Default   | Factory                |
 | ----------- | --------- | ---------------------- |
 | `worktrees` | worktrunk | `worktrunk({ roots })` |
+| `services`  | pitchfork | `pitchfork()`          |
 
 The factories come from `@pmelab/gtd/workspace/adapters`. To use another tool,
 give an object that implements the adapter's interface from
@@ -116,6 +123,19 @@ is a project when it is a main checkout. Its id is what the `*` segments
 matched, joined by `/`, or the directory's name when the root has no `*`.
 Without a `worktrees` adapter, every main checkout directly in the workspace
 root is a project.
+
+### `services`
+
+- **`list(project, worktree)`**: the worktree's services, as
+  `{ name, url, running, error }`. `url` and `error` are `undefined` when there
+  is none. `worktree` is the worktree's path.
+- **`up(project, worktree)`**: starts the worktree's services, and fails when
+  one of them does not start.
+- **`down(project, worktree)`**: stops the worktree's services, and no other
+  worktree's.
+
+`pitchfork()` uses the daemons of the worktree's own `pitchfork.toml`, and
+reports the URL of pitchfork's proxy as each daemon's URL.
 
 ## Security
 

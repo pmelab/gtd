@@ -21,4 +21,5 @@ export const SETUP_FILES: readonly string[] = [
   "./tests/integration/support/steps/tmpdir-gitdir.steps.ts",
   "./tests/integration/support/steps/ui-lifecycle.steps.ts",
   "./tests/integration/support/steps/workspace.steps.ts",
+  "./tests/integration/support/steps/workspace-services.steps.ts",
 ]

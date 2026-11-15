@@ -63,3 +63,24 @@ export interface WorktreesAdapter {
   /** Fails with an adapter error for a project id `projects` does not report. */
   readonly list: (project: string) => Promise<readonly Worktree[]>
 }
+
+/** One service of a worktree: a process, such as a dev server, that runs for it. */
+export interface Service {
+  /** Unique among the worktree's services. */
+  readonly name: string
+  /** Where the service answers; `undefined` when the adapter reports none. */
+  readonly url: string | undefined
+  readonly running: boolean
+  /** Why the service failed; `undefined` when it did not fail. */
+  readonly error: string | undefined
+}
+
+/** The services adapter: the services of each worktree. `worktree` is its path. */
+export interface ServicesAdapter {
+  /** The worktree's services, running or not; none when it has none. */
+  readonly list: (project: string, worktree: string) => Promise<readonly Service[]>
+  /** Starts the worktree's services. Fails when one of them does not start. */
+  readonly up: (project: string, worktree: string) => Promise<void>
+  /** Stops the worktree's services, and no other worktree's. */
+  readonly down: (project: string, worktree: string) => Promise<void>
+}
