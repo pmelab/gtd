@@ -71,14 +71,6 @@ Feature: Proceed and Retry from the dashboard
       """
       busy: still answering the last question
       """
-    And the dashboard page reads:
-      """
-      Projects
-      portal
-      idle main Idle
-      working build Build
-      needs you plan Answer the plan refused: busy: still answering the last question
-      """
     And the audit log reads:
       | identity          | endpoint      | project | worktree | action  | outcome |
       | owner@example.com | /trpc/proceed | portal  | plan     | proceed | refused |

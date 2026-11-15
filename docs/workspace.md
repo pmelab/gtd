@@ -22,6 +22,33 @@ on the tailnet interface when serve is not available, or with `--http` on
 loopback behind your own proxy. `--host`, `--port`, `--self-signed` and `--http`
 work as for `gtd ui`.
 
+## Dashboard
+
+The dashboard has three views:
+
+- **Now**: only the worktrees that need you and the worktrees in error, across
+  all projects. Each has one primary button, Proceed or Retry (see
+  [Proceed and Retry](#proceed-and-retry)). The worktrees that work fold into
+  one line each, under "N working".
+- **Projects**: every worktree, grouped by project, with its status, its label,
+  its service chips and the reason of a refused press.
+- **Inbox**: the items that wait (see [Inbox](#inbox)).
+
+Banners above each view show problems with the workspace itself.
+
+A tap on a worktree opens its detail. On a phone the detail covers the screen,
+with its tabs at the bottom. On a wide screen it is a pane beside the list. The
+detail has three tabs:
+
+- **Gate**, first: the worktree's [gate page](#gate-pages), with a link that
+  opens it in a tab of its own.
+- **Terminal**: how to reach the driver's pane, as the terminal adapter's
+  `attach` gives it (a command to copy, or a URL to open), and a button that
+  opens a separate pane with your login shell (`$SHELL` of the supervisor) in
+  the worktree. With no `attach`, the tab can only open the shell pane.
+- **Actions**: the actions offered in the worktree status now, with their fields
+  (see [`actions`](#actions)). Run starts the chosen one in a pane of its own.
+
 ## `gtd.workspace.ts`
 
 The supervisor uses the innermost `gtd.workspace.ts` from the current directory,
@@ -166,9 +193,9 @@ set when the feed fails. `dismiss(key)` dismisses a proposed item, and
 
 ## Inbox
 
-The Inbox view (`/inbox`) lists the items that feeds filed and that wait, in
-start order: priority, then the order the poll returned them, then the time gtd
-first saw them. It also names each failing feed.
+The Inbox view lists the items that feeds filed and that wait, in start order:
+priority, then the order the poll returned them, then the time gtd first saw
+them. It also names each failing feed.
 
 | State    | When                                                                      |
 | -------- | ------------------------------------------------------------------------- |
@@ -337,8 +364,9 @@ next 30-second read.
   pane is gone. `record` is the root OSC 7501 record (`state`, `kind`, `title`,
   `msg`). `exit` is `{ code }` once `argv` has ended (`128 + n` for signal `n`),
   else `null`.
-- **`close(handle)`**, and optionally **`attach(handle)`** and **`watch()`**
-  (hints, each a handle whose status may have changed).
+- **`close(handle)`**, and optionally **`attach(handle)`** (a command or a URL
+  that shows the pane to a person, for the dashboard's Terminal tab) and
+  **`watch()`** (hints, each a handle whose status may have changed).
 
 `rex({ server, shell })` opens one Rex session per project id and one window per
 pane. `server` is a Rex server address as `rex -S` takes it; `shell` is the
@@ -398,8 +426,8 @@ The supervisor keeps its state in `~/.local/state/gtd/workspace/` (or under
 `$XDG_STATE_HOME`). Nothing goes into your repositories. Deleting that state
 loses only the dismissals; the next polls file every waiting item again.
 
-Every state change (Proceed, Retry, Dismiss, New worktree, Remove) adds one JSON
-line to `audit.log` in that directory: `time`, `identity` (the tailnet login,
-`-` when unknown), `endpoint`, `project`, `worktree`, `action` and `outcome`. It
-never holds the values of fields. When the log reaches 1 MiB, it moves to
-`audit.log.1`, replacing the older one.
+Every state change (Proceed, Retry, Dismiss, New worktree, Remove, a new shell
+pane) adds one JSON line to `audit.log` in that directory: `time`, `identity`
+(the tailnet login, `-` when unknown), `endpoint`, `project`, `worktree`,
+`action` and `outcome`. It never holds the values of fields. When the log
+reaches 1 MiB, it moves to `audit.log.1`, replacing the older one.

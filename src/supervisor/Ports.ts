@@ -34,6 +34,8 @@ interface SupervisorHostOps {
   readonly watchFile: (file: string, changed: () => Promise<void>) => () => void
   /** A driver one-shot (`<driver> proceed <commit>`, …), run with the worktree as cwd. */
   readonly oneShot: (argv: readonly string[], worktree: string) => Promise<ExecResult>
+  /** The person's login shell, which the Terminal tab opens in a pane of its own. */
+  readonly loginShell: string
 }
 
 // An editor's save is several events (write, rename, chmod); one call after they stop covers them.
@@ -80,6 +82,7 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
     },
     watchFile,
     oneShot: (argv, worktree) => exec(argv, worktree),
+    loginShell: process.env["SHELL"] ?? "/bin/sh",
   })
 }
 

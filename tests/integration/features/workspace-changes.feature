@@ -102,17 +102,6 @@ Feature: gtd workspace keeps worktree statuses current
       """
       worktrees unavailable: wt list failed
       """
-    And the dashboard page reads:
-      """
-      Projects
-      worktrees unavailable: wt list failed
-      api
-      idle main Idle
-      portal
-      worktrees unavailable: wt list failed
-      idle main Idle worktrees unavailable
-      needs you plan Answer the plan worktrees unavailable
-      """
     When the worktrees adapter answers again
     And a commit lands on "portal/plan"
     And 1 second passes

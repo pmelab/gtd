@@ -48,14 +48,16 @@ export interface ScanDeps {
   readonly drivers: Drivers
 }
 
-export const asFailure = (op: string, error: unknown): AdapterFailure =>
+/** A plain object: an `AdapterError`'s message would not survive JSON. */
+export const asFailure = (op: string, error: unknown, adapter = "worktrees"): AdapterFailure =>
   isAdapterFailure(error)
-    ? error
-    : {
-        adapter: "worktrees",
-        op,
-        message: error instanceof Error ? error.message : String(error),
+    ? {
+        adapter: error.adapter,
+        op: error.op,
+        message: error.message,
+        ...(error.detail !== undefined ? { detail: error.detail } : {}),
       }
+    : { adapter, op, message: error instanceof Error ? error.message : String(error) }
 
 export const byPath = (a: Worktree, b: Worktree): number =>
   Number(b.main) - Number(a.main) || a.path.localeCompare(b.path)

@@ -1,5 +1,5 @@
-import { isAdapterFailure, type ServicesAdapter } from "../workspace/index.js"
-import type { WorktreeView } from "./Scan.js"
+import type { ServicesAdapter } from "../workspace/index.js"
+import { asFailure, type WorktreeView } from "./Scan.js"
 
 export type ServicesView = Pick<WorktreeView, "services" | "servicesFailure">
 
@@ -14,13 +14,7 @@ export const listServices = async (
   } catch (error) {
     return {
       services: [],
-      servicesFailure: isAdapterFailure(error)
-        ? error
-        : {
-            adapter: "services",
-            op: "list",
-            message: error instanceof Error ? error.message : String(error),
-          },
+      servicesFailure: asFailure("list", error, "services"),
     }
   }
 }

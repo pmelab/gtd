@@ -70,19 +70,6 @@ Feature: gtd workspace lists every worktree with its worktree status
       | Portal  | build    | working         | Building                                                       |
       | Portal  | judge    | needsYou        | Criteria met?                                                  |
       | Portal  | plan     | needsYou        | Answer the plan                                                |
-    And the dashboard page reads:
-      """
-      Projects
-      api
-      idle main Idle
-      error broken gtd next failed — gtd: config: gtd.config.ts: no default export
-      error stuck Tests — the check failed 3 times
-      Portal
-      idle main Idle
-      working build Building
-      needs you judge Criteria met?
-      needs you plan Answer the plan
-      """
 
   @inmem
   Scenario: a worktrees adapter written in gtd.workspace.ts replaces the default

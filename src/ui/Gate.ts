@@ -52,6 +52,13 @@ export const withTrpcEndpoint = (html: string, endpoint: string): string =>
     (head) => `${head}<meta name="gtd-trpc" content="${escapeAttribute(endpoint)}">`,
   )
 
+/** The workspace dashboard: the same client, which the `gtd-page` meta tag tells to open the dashboard. */
+export const dashboardPage = (endpoint: string, clientHtml = generatedClientHtml): string =>
+  withTrpcEndpoint(clientHtml, endpoint).replace(
+    /<head[^>]*>/,
+    (head) => `${head}<meta name="gtd-page" content="workspace">`,
+  )
+
 const vanished: WriteResult = { ok: false, reason: "file-vanished" }
 
 /** Serves one worktree's gate page and its API. */
