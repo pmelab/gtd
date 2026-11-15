@@ -34,6 +34,8 @@ export interface FeedRunner {
   /** Polls each feed now, then once per its `every`. */
   readonly start: () => void
   readonly stop: () => void
+  /** Polls these feeds from now on, each at once, keeping the inbox. */
+  readonly replace: (feeds: ReadonlyMap<string, Feed>) => void
 }
 
 export interface FeedDeps {
@@ -51,6 +53,7 @@ export interface FeedDeps {
 /** Polls every feed on its own schedule and keeps the inbox from the results. */
 export const feedRunner = (deps: FeedDeps): FeedRunner => {
   let inbox: Inbox = emptyInbox(deps.store.dismissed())
+  let feeds = deps.feeds
   const failing = new Map<string, string>()
   const polling = new Set<string>()
 
@@ -97,12 +100,21 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
     }
   }
 
-  let cancels: (() => void)[] = []
+  let cancels: (() => void)[] | undefined
+  const start = (): void => {
+    cancels = [...feeds].map(([name, feed]) =>
+      deps.every(durationMs(feed.every), () => poll(name, feed)),
+    )
+  }
+  const stop = (): void => {
+    for (const cancel of cancels ?? []) cancel()
+    cancels = undefined
+  }
 
   return {
     items: () => inboxItems(inbox),
     feeds: () =>
-      [...deps.feeds].map(([name, feed]) => {
+      [...feeds].map(([name, feed]) => {
         const failure = failing.get(name)
         return {
           feed: name,
@@ -118,13 +130,14 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
       setInbox(next)
       return true
     },
-    start: () => {
-      cancels = [...deps.feeds].map(([name, feed]) =>
-        deps.every(durationMs(feed.every), () => poll(name, feed)),
-      )
-    },
-    stop: () => {
-      for (const cancel of cancels.splice(0)) cancel()
+    start,
+    stop,
+    replace: (next) => {
+      const started = cancels !== undefined
+      stop()
+      feeds = next
+      for (const name of failing.keys()) if (!feeds.has(name)) failing.delete(name)
+      if (started) start()
     },
   }
 }

@@ -135,6 +135,8 @@ export class WorkspaceBench {
   readonly overlapped = new Set<string>()
   /** Files inside worktrees, by absolute path. */
   readonly files = new Map<string, string>()
+  /** What the supervisor runs when a watched file changes, by path; each returns once that change is handled. */
+  private readonly fileWatches = new Map<string, Set<() => Promise<void>>>()
   /** Each driver one-shot the supervisor ran, in order. */
   readonly oneShots: { readonly worktree: string; readonly argv: readonly string[] }[] = []
   /** Worktrees whose driver refuses every one-shot, with its stderr. */
@@ -152,6 +154,14 @@ export class WorkspaceBench {
   lastRun: CapturedCliResult | undefined
   lastStatus: number | undefined
   lastSignal: { code: number | null; signal: NodeJS.Signals | null } | undefined
+
+  /** Rewrites a file in the workspace root as an editor does, and waits until the supervisor has handled it. */
+  async changeFile(rel: string, content: string): Promise<void> {
+    this.writeFile(rel, content)
+    const watches = this.fileWatches.get(join(this.root, rel)) ?? []
+    await Promise.all([...watches].map((changed) => changed()))
+    await this.feedClock.settled()
+  }
 
   writeFile(rel: string, content: string): void {
     const path = join(this.root, rel)
@@ -310,6 +320,12 @@ export class WorkspaceBench {
       defaultActions: () => this.actions.adapter,
       isPidAlive: (pid) => pid === process.pid,
       after: this.clock.after,
+      watchFile: (path, changed) => {
+        const watches = this.fileWatches.get(path) ?? new Set()
+        this.fileWatches.set(path, watches)
+        watches.add(changed)
+        return () => void watches.delete(changed)
+      },
       oneShot: (argv, worktree) => this.oneShot(argv, worktree),
       loginShell: this.loginShell,
     })

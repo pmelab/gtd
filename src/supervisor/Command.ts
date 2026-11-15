@@ -1,4 +1,4 @@
-import { dirname } from "node:path"
+import { basename, dirname } from "node:path"
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 import { Effect, type FileSystem } from "effect"
 import {
@@ -15,8 +15,8 @@ import {
   type UiShell,
 } from "../ui/index.js"
 import { actionRuns } from "./Actions.js"
-import { findWorkspaceModule, loadWorkspace } from "./Config.js"
 import { auditLog } from "./Audit.js"
+import { findWorkspaceModule, loadWorkspace, reloadWorkspace } from "./Config.js"
 import { controls } from "./Controls.js"
 import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf } from "./Gate.js"
@@ -25,7 +25,7 @@ import { feedRunner } from "./Feeds.js"
 import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
-import { liveSnapshot } from "./Snapshot.js"
+import { liveSnapshot, type Banner } from "./Snapshot.js"
 import { terminalTab } from "./Terminal.js"
 import { worktreeStatus } from "./Status.js"
 
@@ -77,15 +77,20 @@ export const runWorkspaceCommand = (
       catch: asUiError,
     })
     let closeSnapshot = (): void => {}
+    let closeReload = (): void => {}
     yield* Effect.gen(function* () {
-      const { settings, feeds: feedExports } = yield* Effect.tryPromise({
+      const loaded = yield* Effect.tryPromise({
         try: () => loadWorkspace(file, command.loadModule),
         catch: asUiError,
       })
+      // Adapters and `ui` are built here once: a reload changes the rest.
+      const { settings } = loaded
+      let current = settings
+      const config = () => current
       const worktrees = settings.adapters?.worktrees ?? host.defaultWorktrees(root)
       const terminal = settings.adapters?.terminal ?? host.defaultTerminal()
       const panes = driverPanes(directory)
-      const driverRuns = drivers(terminal, settings, panes)
+      const driverRuns = drivers(terminal, config, panes)
       const actions = actionRuns({
         worktrees,
         actions: settings.adapters?.actions ?? host.defaultActions(),
@@ -97,7 +102,8 @@ export const runWorkspaceCommand = (
       const snapshot = liveSnapshot({
         worktrees,
         next: host.next,
-        settings,
+        settings: config,
+        configName: basename(file),
         drivers: driverRuns,
         services: settings.adapters?.services ?? host.defaultServices(),
         lastAction: actions.last,
@@ -126,7 +132,7 @@ export const runWorkspaceCommand = (
         now: clock.now,
       })
       const feeds = feedRunner({
-        feeds: feedExports,
+        feeds: loaded.feeds,
         root,
         worktrees,
         exec: tools.exec,
@@ -139,6 +145,31 @@ export const runWorkspaceCommand = (
           out.flush()
         },
       })
+
+      const reload = reloadWorkspace({
+        file,
+        load: () => loadWorkspace(file, command.loadModule),
+        watchFile: host.watchFile,
+        apply: (next) => {
+          current = next.settings
+          feeds.replace(next.feeds)
+        },
+      })
+      closeReload = reload.close
+      const banners = (): readonly Banner[] => {
+        const failure = reload.failure()
+        return [
+          ...(failure !== undefined
+            ? [
+                {
+                  kind: "configError" as const,
+                  message: `${basename(file)} not reloaded: ${failure}`,
+                },
+              ]
+            : []),
+          ...snapshot.banners(),
+        ]
+      }
 
       const gatePage: UiHandler = async (request, afterResponse, peer) => {
         const gate = await gateOf(new URL(request.url).pathname, worktrees)
@@ -163,7 +194,7 @@ export const runWorkspaceCommand = (
             router: workspaceRouter,
             createContext: () => ({
               projects,
-              banners: snapshot.banners,
+              banners,
               actions,
               feeds: {
                 ...feeds,
@@ -222,6 +253,7 @@ export const runWorkspaceCommand = (
     }).pipe(
       Effect.ensuring(
         Effect.sync(() => {
+          closeReload()
           closeSnapshot()
           lock.release()
         }),

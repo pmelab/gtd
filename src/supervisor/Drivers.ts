@@ -48,25 +48,31 @@ export interface Drivers {
 
 export const drivers = (
   terminal: TerminalAdapter,
-  settings: WorkspaceSettings,
+  settings: () => WorkspaceSettings,
   panes: DriverPanes,
-): Drivers => ({
-  state: async (worktree) => {
-    const handle = panes.get(worktree)
-    if (handle === undefined) return { kind: "none" }
-    try {
-      const pane = await terminal.status(handle)
-      return pane === undefined ? { kind: "none" } : { kind: "pane", pane }
-    } catch {
-      return { kind: "unknown" }
-    }
-  },
-  command: (project) => settings.projects?.[project]?.driver ?? settings.driver,
-  start: async (project, worktree, env = {}) => {
-    const argv = settings.projects?.[project]?.driver ?? settings.driver
-    if (argv === undefined) return false
-    panes.set(worktree, await terminal.run(project, worktree, argv, env))
-    return true
-  },
-  ...(terminal.watch !== undefined ? { watch: terminal.watch.bind(terminal) } : {}),
-})
+): Drivers => {
+  const command = (project: string): readonly string[] | undefined => {
+    const { projects, driver } = settings()
+    return projects?.[project]?.driver ?? driver
+  }
+  return {
+    state: async (worktree) => {
+      const handle = panes.get(worktree)
+      if (handle === undefined) return { kind: "none" }
+      try {
+        const pane = await terminal.status(handle)
+        return pane === undefined ? { kind: "none" } : { kind: "pane", pane }
+      } catch {
+        return { kind: "unknown" }
+      }
+    },
+    command,
+    start: async (project, worktree, env = {}) => {
+      const argv = command(project)
+      if (argv === undefined) return false
+      panes.set(worktree, await terminal.run(project, worktree, argv, env))
+      return true
+    },
+    ...(terminal.watch !== undefined ? { watch: terminal.watch.bind(terminal) } : {}),
+  }
+}

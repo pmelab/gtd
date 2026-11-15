@@ -14,11 +14,13 @@ import { isOrphan, worktreeStatus, type DriverState } from "./Status.js"
 
 /** A problem with the workspace itself, shown above every project. */
 export interface Banner {
-  readonly kind: "adapterUnavailable"
+  readonly kind: "adapterUnavailable" | "configError" | "unknownProject"
   readonly message: string
 }
 
 export interface SnapshotDeps extends ScanDeps {
+  /** The config file's name, as banners show it. */
+  readonly configName: string
   /** Runs `run` once after `ms`; the result cancels it. */
   readonly after: (ms: number, run: () => void) => () => void
   /** Listed at `pollEvery`, never per request: the pitchfork default costs a process per worktree. */
@@ -58,7 +60,6 @@ interface Seen {
 }
 
 interface Kept {
-  readonly name: string
   readonly worktrees: readonly Worktree[]
   readonly seen: Map<string, Seen>
   readonly failure?: AdapterFailure
@@ -189,7 +190,6 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
 
   const recheckProject = async (id: string, want: Want): Promise<void> => {
     const before = kept.get(id)
-    const name = deps.settings.projects?.[id]?.name ?? id
     let listed: Worktree[]
     try {
       listed = [...(await deps.worktrees.list(id))].sort(byPath)
@@ -198,7 +198,6 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
         worktrees: [],
         seen: new Map(),
         ...before,
-        name,
         failure: asFailure("list", error),
       })
       return
@@ -215,7 +214,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
       }),
     )
     stale.forEach((w, i) => seen.set(w.path, fresh[i]!))
-    if (!closed) kept.set(id, { name, worktrees: listed, seen })
+    if (!closed) kept.set(id, { worktrees: listed, seen })
   }
 
   // One recheck per project at a time: what is asked meanwhile runs once after it.
@@ -310,7 +309,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
           const unavailable = project.failure ?? projectsFailure
           return {
             id,
-            name: project.name,
+            name: deps.settings().projects?.[id]?.name ?? id,
             ...(project.failure !== undefined ? { failure: project.failure } : {}),
             worktrees: project.worktrees.map((w) => ({
               path: w.path,
@@ -332,10 +331,19 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
           f === undefined ? [] : [`${f.adapter} unavailable: ${f.message}`],
         ),
       )
-      return [...messages].map((message) => ({
-        kind: "adapterUnavailable",
+      const unavailable = [...messages].map((message) => ({
+        kind: "adapterUnavailable" as const,
         message,
       }))
+      // Without a read of the projects, an id may only seem unknown.
+      if (projectsFailure !== undefined) return unavailable
+      const unknown = Object.keys(deps.settings().projects ?? {})
+        .filter((id) => !kept.has(id))
+        .map((id) => ({
+          kind: "unknownProject" as const,
+          message: `${deps.configName}: workspace.projects.${id}: no project has this id`,
+        }))
+      return [...unavailable, ...unknown]
     },
     refreshDriver,
     recheckWorktree: (path) => {
@@ -344,7 +352,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
     },
     start: async () => {
       const watch = deps.worktrees.watch
-      const pollMs = durationMs(deps.settings.pollEvery ?? DEFAULT_POLL)
+      const pollMs = durationMs(deps.settings().pollEvery ?? DEFAULT_POLL)
       if (watch !== undefined) {
         void follow(watch.bind(deps.worktrees), hinted, () => void readAll(false))
       }
