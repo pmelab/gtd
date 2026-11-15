@@ -28,7 +28,12 @@ export type ControlRequest =
       readonly command: "note"
       readonly worktree: string
       /** `null` takes the note off. */
-      readonly note: { readonly message: string; readonly error: boolean } | null
+      readonly note: {
+        readonly message: string
+        readonly error: boolean
+        /** Also send it as a notification. */
+        readonly notify?: boolean
+      } | null
     }
 
 export type ControlReply = { readonly ok: true } | { readonly ok: false; readonly message: string }
@@ -60,12 +65,15 @@ const parseRequest = (line: string): ControlRequest | undefined => {
 }
 
 /** `null` clears; `undefined` is no note at all. */
-const parseNote = (note: unknown): { message: string; error: boolean } | null | undefined => {
+const parseNote = (
+  note: unknown,
+): { message: string; error: boolean; notify?: boolean } | null | undefined => {
   if (note === null) return null
   if (!isRecord(note)) return undefined
-  const { message, error } = note
+  const { message, error, notify } = note
   if (typeof message !== "string" || typeof error !== "boolean") return undefined
-  return { message, error }
+  if (notify !== undefined && typeof notify !== "boolean") return undefined
+  return notify === true ? { message, error, notify } : { message, error }
 }
 
 const spoolOf = (stateDirectory: string): string => join(stateDirectory, "spool")

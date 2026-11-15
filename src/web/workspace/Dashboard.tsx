@@ -8,7 +8,7 @@ import { Inbox } from "./Inbox.js"
 import { Now } from "./Now.js"
 import { Projects } from "./Projects.js"
 import { TabBar } from "./TabBar.js"
-import { nowView, type Banner, type Entry, type ProjectView } from "./view.js"
+import { linkedWorktree, nowView, type Banner, type Entry, type ProjectView } from "./view.js"
 
 type View = "now" | "projects" | "inbox"
 
@@ -55,7 +55,7 @@ const Loaded = ({
   readonly banners: readonly Banner[]
 }) => {
   const [view, setView] = useState<View>("now")
-  const [selected, setSelected] = useState<string>()
+  const [selected, setSelected] = useState(() => linkedWorktree(window.location.search))
   const entry = find(projects, selected)
   const open = (e: Entry) => {
     setSelected(e.worktree.path)

@@ -31,4 +31,5 @@ export const SETUP_FILES: readonly string[] = [
   "./tests/integration/support/steps/workspace-cli.steps.ts",
   "./tests/integration/support/steps/workspace-dashboard.steps.ts",
   "./tests/integration/support/steps/workspace-notes.steps.ts",
+  "./tests/integration/support/steps/workspace-notify.steps.ts",
 ]

@@ -39,7 +39,7 @@
   },
   "overrides": [
     {
-      "files": ["src/judges/providers/**", "tests/**"],
+      "files": ["src/judges/providers/**", "src/workspace-adapters/ntfy*.ts", "tests/**"],
       "rules": {
         "no-restricted-globals": "off"
       }

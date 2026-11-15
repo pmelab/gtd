@@ -5,6 +5,8 @@ shellcheck = "latest"
 "aqua:max-sixty/worktrunk" = "0.81.0"
 # The services adapter's contract test runs a private pitchfork supervisor.
 pitchfork = "2.33.1"
+# The notifications adapter's contract test runs a private ntfy server.
+"aqua:binwiederhier/ntfy" = "2.37.2"
 
 [env]
 _.path = ["dist"]

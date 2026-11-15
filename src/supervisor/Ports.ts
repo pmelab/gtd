@@ -1,12 +1,14 @@
 import { execFile } from "node:child_process"
-import { watch } from "node:fs"
-import { basename, dirname } from "node:path"
+import { randomBytes } from "node:crypto"
+import { mkdirSync, readFileSync, watch, writeFileSync } from "node:fs"
+import { basename, dirname, join } from "node:path"
 import { Context, Layer } from "effect"
 import { liveRunInWorktree, type SpawnOutcome } from "../ui/index.js"
-import { mise, pitchfork, rex, worktrunk } from "../workspace-adapters/index.js"
+import { mise, ntfy, pitchfork, rex, worktrunk } from "../workspace-adapters/index.js"
 import type {
   ActionsAdapter,
   ExecResult,
+  NotificationsAdapter,
   ServicesAdapter,
   TerminalAdapter,
   WorktreesAdapter,
@@ -27,6 +29,8 @@ interface SupervisorHostOps {
   readonly defaultServices: () => ServicesAdapter
   /** The actions adapter of a workspace that names none. */
   readonly defaultActions: () => ActionsAdapter
+  /** The notifications adapter of a workspace that names none, given the state directory. */
+  readonly defaultNotifications: (stateDirectory: string) => NotificationsAdapter
   readonly isPidAlive: (pid: number) => boolean
   /** Runs `run` once after `ms`; the result cancels it. The twin's clock moves only when a test moves it. */
   readonly after: (ms: number, run: () => void) => () => void
@@ -56,6 +60,19 @@ const watchFile = (file: string, changed: () => Promise<void>): (() => void) => 
   }
 }
 
+/** The workspace's own ntfy topic: random, so nobody guesses it, and kept in `ntfy-topic`. */
+const ntfyTopic = (stateDirectory: string): string => {
+  const file = join(stateDirectory, "ntfy-topic")
+  try {
+    return readFileSync(file, "utf8").trim()
+  } catch {
+    const topic = `gtd-${randomBytes(12).toString("hex")}`
+    mkdirSync(stateDirectory, { recursive: true, mode: 0o700 })
+    writeFileSync(file, `${topic}\n`, { mode: 0o600 })
+    return topic
+  }
+}
+
 const isPidAlive = (pid: number): boolean => {
   try {
     process.kill(pid, 0)
@@ -75,6 +92,7 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
     defaultTerminal: () => rex(),
     defaultServices: () => pitchfork(),
     defaultActions: () => mise(),
+    defaultNotifications: (stateDirectory) => ntfy({ topic: ntfyTopic(stateDirectory) }),
     isPidAlive,
     after: (ms, run) => {
       const timer = setTimeout(run, ms)

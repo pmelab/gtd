@@ -42,7 +42,12 @@ interface WorkspaceControlRequest {
     | {
         readonly command: "note"
         readonly worktree: string
-        readonly note: { readonly message: string; readonly error: boolean } | null
+        readonly note: {
+          readonly message: string
+          readonly error: boolean
+          /** Also send it as a notification. */
+          readonly notify?: boolean
+        } | null
       }
   readonly config?: string
   readonly cwd: string

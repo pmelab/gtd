@@ -150,7 +150,7 @@ const JSON_KINDS: ReadonlySet<Command["kind"] | undefined> = new Set<Command["ki
   "strays",
 ])
 
-const NOTE_FLAG_SCOPE = "gtd: --error and --clear are only valid for `gtd workspace note`"
+const NOTE_FLAG_SCOPE = "gtd: --error, --notify and --clear are only valid for `gtd workspace note`"
 
 const FLAGS: readonly FlagRow[] = [
   {
@@ -240,6 +240,16 @@ const FLAGS: readonly FlagRow[] = [
     scopeError: NOTE_FLAG_SCOPE,
     valueHint: "",
     help: "Make it an error note: the worktree status becomes an error of kind note",
+  },
+  {
+    name: "--notify",
+    arity: 0,
+    repeatable: false,
+    scope: (_kind, token) => token === "workspace note",
+    decode: () => Result.succeed(true),
+    scopeError: NOTE_FLAG_SCOPE,
+    valueHint: "",
+    help: "Also send the note as a notification",
   },
   {
     name: "--clear",
@@ -564,7 +574,7 @@ It reaches the running supervisor of the workspace whose gtd.workspace.ts is inn
     arity: { name: "worktree", second: "message", optional: true },
     group: "Inspect",
     summary: "Put a note on a worktree",
-    details: `Put <message> on the worktree at the path <worktree>, in place of its last note, for example the outcome of a merge or a deploy. With --error the worktree status becomes an error of kind note. --clear takes the note off and needs no message.
+    details: `Put <message> on the worktree at the path <worktree>, in place of its last note, for example the outcome of a merge or a deploy. With --error the worktree status becomes an error of kind note. With --notify the note is also sent as a notification. --clear takes the note off and needs no message.
 
 It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. When no supervisor runs, the note waits in the supervisor's state directory and applies when the supervisor starts. A path that is no worktree exits 1.`,
   },
@@ -993,30 +1003,44 @@ const buildLandCommand = (bag: {
   ...(bag["--model"] !== undefined ? { model: bag["--model"] } : {}),
 })
 
+interface NoteFlags {
+  readonly "--error"?: boolean
+  readonly "--notify"?: boolean
+  readonly "--clear"?: boolean
+  readonly "--config"?: string
+}
+
+const noteProblem = (bag: NoteFlags, message: string | undefined): string | undefined => {
+  if (bag["--clear"] !== true) return message === undefined ? "missing message argument" : undefined
+  for (const flag of ["--error", "--notify"] as const) {
+    if (bag[flag] === true) return `--clear and ${flag} cannot be combined`
+  }
+  return message !== undefined ? "--clear takes no message" : undefined
+}
+
 const buildNoteCommand = (
   [worktree = "", message]: readonly string[],
-  bag: { readonly "--error"?: boolean; readonly "--clear"?: boolean; readonly "--config"?: string },
+  bag: NoteFlags,
   json: JsonMode,
   verbose: boolean,
   jsonSeen: boolean,
 ): CliPlan => {
-  const clear = bag["--clear"] === true
-  if (clear && bag["--error"] === true) {
-    return usagePlan("gtd workspace note: --clear and --error cannot be combined", jsonSeen)
-  }
-  if (clear && message !== undefined) {
-    return usagePlan("gtd workspace note: --clear takes no message", jsonSeen)
-  }
-  if (!clear && message === undefined) {
-    return usagePlan("gtd workspace note: missing message argument", jsonSeen)
-  }
+  const problem = noteProblem(bag, message)
+  if (problem !== undefined) return usagePlan(`gtd workspace note: ${problem}`, jsonSeen)
   return {
     kind: "command",
     command: {
       kind: "workspaceControl",
       command: "note",
       worktree,
-      note: message === undefined ? null : { message, error: bag["--error"] === true },
+      note:
+        message === undefined
+          ? null
+          : {
+              message,
+              error: bag["--error"] === true,
+              ...(bag["--notify"] === true ? { notify: true } : {}),
+            },
       ...(bag["--config"] !== undefined ? { config: bag["--config"] } : {}),
     },
     json,
@@ -1162,6 +1186,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--answers"?: string
     readonly "--config"?: string
     readonly "--error"?: boolean
+    readonly "--notify"?: boolean
     readonly "--clear"?: boolean
   }
 

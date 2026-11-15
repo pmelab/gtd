@@ -30,6 +30,7 @@ import {
   InMemRepo,
   inMemoryActions,
   inMemoryClock,
+  inMemoryNotifications,
   inMemoryServices,
   inMemoryTerminal,
   inMemoryWorktrees,
@@ -110,6 +111,7 @@ class ManualClock {
 interface Run {
   readonly abort: AbortController
   readonly done: Promise<CapturedCliResult>
+  readonly output: () => string
   url?: string
 }
 
@@ -133,6 +135,7 @@ export class WorkspaceBench {
   /** Whether the default worktrees adapter offers a watch. */
   watching = true
   readonly services = inMemoryServices()
+  readonly notifications = inMemoryNotifications()
   /** The changing calls the supervisor made to the worktrees, services and terminal adapters, in order. */
   readonly calls: { call: string; worktree: string }[] = []
   private readonly answers = new Map<string, SpawnOutcome>()
@@ -377,6 +380,7 @@ export class WorkspaceBench {
       defaultTerminal: () => this.loggedTerminal(),
       defaultServices: () => this.loggedServices(),
       defaultActions: () => this.actions.adapter,
+      defaultNotifications: () => this.notifications.adapter,
       isPidAlive: (pid) => pid === process.pid,
       after: this.clock.after,
       watchFile: (path, changed) => {
@@ -454,7 +458,7 @@ export class WorkspaceBench {
     })
       .catch(() => {})
       .then(result)
-    const run: Run = { abort, done }
+    const run: Run = { abort, done, output: () => result().stdout }
     this.runs.push(run)
     const outcome = await Promise.race([serving, done])
     if (outcome !== "serving") {
@@ -465,6 +469,11 @@ export class WorkspaceBench {
     await delay(0)
     run.url = result().stdout.split("\n")[0]!.trim()
     await this.feedClock.settled()
+  }
+
+  /** What the latest supervisor printed so far. */
+  get output(): string {
+    return this.runs.at(-1)?.output() ?? ""
   }
 
   /** The URL the first supervisor printed. */
