@@ -15,7 +15,13 @@ import { guard, type Exposure } from "./Guard.js"
 import { UiError, UiHost, UiShell, UiUsageError, type UiHandler } from "./Ports.js"
 import { inlineScript, inlineStyles } from "./scriptTag.mjs"
 import { parseServeStatus, publishServe, type ServeMapping, unpublishServe } from "./Serve.js"
-import { probeNodeOwner, probeTailscaleStatus, type TailscaleStatus, whois } from "./Tailscale.js"
+import {
+  nodeOwnerCache,
+  probeNodeOwner,
+  probeTailscaleStatus,
+  type TailscaleStatus,
+  whois,
+} from "./Tailscale.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert, type CertPair } from "./Tls.js"
 
 /** `/trpc` prefix: everything under it is the tRPC API surface; everything else keeps serving the client HTML exactly as before. */
@@ -811,14 +817,12 @@ export const exposeHandler = (args: {
     const runner = yield* UiShell
     const uiListener = yield* UiListener
 
-    // Looked up on first use and kept once known, so a tailnet that comes up
-    // after the server starts is still picked up.
     const tailnet = <A>(effect: Effect.Effect<A, never, UiShell>): Promise<A> =>
       Effect.runPromise(effect.pipe(Effect.provideService(UiShell, runner)))
-    let owner: string | undefined
+    const nodeOwner = nodeOwnerCache(() => tailnet(probeNodeOwner()), Date.now)
     const users = async (): Promise<readonly string[] | undefined> => {
       if (config?.users !== undefined) return config.users
-      owner ??= await tailnet(probeNodeOwner())
+      const owner = await nodeOwner()
       return owner === undefined ? undefined : [owner]
     }
     const logins = new Map<string, string>()
