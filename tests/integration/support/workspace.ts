@@ -31,8 +31,8 @@ import {
   inMemoryWorktrees,
   makeCapturingCliIo,
   type CapturedCliResult,
+  type InMemoryPane,
 } from "../../../src/twins/index.js"
-import type { InMemoryPane } from "../../../src/twins/Terminal.js"
 import { createTRPCClient, httpLink } from "@trpc/client"
 import {
   UiUsageError,
