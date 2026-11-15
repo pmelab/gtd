@@ -5,7 +5,9 @@ import {
   formatWorkspaceProblem,
   workspaceProblems,
   type WorkspaceSettings,
+  type Feed,
 } from "../workspace/index.js"
+import { isFeed } from "../workspace/internal.js"
 
 const WORKSPACE_MODULE = "gtd.workspace.ts"
 
@@ -14,6 +16,8 @@ export interface LoadedWorkspace {
   readonly root: string
   readonly file: string
   readonly settings: WorkspaceSettings
+  /** The `feed()` exports, by export name. */
+  readonly feeds: ReadonlyMap<string, Feed>
 }
 
 /** `--config`, else the innermost `gtd.workspace.ts` from `cwd` up. */
@@ -50,5 +54,8 @@ export const loadWorkspace = async (
   const settings = exports["workspace"] ?? {}
   const problems = workspaceProblems(settings)
   if (problems.length > 0) throw configError(file, problems.map(formatWorkspaceProblem))
-  return { root: dirname(file), file, settings: settings as WorkspaceSettings }
+  const feeds = new Map(
+    Object.entries(exports).filter((entry): entry is [string, Feed] => isFeed(entry[1])),
+  )
+  return { root: dirname(file), file, settings: settings as WorkspaceSettings, feeds }
 }

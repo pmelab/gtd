@@ -1,7 +1,8 @@
+import { execFile } from "node:child_process"
 import { Context, Layer } from "effect"
 import { liveRunInWorktree, type SpawnOutcome } from "../ui/index.js"
 import { pitchfork, worktrunk } from "../workspace-adapters/index.js"
-import type { ServicesAdapter, WorktreesAdapter } from "../workspace/index.js"
+import type { ExecResult, ServicesAdapter, WorktreesAdapter } from "../workspace/index.js"
 
 /**
  * What the supervisor reaches outside its process besides the adapters a
@@ -35,5 +36,48 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
     defaultWorktrees: (root) => worktrunk({ roots: [`${root}/*`] }),
     defaultServices: () => pitchfork(),
     isPidAlive,
+  })
+}
+
+/** The tools a feed's `ctx` lends; tests answer them from a table. */
+interface UserlandToolsOps {
+  readonly exec: (argv: readonly string[], cwd: string) => Promise<ExecResult>
+  readonly fetch: typeof globalThis.fetch
+}
+
+const exec = (argv: readonly string[], cwd: string): Promise<ExecResult> =>
+  new Promise((resolve, reject) => {
+    const [file, ...args] = argv
+    if (file === undefined) return reject(new Error("exec: argv is empty"))
+    execFile(file, args, { cwd, maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
+      // A string code (ENOENT, …) means the command never ran.
+      if (error !== null && typeof error.code !== "number") return reject(error)
+      resolve({ status: error === null ? 0 : (error.code as number), stdout, stderr })
+    })
+  })
+
+export class UserlandTools extends Context.Service<UserlandTools, UserlandToolsOps>()(
+  "UserlandTools",
+) {
+  static readonly Live = Layer.succeed(UserlandTools, { exec, fetch: globalThis.fetch })
+}
+
+/** Time for the supervisor's schedules; tests move it by hand. */
+interface SupervisorClockOps {
+  readonly now: () => number
+  /** Runs `task` now and then every `ms`, until the returned function cancels it. */
+  readonly every: (ms: number, task: () => Promise<void>) => () => void
+}
+
+export class SupervisorClock extends Context.Service<SupervisorClock, SupervisorClockOps>()(
+  "SupervisorClock",
+) {
+  static readonly Live = Layer.succeed(SupervisorClock, {
+    now: () => Date.now(),
+    every: (ms, task) => {
+      void task()
+      const timer = setInterval(() => void task(), ms)
+      return () => clearInterval(timer)
+    },
   })
 }

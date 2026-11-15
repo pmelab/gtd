@@ -20,6 +20,7 @@ export {
   type VerdictEntry,
   type WorkflowModule,
 } from "./TestRepo.js"
+export { testFeed, type FeedPollResult, type TestFeed, type TestFeedOptions } from "./TestFeed.js"
 export type { BeatDocument } from "../wire/index.js"
 export type { CapturedCliResult } from "../twins/index.js"
 export type { TestkitWorld } from "../gherkin/index.js"

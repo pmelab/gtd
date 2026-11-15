@@ -21,3 +21,13 @@ export {
   type Worktree,
   type WorktreesAdapter,
 } from "./adapters.js"
+export {
+  feed,
+  type ExecResult,
+  type Feed,
+  type FeedContext,
+  type FeedItem,
+  type FeedMode,
+  type FeedSpec,
+} from "./feed.js"
+export type { InboxItem, ItemState } from "./inbox.js"
