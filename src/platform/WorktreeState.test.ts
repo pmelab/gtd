@@ -14,11 +14,11 @@ import { tmpdir } from "node:os"
 import { Effect, Layer, type Path } from "effect"
 import { describe, expect, it } from "vitest"
 import { loopLogPath, worktreeGitDir } from "./WorktreeState.js"
-import { GitService, Host, Workspace, NodeServices } from "./index.js"
+import { GitService, Host, RepoFiles, NodeServices } from "./index.js"
 import { InMemRepo, testLayers } from "../twins/index.js"
 
 const provide = <A>(
-  eff: Effect.Effect<A, never, Host | Path.Path | Workspace>,
+  eff: Effect.Effect<A, never, Host | Path.Path | RepoFiles>,
   repo: InMemRepo,
   opts: {
     readonly root?: string
@@ -112,12 +112,12 @@ describe("worktreeGitDir [real git]", () => {
   const runIn = (root: string) => {
     const hostLayer = Host.layer({ root, home: root, env: {} })
     const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeServices.layer)))
-    const workspaceLayer = Workspace.Live.pipe(
+    const repoFilesLayer = RepoFiles.Live.pipe(
       Layer.provide(Layer.mergeAll(hostLayer, gitLayer, NodeServices.layer)),
     )
     return Effect.runPromise(
       worktreeGitDir.pipe(
-        Effect.provide(Layer.mergeAll(hostLayer, workspaceLayer, NodeServices.layer)),
+        Effect.provide(Layer.mergeAll(hostLayer, repoFilesLayer, NodeServices.layer)),
       ),
     )
   }

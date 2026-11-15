@@ -1,6 +1,6 @@
 import { Effect, Path } from "effect"
 import { Host } from "./Host.js"
-import { Workspace } from "./Workspace.js"
+import { RepoFiles } from "./RepoFiles.js"
 
 const GITDIR_POINTER = /^gitdir:\s*(.+)$/m
 
@@ -10,12 +10,12 @@ const GITDIR_POINTER = /^gitdir:\s*(.+)$/m
  * read failure or a `.git` file with no `gitdir:` line both fall back to
  * `".git"`, which is also correct for the in-memory test tier.
  */
-export const worktreeGitDir: Effect.Effect<string, never, Host | Path.Path | Workspace> =
+export const worktreeGitDir: Effect.Effect<string, never, Host | Path.Path | RepoFiles> =
   Effect.gen(function* () {
     const { root } = yield* Host
     const path = yield* Path.Path
-    const workspace = yield* Workspace
-    const content = yield* workspace
+    const repoFiles = yield* RepoFiles
+    const content = yield* repoFiles
       .read(".git")
       .pipe(Effect.catch(() => Effect.succeed(undefined)))
     const pointer = content === undefined ? null : GITDIR_POINTER.exec(content)
@@ -33,7 +33,7 @@ export const worktreeGitDir: Effect.Effect<string, never, Host | Path.Path | Wor
  * doesn't want that (e.g. the e2e suite) must scrub it before invoking gtd.
  * Advisory only — gtd neither creates nor truncates the file.
  */
-export const loopLogPath: Effect.Effect<string, never, Host | Path.Path | Workspace> = Effect.gen(
+export const loopLogPath: Effect.Effect<string, never, Host | Path.Path | RepoFiles> = Effect.gen(
   function* () {
     const { root, env } = yield* Host
     const path = yield* Path.Path

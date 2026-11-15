@@ -6,7 +6,7 @@ import {
   renderFailure,
   GitService,
   Host,
-  Workspace,
+  RepoFiles,
   CommandRunner,
   NodeServices,
   nodeStdio,
@@ -1232,7 +1232,7 @@ export const nodeCliIo = (tools: LiveToolCommands): CliIo => ({
   // result does. `runCli` calls this thunk exactly when `plan.kind ===
   // "command"`, so --version/--help/a usage error never provoke it.
   layers: (verbose) =>
-    // Dependency order matters: Workspace.Live needs GitService, both need
+    // Dependency order matters: RepoFiles.Live needs GitService, both need
     // Host, and GitService needs NodeServices' ChildProcessSpawner. Each
     // `provideMerge` satisfies the layers above it AND stays in the output.
     tools.pipe(
@@ -1241,7 +1241,7 @@ export const nodeCliIo = (tools: LiveToolCommands): CliIo => ({
           ConfigService.Live,
           ConfigDiscovery.Live,
           EngineCore.Live,
-          Workspace.Live,
+          RepoFiles.Live,
           Narrator.layer(stdio.stderr, verbose),
           CommandRunner.Live,
         ).pipe(

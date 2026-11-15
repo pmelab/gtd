@@ -14,8 +14,8 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { Effect, Layer } from "effect"
-import { GitService, Host, Workspace, type WorkspaceOps, NodeServices } from "./index.js"
-import { InMemRepo, makeInMemoryWorkspaceOps } from "../twins/index.js"
+import { GitService, Host, RepoFiles, type RepoFilesOps, NodeServices } from "./index.js"
+import { InMemRepo, makeInMemoryRepoFilesOps } from "../twins/index.js"
 
 // `execFileSync` is a named export of the built-in `node:child_process` ESM
 // module — not configurable, so `vi.spyOn` can't wrap it directly. `vi.mock`
@@ -31,24 +31,24 @@ vi.mock("node:child_process", async (importOriginal) => {
 })
 
 /**
- * One `Workspace` tier, in the shape `src/twins/GitTiers.ts` establishes
+ * One `RepoFiles` tier, in the shape `src/twins/GitTiers.ts` establishes
  * for `GitOperations`: a `root`, a way to seed working-tree/committed
- * content, and `provide` to run an Effect against this tier's `Workspace`.
+ * content, and `provide` to run an Effect against this tier's `RepoFiles`.
  */
-interface WorkspaceTier {
+interface RepoFilesTier {
   readonly root: string
   readonly writeWorking: (path: string, content: string) => void
   readonly commit: (path: string, content: string) => void
   readonly chmod: (path: string, executable: boolean) => void
-  readonly provide: <A>(eff: Effect.Effect<A, Error, Workspace>) => Promise<A>
+  readonly provide: <A>(eff: Effect.Effect<A, Error, RepoFiles>) => Promise<A>
   readonly dispose: () => void
 }
 
 const gitExecIn = (dir: string, ...args: string[]): string =>
   execSync(`git ${args.join(" ")}`, { cwd: dir, encoding: "utf8", stdio: "pipe" }).trim()
 
-const makeLiveTier = (): WorkspaceTier => {
-  const root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-workspace-tier-")))
+const makeLiveTier = (): RepoFilesTier => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-repo-files-tier-")))
   gitExecIn(root, "init", "-q")
   gitExecIn(root, "config", "user.email", "test@test.com")
   gitExecIn(root, "config", "user.name", "Test")
@@ -56,7 +56,7 @@ const makeLiveTier = (): WorkspaceTier => {
 
   const hostLayer = Host.layer({ root, home: root, env: {} })
   const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeServices.layer)))
-  const workspaceLayer = Workspace.Live.pipe(
+  const repoFilesLayer = RepoFiles.Live.pipe(
     Layer.provide(Layer.mergeAll(hostLayer, gitLayer, NodeServices.layer)),
   )
 
@@ -73,15 +73,15 @@ const makeLiveTier = (): WorkspaceTier => {
       gitExecIn(root, "commit", "-m", `commit ${path}`)
     },
     chmod: (path, executable) => chmodSync(join(root, path), executable ? 0o755 : 0o644),
-    provide: (eff) => Effect.runPromise(eff.pipe(Effect.provide(workspaceLayer))),
+    provide: (eff) => Effect.runPromise(eff.pipe(Effect.provide(repoFilesLayer))),
     dispose: () => rmSync(root, { recursive: true, force: true }),
   }
 }
 
-const makeInMemTier = (): WorkspaceTier => {
+const makeInMemTier = (): RepoFilesTier => {
   const root = "/repo"
   const repo = new InMemRepo()
-  const workspaceOps = makeInMemoryWorkspaceOps(repo, root)
+  const repoFilesOps = makeInMemoryRepoFilesOps(repo, root)
   return {
     root,
     writeWorking: (path, content) => repo.writeFile(path, content),
@@ -91,7 +91,7 @@ const makeInMemTier = (): WorkspaceTier => {
     },
     chmod: (path, executable) => repo.setExecutable(path, executable),
     provide: (eff) =>
-      Effect.runPromise(eff.pipe(Effect.provide(Layer.succeed(Workspace, workspaceOps)))),
+      Effect.runPromise(eff.pipe(Effect.provide(Layer.succeed(RepoFiles, repoFilesOps)))),
     dispose: () => {},
   }
 }
@@ -99,23 +99,23 @@ const makeInMemTier = (): WorkspaceTier => {
 /** `{ name, make }` rather than a bare factory array: `describe`'s title needs a name at COLLECTION time, before any test body runs — calling `make()` just to read a `.name` off the built tier would construct (and, for Live, `git init` a real tmpdir) a tier nothing then disposes. */
 const tiers: ReadonlyArray<{
   readonly name: "Live" | "InMemory"
-  readonly make: () => WorkspaceTier
+  readonly make: () => RepoFilesTier
 }> = [
   { name: "Live", make: makeLiveTier },
   { name: "InMemory", make: makeInMemTier },
 ]
 
 for (const { name, make } of tiers) {
-  let t: WorkspaceTier
+  let t: RepoFilesTier
 
-  describe(`Workspace [${name}]`, () => {
+  describe(`RepoFiles [${name}]`, () => {
     afterEach(() => t?.dispose())
 
     it("readSync returns undefined for a missing repo-relative path", () => {
       t = make()
       const result = t.provide(
         Effect.gen(function* () {
-          return (yield* Workspace).readSync("missing.txt")
+          return (yield* RepoFiles).readSync("missing.txt")
         }),
       )
       return expect(result).resolves.toBeUndefined()
@@ -126,7 +126,7 @@ for (const { name, make } of tiers) {
       t.writeWorking("a.txt", "hello\n")
       const result = await t.provide(
         Effect.gen(function* () {
-          return (yield* Workspace).readSync("a.txt")
+          return (yield* RepoFiles).readSync("a.txt")
         }),
       )
       expect(result).toBe("hello\n")
@@ -137,8 +137,8 @@ for (const { name, make } of tiers) {
       t.writeWorking("a.txt", "hello\n")
       const [present, absent] = await t.provide(
         Effect.gen(function* () {
-          const workspace = yield* Workspace
-          return [yield* workspace.read("a.txt"), yield* workspace.read("missing.txt")]
+          const repoFiles = yield* RepoFiles
+          return [yield* repoFiles.read("a.txt"), yield* repoFiles.read("missing.txt")]
         }),
       )
       expect(present).toBe("hello\n")
@@ -151,7 +151,7 @@ for (const { name, make } of tiers) {
       const exit = await t
         .provide(
           Effect.gen(function* () {
-            return (yield* Workspace).readSync("adir")
+            return (yield* RepoFiles).readSync("adir")
           }),
         )
         .then(
@@ -171,8 +171,8 @@ for (const { name, make } of tiers) {
       t.commit("a.txt", "committed\n")
       const [atHead, missing] = await t.provide(
         Effect.gen(function* () {
-          const workspace = yield* Workspace
-          return [yield* workspace.committed("a.txt"), yield* workspace.committed("missing.txt")]
+          const repoFiles = yield* RepoFiles
+          return [yield* repoFiles.committed("a.txt"), yield* repoFiles.committed("missing.txt")]
         }),
       )
       expect(atHead).toBe("committed\n")
@@ -184,8 +184,8 @@ for (const { name, make } of tiers) {
       t.commit("a.txt", "committed\n")
       const [atHead, missing] = await t.provide(
         Effect.gen(function* () {
-          const workspace = yield* Workspace
-          return [workspace.readCommittedSync("a.txt"), workspace.readCommittedSync("missing.txt")]
+          const repoFiles = yield* RepoFiles
+          return [repoFiles.readCommittedSync("a.txt"), repoFiles.readCommittedSync("missing.txt")]
         }),
       )
       expect(atHead).toBe("committed\n")
@@ -197,7 +197,7 @@ for (const { name, make } of tiers) {
       t.writeWorking("scratch.txt", "freshly gathered, ungoverned\n")
       const result = await t.provide(
         Effect.gen(function* () {
-          return (yield* Workspace).readCommittedSync("scratch.txt")
+          return (yield* RepoFiles).readCommittedSync("scratch.txt")
         }),
       )
       expect(result).toBeUndefined()
@@ -207,9 +207,9 @@ for (const { name, make } of tiers) {
       t = make()
       const content = await t.provide(
         Effect.gen(function* () {
-          const workspace = yield* Workspace
-          yield* workspace.write("out.txt", "written\n")
-          return yield* workspace.read("out.txt")
+          const repoFiles = yield* RepoFiles
+          yield* repoFiles.write("out.txt", "written\n")
+          return yield* repoFiles.read("out.txt")
         }),
       )
       expect(content).toBe("written\n")
@@ -219,7 +219,7 @@ for (const { name, make } of tiers) {
       t = make()
       const attempt = t.provide(
         Effect.gen(function* () {
-          return (yield* Workspace).readSync(join(t.root, "outside-call.txt"))
+          return (yield* RepoFiles).readSync(join(t.root, "outside-call.txt"))
         }),
       )
       return expect(attempt).rejects.toThrow(/repo-relative paths only/)
@@ -229,8 +229,8 @@ for (const { name, make } of tiers) {
       t = make()
       const attempt = t.provide(
         Effect.gen(function* () {
-          const workspace = yield* Workspace
-          yield* workspace.write(join(t.root, "outside-write.txt"), "x")
+          const repoFiles = yield* RepoFiles
+          yield* repoFiles.write(join(t.root, "outside-write.txt"), "x")
         }),
       )
       await expect(attempt).rejects.toThrow(/repo-relative paths only/)
@@ -242,11 +242,11 @@ for (const { name, make } of tiers) {
       t.chmod("a.sh", true)
       const modes = await t.provide(
         Effect.gen(function* () {
-          const workspace = yield* Workspace
-          const committed = workspace.modeSync("HEAD").get("a.sh")
-          const chmodded = workspace.modeSync(undefined).get("a.sh")
+          const repoFiles = yield* RepoFiles
+          const committed = repoFiles.modeSync("HEAD").get("a.sh")
+          const chmodded = repoFiles.modeSync(undefined).get("a.sh")
           t.writeWorking("a.sh", "echo 2\n")
-          return [committed, chmodded, workspace.modeSync(undefined).get("a.sh")]
+          return [committed, chmodded, repoFiles.modeSync(undefined).get("a.sh")]
         }),
       )
       expect(modes).toEqual(["100644", "100755", "100755"])
@@ -261,7 +261,7 @@ for (const { name, make } of tiers) {
         chmodSync(join(t.root, "a.sh"), 0o654)
         const mode = await t.provide(
           Effect.gen(function* () {
-            return (yield* Workspace).modeSync(undefined).get("a.sh")
+            return (yield* RepoFiles).modeSync(undefined).get("a.sh")
           }),
         )
         gitExecIn(t.root, "add", "a.sh")
@@ -274,7 +274,7 @@ for (const { name, make } of tiers) {
       t.writeWorking("nested/a.txt", "inside\n")
       const content = await t.provide(
         Effect.gen(function* () {
-          return (yield* Workspace).atPath(join(t.root, "nested/a.txt"))
+          return (yield* RepoFiles).atPath(join(t.root, "nested/a.txt"))
         }),
       )
       expect(content).toBe("inside\n")
@@ -284,9 +284,9 @@ for (const { name, make } of tiers) {
       t = make()
       const content = await t.provide(
         Effect.gen(function* () {
-          const workspace = yield* Workspace
-          yield* workspace.writeAtPath(join(t.root, "written-abs.txt"), "abs\n")
-          return workspace.atPath(join(t.root, "written-abs.txt"))
+          const repoFiles = yield* RepoFiles
+          yield* repoFiles.writeAtPath(join(t.root, "written-abs.txt"), "abs\n")
+          return repoFiles.atPath(join(t.root, "written-abs.txt"))
         }),
       )
       expect(content).toBe("abs\n")
@@ -294,7 +294,7 @@ for (const { name, make } of tiers) {
   })
 }
 
-describe("Workspace [Live] worktreeSync", () => {
+describe("RepoFiles [Live] worktreeSync", () => {
   let root: string
   const git = (...args: string[]) => gitExecIn(root, ...args)
   const write = (path: string, content: string) => {
@@ -304,10 +304,10 @@ describe("Workspace [Live] worktreeSync", () => {
   const ops = () =>
     Effect.runPromise(
       Effect.gen(function* () {
-        return yield* Workspace
+        return yield* RepoFiles
       }).pipe(
         Effect.provide(
-          Workspace.Live.pipe(
+          RepoFiles.Live.pipe(
             Layer.provide(
               Layer.mergeAll(
                 Host.layer({ root, home: root, env: {} }),
@@ -359,8 +359,8 @@ describe("Workspace [Live] worktreeSync", () => {
     seed()
     rmSync(join(root, "notes.crlf"))
     git("checkout", "--", "notes.crlf")
-    const workspace = await ops()
-    expect(workspace.worktreeSync()).toEqual(workspace.treeSync("HEAD"))
+    const repoFiles = await ops()
+    expect(repoFiles.worktreeSync()).toEqual(repoFiles.treeSync("HEAD"))
   })
 
   it("a dirty working tree maps to exactly the tree `git add -A` would commit", async () => {
@@ -386,7 +386,7 @@ describe("Workspace [Live] worktreeSync", () => {
 
 // ── episodeTrees ──────────────────────────────────────────────────────────
 
-/** A minimal `Workspace [Live]` fixture, giving direct git access for seeding. */
+/** A minimal `RepoFiles [Live]` fixture, giving direct git access for seeding. */
 const makeLiveEpisodeTier = () => {
   const root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-episode-tier-")))
   // Array-args `execFileSync`, never a shell-joined string: a commit message
@@ -401,14 +401,14 @@ const makeLiveEpisodeTier = () => {
 
   const hostLayer = Host.layer({ root, home: root, env: {} })
   const gitLayer = GitService.Live.pipe(Layer.provide(Layer.merge(hostLayer, NodeServices.layer)))
-  const workspaceLayer = Workspace.Live.pipe(
+  const repoFilesLayer = RepoFiles.Live.pipe(
     Layer.provide(Layer.mergeAll(hostLayer, gitLayer, NodeServices.layer)),
   )
-  const ops = (): Promise<WorkspaceOps> =>
+  const ops = (): Promise<RepoFilesOps> =>
     Effect.runPromise(
       Effect.gen(function* () {
-        return yield* Workspace
-      }).pipe(Effect.provide(workspaceLayer)),
+        return yield* RepoFiles
+      }).pipe(Effect.provide(repoFilesLayer)),
     )
 
   const write = (path: string, content: string) => {
@@ -431,7 +431,7 @@ const makeLiveEpisodeTier = () => {
   }
 }
 
-describe("Workspace [Live] episodeTrees", () => {
+describe("RepoFiles [Live] episodeTrees", () => {
   let t: ReturnType<typeof makeLiveEpisodeTier>
   afterEach(() => t?.dispose())
 
@@ -472,13 +472,13 @@ describe("Workspace [Live] episodeTrees", () => {
     t.git("merge", "-q", "--no-ff", "-m", "c5: merge feature", "feature")
     const c5 = t.git("rev-parse", "HEAD")
 
-    const workspace = await t.ops()
+    const repoFiles = await t.ops()
     const commits = [c1, c2, c3, c4, c5]
-    const result = await Effect.runPromise(workspace.episodeTrees(base, commits))
+    const result = await Effect.runPromise(repoFiles.episodeTrees(base, commits))
 
-    expect(result.get(base)).toEqual(workspace.treeSync(base))
+    expect(result.get(base)).toEqual(repoFiles.treeSync(base))
     for (const hash of commits) {
-      expect(result.get(hash), `mismatch at ${hash}`).toEqual(workspace.treeSync(hash))
+      expect(result.get(hash), `mismatch at ${hash}`).toEqual(repoFiles.treeSync(hash))
     }
     // Sanity: the reconstruction actually exercised every kind of change,
     // not just carried the base tree forward unchanged.
@@ -496,10 +496,10 @@ describe("Workspace [Live] episodeTrees", () => {
     t.write("b.txt", "b\n")
     const c2 = t.commit("c2: second commit")
 
-    const workspace = await t.ops()
-    const result = await Effect.runPromise(workspace.episodeTrees(undefined, [c1, c2]))
-    expect(result.get(c1)).toEqual(workspace.treeSync(c1))
-    expect(result.get(c2)).toEqual(workspace.treeSync(c2))
+    const repoFiles = await t.ops()
+    const result = await Effect.runPromise(repoFiles.episodeTrees(undefined, [c1, c2]))
+    expect(result.get(c1)).toEqual(repoFiles.treeSync(c1))
+    expect(result.get(c2)).toEqual(repoFiles.treeSync(c2))
   })
 
   it("issues exactly two git subprocesses for a cold-cache episode — one ls-tree, one log --raw — regardless of episode length", async () => {
@@ -511,9 +511,9 @@ describe("Workspace [Live] episodeTrees", () => {
       t.write(`file-${i}.txt`, `${i}\n`)
       commits.push(t.commit(`c${i}`))
     }
-    const workspace = await t.ops()
+    const repoFiles = await t.ops()
     execFileSyncSpy.mockClear()
-    const result = await Effect.runPromise(workspace.episodeTrees(base, commits))
+    const result = await Effect.runPromise(repoFiles.episodeTrees(base, commits))
     expect(result.size).toBe(commits.length + 1)
     const gitCalls = execFileSyncSpy.mock.calls.filter(([cmd]) => cmd === "git")
     const lsTreeCalls = gitCalls.filter(([, args]) => (args as string[]).includes("ls-tree"))
@@ -528,14 +528,14 @@ describe("Workspace [Live] episodeTrees", () => {
     const base = t.commit("base")
     t.write("b.txt", "b\n")
     const c1 = t.commit("c1: add b.txt")
-    const workspace = await t.ops()
-    const result = await Effect.runPromise(workspace.episodeTrees(base, [c1]))
-    const expectedLength = workspace.treeSync(c1).get("a.txt")!.length
+    const repoFiles = await t.ops()
+    const result = await Effect.runPromise(repoFiles.episodeTrees(base, [c1]))
+    const expectedLength = repoFiles.treeSync(c1).get("a.txt")!.length
     expect(expectedLength).toBeGreaterThanOrEqual(40)
     // `a.txt` is untouched by c1 — its id must equal the base's byte-for-byte
     // AND be full-length, never an abbreviated prefix `git log --raw`
     // defaults to without `--no-abbrev`.
-    expect(result.get(c1)!.get("a.txt")).toBe(workspace.treeSync(base).get("a.txt"))
+    expect(result.get(c1)!.get("a.txt")).toBe(repoFiles.treeSync(base).get("a.txt"))
     expect(result.get(c1)!.get("a.txt")!.length).toBe(expectedLength)
     expect(result.get(c1)!.get("b.txt")!.length).toBe(expectedLength)
   })
@@ -546,15 +546,15 @@ describe("Workspace [Live] episodeTrees", () => {
     const base = t.commit("base")
     t.write("b.txt", "b\n")
     const c1 = t.commit("c1")
-    const workspace = await t.ops()
-    await Effect.runPromise(workspace.episodeTrees(base, [c1])) // warms the cache
+    const repoFiles = await t.ops()
+    await Effect.runPromise(repoFiles.episodeTrees(base, [c1])) // warms the cache
     execFileSyncSpy.mockClear()
-    const result = await Effect.runPromise(workspace.episodeTrees(base, [c1]))
-    expect(result.get(c1)).toEqual(workspace.treeSync(c1))
+    const result = await Effect.runPromise(repoFiles.episodeTrees(base, [c1]))
+    expect(result.get(c1)).toEqual(repoFiles.treeSync(c1))
     expect(execFileSyncSpy.mock.calls.filter(([cmd]) => cmd === "git")).toEqual([])
   })
 
-  it("caches on disk under the git COMMON directory (`gtd-cache/`), surviving a brand-new Workspace instance", async () => {
+  it("caches on disk under the git COMMON directory (`gtd-cache/`), surviving a brand-new RepoFiles instance", async () => {
     t = makeLiveEpisodeTier()
     t.write("a.txt", "a\n")
     const base = t.commit("base")
@@ -565,7 +565,7 @@ describe("Workspace [Live] episodeTrees", () => {
     const cacheFile = join(t.root, ".git", "gtd-cache", "trees", c1)
     expect(readFileSync(cacheFile, "utf8").length).toBeGreaterThan(0)
 
-    // A second, independent Workspace instance (a fresh process would build
+    // A second, independent RepoFiles instance (a fresh process would build
     // one just like this) reads the same commit with zero subprocesses.
     const second = await t.ops()
     execFileSyncSpy.mockClear()
@@ -582,8 +582,8 @@ describe("Workspace [Live] episodeTrees", () => {
     const base = t.commit("base")
     t.write("b.txt", "b\n")
     const c1 = t.commit("c1")
-    const workspace = await t.ops()
-    await Effect.runPromise(workspace.episodeTrees(base, [c1]))
+    const repoFiles = await t.ops()
+    await Effect.runPromise(repoFiles.episodeTrees(base, [c1]))
     const cacheFile = join(t.root, ".git", "gtd-cache", "trees", c1)
     writeFileSync(cacheFile, "{ not json")
 
@@ -603,8 +603,8 @@ describe("Workspace [Live] episodeTrees", () => {
     const base = t.commit("base")
     t.write("b.txt", "b\n")
     const c1 = t.commit("c1")
-    const workspace = await t.ops()
-    await Effect.runPromise(workspace.episodeTrees(base, [c1]))
+    const repoFiles = await t.ops()
+    await Effect.runPromise(repoFiles.episodeTrees(base, [c1]))
     rmSync(join(t.root, ".git", "gtd-cache"), { recursive: true, force: true })
 
     const fresh = await t.ops()
@@ -634,12 +634,12 @@ describe("Workspace [Live] episodeTrees", () => {
     const base = t.commit("base")
     t.write("b.txt", "b\n")
     const c1 = t.commit("c1")
-    const workspace = await t.ops()
+    const repoFiles = await t.ops()
 
     execFileSyncSpy.mockImplementationOnce(() => {
       throw new Error("simulated transient ls-tree failure (EAGAIN/ENOMEM/signal)")
     })
-    await expect(Effect.runPromise(workspace.episodeTrees(base, [c1]))).rejects.toThrow()
+    await expect(Effect.runPromise(repoFiles.episodeTrees(base, [c1]))).rejects.toThrow()
 
     const baseCacheFile = join(t.root, ".git", "gtd-cache", "trees", base)
     const c1CacheFile = join(t.root, ".git", "gtd-cache", "trees", c1)
@@ -647,7 +647,7 @@ describe("Workspace [Live] episodeTrees", () => {
     expect(() => readFileSync(c1CacheFile, "utf8")).toThrow()
 
     // A clean retry succeeds and caches the correct (non-empty) trees.
-    const result = await Effect.runPromise(workspace.episodeTrees(base, [c1]))
+    const result = await Effect.runPromise(repoFiles.episodeTrees(base, [c1]))
     expect(result.get(base)!.get("a.txt")).toBeDefined()
     expect(result.get(c1)!.get("a.txt")).toBeDefined()
     expect(result.get(c1)!.get("b.txt")).toBeDefined()
@@ -657,23 +657,23 @@ describe("Workspace [Live] episodeTrees", () => {
     t = makeLiveEpisodeTier()
     t.write("a.txt", "a\n")
     const base = t.commit("base")
-    const workspace = await t.ops()
+    const repoFiles = await t.ops()
     const cacheFile = join(t.root, ".git", "gtd-cache", "trees", base)
 
     execFileSyncSpy.mockImplementationOnce(() => {
       throw new Error("simulated transient ls-tree failure")
     })
-    expect(workspace.treeSync(base).size).toBe(0)
+    expect(repoFiles.treeSync(base).size).toBe(0)
     expect(() => readFileSync(cacheFile, "utf8")).toThrow()
 
     // The next (unmocked) call actually asks git, succeeds, and THIS result
     // — git-confirmed, not folded-from-a-failure — is what gets cached.
-    expect(workspace.treeSync(base).get("a.txt")).toBeDefined()
+    expect(repoFiles.treeSync(base).get("a.txt")).toBeDefined()
     expect(readFileSync(cacheFile, "utf8").length).toBeGreaterThan(0)
   })
 })
 
-describe("Workspace [Live] blob-id read cache", () => {
+describe("RepoFiles [Live] blob-id read cache", () => {
   let t: ReturnType<typeof makeLiveEpisodeTier>
   afterEach(() => t?.dispose())
 
@@ -683,11 +683,11 @@ describe("Workspace [Live] blob-id read cache", () => {
     const c1 = t.commit("c1")
     t.write("other.txt", "irrelevant change\n")
     const c2 = t.commit("c2")
-    const workspace = await t.ops()
+    const repoFiles = await t.ops()
 
-    const first = workspace.readCommittedSync("shared.txt", c1)
+    const first = repoFiles.readCommittedSync("shared.txt", c1)
     execFileSyncSpy.mockClear()
-    const second = workspace.readCommittedSync("shared.txt", c2)
+    const second = repoFiles.readCommittedSync("shared.txt", c2)
     expect(second).toBe(first)
     // The tree for c2 must be read (a new commit), but no second blob read
     // for the identical content `shared.txt` carries at both commits.
@@ -701,9 +701,9 @@ describe("Workspace [Live] blob-id read cache", () => {
     t = makeLiveEpisodeTier()
     t.write("shared.txt", "cached content\n")
     const c1 = t.commit("c1")
-    const workspace = await t.ops()
-    const id = workspace.treeSync(c1).get("shared.txt")!
-    workspace.readCommittedSync("shared.txt", c1)
+    const repoFiles = await t.ops()
+    const id = repoFiles.treeSync(c1).get("shared.txt")!
+    repoFiles.readCommittedSync("shared.txt", c1)
     const cacheFile = join(t.root, ".git", "gtd-cache", "blobs", id)
     expect(readFileSync(cacheFile, "utf8")).toBe("cached content\n")
   })
