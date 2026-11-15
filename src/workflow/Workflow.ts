@@ -24,6 +24,7 @@ export interface StepDef {
   readonly model?: string
   readonly system?: string
   readonly judge?: string
+  readonly judgeFile?: string
   readonly requireProgress?: boolean
   readonly answerGate?: boolean
   readonly requireRevert?: boolean

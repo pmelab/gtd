@@ -151,6 +151,13 @@ nothing); `--json`'s `next` key mirrors it as `{ target }`, or `null`. It is a
 preview, not a landing: a guard or a `refuse()` can still turn the real
 `gtd land` away.
 
+### `gtd next`'s `judgeFile`
+
+At a judge rest whose step declares a `judgeFile`, `--json` carries it: the
+repository path of the file the judgment is about, for a driver or dashboard to
+open for a person. It is absent at a judge rest that declares none and at every
+other rest. `--json=judgeFile` prints it, or nothing.
+
 ### Error envelope
 
 **stdout is either the complete artifact or byte-empty — never a partial write

@@ -38,6 +38,7 @@ export interface BeatStatus {
   readonly cost: number
   readonly costByModel: readonly ModelCost[]
   readonly judge: string | undefined
+  readonly judgeFile: string | undefined
   readonly approvals: readonly ApprovalEntry[]
 }
 
@@ -78,6 +79,7 @@ export const statusOf = (input: {
     cost,
     costByModel,
     judge: rendered.judge,
+    judgeFile: rendered.judgeFile,
     approvals,
   }
 }

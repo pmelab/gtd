@@ -334,7 +334,7 @@ const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
   human: new Set([...STEERING_OPTIONS, "message", "acceptClean", "approve"]),
   run: new Set(["label", "base", "onFail"]),
   ship: new Set(["label", "base"]),
-  judge: new Set(["label", "base", "message"]),
+  judge: new Set(["label", "base", "message", "judgeFile"]),
 }
 
 const validatorOptionFault = (

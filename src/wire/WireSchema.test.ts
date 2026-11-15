@@ -64,6 +64,7 @@ const beat = (kind: BeatKind): string => {
     file: "TODO.md",
     label: "Fixing",
     judge: JUDGE,
+    judgeFile: ".gtd/REQUIREMENTS.md",
     skills: ["code-review"],
     access: { read: null, write: [".gtd/TODO.md"] },
   }
