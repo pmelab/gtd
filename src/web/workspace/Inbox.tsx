@@ -15,6 +15,32 @@ const PRESSES: Partial<Record<InboxItem["state"], readonly [ItemPress, string][]
   ],
 }
 
+const Presses = ({
+  item,
+  onPress,
+}: {
+  readonly item: InboxItem
+  readonly onPress: (press: ItemPress, item: InboxItem) => void
+}) => {
+  const presses = PRESSES[item.state]
+  if (presses === undefined) return null
+  return (
+    <div className="flex gap-2 pt-1">
+      {presses.map(([press, label]) => (
+        <Button
+          key={press}
+          variant={press === "dismiss" ? "ghost" : "primary"}
+          onClick={() => {
+            onPress(press, item)
+          }}
+        >
+          {label}
+        </Button>
+      ))}
+    </div>
+  )
+}
+
 /** What waits in the inbox, and the feeds whose last poll failed. */
 export const Inbox = ({
   items,
@@ -62,21 +88,7 @@ export const Inbox = ({
             {item.message}
           </span>
         )}
-        {PRESSES[item.state] !== undefined && (
-          <div className="flex gap-2 pt-1">
-            {PRESSES[item.state]!.map(([press, label]) => (
-              <Button
-                key={press}
-                variant={press === "dismiss" ? "ghost" : "primary"}
-                onClick={() => {
-                  onPress(press, item)
-                }}
-              >
-                {label}
-              </Button>
-            ))}
-          </div>
-        )}
+        <Presses item={item} onPress={onPress} />
       </article>
     ))}
   </div>
