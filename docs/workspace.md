@@ -53,23 +53,32 @@ code 1.
 
 The one reserved export, made with `defineWorkspace`. Every key is optional.
 
-- **`adapters`**: `worktrees`. An omitted adapter is the bundled default with
-  its default options. See [Adapters](#adapters).
-- **`projects`**: settings per project id: `name` (shown on the dashboard).
+- **`driver`**: the driver command, as an argv, for example `["my-driver"]`. See
+  [Workspace drivers](./driver.md#workspace-drivers).
+- **`adapters`**: `worktrees`, `terminal`. An omitted adapter is the bundled
+  default with its default options. See [Adapters](#adapters).
+- **`projects`**: settings per project id: `name` (shown on the dashboard) and
+  `driver` (this project's driver command, instead of the workspace's).
 - **`ui`**: `port`, `host`, `cert`, `key`, as for `gtd ui`, and `users` (the
   tailnet logins that may use the dashboard; default: the owner of this node).
 
 ## Worktree status
 
 The supervisor runs `gtd next --json` in each worktree, so a process that was
-handed over runs on its own pin.
+handed over runs on its own pin. It also reads the status that the worktree's
+driver reports in its terminal pane.
 
-| Status    | When                                                       |
-| --------- | ---------------------------------------------------------- |
-| needs you | The process waits for a person or a judge.                 |
-| working   | The process waits for an agent or a check.                 |
-| error     | The process stalled, or `gtd next` failed in the worktree. |
-| idle      | The process has ended, or the worktree has none.           |
+| Status    | When                                                                                        |
+| --------- | ------------------------------------------------------------------------------------------- |
+| needs you | The process waits for a person or a judge, and its driver is waiting or not running.        |
+| working   | The driver reports that it works, or it runs while the process waits for an agent or check. |
+| error     | The driver reports an error, the driver crashed, the process stalled, or `gtd next` failed. |
+| idle      | The process has ended, or the worktree has none.                                            |
+
+The supervisor starts the driver in its own terminal pane. The driver outlives
+the supervisor. When the supervisor starts, it starts the driver of each
+worktree that waits for an agent or a check with no driver running. It never
+restarts a driver that crashed.
 
 ## Gate pages
 
@@ -82,9 +91,10 @@ that worktree at once.
 
 ## Adapters
 
-| Adapter     | Default   | Factory                |
-| ----------- | --------- | ---------------------- |
-| `worktrees` | worktrunk | `worktrunk({ roots })` |
+| Adapter     | Default   | Factory                  |
+| ----------- | --------- | ------------------------ |
+| `worktrees` | worktrunk | `worktrunk({ roots })`   |
+| `terminal`  | rex       | `rex({ server, shell })` |
 
 The factories come from `@pmelab/gtd/workspace/adapters`. To use another tool,
 give an object that implements the adapter's interface from
@@ -116,6 +126,23 @@ is a project when it is a main checkout. Its id is what the `*` segments
 matched, joined by `/`, or the directory's name when the root has no `*`.
 Without a `worktrees` adapter, every main checkout directly in the workspace
 root is a project.
+
+### `terminal`
+
+- **`run(project, worktree, argv, env)`**: opens a new pane in the worktree with
+  `argv` as the pane's own top process, and returns a handle (a string). `argv`
+  gets the environment of your login shell, with `env` applied after the shell's
+  startup files. The pane stays open after `argv` exits.
+- **`status(handle)`**: `{ record, alive, busy, exit }`, or `undefined` when the
+  pane is gone. `record` is the root OSC 7501 record (`state`, `kind`, `title`,
+  `msg`). `exit` is `{ code }` once `argv` has ended (`128 + n` for signal `n`),
+  else `null`.
+- **`close(handle)`**, and optionally **`attach(handle)`** and **`watch()`**
+  (hints, each a handle whose status may have changed).
+
+`rex({ server, shell })` opens one Rex session per project id and one window per
+pane. `server` is a Rex server address as `rex -S` takes it; `shell` is the
+login shell (Rex's default when absent).
 
 ## Security
 
