@@ -30,6 +30,8 @@ interface SupervisorHostOps {
   readonly after: (ms: number, run: () => void) => () => void
   /** A driver one-shot (`<driver> proceed <commit>`, …), run with the worktree as cwd. */
   readonly oneShot: (argv: readonly string[], worktree: string) => Promise<ExecResult>
+  /** The person's login shell, which the Terminal tab opens in a pane of its own. */
+  readonly loginShell: string
 }
 
 const isPidAlive = (pid: number): boolean => {
@@ -57,6 +59,7 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
       return () => clearTimeout(timer)
     },
     oneShot: (argv, worktree) => exec(argv, worktree),
+    loginShell: process.env["SHELL"] ?? "/bin/sh",
   })
 }
 

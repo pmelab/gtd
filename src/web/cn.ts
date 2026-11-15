@@ -27,6 +27,7 @@ export const cn = extendTailwindMerge({
             "disabled",
             "warning",
             "danger",
+            "success",
             "link",
             "code",
             "quote",

@@ -2,8 +2,9 @@ import { useState, type ReactNode } from "react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { TRPCClientError, type TRPCLink } from "@trpc/client"
 import { observable } from "@trpc/server/observable"
-import type { AppRouter } from "../../ui/index.js"
+import type { AnyRouter } from "@trpc/server"
 import { trpc } from "../api.js"
+import { workspaceTrpc } from "../workspace/api.js"
 
 /**
  * A terminating tRPC link for stories/tests: resolves any of `resolvers`' own
@@ -18,9 +19,9 @@ import { trpc } from "../api.js"
  * `CONFLICT` refusal, so `mutateAsync`'s own promise rejects exactly like it
  * would against the real router.
  */
-const mockLink = (
+const mockLink = <Router extends AnyRouter>(
   resolvers: Readonly<Record<string, (input: unknown) => unknown>>,
-): TRPCLink<AppRouter> => {
+): TRPCLink<Router> => {
   return () =>
     ({ op }) =>
       observable((observer) => {
@@ -76,5 +77,24 @@ export const TrpcTestProvider = ({
     <trpc.Provider client={client} queryClient={queryClient}>
       <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
     </trpc.Provider>
+  )
+}
+
+/** `TrpcTestProvider` for the workspace dashboard, whose procedures the supervisor serves. */
+export const WorkspaceTrpcTestProvider = ({
+  resolvers = {},
+  children,
+}: {
+  readonly resolvers?: Readonly<Record<string, (input: unknown) => unknown>>
+  readonly children: ReactNode
+}) => {
+  const [queryClient] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false } } }),
+  )
+  const [client] = useState(() => workspaceTrpc.createClient({ links: [mockLink(resolvers)] }))
+  return (
+    <workspaceTrpc.Provider client={client} queryClient={queryClient}>
+      <QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+    </workspaceTrpc.Provider>
   )
 }

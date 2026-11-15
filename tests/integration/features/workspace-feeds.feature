@@ -163,15 +163,3 @@ Feature: feeds file items into the workspace inbox
     And the Inbox reports these feeds:
       | feed       | project | mode    | failing                    |
       | boardReady | portal  | propose | item 0: title: is required |
-
-  Scenario: the Inbox page shows the waiting items
-    Given the command "gh issue list" prints:
-      """
-      [{ "number": 1, "title": "Add login" }]
-      """
-    When I start gtd workspace
-    Then the Inbox page reads:
-      """
-      Inbox
-      proposed Add login boardReady · portal Dismiss
-      """

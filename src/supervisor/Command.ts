@@ -3,6 +3,7 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 import { Effect, type FileSystem } from "effect"
 import {
   currentRest,
+  dashboardPage,
   exposeHandler,
   gateHandler,
   UiError,
@@ -21,11 +22,11 @@ import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf } from "./Gate.js"
 import { acquireLock, stateDirectory } from "./Lock.js"
 import { feedRunner } from "./Feeds.js"
-import { inboxPage, projectsPage } from "./Page.js"
 import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
 import { liveSnapshot } from "./Snapshot.js"
+import { terminalTab } from "./Terminal.js"
 import { worktreeStatus } from "./Status.js"
 
 export interface WorkspaceCommand {
@@ -83,7 +84,8 @@ export const runWorkspaceCommand = (
       })
       const worktrees = settings.adapters?.worktrees ?? host.defaultWorktrees(root)
       const terminal = settings.adapters?.terminal ?? host.defaultTerminal()
-      const driverRuns = drivers(terminal, settings, driverPanes(directory))
+      const panes = driverPanes(directory)
+      const driverRuns = drivers(terminal, settings, panes)
       const actions = actionRuns({
         worktrees,
         actions: settings.adapters?.actions ?? host.defaultActions(),
@@ -115,6 +117,14 @@ export const runWorkspaceCommand = (
         now: clock.now,
       })
       const projects = () => control.withRefusals(snapshot.projects())
+      const terminalTabs = terminalTab({
+        worktrees,
+        terminal,
+        panes,
+        shell: host.loginShell,
+        audit,
+        now: clock.now,
+      })
       const feeds = feedRunner({
         feeds: feedExports,
         root,
@@ -171,6 +181,12 @@ export const runWorkspaceCommand = (
                   return dismissed
                 },
               },
+              terminal: terminalTabs.driver,
+              openShell: (project, worktree) =>
+                terminalTabs.openShell(project, worktree, {
+                  ...(identity !== undefined ? { identity } : {}),
+                  endpoint: path,
+                }),
               press: (action, input) =>
                 control.press({
                   action,
@@ -183,9 +199,8 @@ export const runWorkspaceCommand = (
         }
         const html = (body: string): Response =>
           new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } })
-        if (path === "/inbox") return html(inboxPage(feeds.items(), feeds.feeds()))
         if (path !== "/") return gatePage(request, afterResponse, peer)
-        return html(projectsPage(projects(), snapshot.banners()))
+        return html(dashboardPage(TRPC))
       }
 
       const { url, close } = yield* exposeHandler({

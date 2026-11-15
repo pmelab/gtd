@@ -112,26 +112,6 @@ Then("the Projects view lists:", async (world: GtdWorld, table: DataTable) => {
   assert.deepStrictEqual(rows, table.hashes())
 })
 
-/** The page's headings and list items, one per line, tags stripped. */
-const pageReads = async (world: GtdWorld, path: string, expected: string): Promise<void> => {
-  const html = await (await bench(world).request(path)).text()
-  const lines = [...html.matchAll(/<(h1|h2|li|p)[^>]*>(.*?)<\/\1>/g)].map(([, , inner]) =>
-    inner!
-      .replace(/<[^>]+>/g, "")
-      .replace(/\s+/g, " ")
-      .trim(),
-  )
-  assert.strictEqual(lines.join("\n"), expected.trim())
-}
-
-Then("the dashboard page reads:", (world: GtdWorld, expected: string) =>
-  pageReads(world, "/", expected),
-)
-
-Then("the Inbox page reads:", (world: GtdWorld, expected: string) =>
-  pageReads(world, "/inbox", expected),
-)
-
 Given("the command {string} prints:", (world: GtdWorld, argv: string, stdout: string) => {
   bench(world).commands.set(argv, { status: 0, stdout, stderr: "" })
 })
