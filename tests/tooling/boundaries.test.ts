@@ -349,11 +349,11 @@ describe("spec 20: the unit map", () => {
     expect(
       cruiseFiles({
         "src/platform/NodeSync.ts": `import { readFileSync } from "node:fs"\nexport const read = readFileSync\n`,
-        "src/platform/Workspace.ts": `import { join } from "node:path"\nexport const at = join\n`,
-        "src/platform/Workspace.test.ts": `import { tmpdir } from "node:os"\nvoid tmpdir\n`,
+        "src/platform/RepoFiles.ts": `import { join } from "node:path"\nexport const at = join\n`,
+        "src/platform/RepoFiles.test.ts": `import { tmpdir } from "node:os"\nvoid tmpdir\n`,
         "src/main.ts": `import { argv } from "node:process"\nvoid argv\n`,
       }),
-    ).toEqual(["core-reaches-node-through-its-node-files: src/platform/Workspace.ts -> path"])
+    ).toEqual(["core-reaches-node-through-its-node-files: src/platform/RepoFiles.ts -> path"])
   })
 
   it("fails core importing a tool, and passes the composition root doing it", () => {

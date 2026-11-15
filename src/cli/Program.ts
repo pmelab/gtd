@@ -5,7 +5,7 @@ import {
   Narrator,
   GitService,
   Host,
-  Workspace,
+  RepoFiles,
   type GitOperations,
   type HostOps,
   HISTORY_REF,
@@ -231,7 +231,7 @@ const runBundleCommand = (
 ): Effect.Effect<
   void,
   Error,
-  ConfigService | ConfigDiscovery | EngineCore | Host | Path.Path | Narrator | Workspace
+  ConfigService | ConfigDiscovery | EngineCore | Host | Path.Path | Narrator | RepoFiles
 > =>
   Effect.gen(function* () {
     yield* (yield* ConfigService).load
@@ -1004,12 +1004,12 @@ const runNextCommand = (
 const runWidgetCheckCommand = (
   file: string,
   write: boolean,
-): Effect.Effect<void, Error, Workspace> =>
+): Effect.Effect<void, Error, RepoFiles> =>
   Effect.gen(function* () {
-    const workspace = yield* Workspace
+    const repoFiles = yield* RepoFiles
     const content = yield* existingFile(file)
     const canonical = write ? serialize(content) : content
-    if (canonical !== content) yield* workspace.writeAtPath(file, canonical)
+    if (canonical !== content) yield* repoFiles.writeAtPath(file, canonical)
     const errors = parseWidgets(canonical).findings.map((finding) => formatFinding(file, finding))
     if (errors.length === 0) return
     return yield* Effect.fail(
@@ -1017,9 +1017,9 @@ const runWidgetCheckCommand = (
     )
   })
 
-const existingFile = (file: string): Effect.Effect<string, Error, Workspace> =>
-  Effect.flatMap(Workspace, (workspace) => {
-    const content = workspace.atPath(file)
+const existingFile = (file: string): Effect.Effect<string, Error, RepoFiles> =>
+  Effect.flatMap(RepoFiles, (repoFiles) => {
+    const content = repoFiles.atPath(file)
     return content === undefined
       ? Effect.fail(new Error(`gtd check: no such file: ${file}`))
       : Effect.succeed(content)

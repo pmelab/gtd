@@ -15,8 +15,8 @@ import {
   Host,
   type HostOps,
   scratchDirOf,
-  Workspace,
-  type WorkspaceOps,
+  RepoFiles,
+  type RepoFilesOps,
   CommandRunner,
 } from "../platform/index.js"
 import {
@@ -40,7 +40,7 @@ const toError = (e: unknown): Error => (e instanceof Error ? e : new Error(Strin
 /**
  * Keys UNDER `.git/` (never the bare `.git` FILE itself — `WorktreeState.ts`'s
  * `worktreeGitDir` legitimately reads that one, a linked worktree's real
- * gitdir-pointer file) have no production consumer through `Workspace` — gtd
+ * gitdir-pointer file) have no production consumer through `RepoFiles` — gtd
  * keeps no driver-scoped files inside the git dir (sessions are derived,
  * stall is history) — so a stray read/write there FAILS/reads-absent rather
  * than silently falling through to the worktree store, which would make it
@@ -54,9 +54,9 @@ export const inMemPath = Effect.runSync(Effect.provide(Path.Path, Path.layer))
 const paths = inMemPath
 
 /**
- * `Workspace` for the in-memory tier. `readSync`/`read`/`write`/`committed`
+ * `RepoFiles` for the in-memory tier. `readSync`/`read`/`write`/`committed`
  * take a repo-relative key ONLY (mirroring the live adapter's
- * `assertRepoRelative` — `Workspace.ts`'s `makeWorkspaceOps`), matching how
+ * `assertRepoRelative` — `RepoFiles.ts`'s `makeRepoFilesOps`), matching how
  * every existing scenario already seeds the fake (`repo.writeFile("gtd.config.ts",
  * …)`, `repo.writeFile("src/a.ts", …)`). // gtd-path-exempt: illustrative fixture key, not a repo file
  * `atPath` alone accepts an absolute
@@ -66,7 +66,7 @@ const paths = inMemPath
  * verbatim, so a test seeds it exactly as given:
  * `repo.writeFile("/home/user/.gtdrc", …)`.
  */
-export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): WorkspaceOps => {
+export const makeInMemoryRepoFilesOps = (repo: InMemRepo, root: string): RepoFilesOps => {
   const toKey = (path: string): string => {
     if (!paths.isAbsolute(path)) return path
     const prefix = `${root}/`
@@ -75,7 +75,7 @@ export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): Workspa
   const assertRepoRelative = (path: string): string => {
     if (paths.isAbsolute(path)) {
       throw new Error(
-        `Workspace: "${path}" is an absolute path — this member takes repo-relative paths only (use "atPath" to read outside the repo)`,
+        `RepoFiles: "${path}" is an absolute path — this member takes repo-relative paths only (use "atPath" to read outside the repo)`,
       )
     }
     return path
@@ -142,19 +142,19 @@ export const makeInMemoryWorkspaceOps = (repo: InMemRepo, root: string): Workspa
   }
 }
 
-/** The in-memory counterpart to `ConfigDiscovery.Live` (`src/workflow/discovery.ts`) — shares its `LEGACY_RC_FILES`/`legacyRcDirs`/`walkUp` exactly (see `Layers.test.ts`), reading through the fake `Workspace` instead of real `fs`. */
+/** The in-memory counterpart to `ConfigDiscovery.Live` (`src/workflow/discovery.ts`) — shares its `LEGACY_RC_FILES`/`legacyRcDirs`/`walkUp` exactly (see `Layers.test.ts`), reading through the fake `RepoFiles` instead of real `fs`. */
 const makeInMemoryConfigDiscovery = (
   repo: InMemRepo,
   root: string,
 ): Layer.Layer<ConfigDiscovery> => {
-  const workspace = makeInMemoryWorkspaceOps(repo, root)
+  const repoFiles = makeInMemoryRepoFilesOps(repo, root)
   return Layer.succeed(ConfigDiscovery, {
     legacyRcFiles: (levelRoot, levelHome) =>
       Effect.try({
         try: () =>
           legacyRcDirs(paths, levelRoot, levelHome).flatMap((dir) =>
             LEGACY_RC_FILES.map((name) => paths.join(dir, name))
-              .filter((filepath) => workspace.atPath(filepath) !== undefined)
+              .filter((filepath) => repoFiles.atPath(filepath) !== undefined)
               .map((path) => ({ path, owned: true })),
           ),
         catch: toError,
@@ -164,8 +164,8 @@ const makeInMemoryConfigDiscovery = (
         try: () => {
           for (const dir of walkUp(paths, levelRoot, levelHome)) {
             const filepath = paths.join(dir, WORKFLOW_MODULE)
-            const source = workspace.atPath(filepath)
-            if (source !== undefined) return { filepath, source, read: workspace.atPath }
+            const source = repoFiles.atPath(filepath)
+            if (source !== undefined) return { filepath, source, read: repoFiles.atPath }
           }
           return undefined
         },
@@ -292,7 +292,7 @@ export function testLayers(
 
   return Layer.mergeAll(
     gitTestLayer(repo, root),
-    Layer.succeed(Workspace, makeInMemoryWorkspaceOps(repo, root)),
+    Layer.succeed(RepoFiles, makeInMemoryRepoFilesOps(repo, root)),
     Layer.succeed(Host, inMemoryHost(root, home, { ...ambientFlagEnv(), ...opts.env }, opts.stdin)),
     ConfigService.Live,
     makeInMemoryConfigDiscovery(repo, root),

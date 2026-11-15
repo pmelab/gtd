@@ -218,7 +218,7 @@ const fetchTree = (
  * scratch port exists to prevent) a loud misuse of the wrong method, not a
  * silent path-shape coincidence.
  */
-export interface WorkspaceOps {
+export interface RepoFilesOps {
   readonly readSync: (path: string) => string | undefined
   readonly read: (path: string) => Effect.Effect<string | undefined, Error>
   readonly write: (path: string, content: string) => Effect.Effect<void, Error>
@@ -268,7 +268,7 @@ export interface WorkspaceOps {
 const assertRepoRelative = (paths: Path.Path, path: string): string => {
   if (paths.isAbsolute(path)) {
     throw new Error(
-      `Workspace: "${path}" is an absolute path — this member takes repo-relative paths only (use "atPath"/"writeAtPath" to read/write outside the repo)`,
+      `RepoFiles: "${path}" is an absolute path — this member takes repo-relative paths only (use "atPath"/"writeAtPath" to read/write outside the repo)`,
     )
   }
   return path
@@ -343,13 +343,13 @@ const foldRawDiffs = (
   return result
 }
 
-const makeWorkspaceOps = (
+const makeRepoFilesOps = (
   { root, pid }: HostOps,
   git: GitOperations,
   commonDir: string | undefined,
   paths: Path.Path,
   io: SyncIo,
-): WorkspaceOps => {
+): RepoFilesOps => {
   const resolveAny = (path: string): string =>
     paths.isAbsolute(path) ? path : paths.join(root, path)
   const repoPath = (path: string): string => paths.join(root, assertRepoRelative(paths, path))
@@ -358,7 +358,7 @@ const makeWorkspaceOps = (
   const blobCachePath = (dir: string, id: string): string =>
     paths.join(dir, GTD_CACHE_SUBDIR, "blobs", id)
 
-  // Per-PROCESS memo, on the workspace instance rather than any one replay's
+  // Per-PROCESS memo, on the repoFiles instance rather than any one replay's
   // `TreeView` — an immutable key (a commit hash, a blob id) can never serve
   // a wrong answer, so the two replays one `gtd` command runs (and every
   // `treeSync`/`readCommittedSync` call in between) share it for free.
@@ -604,9 +604,9 @@ const makeWorkspaceOps = (
   }
 }
 
-export class Workspace extends Context.Service<Workspace, WorkspaceOps>()("Workspace") {
+export class RepoFiles extends Context.Service<RepoFiles, RepoFilesOps>()("RepoFiles") {
   static Live = Layer.effect(
-    Workspace,
+    RepoFiles,
     Effect.gen(function* () {
       const host = yield* Host
       const git = yield* GitService
@@ -615,12 +615,12 @@ export class Workspace extends Context.Service<Workspace, WorkspaceOps>()("Works
       // common dir is git's own concern to answer, and every cache read/
       // write below is synchronous. A repo whose common dir can't be
       // resolved (git missing, a corrupted `.git`) still constructs a
-      // working `Workspace` — it just runs without the disk cache, exactly
+      // working `RepoFiles` — it just runs without the disk cache, exactly
       // like a full-disk failure does.
       const commonDir = yield* git
         .gitCommonDir()
         .pipe(Effect.catch(() => Effect.succeed(undefined)))
-      return makeWorkspaceOps(host, git, commonDir, paths, nodeSyncIo)
+      return makeRepoFilesOps(host, git, commonDir, paths, nodeSyncIo)
     }),
   )
 }

@@ -1,5 +1,5 @@
 import { Effect, Option } from "effect"
-import { GtdUsageError, Narrator, GitService, Host, Workspace } from "../platform/index.js"
+import { GtdUsageError, Narrator, GitService, Host, RepoFiles } from "../platform/index.js"
 import {
   ConfigDiscovery,
   ConfigService,
@@ -86,7 +86,7 @@ export const planStart = (
 ): Effect.Effect<
   StartOutcome,
   Error,
-  GitService | ConfigService | ConfigDiscovery | Workspace | Host | Narrator
+  GitService | ConfigService | ConfigDiscovery | RepoFiles | Host | Narrator
 > =>
   // fallow-ignore-next-line complexity
   Effect.gen(function* () {

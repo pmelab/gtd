@@ -43,7 +43,7 @@ export interface GitTierCapabilities {
   readonly onDiskContent: boolean
   /** `git worktree add` — sibling linked worktrees sharing one `.git`; the fake models a single worktree only. */
   readonly linkedWorktrees: boolean
-  /** A cwd→home directory chain for config discovery — both tiers walk it through `Workspace`/`Host` now, so this is `true` for either. */
+  /** A cwd→home directory chain for config discovery — both tiers walk it through `RepoFiles`/`Host` now, so this is `true` for either. */
   readonly directoryChainConfig: boolean
   /** Fetch from another repository — only the Live tier has a remote to reach. */
   readonly remotes: boolean

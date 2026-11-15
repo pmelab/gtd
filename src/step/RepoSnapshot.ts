@@ -38,7 +38,7 @@ export type Landing =
 
 /**
  * Everything `planStep` needs, already resolved
- * from git/config/workspace ONCE, before any perform — a frozen value cannot
+ * from git/config/repo files ONCE, before any perform — a frozen value cannot
  * observe a perform.
  */
 export interface RepoSnapshot {
