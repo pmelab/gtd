@@ -37,7 +37,11 @@ export interface Drivers {
   /** The project's driver command, `undefined` when none is configured. */
   readonly command: (project: string) => readonly string[] | undefined
   /** Opens a pane running the project's driver command; `false` when none is configured. */
-  readonly start: (project: string, worktree: string) => Promise<boolean>
+  readonly start: (
+    project: string,
+    worktree: string,
+    env?: Readonly<Record<string, string>>,
+  ) => Promise<boolean>
   /** The terminal's hints, each a pane handle whose status may have changed. */
   readonly watch?: () => AsyncIterable<string>
 }
@@ -58,10 +62,10 @@ export const drivers = (
     }
   },
   command: (project) => settings.projects?.[project]?.driver ?? settings.driver,
-  start: async (project, worktree) => {
+  start: async (project, worktree, env = {}) => {
     const argv = settings.projects?.[project]?.driver ?? settings.driver
     if (argv === undefined) return false
-    panes.set(worktree, await terminal.run(project, worktree, argv, {}))
+    panes.set(worktree, await terminal.run(project, worktree, argv, env))
     return true
   },
   ...(terminal.watch !== undefined ? { watch: terminal.watch.bind(terminal) } : {}),

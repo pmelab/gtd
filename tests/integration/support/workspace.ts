@@ -28,12 +28,15 @@ import {
 } from "../../../src/supervisor/index.js"
 import {
   InMemRepo,
+  inMemoryActions,
   inMemoryClock,
+  inMemoryServices,
   inMemoryTerminal,
   inMemoryWorktrees,
   settle,
   makeCapturingCliIo,
   type CapturedCliResult,
+  type InMemoryPane,
 } from "../../../src/twins/index.js"
 import { createTRPCClient, httpLink } from "@trpc/client"
 import {
@@ -47,6 +50,9 @@ import type { ExecResult, InboxItem } from "../../../src/workspace/index.js"
 import { fakeTailnet, inMemoryUiLayers, TAILNET_OWNER, TAILNET_PEER } from "./ui-host.js"
 
 type ToolWorkspace = NonNullable<NonNullable<Parameters<typeof makeCapturingCliIo>[2]>["workspace"]>
+
+/** A pane gtd opened for an action, not for a driver. */
+const isActionPane = (pane: InMemoryPane): boolean => "GTD_WORKSPACE_STATUS" in pane.env
 
 /** What a worktree with no scripted `gtd next` answer reports: a process that has ended. */
 const IDLE_NEXT = JSON.stringify({
@@ -111,12 +117,14 @@ export class WorkspaceBench {
   readonly stateHome = mkdtempSync(join(tmpdir(), "gtd-workspace-state-"))
   readonly worktrees = inMemoryWorktrees()
   readonly terminal = inMemoryTerminal()
+  readonly actions = inMemoryActions()
   /** Panes that an earlier supervisor opened, before the scenario's first one. */
   readonly seeded = new Set<string>()
   /** The timers of `SupervisorHost.after`. */
   readonly clock = inMemoryClock()
   /** Whether the default worktrees adapter offers a watch. */
   watching = true
+  readonly services = inMemoryServices()
   private readonly answers = new Map<string, SpawnOutcome>()
   /** The worktree of each `gtd next` the supervisor ran, in order. */
   readonly nextRuns: string[] = []
@@ -181,12 +189,21 @@ export class WorkspaceBench {
     throw new Error(`no worktree at ${path}`)
   }
 
-  /** The handle of the newest pane opened in the worktree. */
+  /** The handle of the newest driver pane opened in the worktree. */
   async paneOf(ref: string): Promise<string> {
+    return this.newestPane(ref, (pane) => !isActionPane(pane))
+  }
+
+  /** The handle of the newest action pane opened in the worktree. */
+  async actionPaneOf(ref: string): Promise<string> {
+    return this.newestPane(ref, isActionPane)
+  }
+
+  private async newestPane(ref: string, kind: (pane: InMemoryPane) => boolean): Promise<string> {
     const path = await this.pathOf(ref)
     const pane = this.terminal
       .panes()
-      .filter((p) => p.worktree === path)
+      .filter((p) => p.worktree === path && kind(p))
       .at(-1)
     if (pane === undefined) throw new Error(`no pane in ${ref}`)
     return pane.handle
@@ -283,6 +300,8 @@ export class WorkspaceBench {
         return this.watching ? this.worktrees.adapter : { projects, list }
       },
       defaultTerminal: () => this.terminal.adapter,
+      defaultServices: () => this.services.adapter,
+      defaultActions: () => this.actions.adapter,
       isPidAlive: (pid) => pid === process.pid,
       after: this.clock.after,
       oneShot: (argv, worktree) => this.oneShot(argv, worktree),
@@ -416,6 +435,18 @@ export class WorkspaceBench {
   async advance(ms: number): Promise<void> {
     await this.feedClock.advance(ms)
     await this.clock.advance(ms)
+  }
+
+  /** A tRPC call of the dashboard's API, as the dashboard's script sends it. */
+  async call(procedure: string, input: unknown, kind: "query" | "mutation"): Promise<unknown> {
+    const response =
+      kind === "query"
+        ? await this.request(
+            `/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`,
+          )
+        : await this.post(`/trpc/${procedure}`, input)
+    const body = (await response.json()) as { result?: { data: unknown }; error?: unknown }
+    return body.result?.data ?? body.error
   }
 
   async post(path: string, body: unknown): Promise<Response> {

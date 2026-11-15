@@ -1,11 +1,13 @@
 import {
   isAdapterFailure,
   type AdapterFailure,
+  type Service,
   type Worktree,
   type WorktreesAdapter,
   type WorkspaceSettings,
 } from "../workspace/index.js"
 import type { SpawnOutcome } from "../ui/index.js"
+import type { ActionRun } from "./Actions.js"
 import type { Drivers } from "./Drivers.js"
 import type { WorktreeStatus } from "./Status.js"
 
@@ -14,12 +16,18 @@ export interface WorktreeView extends WorktreeStatus {
   readonly branch?: string
   readonly head: string
   readonly main: boolean
+  /** The worktree's services, once the services adapter has listed them. */
+  readonly services?: readonly Service[]
+  /** The services adapter could not list them. */
+  readonly servicesFailure?: AdapterFailure
   /** The path of the worktree's gate page. */
   readonly gate: string
   /** Why gtd or the driver refused the last Proceed or Retry at this HEAD. */
   readonly refusal?: string
   /** The adapter read that failed: the status is the last one known, shown greyed. */
   readonly unavailable?: AdapterFailure
+  /** The last action gtd ran here while this supervisor runs. */
+  readonly action?: ActionRun
 }
 
 export interface ProjectView {

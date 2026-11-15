@@ -1,8 +1,14 @@
 import { execFile } from "node:child_process"
 import { Context, Layer } from "effect"
 import { liveRunInWorktree, type SpawnOutcome } from "../ui/index.js"
-import { rex, worktrunk } from "../workspace-adapters/index.js"
-import type { ExecResult, TerminalAdapter, WorktreesAdapter } from "../workspace/index.js"
+import { mise, pitchfork, rex, worktrunk } from "../workspace-adapters/index.js"
+import type {
+  ActionsAdapter,
+  ExecResult,
+  ServicesAdapter,
+  TerminalAdapter,
+  WorktreesAdapter,
+} from "../workspace/index.js"
 
 /**
  * What the supervisor reaches outside its process besides the adapters a
@@ -15,6 +21,10 @@ interface SupervisorHostOps {
   readonly defaultWorktrees: (root: string) => WorktreesAdapter
   /** The terminal adapter of a workspace that names none. */
   readonly defaultTerminal: () => TerminalAdapter
+  /** The services adapter of a workspace that names none. */
+  readonly defaultServices: () => ServicesAdapter
+  /** The actions adapter of a workspace that names none. */
+  readonly defaultActions: () => ActionsAdapter
   readonly isPidAlive: (pid: number) => boolean
   /** Runs `run` once after `ms`; the result cancels it. The twin's clock moves only when a test moves it. */
   readonly after: (ms: number, run: () => void) => () => void
@@ -39,6 +49,8 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
     // Each directory at the workspace root that is a repository's main checkout.
     defaultWorktrees: (root) => worktrunk({ roots: [`${root}/*`] }),
     defaultTerminal: () => rex(),
+    defaultServices: () => pitchfork(),
+    defaultActions: () => mise(),
     isPidAlive,
     after: (ms, run) => {
       const timer = setTimeout(run, ms)

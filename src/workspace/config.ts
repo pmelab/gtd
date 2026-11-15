@@ -1,4 +1,9 @@
-import type { TerminalAdapter, WorktreesAdapter } from "./adapters.js"
+import type {
+  ActionsAdapter,
+  ServicesAdapter,
+  TerminalAdapter,
+  WorktreesAdapter,
+} from "./adapters.js"
 
 /** A duration such as `"30s"`, `"5m"` or `"1h"`. */
 export type Duration = `${number}${"ms" | "s" | "m" | "h"}`
@@ -35,8 +40,8 @@ export interface WorkspaceUiSettings {
 export interface WorkspaceAdapters {
   readonly worktrees?: WorktreesAdapter
   readonly terminal?: TerminalAdapter
-  readonly services?: object
-  readonly actions?: object
+  readonly services?: ServicesAdapter
+  readonly actions?: ActionsAdapter
   readonly notifications?: object
 }
 
@@ -140,8 +145,8 @@ const settings = object({
   adapters: object({
     worktrees: adapter(["projects", "list"]),
     terminal: adapter(["run", "status", "close"]),
-    services: adapter([]),
-    actions: adapter([]),
+    services: adapter(["list", "up", "down"]),
+    actions: adapter(["list", "argv"]),
     notifications: adapter([]),
   }),
   limits: object({ maxDrives: positiveInt, wip: positiveInt }),

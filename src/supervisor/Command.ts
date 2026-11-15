@@ -13,6 +13,7 @@ import {
   type UiOut,
   type UiShell,
 } from "../ui/index.js"
+import { actionRuns } from "./Actions.js"
 import { findWorkspaceModule, loadWorkspace } from "./Config.js"
 import { auditLog } from "./Audit.js"
 import { controls } from "./Controls.js"
@@ -26,6 +27,7 @@ import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
 import { liveSnapshot } from "./Snapshot.js"
 import { serveSocket, socketPath } from "./Socket.js"
+import { worktreeStatus } from "./Status.js"
 
 export interface WorkspaceCommand {
   readonly flags: ExposeOptions & { readonly config?: string }
@@ -82,16 +84,23 @@ export const runWorkspaceCommand = (
         catch: asUiError,
       })
       const worktrees = settings.adapters?.worktrees ?? host.defaultWorktrees(root)
-      const driverOps = drivers(
-        settings.adapters?.terminal ?? host.defaultTerminal(),
-        settings,
-        driverPanes(directory),
-      )
+      const terminal = settings.adapters?.terminal ?? host.defaultTerminal()
+      const driverRuns = drivers(terminal, settings, driverPanes(directory))
+      const actions = actionRuns({
+        worktrees,
+        actions: settings.adapters?.actions ?? host.defaultActions(),
+        terminal,
+        drivers: driverRuns,
+        status: async (worktree) =>
+          worktreeStatus(await host.next(worktree), await driverRuns.state(worktree)),
+      })
       const snapshot = liveSnapshot({
         worktrees,
         next: host.next,
         settings,
-        drivers: driverOps,
+        drivers: driverRuns,
+        services: settings.adapters?.services ?? host.defaultServices(),
+        lastAction: actions.last,
         after: host.after,
       })
       closeSnapshot = snapshot.close
@@ -99,7 +108,7 @@ export const runWorkspaceCommand = (
       const audit = auditLog(directory)
       const control = controls({
         worktrees,
-        drivers: driverOps,
+        drivers: driverRuns,
         projects: snapshot.projects,
         oneShot: host.oneShot,
         after: host.after,
@@ -186,6 +195,7 @@ export const runWorkspaceCommand = (
                   ...(identity !== undefined ? { identity } : {}),
                   endpoint: path,
                 }),
+              actions,
             }),
           })
         }
@@ -207,7 +217,11 @@ export const runWorkspaceCommand = (
       out.write(`${url}\n`)
       out.flush()
       feeds.start()
-      yield* Effect.never.pipe(Effect.ensuring(Effect.sync(feeds.stop)), Effect.ensuring(close))
+      yield* Effect.never.pipe(
+        Effect.ensuring(Effect.sync(feeds.stop)),
+        Effect.ensuring(Effect.sync(() => actions.stop())),
+        Effect.ensuring(close),
+      )
     }).pipe(
       Effect.ensuring(
         Effect.promise(async () => {

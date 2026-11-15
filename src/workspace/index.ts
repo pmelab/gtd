@@ -13,6 +13,11 @@ export {
 } from "./config.js"
 export {
   AdapterError,
+  type Action,
+  type ActionField,
+  type ActionsAdapter,
+  type ActionStatus,
+  type ActionValues,
   isAdapterFailure,
   type AdapterFailure,
   type PaneStatus,
@@ -20,6 +25,8 @@ export {
   type TerminalAdapter,
   type Project,
   type WatchHint,
+  type Service,
+  type ServicesAdapter,
   type Worktree,
   type WorktreesAdapter,
 } from "./adapters.js"
