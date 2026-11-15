@@ -230,6 +230,7 @@ const missingTool = (name: string) => () =>
 const missingToolCommands: ToolCommands["Service"] = {
   ui: missingTool("ui"),
   workspace: missingTool("workspace"),
+  workspaceControl: missingTool("workspace"),
   lsp: missingTool("lsp"),
   judge: () =>
     Promise.reject(

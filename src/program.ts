@@ -76,6 +76,14 @@ export const liveToolCommands = Layer.effect(
               ),
             )
         }),
+      workspaceControl: (request) =>
+        lazy("workspace", async () => {
+          const { runControlCommand } = await import("./supervisor/index.js")
+          return () =>
+            runControlCommand(request).pipe(
+              Effect.mapError((error) => new GtdError(error.message, error.detail)),
+            )
+        }),
       lsp: (gtd) =>
         lazy("lsp", async () => {
           const { startLspServer } = await import("./lsp/index.js")

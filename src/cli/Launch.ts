@@ -9,6 +9,7 @@ import type { Command } from "./Program.js"
 const LIVE_KINDS: ReadonlySet<Command["kind"]> = new Set<Command["kind"]>([
   "ui",
   "workspace",
+  "workspaceControl",
   "lsp",
   "guide",
   "bundle",
