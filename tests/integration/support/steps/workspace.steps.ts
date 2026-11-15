@@ -3,6 +3,7 @@ import assert from "node:assert"
 import { join } from "node:path"
 import { parseRawRequest, type GtdWorld } from "../world.js"
 import { WorkspaceBench } from "../workspace.js"
+import { durationMs, type Duration } from "../../../../src/workspace/index.js"
 
 const benches = new WeakMap<GtdWorld, WorkspaceBench>()
 
@@ -102,8 +103,8 @@ Then("the Projects view lists:", async (world: GtdWorld, table: DataTable) => {
 })
 
 /** The page's headings and list items, one per line, tags stripped. */
-Then("the dashboard page reads:", async (world: GtdWorld, expected: string) => {
-  const html = await (await bench(world).request("/")).text()
+const pageReads = async (world: GtdWorld, path: string, expected: string): Promise<void> => {
+  const html = await (await bench(world).request(path)).text()
   const lines = [...html.matchAll(/<(h1|h2|li|p)[^>]*>(.*?)<\/\1>/g)].map(([, , inner]) =>
     inner!
       .replace(/<[^>]+>/g, "")
@@ -111,6 +112,57 @@ Then("the dashboard page reads:", async (world: GtdWorld, expected: string) => {
       .trim(),
   )
   assert.strictEqual(lines.join("\n"), expected.trim())
+}
+
+Then("the dashboard page reads:", (world: GtdWorld, expected: string) =>
+  pageReads(world, "/", expected),
+)
+
+Then("the Inbox page reads:", (world: GtdWorld, expected: string) =>
+  pageReads(world, "/inbox", expected),
+)
+
+Given("the command {string} prints:", (world: GtdWorld, argv: string, stdout: string) => {
+  bench(world).commands.set(argv, { status: 0, stdout, stderr: "" })
+})
+
+When("the clock advances {string}", async (world: GtdWorld, duration: string) => {
+  await bench(world).clock.advance(durationMs(duration as Duration))
+})
+
+When("I dismiss {string} in the Inbox", async (world: GtdWorld, ref: string) => {
+  const [feed, key] = ref.split("/") as [string, string]
+  const response = await bench(world).post("/trpc/dismiss", { feed, key })
+  assert.strictEqual(response.status, 200, await response.text())
+})
+
+Then("the Inbox lists:", async (world: GtdWorld, table: DataTable) => {
+  const { items } = await bench(world).inbox()
+  assert.deepStrictEqual(
+    items.map(({ feed, key, title, state }) => ({ feed, key, title, state })),
+    table.hashes(),
+  )
+})
+
+Then("the Inbox reports these feeds:", async (world: GtdWorld, table: DataTable) => {
+  const { feeds } = await bench(world).inbox()
+  assert.deepStrictEqual(
+    feeds.map(({ feed, project, mode, failing }) => ({
+      feed,
+      project,
+      mode,
+      failing: failing ?? "",
+    })),
+    table.hashes(),
+  )
+})
+
+Then("the workspace directory holds only {string}", (world: GtdWorld, name: string) => {
+  assert.deepStrictEqual(bench(world).rootEntries(), [name])
+})
+
+When("I delete the supervisor's state directory", (world: GtdWorld) => {
+  bench(world).deleteState()
 })
 
 When("{string} requests the dashboard", async (world: GtdWorld, login: string) => {

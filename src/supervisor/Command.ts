@@ -16,8 +16,10 @@ import {
 import { findWorkspaceModule, loadWorkspace } from "./Config.js"
 import { gateOf } from "./Gate.js"
 import { acquireLock, stateDirectory } from "./Lock.js"
-import { projectsPage } from "./Page.js"
-import { SupervisorHost } from "./Ports.js"
+import { feedRunner } from "./Feeds.js"
+import { inboxPage, projectsPage } from "./Page.js"
+import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
+import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
 import { recheck, scan, type ProjectView } from "./Scan.js"
 
@@ -45,22 +47,31 @@ export const runWorkspaceCommand = (
 ): Effect.Effect<
   void,
   UiError,
-  SupervisorHost | UiShell | UiHost | UiListener | FileSystem.FileSystem
+  | SupervisorHost
+  | UserlandTools
+  | SupervisorClock
+  | UiShell
+  | UiHost
+  | UiListener
+  | FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
     const host = yield* SupervisorHost
     const uiHost = yield* UiHost
+    const tools = yield* UserlandTools
+    const clock = yield* SupervisorClock
     const file = yield* Effect.try({
       try: () => findWorkspaceModule(command.cwd, command.flags.config),
       catch: asUiError,
     })
     const root = dirname(file)
+    const directory = stateDirectory(command.stateHome, root)
     const lock = yield* Effect.try({
-      try: () => acquireLock(stateDirectory(command.stateHome, root), root, host.isPidAlive),
+      try: () => acquireLock(directory, root, host.isPidAlive),
       catch: asUiError,
     })
     yield* Effect.gen(function* () {
-      const { settings } = yield* Effect.tryPromise({
+      const { settings, feeds: feedExports } = yield* Effect.tryPromise({
         try: () => loadWorkspace(file, command.loadModule),
         catch: asUiError,
       })
@@ -71,6 +82,20 @@ export const runWorkspaceCommand = (
       }
       const projects = (): Promise<readonly ProjectView[]> => scan(deps)
       yield* Effect.tryPromise({ try: projects, catch: asUiError })
+      const feeds = feedRunner({
+        feeds: feedExports,
+        root,
+        worktrees: deps.worktrees,
+        exec: tools.exec,
+        fetch: tools.fetch,
+        now: clock.now,
+        every: clock.every,
+        store: openStore(directory),
+        log: (line) => {
+          out.write(line)
+          out.flush()
+        },
+      })
 
       const gatePage: UiHandler = async (request, afterResponse, peer) => {
         const gate = await gateOf(new URL(request.url).pathname, deps.worktrees)
@@ -93,13 +118,14 @@ export const runWorkspaceCommand = (
             endpoint: TRPC,
             req: request,
             router: workspaceRouter,
-            createContext: () => ({ projects }),
+            createContext: () => ({ projects, feeds }),
           })
         }
+        const html = (body: string): Response =>
+          new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } })
+        if (path === "/inbox") return html(inboxPage(feeds.items(), feeds.feeds()))
         if (path !== "/") return gatePage(request, afterResponse, peer)
-        return new Response(projectsPage(await projects()), {
-          headers: { "content-type": "text/html; charset=utf-8" },
-        })
+        return html(projectsPage(await projects()))
       }
 
       const { url, close } = yield* exposeHandler({
@@ -112,6 +138,7 @@ export const runWorkspaceCommand = (
       lock.serving(url)
       out.write(`${url}\n`)
       out.flush()
-      yield* Effect.never.pipe(Effect.ensuring(close))
+      feeds.start()
+      yield* Effect.never.pipe(Effect.ensuring(Effect.sync(feeds.stop)), Effect.ensuring(close))
     }).pipe(Effect.ensuring(Effect.sync(() => lock.release())))
   })

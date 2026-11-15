@@ -59,6 +59,114 @@ The one reserved export, made with `defineWorkspace`. Every key is optional.
 - **`ui`**: `port`, `host`, `cert`, `key`, as for `gtd ui`, and `users` (the
   tailnet logins that may use the dashboard; default: the owner of this node).
 
+### Feeds
+
+A feed is a named export made with `feed()` from `@pmelab/gtd/workspace`. The
+export name is the feed's name.
+
+```ts
+import { feed } from "@pmelab/gtd/workspace"
+
+export const boardReady = feed({
+  project: "portal",
+  every: "5m",
+  mode: "propose",
+  poll: async (ctx) => {
+    const out = await ctx.exec([
+      "gh",
+      "issue",
+      "list",
+      "--label",
+      "ready",
+      "--json",
+      "number,title,url",
+    ])
+    return JSON.parse(out.stdout).map(
+      (i: { number: number; title: string; url: string }) => ({
+        key: String(i.number),
+        title: i.title,
+        url: i.url,
+        action: "start:feature",
+        priority: 0,
+      }),
+    )
+  },
+})
+```
+
+- **`project`**: the project id.
+- **`every`** (duration): how often `poll` runs. The first poll runs when the
+  supervisor starts.
+- **`mode`**: `"propose"` (a person starts or dismisses each item) or `"queue"`
+  (items start without a person).
+- **`poll(ctx)`**: returns every item that matches now. gtd adds new keys,
+  updates known ones, and removes waiting items that the poll no longer returns.
+- **`canStart(item, ctx)`** (optional): return `false` to hold an item at
+  dispatch.
+
+`ctx` has `exec(argv, { cwd })`, `fetch` and `log(message)`. `exec` runs argv
+without a shell, in the project's main checkout unless `cwd` is given, and
+returns `{ status, stdout, stderr }`; a non-zero exit does not throw. `log`
+writes to the supervisor's output.
+
+An item has these fields:
+
+- **`key`**: unique for the feed;
+- **`title`**, **`url`** (optional);
+- **`action`**: the start action that begins the work, for example
+  `start:feature`;
+- **`priority`**: a number; a higher number starts first;
+- **`blockedBy`** (optional): keys of items that must finish first. Use
+  `<feed>/<key>` for an item of another feed;
+- **`branch`** (optional): start the work in the existing worktree of this
+  branch;
+- **`data`** (optional): any JSON. gtd passes it on and never reads it.
+
+gtd adds `feed` and `project` to each item. A poll that throws, or that returns
+something other than a list of such items with unique keys, fails the feed
+(`feedFailing`): its items stay as they were, and the other feeds keep polling.
+
+### Testing feeds
+
+`testFeed(feed, { exec, fetch, clock, name })` from `@pmelab/gtd/testkit` runs a
+feed without the network, under any test runner. `exec` and `fetch` answer the
+feed's `ctx`; `clock` returns the time of each poll.
+
+```ts
+import { testFeed } from "@pmelab/gtd/testkit"
+import { boardReady } from "./gtd.workspace.ts"
+
+const run = testFeed(boardReady, {
+  exec: () => ({
+    status: 0,
+    stdout: '[{"number":1,"title":"Add login","url":"…"}]',
+    stderr: "",
+  }),
+})
+const { items, failure, logs } = await run.poll()
+```
+
+`poll()` returns the inbox after the poll, as the supervisor keeps it: each item
+with `feed`, `project`, `state` and `firstSeen`, in start order. `failure` is
+set when the feed fails. `dismiss(key)` dismisses a proposed item, and
+`canStart(item)` runs the feed's `canStart`.
+
+## Inbox
+
+The Inbox view (`/inbox`) lists the items that feeds filed and that wait, in
+start order: priority, then the order the poll returned them, then the time gtd
+first saw them. It also names each failing feed.
+
+| State    | When                                                                      |
+| -------- | ------------------------------------------------------------------------- |
+| proposed | A `propose` feed filed it; it waits for a person.                         |
+| queued   | A `queue` feed filed it.                                                  |
+| blocked  | A `queue` feed filed it, and an item it names in `blockedBy` still waits. |
+
+**Dismiss** hides a proposed item until its feed stops returning it. A later
+poll that returns the key again files it anew. Starting items is not available
+yet.
+
 ## Worktree status
 
 The supervisor runs `gtd next --json` in each worktree, so a process that was
@@ -124,4 +232,5 @@ user in `ui.users`. Other users get 403. Requests that change state must be
 POSTs with a JSON body from the dashboard's own origin.
 
 The supervisor keeps its state in `~/.local/state/gtd/workspace/` (or under
-`$XDG_STATE_HOME`). Nothing goes into your repositories.
+`$XDG_STATE_HOME`). Nothing goes into your repositories. Deleting that state
+loses only the dismissals; the next polls file every waiting item again.
