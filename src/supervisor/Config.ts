@@ -85,6 +85,8 @@ export const reloadWorkspace = (options: {
   readonly load: () => Promise<LoadedWorkspace>
   readonly watchFile: (file: string, changed: () => Promise<void>) => () => void
   readonly apply: (loaded: LoadedWorkspace) => void
+  /** After each load: why it was not applied, or `undefined`. */
+  readonly reloaded?: (failure: string | undefined) => void
 }): WorkspaceReload => {
   let failure: string | undefined
   let queue = Promise.resolve()
@@ -100,6 +102,7 @@ export const reloadWorkspace = (options: {
             ? error.message
             : String(error)
     }
+    options.reloaded?.(failure)
   }
   // Loads run one at a time, so the last change is the one that stays.
   const changed = (): Promise<void> => (queue = queue.then(reload))

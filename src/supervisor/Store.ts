@@ -16,6 +16,9 @@ export interface Store {
   /** Notes by worktree path, unchecked. */
   readonly notes: () => Readonly<Record<string, unknown>>
   readonly saveNotes: (notes: Readonly<Record<string, unknown>>) => void
+  /** The notification keys sent, oldest first; `undefined` when no supervisor kept any yet. */
+  readonly notified: () => readonly string[] | undefined
+  readonly saveNotified: (keys: readonly string[]) => void
 }
 
 type StoreData = Record<string, unknown>
@@ -66,5 +69,12 @@ export const openStore = (directory: string): Store => {
         : {}
     },
     saveNotes: (notes) => write({ ...read(), notes }),
+    notified: () => {
+      const keys = read()["notified"]
+      return Array.isArray(keys)
+        ? keys.filter((key): key is string => typeof key === "string")
+        : undefined
+    },
+    saveNotified: (keys) => write({ ...read(), notified: keys }),
   }
 }

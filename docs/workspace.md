@@ -87,15 +87,18 @@ The one reserved export, made with `defineWorkspace`. Every key is optional.
 
 - **`driver`**: the driver command, as an argv, for example `["my-driver"]`. See
   [Workspace drivers](./driver.md#workspace-drivers).
-- **`adapters`**: `worktrees`, `terminal`, `services`, `actions`. An omitted
-  adapter is the bundled default with its default options. See
-  [Adapters](#adapters).
+- **`adapters`**: `worktrees`, `terminal`, `services`, `actions`,
+  `notifications`. An omitted adapter is the bundled default with its default
+  options. See [Adapters](#adapters).
 - **`pollEvery`** (duration, default `"10s"`): how often the services are
   listed, and how often a worktrees adapter without `watch()` is read.
 - **`projects`**: settings per project id, as the worktrees adapter names the
   project: `name` (shown on the dashboard) and `driver` (this project's driver
-  command, instead of the workspace's). An id that no project has shows a
-  banner.
+  command, instead of the workspace's) and `notify` (as below, for this
+  project). An id that no project has shows a banner.
+- **`notify`**: switches each notification kind on (`true`, the default) or off
+  (`false`): `needsYou`, `error`, `proposed`, `feedFailing`, `configError`. See
+  [Notifications](#notifications).
 - **`ui`**: `port`, `host`, `cert`, `key`, as for `gtd ui`, and `users` (the
   tailnet logins that may use the dashboard; default: the owner of this node).
 
@@ -317,7 +320,8 @@ ship, merge or deploy: your scripts do, and report the outcome with
 last one. With `--error`, the worktree status becomes an error of kind `note`,
 with the message, and Remove keeps the worktree. A worktree that is in error
 already keeps that error. `gtd workspace note <worktree> --clear` takes the note
-off.
+off. With `--notify`, the note is also sent as a notification; without it, a
+note sends none.
 
 `<worktree>` is the worktree's path, as for `gtd workspace proceed`. A path that
 is no worktree exits 1. When no supervisor runs, the command exits 0 and the
@@ -326,6 +330,42 @@ applies the spooled notes in order when it starts, before it opens its socket,
 and prints a line for each one whose path is no worktree. The notes stay when
 the supervisor restarts. The query `projects` gives a worktree's note as
 `note: { message, error }`.
+
+## Notifications
+
+The supervisor sends a notification through the notifications adapter when:
+
+| Kind          | When                                                | Links to                 | Priority |
+| ------------- | --------------------------------------------------- | ------------------------ | -------- |
+| `needsYou`    | a worktree needs you                                | the worktree's gate page | high     |
+| `error`       | a worktree is in error                              | the worktree's detail    | high     |
+| `proposed`    | a feed proposes an item                             | the dashboard            | default  |
+| `feedFailing` | a feed's poll fails                                 | the dashboard            | low      |
+| `configError` | `gtd.workspace.ts` does not reload                  | the dashboard            | default  |
+| note          | `gtd workspace note --notify` (high with `--error`) | the worktree's detail    | default  |
+
+`notify` in `workspace`, and in each project of `projects`, switches a kind off
+(`false`) or on. A project's own switch wins. A note sent with `--notify` always
+notifies. The worktree's detail is the dashboard at `/?worktree=<path>`.
+
+Each notification has a key, and no key is sent twice, also after a restart:
+
+- `needsYou:<project>/<worktree>:<commit>` and
+  `error:<project>/<worktree>:<commit>`, where `<commit>` is the worktree's HEAD
+  commit. When the driver reports the status (what it waits for, an error, a
+  crash), its label follows the commit.
+- `proposed:<feed>/<key>`, `feedFailing:<feed>` and `configError:<findings>`. A
+  feed that recovers, or a config that reloads, can notify again the next time
+  it fails.
+
+A kind that is off sends nothing, and turning it on later sends nothing for what
+happened while it was off. A notification that cannot be published is printed
+(`notification <key> not sent: …`) and not sent again.
+
+The supervisor keeps the sent keys in its state store. When it starts, it sends
+what changed while it was down. With no state store (the first start, or after
+you deleted it), what is true at startup is a silent baseline: the worktree
+statuses and each feed's first poll send nothing.
 
 ## Gate pages
 
@@ -338,12 +378,13 @@ that worktree at once.
 
 ## Adapters
 
-| Adapter     | Default   | Factory                  |
-| ----------- | --------- | ------------------------ |
-| `worktrees` | worktrunk | `worktrunk({ roots })`   |
-| `terminal`  | rex       | `rex({ server, shell })` |
-| `services`  | pitchfork | `pitchfork()`            |
-| `actions`   | mise      | `mise()`                 |
+| Adapter         | Default   | Factory                          |
+| --------------- | --------- | -------------------------------- |
+| `worktrees`     | worktrunk | `worktrunk({ roots })`           |
+| `terminal`      | rex       | `rex({ server, shell })`         |
+| `services`      | pitchfork | `pitchfork()`                    |
+| `actions`       | mise      | `mise()`                         |
+| `notifications` | ntfy      | `ntfy({ topic, server, token })` |
 
 The factories come from `@pmelab/gtd/workspace/adapters`. To use another tool,
 give an object that implements the adapter's interface from
@@ -453,6 +494,20 @@ a text field, each flag without a value is a flag field, and one with `choices`
 is a select field. mise reads a flag's value that spells one of the task's own
 flags (for example `--dry`) as that flag, so `mise()` refuses such a value.
 
+### `notifications`
+
+- **`publish({ key, title, body, url, priority })`**: delivers one notification.
+  `url` is where a tap leads, or `undefined`. `priority` is `high`, `default` or
+  `low`. The supervisor sends each key once; the adapter may ignore `key`. Fails
+  with an adapter error.
+
+`ntfy({ topic, server, token })` publishes to the ntfy topic `topic` on `server`
+(default `https://ntfy.sh`), with `token` as an access token for a protected
+topic. Anyone who knows a topic on a public server can read it. Without a
+`notifications` adapter, the supervisor publishes to a random topic on
+`https://ntfy.sh`, kept in `ntfy-topic` in its state directory: subscribe to
+that topic in the ntfy app.
+
 ## Security
 
 Every request, to the dashboard and to the gate pages, must come from a tailnet
@@ -465,8 +520,9 @@ its directory 0700. These file permissions are the authentication.
 
 The supervisor keeps its state in `~/.local/state/gtd/workspace/` (or under
 `$XDG_STATE_HOME`). Nothing goes into your repositories. Deleting that state
-loses the dismissals, the notes and what gtd knows of started and failed items;
-the next polls file every waiting item again.
+loses the dismissals, the notes, the sent notification keys (the next start is a
+silent baseline), the default ntfy topic and what gtd knows of started and
+failed items; the next polls file every waiting item again.
 
 Every state change (Proceed, Retry, Dismiss, New worktree, Remove, Note, a new
 shell pane, and Start and Retry of an item) adds one JSON line to `audit.log` in

@@ -649,7 +649,8 @@ Usage: gtd workspace note <worktree> [message] [options]
 
 Put <message> on the worktree at the path <worktree>, in place of its last note,
 for example the outcome of a merge or a deploy. With --error the worktree status
-becomes an error of kind note. --clear takes the note off and needs no message.
+becomes an error of kind note. With --notify the note is also sent as a
+notification. --clear takes the note off and needs no message.
 
 It reaches the running supervisor of the workspace whose gtd.workspace.ts is
 innermost from the current directory, or the one --config names, through a unix
@@ -662,6 +663,7 @@ Options:
                       from the current directory
   --error             Make it an error note: the worktree status becomes an
                       error of kind note
+  --notify            Also send the note as a notification
   --clear             Take the worktree's note off
   -v, --verbose       Narrate on stderr what gtd resolved
 ```

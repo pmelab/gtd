@@ -133,10 +133,11 @@ Feature: Notes on worktrees
       | --error         | gtd workspace note: missing message argument               |
       | done --clear    | gtd workspace note: --clear takes no message               |
       | --clear --error | gtd workspace note: --clear and --error cannot be combined |
+      | --clear --notify | gtd workspace note: --clear and --notify cannot be combined |
 
-  Scenario: --error and --clear are only valid for note
-    When I run "gtd workspace proceed portal.wt/login 0000 --error" in the workspace
+  Scenario: --error, --notify and --clear are only valid for note
+    When I run "gtd workspace proceed portal.wt/login 0000 --notify" in the workspace
     Then the command exits 2, printing:
       """
-      gtd: --error and --clear are only valid for `gtd workspace note`
+      gtd: --error, --notify and --clear are only valid for `gtd workspace note`
       """

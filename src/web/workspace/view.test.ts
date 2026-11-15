@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  linkedWorktree,
   nowView,
   pressFor,
   statusText,
@@ -85,5 +86,15 @@ describe("worktreeName", () => {
     expect(worktreeName(worktree("plan", {}))).toBe("plan")
     const { branch: _, ...detached } = worktree("x", { path: "/ws/portal-detached" })
     expect(worktreeName(detached)).toBe("portal-detached")
+  })
+})
+
+describe("linkedWorktree", () => {
+  it("reads the worktree a notification links to", () => {
+    expect(linkedWorktree("?worktree=%2Fws%2Fportal.wt%2Flogin")).toBe("/ws/portal.wt/login")
+  })
+
+  it("is undefined on the plain dashboard", () => {
+    expect(linkedWorktree("")).toBeUndefined()
   })
 })
