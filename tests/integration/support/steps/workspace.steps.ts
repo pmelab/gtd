@@ -155,7 +155,7 @@ Then("the Inbox lists:", async (world: GtdWorld, table: DataTable) => {
       Object.fromEntries(
         columns.map((column) => [
           column,
-          String((item as unknown as Record<string, unknown>)[column] ?? ""),
+          (item as unknown as Record<string, string | undefined>)[column] ?? "",
         ]),
       ),
     ),
