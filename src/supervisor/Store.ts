@@ -22,6 +22,9 @@ export interface Store {
   /** The scopes where dispatch is paused, unchecked. */
   readonly paused: () => readonly unknown[]
   readonly savePaused: (scopes: readonly unknown[]) => void
+  /** The last worktree statuses by path, unchecked; `undefined` when no supervisor kept any yet. */
+  readonly statuses: () => Readonly<Record<string, unknown>> | undefined
+  readonly saveStatuses: (statuses: Readonly<Record<string, unknown>>) => void
 }
 
 type StoreData = Record<string, unknown>
@@ -84,5 +87,12 @@ export const openStore = (directory: string): Store => {
       return Array.isArray(scopes) ? scopes : []
     },
     savePaused: (paused) => write({ ...read(), paused }),
+    statuses: () => {
+      const statuses = read()["statuses"]
+      return typeof statuses === "object" && statuses !== null && !Array.isArray(statuses)
+        ? (statuses as Record<string, unknown>)
+        : undefined
+    },
+    saveStatuses: (statuses) => write({ ...read(), statuses }),
   }
 }

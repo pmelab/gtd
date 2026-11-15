@@ -43,3 +43,15 @@ export {
   type FeedSpec,
 } from "./feed.js"
 export type { InboxItem, ItemState } from "./inbox.js"
+export {
+  reaction,
+  type Reaction,
+  type ReactionContext,
+  type ReactionErrorKind,
+  type ReactionFilter,
+  type ReactionNotification,
+  type ReactionOutcome,
+  type ReactionSpec,
+  type ReactionStatus,
+  type WorktreeChange,
+} from "./reaction.js"

@@ -30,8 +30,9 @@ import { workspaceRouter } from "./Router.js"
 import type { ProjectView } from "./Scan.js"
 import { liveSnapshot, type Banner } from "./Snapshot.js"
 import { notes, type Notes } from "./Notes.js"
-import { notifier, type Notifier } from "./Notify.js"
+import { detailLink, notifier, type Notifier } from "./Notify.js"
 import { pauses as pausesOf, whenNoDrive, type Pauses } from "./Pauses.js"
+import { reactionRunner } from "./Reactions.js"
 import {
   drainSpool,
   serveSocket,
@@ -60,6 +61,8 @@ interface ControlDeps {
   readonly pauses: Pauses
   readonly dispatch: Dispatcher
   readonly after: (ms: number, run: () => void) => () => void
+  /** Called after a note changed, so reactions see it. */
+  readonly noteChanged: () => void
 }
 
 const reply = (refusal: string | undefined): ControlReply =>
@@ -73,14 +76,15 @@ const isPause = (request: ControlRequest): request is PauseRequest =>
 type NoteRequest = Extract<ControlRequest, { readonly command: "note" }>
 
 const noteRequest = (
-  { noted, notify, projects }: ControlDeps,
+  { noted, notify, projects, noteChanged }: ControlDeps,
   request: NoteRequest,
   endpoint: string,
 ): ControlReply => {
   const refusal = noted.note(request.worktree, request.note, endpoint)
-  if (refusal === undefined && request.note?.notify === true)
-    notify.note(projects(), request.worktree, request.note)
-  return reply(refusal)
+  if (refusal !== undefined) return reply(refusal)
+  noteChanged()
+  if (request.note?.notify === true) notify.note(projects(), request.worktree, request.note)
+  return reply(undefined)
 }
 
 const pauseRequest = async (
@@ -202,6 +206,19 @@ export const runWorkspaceCommand = (
             worktreeStatus(await host.next(worktree), await driverRuns.state(worktree)),
           ),
       })
+      const reactions = reactionRunner({
+        reactions: loaded.reactions,
+        store,
+        exec: tools.exec,
+        fetch: tools.fetch,
+        action: (project, worktree, id, values) => actions.run(project, worktree, id, values),
+        // Reactions run only once the supervisor serves, after `control` exists.
+        press: (press) => control.press(press),
+        notify: ({ worktree, ...message }) =>
+          notify.message({ ...message, link: detailLink(worktree) }),
+        now: clock.now,
+        log,
+      })
       const snapshot = liveSnapshot({
         worktrees,
         next: host.next,
@@ -211,8 +228,11 @@ export const runWorkspaceCommand = (
         services,
         lastAction: actions.last,
         after: host.after,
-        // Notes notify only when sent with --notify: the raw statuses, without them.
-        changed: () => notify.worktrees(snapshot.projects()),
+        changed: () => {
+          // Notes notify only when sent with --notify: the raw statuses, without them.
+          notify.worktrees(snapshot.projects())
+          reactions.worktrees(noted.withNotes(snapshot.projects()))
+        },
       })
       closeSnapshot = snapshot.close
       yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })
@@ -291,6 +311,7 @@ export const runWorkspaceCommand = (
         pauses: paused,
         dispatch,
         after: host.after,
+        noteChanged: () => reactions.worktrees(noted.withNotes(snapshot.projects())),
       })
       // Before the socket opens: a spooled note is older than any sent to it.
       const spoolRefusals = yield* Effect.tryPromise({
@@ -310,6 +331,7 @@ export const runWorkspaceCommand = (
         apply: (next) => {
           current = next.settings
           feeds.replace(next.feeds)
+          reactions.replace(next.reactions)
         },
         reloaded: (failure) => notify.reloaded(basename(file), failure),
       })
@@ -405,6 +427,7 @@ export const runWorkspaceCommand = (
       })
       lock.serving(url)
       notify.begin(url, snapshot.projects())
+      reactions.begin(noted.withNotes(snapshot.projects()))
       out.write(`${url}\n`)
       out.write(spoolRefusals.map((refusal) => `spool ${refusal}\n`).join(""))
       out.flush()
