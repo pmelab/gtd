@@ -177,7 +177,7 @@ export const InboxPressesAnItem: Story = {
   },
 }
 
-/** The Inbox shows the drives in use out of maxDrives and why an item waits. */
+/** The Inbox shows the drives in use out of maxDrives, and why a queued item waits. */
 export const InboxSaysWhyAnItemWaits: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

@@ -1,4 +1,5 @@
 import { cn } from "../cn.js"
+import { NoteLine } from "./NoteLine.js"
 import { Refused } from "./Press.js"
 import { ServiceChips } from "./ServiceChips.js"
 import {
@@ -42,6 +43,7 @@ const Row = ({
     {worktree.unavailable !== undefined && (
       <span className="text-small text-muted">{worktree.unavailable.adapter} unavailable</span>
     )}
+    <NoteLine worktree={worktree} />
     <Refused worktree={worktree} />
     <ServiceChips worktree={worktree} />
   </li>

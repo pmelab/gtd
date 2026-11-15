@@ -239,8 +239,8 @@ export const runWorkspaceCommand = (
         next: host.next,
         panes: actions.panes,
         starting: dispatch.starting,
-        errorNote: noted.errorNote,
         refresh: snapshot.refresh,
+        errorNote: noted.errorNote,
         audit,
         now: clock.now,
       })
