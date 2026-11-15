@@ -214,6 +214,22 @@ and its error. A chip with a URL links to it. gtd owns no DNS: the URL is the
 one the services adapter reports. The supervisor lists the services when it
 starts and then every `pollEvery`.
 
+## Proceed and Retry
+
+A worktree that needs you has Proceed. A worktree in error has Retry. Each sends
+the HEAD commit that the page showed. gtd refuses the press when the worktree's
+HEAD is now a different commit. Else it runs `<driver> proceed <commit>` or
+`<driver> retry <commit>` in the worktree (see
+[Workspace drivers](./driver.md#workspace-drivers)). When the driver answers
+that no driver runs (exit 2), gtd starts the driver and sends the press again
+for up to 5 seconds. A refusal shows on the worktree, with the driver's first
+line of stderr, until the next accepted press or a new HEAD.
+
+The API is the tRPC mutations `proceed` and `retry` under `/trpc`, each with
+`{ worktree, commit }`: `worktree` is the worktree's `path` and `commit` is its
+`head` as the query `projects` returns them. A refusal answers 409 with the
+reason; an unknown worktree answers 404.
+
 ## Gate pages
 
 The supervisor also serves the gate page of every worktree, at
@@ -337,3 +353,9 @@ POSTs with a JSON body from the dashboard's own origin.
 The supervisor keeps its state in `~/.local/state/gtd/workspace/` (or under
 `$XDG_STATE_HOME`). Nothing goes into your repositories. Deleting that state
 loses only the dismissals; the next polls file every waiting item again.
+
+Every state change (Proceed, Retry, Dismiss) adds one JSON line to `audit.log`
+in that directory: `time`, `identity` (the tailnet login, `-` when unknown),
+`endpoint`, `project`, `worktree`, `action` and `outcome`. It never holds the
+values of fields. When the log reaches 1 MiB, it moves to `audit.log.1`,
+replacing the older one.

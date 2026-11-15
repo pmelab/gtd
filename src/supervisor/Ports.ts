@@ -32,6 +32,8 @@ interface SupervisorHostOps {
   readonly after: (ms: number, run: () => void) => () => void
   /** Calls `changed` after `file` was written; the result stops watching. */
   readonly watchFile: (file: string, changed: () => Promise<void>) => () => void
+  /** A driver one-shot (`<driver> proceed <commit>`, …), run with the worktree as cwd. */
+  readonly oneShot: (argv: readonly string[], worktree: string) => Promise<ExecResult>
 }
 
 // An editor's save is several events (write, rename, chmod); one call after they stop covers them.
@@ -77,6 +79,7 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
       return () => clearTimeout(timer)
     },
     watchFile,
+    oneShot: (argv, worktree) => exec(argv, worktree),
   })
 }
 
