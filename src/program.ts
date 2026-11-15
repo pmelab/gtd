@@ -57,7 +57,8 @@ export const liveToolCommands = Layer.effect(
         }),
       workspace: (request, out) =>
         lazy("workspace", async () => {
-          const { runWorkspaceCommand, SupervisorHost } = await import("./supervisor/index.js")
+          const { runWorkspaceCommand, SupervisorClock, SupervisorHost, UserlandTools } =
+            await import("./supervisor/index.js")
           const { UiListener, UiShell, UiUsageError, liveUiHost } = await import("./ui/index.js")
           return () =>
             runWorkspaceCommand(request, out).pipe(
@@ -66,6 +67,8 @@ export const liveToolCommands = Layer.effect(
               Effect.provide(UiListener.Live),
               Effect.provide(liveUiHost),
               Effect.provide(SupervisorHost.Live),
+              Effect.provide(UserlandTools.Live),
+              Effect.provide(SupervisorClock.Live),
               Effect.mapError((error) =>
                 error instanceof UiUsageError
                   ? new GtdUsageError(error.message, error.detail)
