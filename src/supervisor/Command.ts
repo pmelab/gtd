@@ -14,6 +14,7 @@ import {
   type UiOut,
   type UiShell,
 } from "../ui/index.js"
+import type { NotificationsAdapter, WorkspaceSettings } from "../workspace/index.js"
 import { actionRuns } from "./Actions.js"
 import { auditLog } from "./Audit.js"
 import { findWorkspaceModule, loadWorkspace, reloadWorkspace } from "./Config.js"
@@ -69,6 +70,11 @@ const controlHandler =
     })
     return outcome.outcome === "accepted" ? { ok: true } : { ok: false, message: outcome.message }
   }
+
+const notificationsOf = (
+  settings: WorkspaceSettings,
+  byDefault: () => NotificationsAdapter,
+): NotificationsAdapter => settings.adapters?.notifications ?? byDefault()
 
 const asUiError = (error: unknown): UiError =>
   error instanceof UiError
@@ -132,7 +138,7 @@ export const runWorkspaceCommand = (
         out.flush()
       }
       const notify = notifier({
-        adapter: settings.adapters?.notifications ?? host.defaultNotifications(directory),
+        adapter: notificationsOf(settings, () => host.defaultNotifications(directory)),
         store,
         settings: config,
         now: clock.now,

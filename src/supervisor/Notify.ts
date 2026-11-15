@@ -249,4 +249,4 @@ const feedNews = (
 ]
 
 /** The dashboard, with the worktree's detail open. */
-export const detailLink = (path: string): string => `/?worktree=${encodeURIComponent(path)}`
+const detailLink = (path: string): string => `/?worktree=${encodeURIComponent(path)}`

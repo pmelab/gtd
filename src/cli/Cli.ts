@@ -1003,31 +1003,30 @@ const buildLandCommand = (bag: {
   ...(bag["--model"] !== undefined ? { model: bag["--model"] } : {}),
 })
 
+interface NoteFlags {
+  readonly "--error"?: boolean
+  readonly "--notify"?: boolean
+  readonly "--clear"?: boolean
+  readonly "--config"?: string
+}
+
+const noteProblem = (bag: NoteFlags, message: string | undefined): string | undefined => {
+  if (bag["--clear"] !== true) return message === undefined ? "missing message argument" : undefined
+  for (const flag of ["--error", "--notify"] as const) {
+    if (bag[flag] === true) return `--clear and ${flag} cannot be combined`
+  }
+  return message !== undefined ? "--clear takes no message" : undefined
+}
+
 const buildNoteCommand = (
   [worktree = "", message]: readonly string[],
-  bag: {
-    readonly "--error"?: boolean
-    readonly "--notify"?: boolean
-    readonly "--clear"?: boolean
-    readonly "--config"?: string
-  },
+  bag: NoteFlags,
   json: JsonMode,
   verbose: boolean,
   jsonSeen: boolean,
 ): CliPlan => {
-  const clear = bag["--clear"] === true
-  if (clear && bag["--error"] === true) {
-    return usagePlan("gtd workspace note: --clear and --error cannot be combined", jsonSeen)
-  }
-  if (clear && bag["--notify"] === true) {
-    return usagePlan("gtd workspace note: --clear and --notify cannot be combined", jsonSeen)
-  }
-  if (clear && message !== undefined) {
-    return usagePlan("gtd workspace note: --clear takes no message", jsonSeen)
-  }
-  if (!clear && message === undefined) {
-    return usagePlan("gtd workspace note: missing message argument", jsonSeen)
-  }
+  const problem = noteProblem(bag, message)
+  if (problem !== undefined) return usagePlan(`gtd workspace note: ${problem}`, jsonSeen)
   return {
     kind: "command",
     command: {
