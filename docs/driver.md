@@ -1012,3 +1012,75 @@ do not queue it, store it, or hand it to another worktree.
   names the paste passes to `claude --model` for the workflow's `smart` and
   `base` hints. Unset, the hint is dropped and `claude` runs its own default
   model.
+
+## Workspace drivers
+
+[`gtd workspace`](./workspace.md) starts and steers a driver for each worktree.
+A driver that follows this section works there. The beat protocol above does not
+change. This is an extension that a driver can opt into.
+
+### Invocations
+
+Set the driver command as `driver` in `gtd.workspace.ts` (an argv). gtd runs it
+in these forms, always with the worktree as the working directory:
+
+| Invocation                  | What the driver does                                                                                                                          | Exit codes                                              |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `<driver>`                  | Start. Take no arguments. Resume where `gtd next` rests, and wait there if it is a rest for a person or a judge. Do not land an opening beat. | Any; see [Exit codes](#exit-codes-of-a-started-driver). |
+| `<driver> proceed <commit>` | Tell the running driver to proceed from the rest at that HEAD commit.                                                                         | `0` accepted, `1` refused, `2` no driver runs           |
+| `<driver> retry <commit>`   | Tell the running driver to retry the step that rests at that HEAD commit.                                                                     | `0` accepted, `1` refused, `2` no driver runs           |
+| `<driver> quit`             | Tell the running driver to stop.                                                                                                              | `0` accepted, `1` refused, `2` no driver runs           |
+
+`proceed`, `retry` and `quit` return at once. How they reach the running driver
+(a socket, a file, a signal) is up to the driver. Refuse with exit 1 and a
+one-line reason on stderr when HEAD is no longer that commit or the driver is
+busy. gtd shows that line on the dashboard.
+
+When you press Proceed and no driver runs, gtd starts the driver and repeats
+`proceed` for a few seconds while it gets exit 2.
+
+### Which rest
+
+The commit in `proceed` and `retry` is the full HEAD commit the person saw.
+History is gtd's only state, so that commit names one rest. Compare it with the
+current HEAD before you act, and refuse a different one.
+
+### Exit codes of a started driver
+
+gtd starts the driver as the only command of a new terminal pane, with no gtd
+process above it. The terminal reports how the driver ended, and the pane stays
+open so that you can read its last output:
+
+- exit 0 when the process has ended: done;
+- exit 0 while the process is mid-flow, or exit 130 or 143: quit;
+- any other exit: crashed. The dashboard shows an error with Retry.
+
+gtd does not restart a crashed driver by itself. It restarts a driver only when
+the supervisor starts and finds a process that waits for an agent or a check
+with no driver running, or whose pane is gone (for example after a reboot).
+Until then, such a worktree needs you, with the message "no driver runs".
+
+### Status
+
+Print OSC 7501 records to show what the driver does. gtd reads the root record
+(no `id`) and ignores child records, `app` and `progress`:
+
+| Root record                | Worktree status                                   |
+| -------------------------- | ------------------------------------------------- |
+| `state=working`            | working, labelled with `title`                    |
+| `state=blocked`            | needs you, labelled with `title`, and its `kind`  |
+| `state=error`              | error, with `msg` as the message                  |
+| none, or any other `state` | from `gtd next` and whether the driver still runs |
+
+A driver that prints none still gets a correct status from `gtd next`: needs you
+at a rest for a person or a judge, working while it runs at a rest for an agent
+or a check, idle when the process has ended, and an error when it stalls.
+
+### Environment
+
+The driver runs in your login-shell environment: your shell's startup files run
+first, as in a terminal you open yourself. gtd adds only the variable below.
+
+- **`GTD_WORKSPACE_ITEM`**: when the driver starts for an inbox item, the item
+  as JSON: `key`, `title`, `url`, `action`, `priority`, `blockedBy`, `branch`,
+  `data`, `feed`, `project`.

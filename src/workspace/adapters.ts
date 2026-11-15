@@ -63,3 +63,55 @@ export interface WorktreesAdapter {
   /** Fails with an adapter error for a project id `projects` does not report. */
   readonly list: (project: string) => Promise<readonly Worktree[]>
 }
+
+/**
+ * The root OSC 7501 record of a pane: what the program in it last reported
+ * about itself. Child records (with an `id`), `app` and `progress` are left out.
+ */
+export interface StatusRecord {
+  /** `idle`, `working`, `done`, `blocked` or `error`; treat any other value as `idle`. */
+  readonly state: string
+  /** With `blocked`: `permission`, `question` or `auth`. */
+  readonly kind?: string
+  readonly title?: string
+  readonly msg?: string
+}
+
+export interface PaneStatus {
+  /** The root OSC 7501 record, while the terminal keeps one. */
+  readonly record: StatusRecord | undefined
+  /** The pane's own command still runs. */
+  readonly alive: boolean
+  /** A process other than the pane's own command is in the foreground. */
+  readonly busy: boolean
+  /**
+   * How the pane's command ended, `null` while it runs. A command killed by a
+   * signal reports `128 + signal`: 130 for `SIGINT`, 143 for `SIGTERM`.
+   */
+  readonly exit: { readonly code: number } | null
+}
+
+/**
+ * The terminal adapter: panes that run one command each. A handle is an
+ * opaque string that gtd keeps across its own restarts.
+ */
+export interface TerminalAdapter {
+  /**
+   * Opens a new pane in the worktree with `argv` as the pane's own top
+   * process, in the person's login-shell environment, with `env` applied
+   * after the shell's startup files. The pane stays open after `argv` exits.
+   */
+  readonly run: (
+    project: string,
+    worktree: string,
+    argv: readonly string[],
+    env: Readonly<Record<string, string>>,
+  ) => Promise<string>
+  /** `undefined` when the pane is gone: closed, or lost with its terminal. */
+  readonly status: (handle: string) => Promise<PaneStatus | undefined>
+  readonly close: (handle: string) => Promise<void>
+  /** A command or URL that shows the pane to a person. */
+  readonly attach?: (handle: string) => Promise<string>
+  /** Hints, each a pane handle, that a pane's status may have changed. */
+  readonly watch?: () => AsyncIterable<string>
+}

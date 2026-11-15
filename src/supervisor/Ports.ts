@@ -1,8 +1,8 @@
 import { execFile } from "node:child_process"
 import { Context, Layer } from "effect"
 import { liveRunInWorktree, type SpawnOutcome } from "../ui/index.js"
-import { worktrunk } from "../workspace-adapters/index.js"
-import type { ExecResult, WorktreesAdapter } from "../workspace/index.js"
+import { rex, worktrunk } from "../workspace-adapters/index.js"
+import type { ExecResult, TerminalAdapter, WorktreesAdapter } from "../workspace/index.js"
 
 /**
  * What the supervisor reaches outside its process besides the adapters a
@@ -13,6 +13,8 @@ interface SupervisorHostOps {
   readonly next: (worktree: string) => Promise<SpawnOutcome>
   /** The worktrees adapter of a workspace that names none. */
   readonly defaultWorktrees: (root: string) => WorktreesAdapter
+  /** The terminal adapter of a workspace that names none. */
+  readonly defaultTerminal: () => TerminalAdapter
   readonly isPidAlive: (pid: number) => boolean
 }
 
@@ -32,6 +34,7 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
     next: (worktree) => liveRunInWorktree(worktree, "gtd next --json"),
     // Each directory at the workspace root that is a repository's main checkout.
     defaultWorktrees: (root) => worktrunk({ roots: [`${root}/*`] }),
+    defaultTerminal: () => rex(),
     isPidAlive,
   })
 }
