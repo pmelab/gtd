@@ -70,25 +70,39 @@ type PauseRequest = Extract<ControlRequest, { readonly command: "pause" | "resum
 const isPause = (request: ControlRequest): request is PauseRequest =>
   request.command === "pause" || request.command === "resume"
 
+type NoteRequest = Extract<ControlRequest, { readonly command: "note" }>
+
+const noteRequest = (
+  { noted, notify, projects }: ControlDeps,
+  request: NoteRequest,
+  endpoint: string,
+): ControlReply => {
+  const refusal = noted.note(request.worktree, request.note, endpoint)
+  if (refusal === undefined && request.note?.notify === true)
+    notify.note(projects(), request.worktree, request.note)
+  return reply(refusal)
+}
+
+const pauseRequest = async (
+  { pauses, dispatch, after }: ControlDeps,
+  { command, wait, ...scope }: PauseRequest,
+  endpoint: string,
+): Promise<ControlReply> => {
+  const refusal = pauses.set(scope, command === "pause", { identity: "-", endpoint })
+  if (refusal !== undefined) return reply(refusal)
+  if (command === "resume") await dispatch.pass()
+  if (wait === true) await whenNoDrive(() => dispatch.drivesIn(scope), after)
+  return reply(undefined)
+}
+
 /** One dispatcher for the socket and the spool; `endpoint` goes into the audit log. */
 const controlHandler =
-  ({ noted, control, notify, projects, pauses, dispatch, after }: ControlDeps) =>
+  (deps: ControlDeps) =>
   (endpoint: string) =>
   async (request: ControlRequest): Promise<ControlReply> => {
-    if (request.command === "note") {
-      const refusal = noted.note(request.worktree, request.note, endpoint)
-      if (refusal !== undefined) return reply(refusal)
-      if (request.note?.notify === true) notify.note(projects(), request.worktree, request.note)
-      return reply(undefined)
-    }
-    if (isPause(request)) {
-      const { command, wait, ...scope } = request
-      const refusal = pauses.set(scope, command === "pause", { identity: "-", endpoint })
-      if (refusal !== undefined) return reply(refusal)
-      if (command === "resume") await dispatch.pass()
-      if (wait === true) await whenNoDrive(() => dispatch.drivesIn(scope), after)
-      return reply(undefined)
-    }
+    if (request.command === "note") return noteRequest(deps, request, endpoint)
+    if (isPause(request)) return pauseRequest(deps, request, endpoint)
+    const { control } = deps
     const outcome = await control.press({
       action: request.command,
       worktree: request.worktree,
