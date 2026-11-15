@@ -20,6 +20,8 @@ export {
   type TerminalAdapter,
   type Project,
   type WatchHint,
+  type Service,
+  type ServicesAdapter,
   type Worktree,
   type WorktreesAdapter,
 } from "./adapters.js"

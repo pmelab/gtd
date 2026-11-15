@@ -87,6 +87,7 @@ export const runWorkspaceCommand = (
           settings,
           driverPanes(directory),
         ),
+        services: settings.adapters?.services ?? host.defaultServices(),
         after: host.after,
       })
       closeSnapshot = snapshot.close

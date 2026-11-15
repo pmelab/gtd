@@ -27,6 +27,7 @@ import {
 import {
   InMemRepo,
   inMemoryClock,
+  inMemoryServices,
   inMemoryTerminal,
   inMemoryWorktrees,
   settle,
@@ -115,6 +116,7 @@ export class WorkspaceBench {
   readonly clock = inMemoryClock()
   /** Whether the default worktrees adapter offers a watch. */
   watching = true
+  readonly services = inMemoryServices()
   private readonly answers = new Map<string, SpawnOutcome>()
   /** The worktree of each `gtd next` the supervisor ran, in order. */
   readonly nextRuns: string[] = []
@@ -251,6 +253,7 @@ export class WorkspaceBench {
         return this.watching ? this.worktrees.adapter : { projects, list }
       },
       defaultTerminal: () => this.terminal.adapter,
+      defaultServices: () => this.services.adapter,
       isPidAlive: (pid) => pid === process.pid,
       after: this.clock.after,
     })

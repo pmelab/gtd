@@ -1,12 +1,14 @@
 import {
   durationMs,
   type AdapterFailure,
+  type ServicesAdapter,
   type WatchHint,
   type Worktree,
 } from "../workspace/index.js"
 import type { SpawnOutcome } from "../ui/index.js"
 import { gatePath } from "./Gate.js"
 import { asFailure, byPath, type ProjectView, type ScanDeps } from "./Scan.js"
+import { listServices, type ServicesView } from "./Services.js"
 import { isOrphan, worktreeStatus, type DriverState } from "./Status.js"
 
 /** A problem with the workspace itself, shown above every project. */
@@ -18,6 +20,8 @@ export interface Banner {
 export interface SnapshotDeps extends ScanDeps {
   /** Runs `run` once after `ms`; the result cancels it. */
   readonly after: (ms: number, run: () => void) => () => void
+  /** Listed at `pollEvery`, never per request: the pitchfork default costs a process per worktree. */
+  readonly services?: ServicesAdapter
 }
 
 /** The worktree statuses the supervisor keeps, and what keeps them current. */
@@ -40,6 +44,7 @@ const DEFAULT_POLL = "10s"
 // `gtd next` costs a process and a replay each; a few at a time keeps a large
 // workspace from starving the machine.
 const NEXT_CONCURRENCY = 4
+const SERVICES_CONCURRENCY = 4
 
 /** What a worktree's status is made of; a driver changes without a new `gtd next`. */
 interface Seen {
@@ -92,6 +97,8 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
   const limited = limiter(NEXT_CONCURRENCY)
   let closed = false
   const streams = new Set<AsyncIterator<unknown>>()
+  let servicesOf = new Map<string, ServicesView>()
+  let listing: Promise<void> | undefined
 
   const later = (ms: number, run: () => void): void => {
     const cancel = deps.after(ms, () => {
@@ -143,6 +150,24 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
         }
       }
     })().finally(() => (refreshing = undefined))
+  }
+
+  /** Lists every kept worktree's services; asked while it runs, it joins that run. */
+  const refreshServices = (): Promise<void> => {
+    const services = deps.services
+    if (services === undefined || listing !== undefined) return listing ?? Promise.resolve()
+    const limit = limiter(SERVICES_CONCURRENCY)
+    const all = [...kept].flatMap(([id, p]) => p.worktrees.map((w) => [id, w.path] as const))
+    listing = Promise.all(
+      all.map(([id, path]) =>
+        limit(async () => [path, await listServices(services, id, path)] as const),
+      ),
+    )
+      .then((listed) => {
+        if (!closed) servicesOf = new Map(listed)
+      })
+      .finally(() => (listing = undefined))
+    return listing
   }
 
   const recheckProject = async (id: string, want: Want): Promise<void> => {
@@ -277,6 +302,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
               main: w.main,
               gate: gatePath(id, w),
               ...statusOf(project.seen.get(w.path)!),
+              ...servicesOf.get(w.path),
               ...(unavailable !== undefined ? { unavailable } : {}),
             })),
           }
@@ -308,6 +334,8 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
       }
       await readAll(true, true)
       await restartOrphans()
+      await refreshServices()
+      every(pollMs, refreshServices)
       every(RESCAN_MS, () => readAll(true))
       if (watch === undefined) every(pollMs, () => readAll(false))
       if (deps.drivers.watch === undefined) {

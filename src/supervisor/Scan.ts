@@ -1,6 +1,7 @@
 import {
   isAdapterFailure,
   type AdapterFailure,
+  type Service,
   type Worktree,
   type WorktreesAdapter,
   type WorkspaceSettings,
@@ -14,6 +15,10 @@ export interface WorktreeView extends WorktreeStatus {
   readonly branch?: string
   readonly head: string
   readonly main: boolean
+  /** The worktree's services, once the services adapter has listed them. */
+  readonly services?: readonly Service[]
+  /** The services adapter could not list them. */
+  readonly servicesFailure?: AdapterFailure
   /** The path of the worktree's gate page. */
   readonly gate: string
   /** The adapter read that failed: the status is the last one known, shown greyed. */
