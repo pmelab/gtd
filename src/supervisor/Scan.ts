@@ -9,7 +9,7 @@ import {
 import type { SpawnOutcome } from "../ui/index.js"
 import type { ActionRun } from "./Actions.js"
 import type { Drivers } from "./Drivers.js"
-import { worktreeStatus, type WorktreeStatus } from "./Status.js"
+import type { WorktreeStatus } from "./Status.js"
 
 export interface WorktreeView extends WorktreeStatus {
   readonly path: string
@@ -45,23 +45,6 @@ export interface ScanDeps {
   readonly drivers: Drivers
 }
 
-export const mapLimited = async <A, B>(
-  items: readonly A[],
-  limit: number,
-  f: (item: A) => Promise<B>,
-): Promise<B[]> => {
-  const results: B[] = []
-  let next = 0
-  const worker = async (): Promise<void> => {
-    while (next < items.length) {
-      const index = next++
-      results[index] = await f(items[index]!)
-    }
-  }
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker))
-  return results
-}
-
 export const asFailure = (op: string, error: unknown): AdapterFailure =>
   isAdapterFailure(error)
     ? error
@@ -73,10 +56,3 @@ export const asFailure = (op: string, error: unknown): AdapterFailure =>
 
 export const byPath = (a: Worktree, b: Worktree): number =>
   Number(b.main) - Number(a.main) || a.path.localeCompare(b.path)
-
-/** One worktree's status as of now. */
-export const recheck = async (
-  deps: Pick<ScanDeps, "next" | "drivers">,
-  worktree: string,
-): Promise<WorktreeStatus> =>
-  worktreeStatus(await deps.next(worktree), await deps.drivers.state(worktree))

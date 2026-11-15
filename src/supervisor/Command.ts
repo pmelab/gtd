@@ -24,9 +24,9 @@ import { inboxPage, projectsPage } from "./Page.js"
 import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
-import { recheck, type ProjectView } from "./Scan.js"
 import { liveSnapshot } from "./Snapshot.js"
 import { worktreeChanges } from "./WorktreeChanges.js"
+import { worktreeStatus } from "./Status.js"
 
 export interface WorkspaceCommand {
   readonly flags: ExposeOptions & { readonly config?: string }
@@ -76,7 +76,6 @@ export const runWorkspaceCommand = (
       catch: asUiError,
     })
     let closeSnapshot = (): void => {}
-    let stopActions = (): void => {}
     yield* Effect.gen(function* () {
       const { settings, feeds: feedExports } = yield* Effect.tryPromise({
         try: () => loadWorkspace(file, command.loadModule),
@@ -85,39 +84,32 @@ export const runWorkspaceCommand = (
       const worktrees = settings.adapters?.worktrees ?? host.defaultWorktrees(root)
       const terminal = settings.adapters?.terminal ?? host.defaultTerminal()
       const services = settings.adapters?.services ?? host.defaultServices()
-      const deps = {
-        worktrees,
-        next: host.next,
-        settings,
-        drivers: drivers(terminal, settings, driverPanes(directory)),
-      }
-      const snapshot = liveSnapshot({
-        ...deps,
-        after: host.after,
-        services,
-      })
-      closeSnapshot = snapshot.close
+      const driverRuns = drivers(terminal, settings, driverPanes(directory))
       const actions = actionRuns({
         worktrees,
         actions: settings.adapters?.actions ?? host.defaultActions(),
         terminal,
-        drivers: deps.drivers,
-        status: (worktree) => recheck(deps, worktree),
+        drivers: driverRuns,
+        status: async (worktree) =>
+          worktreeStatus(await host.next(worktree), await driverRuns.state(worktree)),
       })
-      stopActions = actions.stop
-      const projects = (): readonly ProjectView[] =>
-        snapshot.projects().map((project) => ({
-          ...project,
-          worktrees: project.worktrees.map((w) => {
-            const action = actions.last(w.path)
-            return action === undefined ? w : { ...w, action }
-          }),
-        }))
+      const snapshot = liveSnapshot({
+        worktrees,
+        next: host.next,
+        settings,
+        drivers: driverRuns,
+        services,
+        lastAction: actions.last,
+        after: host.after,
+      })
+      closeSnapshot = snapshot.close
       yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })
       const changes = worktreeChanges({
-        ...deps,
-        terminal,
+        worktrees,
         services,
+        terminal,
+        drivers: driverRuns,
+        next: host.next,
         panes: actions.panes,
         refresh: snapshot.refresh,
         audit: auditLog(directory, clock.now),
@@ -159,7 +151,7 @@ export const runWorkspaceCommand = (
             req: request,
             router: workspaceRouter,
             createContext: () => ({
-              projects,
+              projects: snapshot.projects,
               banners: snapshot.banners,
               actions,
               feeds,
@@ -172,7 +164,7 @@ export const runWorkspaceCommand = (
           new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } })
         if (path === "/inbox") return html(inboxPage(feeds.items(), feeds.feeds()))
         if (path !== "/") return gatePage(request, afterResponse, peer)
-        return html(projectsPage(projects(), snapshot.banners()))
+        return html(projectsPage(snapshot.projects(), snapshot.banners()))
       }
 
       const { url, close } = yield* exposeHandler({
@@ -186,11 +178,14 @@ export const runWorkspaceCommand = (
       out.write(`${url}\n`)
       out.flush()
       feeds.start()
-      yield* Effect.never.pipe(Effect.ensuring(Effect.sync(feeds.stop)), Effect.ensuring(close))
+      yield* Effect.never.pipe(
+        Effect.ensuring(Effect.sync(feeds.stop)),
+        Effect.ensuring(Effect.sync(() => actions.stop())),
+        Effect.ensuring(close),
+      )
     }).pipe(
       Effect.ensuring(
         Effect.sync(() => {
-          stopActions()
           closeSnapshot()
           lock.release()
         }),

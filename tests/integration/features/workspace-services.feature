@@ -43,6 +43,27 @@ Feature: each worktree shows its service chips
       | web     | https://web.login.portal.example.ts.net |
 
   @inmem
+  Scenario: the services are listed again every pollEvery, not on each request
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      export const workspace = { pollEvery: "20s" }
+      """
+    And the worktrees adapter reports these worktrees:
+      | project | branch |
+      | portal  | main   |
+    When I start gtd workspace
+    And the services adapter reports these services:
+      | worktree    | service | url | running | error |
+      | portal/main | web     |     | yes     |       |
+    And 10 seconds pass
+    Then the Projects view shows these service chips:
+      | worktree | service | url | running | error |
+    When 10 seconds pass
+    Then the Projects view shows these service chips:
+      | worktree    | service | url | running | error |
+      | portal/main | web     |     | yes     |       |
+
+  @inmem
   Scenario: a services adapter that fails keeps the worktrees and says so
     Given a workspace file "gtd.workspace.ts" with:
       """

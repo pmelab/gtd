@@ -58,9 +58,8 @@ The one reserved export, made with `defineWorkspace`. Every key is optional.
 - **`adapters`**: `worktrees`, `terminal`, `services`, `actions`. An omitted
   adapter is the bundled default with its default options. See
   [Adapters](#adapters).
-- **`pollEvery`** (duration, default `"10s"`): how often an adapter without
-  `watch()` is read. The services adapter has none: its services are read at
-  this interval.
+- **`pollEvery`** (duration, default `"10s"`): how often the services are
+  listed, and how often a worktrees adapter without `watch()` is read.
 - **`projects`**: settings per project id: `name` (shown on the dashboard) and
   `driver` (this project's driver command, instead of the workspace's).
 - **`ui`**: `port`, `host`, `cert`, `key`, as for `gtd ui`, and `users` (the
@@ -205,7 +204,8 @@ projects shows the error. Both go away after the next good read.
 
 Each worktree shows its services as chips: the name, whether the service runs,
 and its error. A chip with a URL links to it. gtd owns no DNS: the URL is the
-one the services adapter reports.
+one the services adapter reports. The supervisor lists the services when it
+starts and then every `pollEvery`.
 
 ## New worktree and Remove
 
