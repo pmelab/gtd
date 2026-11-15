@@ -1,6 +1,7 @@
 import { Given, Then, When, type DataTable } from "quickpickle"
 import assert from "node:assert"
-import type { GtdWorld } from "../world.js"
+import { join } from "node:path"
+import { parseRawRequest, type GtdWorld } from "../world.js"
 import { WorkspaceBench } from "../workspace.js"
 
 const benches = new WeakMap<GtdWorld, WorkspaceBench>()
@@ -123,3 +124,103 @@ Then("the dashboard answers {int}", (world: GtdWorld, status: number) => {
 Then("no supervisor lock is left", (world: GtdWorld) => {
   assert.strictEqual(bench(world).lockExists(), false)
 })
+
+// ── gate pages ──
+
+Given(
+  "the file {string} in {string} reads:",
+  async (world: GtdWorld, path: string, ref: string, content: string) => {
+    const b = bench(world)
+    b.files.set(join(await b.pathOf(ref), path), `${content}\n`)
+  },
+)
+
+const gateOf = async (b: WorkspaceBench, ref: string): Promise<string> => {
+  const path = await b.pathOf(ref)
+  const found = (await b.projects()).flatMap((p) => p.worktrees).find((w) => w.path === path)
+  assert.ok(found !== undefined, `the Projects view does not list ${ref}`)
+  return found.gate
+}
+
+Then("the Projects view links these gate pages:", async (world: GtdWorld, table: DataTable) => {
+  const rows = (await bench(world).projects()).flatMap((project) =>
+    project.worktrees.map((w) => ({
+      project: project.name,
+      worktree: w.branch ?? w.path,
+      gate: w.gate,
+    })),
+  )
+  assert.deepStrictEqual(rows, table.hashes())
+})
+
+Then("every listed gate page answers {int}", async (world: GtdWorld, status: number) => {
+  const b = bench(world)
+  for (const w of (await b.projects()).flatMap((p) => p.worktrees)) {
+    const response = await b.request(w.gate)
+    assert.strictEqual(response.status, status, w.gate)
+    assert.match(response.headers.get("content-type") ?? "", /^text\/html/, w.gate)
+  }
+})
+
+Then(
+  "the gate page of {string} shows the rest {string}",
+  async (world: GtdWorld, ref: string, label: string) => {
+    const b = bench(world)
+    const step = await b.gateClient(await gateOf(b, ref)).step.query()
+    assert.strictEqual(step.status === "ok" ? step.label : step.status, label)
+  },
+)
+
+When(
+  "{string} sends this request to gtd workspace:",
+  async (world: GtdWorld, login: string, raw: string) => {
+    const { path, ...init } = parseRawRequest(raw)
+    await bench(world).request(path, login, init)
+  },
+)
+
+Then("gtd workspace answers {int}", (world: GtdWorld, status: number) => {
+  assert.strictEqual(bench(world).lastStatus, status)
+})
+
+const savedAt = new WeakMap<GtdWorld, number>()
+
+When(
+  "I save the note {string} through the gate page of {string}",
+  async (world: GtdWorld, text: string, ref: string) => {
+    const b = bench(world)
+    const client = b.gateClient(await gateOf(b, ref))
+    const step = await client.step.query()
+    assert.ok(step.status === "ok" && step.file !== undefined, `no steering file: ${step.status}`)
+    const read = await client.readSteeringFile.query({ filePath: step.file })
+    savedAt.set(world, b.nextRuns.length)
+    await client.done.mutate({
+      note: {
+        filePath: step.file,
+        expectedHeadSha: read.headSha,
+        expectedContentHash: read.contentHash,
+        anchor: { kind: "paragraph", line: 0 },
+        text,
+      },
+    })
+  },
+)
+
+Then(
+  "the file {string} in {string} contains {string}",
+  async (world: GtdWorld, path: string, ref: string, text: string) => {
+    const b = bench(world)
+    const content = b.files.get(join(await b.pathOf(ref), path)) ?? ""
+    assert.ok(content.includes(text), content)
+  },
+)
+
+Then(
+  "gtd next has run in {string} since the note was saved",
+  async (world: GtdWorld, ref: string) => {
+    const b = bench(world)
+    const path = await b.pathOf(ref)
+    const since = b.nextRuns.slice(savedAt.get(world) ?? 0)
+    assert.ok(since.includes(path), `gtd next ran in: ${since.join(", ") || "nothing"}`)
+  },
+)

@@ -8,8 +8,9 @@ import type { AppRouter } from "../ui/index.js"
  */
 export const trpc = createTRPCReact<AppRouter>()
 
-/** Relative to the served origin, so it works regardless of host/port. */
-export const TRPC_URL = "/trpc"
+/** Where the server said the page's API is: `gtd ui` serves it at `/trpc`, a workspace gate page under its own path. */
+export const trpcUrl = (doc: Document): string =>
+  doc.querySelector<HTMLMetaElement>('meta[name="gtd-trpc"]')?.content ?? "/trpc"
 
 /** `ui/Write.ts#WriteResult`'s refusal half, read back off a `writeNote` mutation's error — mirrors `ui/Router.ts#WriteNoteRefusal`'s two fields exactly, kept as a plain type here (never importing `ui/Router.ts`) so this stays a thin client-side shape. `reason` mirrors `ui/Write.ts#WriteRefusalReason` verbatim, including the one reachable-but-not-among-T8's-four value (`note-collision`) — see that type's own doc comment for why it's distinct from `anchor-unresolved`. */
 export interface WriteRefusalInfo {

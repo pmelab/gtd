@@ -2,21 +2,24 @@ import { dirname } from "node:path"
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 import { Effect, type FileSystem } from "effect"
 import {
+  currentRest,
   exposeHandler,
+  gateHandler,
   UiError,
   type ExposeOptions,
   type UiHandler,
-  type UiHost,
+  UiHost,
   type UiListener,
   type UiOut,
   type UiShell,
 } from "../ui/index.js"
 import { findWorkspaceModule, loadWorkspace } from "./Config.js"
+import { gateOf } from "./Gate.js"
 import { acquireLock, stateDirectory } from "./Lock.js"
 import { projectsPage } from "./Page.js"
 import { SupervisorHost } from "./Ports.js"
 import { workspaceRouter } from "./Router.js"
-import { scan, type ProjectView } from "./Scan.js"
+import { recheck, scan, type ProjectView } from "./Scan.js"
 
 export interface WorkspaceCommand {
   readonly flags: ExposeOptions & { readonly config?: string }
@@ -46,6 +49,7 @@ export const runWorkspaceCommand = (
 > =>
   Effect.gen(function* () {
     const host = yield* SupervisorHost
+    const uiHost = yield* UiHost
     const file = yield* Effect.try({
       try: () => findWorkspaceModule(command.cwd, command.flags.config),
       catch: asUiError,
@@ -68,7 +72,21 @@ export const runWorkspaceCommand = (
       const projects = (): Promise<readonly ProjectView[]> => scan(deps)
       yield* Effect.tryPromise({ try: projects, catch: asUiError })
 
-      const handler: UiHandler = async (request) => {
+      const gatePage: UiHandler = async (request, afterResponse, peer) => {
+        const gate = await gateOf(new URL(request.url).pathname, deps.worktrees)
+        if (gate === undefined) return new Response("not found\n", { status: 404 })
+        const worktree = gate.worktree.path
+        return gateHandler({
+          root: worktree,
+          host: uiHost,
+          endpoint: `${gate.base}${TRPC}`,
+          ...currentRest(worktree, uiHost),
+          // The status a person just changed must not wait for the next scan.
+          onEdit: () => void recheck(deps, worktree),
+        })(request, afterResponse, peer)
+      }
+
+      const handler: UiHandler = async (request, afterResponse, peer) => {
         const path = new URL(request.url).pathname
         if (path === TRPC || path.startsWith(`${TRPC}/`)) {
           return fetchRequestHandler({
@@ -78,7 +96,7 @@ export const runWorkspaceCommand = (
             createContext: () => ({ projects }),
           })
         }
-        if (path !== "/") return new Response("not found\n", { status: 404 })
+        if (path !== "/") return gatePage(request, afterResponse, peer)
         return new Response(projectsPage(await projects()), {
           headers: { "content-type": "text/html; charset=utf-8" },
         })

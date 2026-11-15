@@ -16,7 +16,7 @@ const STATUS_TEXT: Readonly<Record<WorktreeView["status"], string>> = {
 const worktreeRow = (w: WorktreeView): string => {
   const name = w.branch ?? w.path.split("/").at(-1) ?? w.path
   const detail = [w.label, w.message].filter((s) => s !== undefined && s !== "").join(" — ")
-  return `<li class="${w.status}"><span class="status">${STATUS_TEXT[w.status]}</span> <b>${escape(name)}</b> <span class="label">${escape(detail)}</span></li>`
+  return `<li class="${w.status}"><span class="status">${STATUS_TEXT[w.status]}</span> <b><a href="${escape(w.gate)}">${escape(name)}</a></b> <span class="label">${escape(detail)}</span></li>`
 }
 
 const projectSection = (p: ProjectView): string =>
@@ -29,7 +29,7 @@ const projectSection = (p: ProjectView): string =>
 // The palette is gtd ui's (src/web/styles.css): Radix dark steps.
 const STYLE = `body{background:#111111;color:#eeeeee;font:16px/1.5 system-ui,sans-serif;margin:0 auto;max-width:48rem;padding:1rem}
 h1{font-size:1.25rem}h2{font-size:1rem;border-bottom:1px solid #3a3a3a;padding-bottom:.25rem}
-ul{list-style:none;padding:0}li{background:#222222;border-radius:.5rem;margin:.25rem 0;padding:.5rem .75rem}
+a{color:inherit}ul{list-style:none;padding:0}li{background:#222222;border-radius:.5rem;margin:.25rem 0;padding:.5rem .75rem}
 .status{font-size:.8rem;text-transform:uppercase}.label,.idle .status,.working .status{color:#b4b4b4}
 .needsYou .status{color:#ffca16}.error .status,.failure{color:#ff9592}`
 
