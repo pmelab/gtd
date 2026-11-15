@@ -13,6 +13,7 @@ import {
   type UiOut,
   type UiShell,
 } from "../ui/index.js"
+import { actionRuns } from "./Actions.js"
 import { findWorkspaceModule, loadWorkspace } from "./Config.js"
 import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf } from "./Gate.js"
@@ -23,6 +24,7 @@ import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
 import { liveSnapshot } from "./Snapshot.js"
+import { worktreeStatus } from "./Status.js"
 
 export interface WorkspaceCommand {
   readonly flags: ExposeOptions & { readonly config?: string }
@@ -78,16 +80,23 @@ export const runWorkspaceCommand = (
         catch: asUiError,
       })
       const worktrees = settings.adapters?.worktrees ?? host.defaultWorktrees(root)
+      const terminal = settings.adapters?.terminal ?? host.defaultTerminal()
+      const driverRuns = drivers(terminal, settings, driverPanes(directory))
+      const actions = actionRuns({
+        worktrees,
+        actions: settings.adapters?.actions ?? host.defaultActions(),
+        terminal,
+        drivers: driverRuns,
+        status: async (worktree) =>
+          worktreeStatus(await host.next(worktree), await driverRuns.state(worktree)),
+      })
       const snapshot = liveSnapshot({
         worktrees,
         next: host.next,
         settings,
-        drivers: drivers(
-          settings.adapters?.terminal ?? host.defaultTerminal(),
-          settings,
-          driverPanes(directory),
-        ),
+        drivers: driverRuns,
         services: settings.adapters?.services ?? host.defaultServices(),
+        lastAction: actions.last,
         after: host.after,
       })
       closeSnapshot = snapshot.close
@@ -131,6 +140,7 @@ export const runWorkspaceCommand = (
             createContext: () => ({
               projects: snapshot.projects,
               banners: snapshot.banners,
+              actions,
               feeds,
             }),
           })
@@ -153,7 +163,11 @@ export const runWorkspaceCommand = (
       out.write(`${url}\n`)
       out.flush()
       feeds.start()
-      yield* Effect.never.pipe(Effect.ensuring(Effect.sync(feeds.stop)), Effect.ensuring(close))
+      yield* Effect.never.pipe(
+        Effect.ensuring(Effect.sync(feeds.stop)),
+        Effect.ensuring(Effect.sync(() => actions.stop())),
+        Effect.ensuring(close),
+      )
     }).pipe(
       Effect.ensuring(
         Effect.sync(() => {

@@ -6,6 +6,7 @@ import {
   type Worktree,
 } from "../workspace/index.js"
 import type { SpawnOutcome } from "../ui/index.js"
+import type { ActionRun } from "./Actions.js"
 import { gatePath } from "./Gate.js"
 import { asFailure, byPath, type ProjectView, type ScanDeps } from "./Scan.js"
 import { listServices, type ServicesView } from "./Services.js"
@@ -22,6 +23,8 @@ export interface SnapshotDeps extends ScanDeps {
   readonly after: (ms: number, run: () => void) => () => void
   /** Listed at `pollEvery`, never per request: the pitchfork default costs a process per worktree. */
   readonly services?: ServicesAdapter
+  /** The last action gtd ran in the worktree while this supervisor runs. */
+  readonly lastAction?: (path: string) => ActionRun | undefined
 }
 
 /** The worktree statuses the supervisor keeps, and what keeps them current. */
@@ -97,6 +100,10 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
   const limited = limiter(NEXT_CONCURRENCY)
   let closed = false
   const streams = new Set<AsyncIterator<unknown>>()
+  const lastAction = (path: string): { action?: ActionRun } => {
+    const action = deps.lastAction?.(path)
+    return action === undefined ? {} : { action }
+  }
   let servicesOf = new Map<string, ServicesView>()
   let listing: Promise<void> | undefined
 
@@ -303,6 +310,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
               gate: gatePath(id, w),
               ...statusOf(project.seen.get(w.path)!),
               ...servicesOf.get(w.path),
+              ...lastAction(w.path),
               ...(unavailable !== undefined ? { unavailable } : {}),
             })),
           }

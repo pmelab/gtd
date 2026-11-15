@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process"
 import { Context, Layer } from "effect"
 import { liveRunInWorktree, type SpawnOutcome } from "../ui/index.js"
-import { pitchfork, rex, worktrunk } from "../workspace-adapters/index.js"
+import { mise, pitchfork, rex, worktrunk } from "../workspace-adapters/index.js"
 import type {
+  ActionsAdapter,
   ExecResult,
   ServicesAdapter,
   TerminalAdapter,
@@ -22,6 +23,8 @@ interface SupervisorHostOps {
   readonly defaultTerminal: () => TerminalAdapter
   /** The services adapter of a workspace that names none. */
   readonly defaultServices: () => ServicesAdapter
+  /** The actions adapter of a workspace that names none. */
+  readonly defaultActions: () => ActionsAdapter
   readonly isPidAlive: (pid: number) => boolean
   /** Runs `run` once after `ms`; the result cancels it. The twin's clock moves only when a test moves it. */
   readonly after: (ms: number, run: () => void) => () => void
@@ -45,6 +48,7 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
     defaultWorktrees: (root) => worktrunk({ roots: [`${root}/*`] }),
     defaultTerminal: () => rex(),
     defaultServices: () => pitchfork(),
+    defaultActions: () => mise(),
     isPidAlive,
     after: (ms, run) => {
       const timer = setTimeout(run, ms)
