@@ -14,6 +14,7 @@ import {
   type UiShell,
 } from "../ui/index.js"
 import { actionRuns } from "./Actions.js"
+import { auditLog } from "./Audit.js"
 import { findWorkspaceModule, loadWorkspace } from "./Config.js"
 import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf } from "./Gate.js"
@@ -25,6 +26,7 @@ import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
 import { recheck, type ProjectView } from "./Scan.js"
 import { liveSnapshot } from "./Snapshot.js"
+import { worktreeChanges } from "./WorktreeChanges.js"
 
 export interface WorkspaceCommand {
   readonly flags: ExposeOptions & { readonly config?: string }
@@ -82,6 +84,7 @@ export const runWorkspaceCommand = (
       })
       const worktrees = settings.adapters?.worktrees ?? host.defaultWorktrees(root)
       const terminal = settings.adapters?.terminal ?? host.defaultTerminal()
+      const services = settings.adapters?.services ?? host.defaultServices()
       const deps = {
         worktrees,
         next: host.next,
@@ -91,7 +94,7 @@ export const runWorkspaceCommand = (
       const snapshot = liveSnapshot({
         ...deps,
         after: host.after,
-        services: settings.adapters?.services ?? host.defaultServices(),
+        services,
       })
       closeSnapshot = snapshot.close
       const actions = actionRuns({
@@ -111,6 +114,14 @@ export const runWorkspaceCommand = (
           }),
         }))
       yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })
+      const changes = worktreeChanges({
+        ...deps,
+        terminal,
+        services,
+        panes: actions.panes,
+        refresh: snapshot.refresh,
+        audit: auditLog(directory, clock.now),
+      })
       const feeds = feedRunner({
         feeds: feedExports,
         root,
@@ -152,6 +163,8 @@ export const runWorkspaceCommand = (
               banners: snapshot.banners,
               actions,
               feeds,
+              worktreeChanges: changes,
+              identity: request.headers.get("tailscale-user-login") ?? peer ?? "unknown",
             }),
           })
         }

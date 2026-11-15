@@ -32,6 +32,8 @@ export interface WorktreesFixture {
   readonly commit: (branch: string) => Promise<void>
   /** The branch merged into the default branch: squashed into one new commit, or with a merge commit. */
   readonly merge: (branch: string, how: "squash" | "merge") => Promise<void>
+  /** An untracked file in the branch's worktree. */
+  readonly makeDirty: (branch: string) => Promise<void>
   readonly dispose: () => Promise<void>
 }
 
@@ -70,6 +72,37 @@ const integratedIs = async (
   const { integrated } = await worktreeOf(fixture, branch)
   if (integrated !== expected) {
     fail(`branch "${branch}": integrated is ${String(integrated)}, expected ${String(expected)}`)
+  }
+}
+
+const failsWith = async (promise: Promise<unknown>, op: string, what: string): Promise<void> => {
+  const failure = await promise.then(
+    () => fail(`${what} resolved`),
+    (error: unknown) => error,
+  )
+  if (!isAdapterFailure(failure)) {
+    fail(`${what} failed with ${String(failure)}, not { adapter, op, message, detail }`)
+  }
+  const { adapter, op: failed } = failure as { adapter: string; op: string }
+  if (adapter !== "worktrees" || failed !== op) {
+    fail(`${what} failed as { adapter: "${adapter}", op: "${failed}" }, not worktrees/${op}`)
+  }
+}
+
+const createIn = async (fixture: WorktreesFixture, branch: string): Promise<string> => {
+  const create = fixture.adapter.create ?? fail("the adapter has no create()")
+  return create(fixture.project, branch)
+}
+
+const removeIn = async (fixture: WorktreesFixture, path: string, force: boolean): Promise<void> => {
+  const remove = fixture.adapter.remove ?? fail("the adapter has no remove()")
+  await remove(fixture.project, path, { force })
+}
+
+const listsNo = async (fixture: WorktreesFixture, branch: string): Promise<void> => {
+  const worktrees = await fixture.adapter.list(fixture.project)
+  if (worktrees.some((w) => w.branch === branch)) {
+    fail(`list() still reports a worktree on "${branch}" after remove() resolved`)
   }
 }
 
@@ -223,6 +256,60 @@ export const worktreesContract = (harness: WorktreesHarness): readonly ContractC
         if (result.done !== true) fail("the waiting next() gave a hint instead of ending")
       },
     ),
+  },
+  {
+    name: "create() makes a clean worktree on a new branch, and list() reports it at the path it returned",
+    run: withFixture(harness, async (fixture) => {
+      const path = await createIn(fixture, "created")
+      const created = await worktreeOf(fixture, "created")
+      if (created.path !== path) fail(`list() reports ${created.path}, create() returned ${path}`)
+      if (created.main) fail("a created worktree is reported as main")
+      if (created.dirty === true) fail("a created worktree is reported as dirty")
+      await integratedIs(fixture, "created", false)
+    }),
+  },
+  {
+    name: "create() of a branch that exists fails with the adapter error shape",
+    run: withFixture(harness, async (fixture) => {
+      await fixture.addWorktree("taken")
+      await failsWith(createIn(fixture, "taken"), "create", "create() of an existing branch")
+    }),
+  },
+  {
+    name: "an untracked file makes a worktree dirty",
+    run: withFixture(harness, async (fixture) => {
+      await fixture.addWorktree("edited")
+      if ((await worktreeOf(fixture, "edited")).dirty !== false) {
+        fail("a clean worktree is not reported as dirty: false")
+      }
+      await fixture.makeDirty("edited")
+      if ((await worktreeOf(fixture, "edited")).dirty !== true) {
+        fail("a worktree with an untracked file is not reported as dirty")
+      }
+    }),
+  },
+  {
+    name: "remove() of an integrated worktree removes it before it resolves",
+    run: withFixture(harness, async (fixture) => {
+      await fixture.addWorktree("finished")
+      await fixture.commit("finished")
+      await fixture.merge("finished", "squash")
+      await removeIn(fixture, (await worktreeOf(fixture, "finished")).path, false)
+      await listsNo(fixture, "finished")
+    }),
+  },
+  {
+    name: "remove() without force fails on a dirty worktree; with force it removes it",
+    run: withFixture(harness, async (fixture) => {
+      await fixture.addWorktree("messy")
+      await fixture.commit("messy")
+      await fixture.makeDirty("messy")
+      const { path } = await worktreeOf(fixture, "messy")
+      await failsWith(removeIn(fixture, path, false), "remove", "remove() of a dirty worktree")
+      await worktreeOf(fixture, "messy")
+      await removeIn(fixture, path, true)
+      await listsNo(fixture, "messy")
+    }),
   },
   {
     name: "list() of an unknown project fails with the adapter error shape",

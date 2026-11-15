@@ -16,6 +16,13 @@ const env = {
   GIT_COMMITTER_EMAIL: "t@example.com",
 }
 
+// `wt` must not read the person's config: its hooks would run on `create`.
+const wtConfig = mkdtempSync(join(tmpdir(), "gtd-worktrunk-config-"))
+process.env["WORKTRUNK_CONFIG_PATH"] = join(wtConfig, "config.toml")
+process.env["WORKTRUNK_APPROVALS_PATH"] = join(wtConfig, "approvals.toml")
+process.env["GIT_CONFIG_GLOBAL"] = "/dev/null"
+process.env["GIT_CONFIG_NOSYSTEM"] = "1"
+
 const harness: WorktreesHarness = {
   setup: async () => {
     const workspace = realpathSync(mkdtempSync(join(tmpdir(), "gtd-worktrunk-")))
@@ -46,6 +53,7 @@ const harness: WorktreesHarness = {
           git(main, "merge", "-q", "--no-ff", "-m", `merge ${branch}`, branch)
         }
       },
+      makeDirty: async (branch) => writeFileSync(join(worktreeOf(branch), "untracked.txt"), "x"),
       dispose: async () => rmSync(workspace, { recursive: true, force: true }),
     }
   },
