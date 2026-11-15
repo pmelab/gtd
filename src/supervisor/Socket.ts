@@ -1,4 +1,14 @@
-import { chmodSync, realpathSync, rmSync } from "node:fs"
+import { randomBytes } from "node:crypto"
+import {
+  chmodSync,
+  mkdirSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { createConnection, createServer, type Socket } from "node:net"
 import { dirname, join, resolve } from "node:path"
 import { Effect } from "effect"
@@ -7,12 +17,19 @@ import { findWorkspaceModule } from "./Config.js"
 import { stateDirectory } from "./Lock.js"
 
 /** One request per connection: a JSON line in, a JSON line back. */
-export type ControlRequest = {
-  readonly command: "proceed" | "retry"
-  /** The worktree's path. */
-  readonly worktree: string
-  readonly commit: string
-}
+export type ControlRequest =
+  | {
+      readonly command: "proceed" | "retry"
+      /** The worktree's path. */
+      readonly worktree: string
+      readonly commit: string
+    }
+  | {
+      readonly command: "note"
+      readonly worktree: string
+      /** `null` takes the note off. */
+      readonly note: { readonly message: string; readonly error: boolean } | null
+    }
 
 export type ControlReply = { readonly ok: true } | { readonly ok: false; readonly message: string }
 
@@ -31,10 +48,57 @@ const parseRequest = (line: string): ControlRequest | undefined => {
     return undefined
   }
   if (!isRecord(value)) return undefined
-  const { command, worktree, commit } = value
+  const { command, worktree, commit, note } = value
+  if (typeof worktree !== "string") return undefined
+  if (command === "note") {
+    if (note === null) return { command, worktree, note }
+    if (!isRecord(note)) return undefined
+    const { message, error } = note
+    if (typeof message !== "string" || typeof error !== "boolean") return undefined
+    return { command, worktree, note: { message, error } }
+  }
   if (command !== "proceed" && command !== "retry") return undefined
-  if (typeof worktree !== "string" || typeof commit !== "string") return undefined
+  if (typeof commit !== "string") return undefined
   return { command, worktree, commit }
+}
+
+const spoolOf = (stateDirectory: string): string => join(stateDirectory, "spool")
+
+/** Keeps a request for the next supervisor; the names sort in the order they were written. */
+const spool = (stateDirectory: string, request: ControlRequest): void => {
+  const directory = spoolOf(stateDirectory)
+  mkdirSync(directory, { recursive: true, mode: 0o700 })
+  const name = `${Date.now().toString().padStart(15, "0")}-${process.hrtime.bigint()}-${randomBytes(4).toString("hex")}.json`
+  // Renamed into place, so a starting supervisor never reads half a request.
+  const file = join(directory, name)
+  writeFileSync(`${file}.tmp`, `${JSON.stringify(request)}\n`, { mode: 0o600 })
+  renameSync(`${file}.tmp`, file)
+}
+
+/** Hands each spooled request to `handle`, oldest first, and deletes it; the refusals. */
+export const drainSpool = async (
+  stateDirectory: string,
+  handle: (request: ControlRequest) => Promise<ControlReply>,
+): Promise<readonly string[]> => {
+  const directory = spoolOf(stateDirectory)
+  let names: string[]
+  try {
+    names = readdirSync(directory).filter((name) => name.endsWith(".json"))
+  } catch {
+    return []
+  }
+  const refusals: string[] = []
+  for (const name of names.sort()) {
+    const file = join(directory, name)
+    const request = parseRequest(readFileSync(file, "utf8").trim())
+    const reply: ControlReply =
+      request === undefined
+        ? { ok: false, message: "the supervisor does not know this request" }
+        : await handle(request)
+    if (!reply.ok) refusals.push(`${name}: ${reply.message}`)
+    rmSync(file, { force: true })
+  }
+  return refusals
 }
 
 /** Reads up to the first newline; `undefined` when the peer ends first or sends too much. */
@@ -157,13 +221,17 @@ const resolvePath = (cwd: string, path: string): string => {
   }
 }
 
-/** `gtd workspace proceed|retry`: hands the request to the running supervisor. */
+/**
+ * `gtd workspace proceed|retry|note`: hands the request to the running
+ * supervisor. With none running, a note waits in the spool.
+ */
 export const runControlCommand = (command: ControlCommand): Effect.Effect<void, UiError> =>
   Effect.tryPromise({
     try: async () => {
       const prefix = `gtd workspace ${command.request.command}`
       const file = findWorkspaceModule(command.cwd, command.config)
-      const path = socketPath(stateDirectory(command.stateHome, dirname(file)))
+      const directory = stateDirectory(command.stateHome, dirname(file))
+      const path = socketPath(directory)
       const request = {
         ...command.request,
         worktree: resolvePath(command.cwd, command.request.worktree),
@@ -171,6 +239,7 @@ export const runControlCommand = (command: ControlCommand): Effect.Effect<void, 
       const reply = await send(path, request).catch((error: unknown) => {
         throw new UiError(`${prefix}: ${error instanceof Error ? error.message : String(error)}`)
       })
+      if (reply === undefined && request.command === "note") return spool(directory, request)
       if (reply === undefined) {
         throw new UiError(`${prefix}: supervisor not running for ${dirname(file)}`)
       }

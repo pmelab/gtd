@@ -4,11 +4,14 @@ import { join } from "node:path"
 /**
  * `state.json` in the state directory. Everything in it can be rebuilt: a
  * deleted or unreadable store loses only what a person decided, such as
- * dismissals.
+ * dismissals, and the notes.
  */
 export interface Store {
   readonly dismissed: () => readonly string[]
   readonly saveDismissed: (ids: Iterable<string>) => void
+  /** Notes by worktree path, unchecked. */
+  readonly notes: () => Readonly<Record<string, unknown>>
+  readonly saveNotes: (notes: Readonly<Record<string, unknown>>) => void
 }
 
 type StoreData = Record<string, unknown>
@@ -36,5 +39,12 @@ export const openStore = (directory: string): Store => {
       return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []
     },
     saveDismissed: (ids) => write({ ...read(), dismissed: [...ids].sort() }),
+    notes: () => {
+      const notes = read()["notes"]
+      return typeof notes === "object" && notes !== null && !Array.isArray(notes)
+        ? (notes as Record<string, unknown>)
+        : {}
+    },
+    saveNotes: (notes) => write({ ...read(), notes }),
   }
 }

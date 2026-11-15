@@ -26,7 +26,14 @@ import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
 import { liveSnapshot, type Banner } from "./Snapshot.js"
-import { serveSocket, socketPath } from "./Socket.js"
+import { notes } from "./Notes.js"
+import {
+  drainSpool,
+  serveSocket,
+  socketPath,
+  type ControlReply,
+  type ControlRequest,
+} from "./Socket.js"
 import { worktreeChanges } from "./WorktreeChanges.js"
 import { worktreeStatus } from "./Status.js"
 
@@ -93,13 +100,24 @@ export const runWorkspaceCommand = (
       const terminal = settings.adapters?.terminal ?? host.defaultTerminal()
       const services = settings.adapters?.services ?? host.defaultServices()
       const driverRuns = drivers(terminal, config, driverPanes(directory))
+      const store = openStore(directory)
+      const audit = auditLog(directory)
+      const noted = notes({
+        store,
+        projects: () => snapshot.projects(),
+        audit,
+        now: clock.now,
+      })
       const actions = actionRuns({
         worktrees,
         actions: settings.adapters?.actions ?? host.defaultActions(),
         terminal,
         drivers: driverRuns,
         status: async (worktree) =>
-          worktreeStatus(await host.next(worktree), await driverRuns.state(worktree)),
+          noted.withNote(
+            worktree,
+            worktreeStatus(await host.next(worktree), await driverRuns.state(worktree)),
+          ),
       })
       const snapshot = liveSnapshot({
         worktrees,
@@ -113,7 +131,6 @@ export const runWorkspaceCommand = (
       })
       closeSnapshot = snapshot.close
       yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })
-      const audit = auditLog(directory)
       const control = controls({
         worktrees,
         drivers: driverRuns,
@@ -124,20 +141,31 @@ export const runWorkspaceCommand = (
         audit,
         now: clock.now,
       })
-      const projects = () => control.withRefusals(snapshot.projects())
+      const projects = () => noted.withNotes(control.withRefusals(snapshot.projects()))
+      const handleControl =
+        (endpoint: string) =>
+        async (request: ControlRequest): Promise<ControlReply> => {
+          if (request.command === "note") {
+            const refusal = noted.note(request.worktree, request.note, endpoint)
+            return refusal === undefined ? { ok: true } : { ok: false, message: refusal }
+          }
+          const outcome = await control.press({
+            action: request.command,
+            worktree: request.worktree,
+            commit: request.commit,
+            endpoint,
+          })
+          return outcome.outcome === "accepted"
+            ? { ok: true }
+            : { ok: false, message: outcome.message }
+        }
+      // Before the socket opens: a spooled note is older than any sent to it.
+      const spoolRefusals = yield* Effect.tryPromise({
+        try: () => drainSpool(directory, handleControl("spool")),
+        catch: asUiError,
+      })
       const socket = yield* Effect.tryPromise({
-        try: () =>
-          serveSocket(socketPath(directory), async (request) => {
-            const outcome = await control.press({
-              action: request.command,
-              worktree: request.worktree,
-              commit: request.commit,
-              endpoint: "cli",
-            })
-            return outcome.outcome === "accepted"
-              ? { ok: true }
-              : { ok: false, message: outcome.message }
-          }),
+        try: () => serveSocket(socketPath(directory), handleControl("cli")),
         catch: asUiError,
       })
       closeSocket = socket.close
@@ -149,6 +177,7 @@ export const runWorkspaceCommand = (
         next: host.next,
         panes: actions.panes,
         refresh: snapshot.refresh,
+        errorNote: noted.errorNote,
         audit,
         now: clock.now,
       })
@@ -160,7 +189,7 @@ export const runWorkspaceCommand = (
         fetch: tools.fetch,
         now: clock.now,
         every: clock.every,
-        store: openStore(directory),
+        store,
         log: (line) => {
           out.write(line)
           out.flush()
@@ -262,6 +291,7 @@ export const runWorkspaceCommand = (
       })
       lock.serving(url)
       out.write(`${url}\n`)
+      for (const refusal of spoolRefusals) out.write(`spool ${refusal}\n`)
       out.flush()
       feeds.start()
       yield* Effect.never.pipe(

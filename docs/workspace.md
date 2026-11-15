@@ -186,12 +186,12 @@ The supervisor runs `gtd next --json` in each worktree, so a process that was
 handed over runs on its own pin. It also reads the status that the worktree's
 driver reports in its terminal pane.
 
-| Status    | When                                                                                        |
-| --------- | ------------------------------------------------------------------------------------------- |
-| needs you | The process waits for a person or a judge, and its driver is waiting or not running.        |
-| working   | The driver reports that it works, or it runs while the process waits for an agent or check. |
-| error     | The driver reports an error, the driver crashed, the process stalled, or `gtd next` failed. |
-| idle      | The process has ended, or the worktree has none.                                            |
+| Status    | When                                                                                                                          |
+| --------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| needs you | The process waits for a person or a judge, and its driver is waiting or not running.                                          |
+| working   | The driver reports that it works, or it runs while the process waits for an agent or check.                                   |
+| error     | The driver reports an error, the driver crashed, the process stalled, `gtd next` failed, or an error note is on the worktree. |
+| idle      | The process has ended, or the worktree has none.                                                                              |
 
 The supervisor starts the driver in its own terminal pane. The driver outlives
 the supervisor. When the supervisor starts, it starts the driver of each
@@ -253,11 +253,30 @@ gone. Remove keeps a worktree, and says why, when:
 - it is the project's main checkout,
 - its process has not ended (`gtd next` does not report it as idle),
 - its driver runs,
-- a pane that gtd opened in it runs a command.
+- a pane that gtd opened in it runs a command,
+- it has an error note.
 
 Remove asks for confirmation when the tree has uncommitted changes (untracked
 files count) or when the branch is not integrated. A confirmed Remove throws
 away those changes and commits.
+
+## Notes
+
+A note shows a shipping, merge or deploy outcome on a worktree. gtd does not
+ship, merge or deploy: your scripts do, and report the outcome with
+`gtd workspace note <worktree> <message>`. A new note takes the place of the
+last one. With `--error`, the worktree status becomes an error of kind `note`,
+with the message, and Remove keeps the worktree. A worktree that is in error
+already keeps that error. `gtd workspace note <worktree> --clear` takes the note
+off.
+
+`<worktree>` is the worktree's path, as for `gtd workspace proceed`. A path that
+is no worktree exits 1. When no supervisor runs, the command exits 0 and the
+note waits in `spool/` in the supervisor's state directory. The supervisor
+applies the spooled notes in order when it starts, before it opens its socket,
+and prints a line for each one whose path is no worktree. The notes stay when
+the supervisor restarts. The query `projects` gives a worktree's note as
+`note: { message, error }`.
 
 ## Gate pages
 
@@ -396,10 +415,11 @@ its directory 0700. These file permissions are the authentication.
 
 The supervisor keeps its state in `~/.local/state/gtd/workspace/` (or under
 `$XDG_STATE_HOME`). Nothing goes into your repositories. Deleting that state
-loses only the dismissals; the next polls file every waiting item again.
+loses only the dismissals and the notes; the next polls file every waiting item
+again.
 
-Every state change (Proceed, Retry, Dismiss, New worktree, Remove) adds one JSON
-line to `audit.log` in that directory: `time`, `identity` (the tailnet login,
-`-` when unknown), `endpoint`, `project`, `worktree`, `action` and `outcome`. It
-never holds the values of fields. When the log reaches 1 MiB, it moves to
-`audit.log.1`, replacing the older one.
+Every state change (Proceed, Retry, Dismiss, New worktree, Remove, Note) adds
+one JSON line to `audit.log` in that directory: `time`, `identity` (the tailnet
+login, `-` when unknown), `endpoint`, `project`, `worktree`, `action` and
+`outcome`. It never holds the values of fields. When the log reaches 1 MiB, it
+moves to `audit.log.1`, replacing the older one.
