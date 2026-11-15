@@ -2,7 +2,20 @@ import { Given, Then, When } from "quickpickle"
 import { execFileSync } from "node:child_process"
 import { join } from "node:path"
 import assert from "node:assert"
-import type { GtdWorld } from "../world.js"
+import type { GtdWorld, UiExposure } from "../world.js"
+
+// ── tailnet identity and same-origin POST checks (ADR 0014) ──
+
+const sendsRequest = (exposure: UiExposure) => (world: GtdWorld, login: string, raw: string) =>
+  world.requestGtdUi(exposure, login, raw)
+
+When("{string} sends this request to gtd ui on a direct bind:", sendsRequest("direct"))
+When("{string} sends this request to gtd ui over tailscale serve:", sendsRequest("serve"))
+When("{string} sends this request to gtd ui behind --http:", sendsRequest("http"))
+
+Then("gtd ui answers {int}", (world: GtdWorld, status: number) => {
+  assert.strictEqual(world.lastUiStatus, status)
+})
 
 // ── gtd ui's tailscale-serve front door (package 01, `@live` only — see world.ts#spawnGtdUiServeAndHandOff and hooks.ts's fake `tailscale` CLI) ──
 

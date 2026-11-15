@@ -11,13 +11,14 @@ import { Context, Deferred, Effect, FileSystem, Layer } from "effect"
 import generatedClientHtml from "./client.generated.html"
 import { readStep, type BeatDeps, type Step, type StepRead } from "./Beat.js"
 import { pickBindHost } from "./Bind.js"
+import { guard, type Exposure } from "./Guard.js"
 import { UiError, UiHost, UiShell, UiUsageError, type UiHandler } from "./Ports.js"
 import { resolveDiff, type DiffDeps } from "./Diff.js"
 import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
 import { appRouter, type RouterContext } from "./Router.js"
 import { inlineScript, inlineStyles } from "./scriptTag.mjs"
 import { parseServeStatus, publishServe, type ServeMapping, unpublishServe } from "./Serve.js"
-import { probeTailscaleStatus, type TailscaleStatus } from "./Tailscale.js"
+import { probeNodeOwner, probeTailscaleStatus, type TailscaleStatus, whois } from "./Tailscale.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert, type CertPair } from "./Tls.js"
 import { actorVia, writeNote, writeValue, type WriteDeps } from "./Write.js"
 
@@ -29,6 +30,7 @@ export interface UiConfig {
   readonly host?: string | undefined
   readonly cert?: string | undefined
   readonly key?: string | undefined
+  readonly users?: readonly string[] | undefined
 }
 
 /** Where `gtd ui` prints its URL; `flush` hands it to stdout before the server blocks. */
@@ -202,7 +204,8 @@ const viaNode =
       res.end()
       return
     }
-    void handler(request, (callback) => res.once("finish", callback)).then(
+    const peer = req.socket.remoteAddress?.replace(/^::ffff:/, "")
+    void handler(request, (callback) => res.once("finish", callback), peer).then(
       async (response) => {
         res.writeHead(response.status, Object.fromEntries(response.headers))
         res.end(Buffer.from(await response.arrayBuffer()))
@@ -505,7 +508,7 @@ const attemptServe = (
   servePort: number,
   worktree: string,
   uiListener: Context.Service.Shape<typeof UiListener>,
-  handler: UiHandler,
+  handlerFor: (exposure: Exposure) => UiHandler,
 ): Effect.Effect<ServeAttempt, never, UiShell | UiHost> =>
   Effect.gen(function* () {
     const tailscaleStatus = yield* probeTailscaleStatus()
@@ -529,10 +532,12 @@ const attemptServe = (
       } as const
     }
 
-    const boundAttempt = yield* uiListener.listen({ host: "127.0.0.1", port: 0, handler }).pipe(
-      Effect.map((bound) => ({ ok: true as const, bound })),
-      Effect.catch((e) => Effect.succeed({ ok: false as const, reason: e.message })),
-    )
+    const boundAttempt = yield* uiListener
+      .listen({ host: "127.0.0.1", port: 0, handler: handlerFor("serve") })
+      .pipe(
+        Effect.map((bound) => ({ ok: true as const, bound })),
+        Effect.catch((e) => Effect.succeed({ ok: false as const, reason: e.message })),
+      )
     if (!boundAttempt.ok) {
       return {
         ok: false,
@@ -600,7 +605,7 @@ const httpBind = (
   explicitHost: string | undefined,
   explicitPort: number | undefined,
   uiListener: Context.Service.Shape<typeof UiListener>,
-  handler: UiHandler,
+  handlerFor: (exposure: Exposure) => UiHandler,
 ): Effect.Effect<{ readonly bound: BoundServer; readonly url: string }, UiError> =>
   Effect.gen(function* () {
     const bindHost = explicitHost ?? "127.0.0.1"
@@ -611,7 +616,11 @@ const httpBind = (
         ]),
       )
     }
-    const bound = yield* uiListener.listen({ host: bindHost, port: explicitPort ?? 0, handler })
+    const bound = yield* uiListener.listen({
+      host: bindHost,
+      port: explicitPort ?? 0,
+      handler: handlerFor("proxy"),
+    })
     return {
       bound,
       url: `http://${isIP(bindHost) === 6 ? `[${bindHost}]` : bindHost}:${bound.port}/`,
@@ -630,7 +639,7 @@ const resolveListener = (args: {
   readonly explicitHost: string | undefined
   readonly worktree: string
   readonly uiListener: Context.Service.Shape<typeof UiListener>
-  readonly handler: UiHandler
+  readonly handlerFor: (exposure: Exposure) => UiHandler
   readonly out: UiOut
 }): Effect.Effect<
   {
@@ -642,7 +651,8 @@ const resolveListener = (args: {
   UiShell | UiHost | FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
-    const { options, config, explicitPort, explicitHost, worktree, uiListener, handler, out } = args
+    const { options, config, explicitPort, explicitHost, worktree, uiListener, handlerFor, out } =
+      args
 
     const directBind = (): Effect.Effect<
       { readonly bound: BoundServer; readonly url: string },
@@ -655,13 +665,13 @@ const resolveListener = (args: {
           tls: certPair,
           host: bindHost,
           port: explicitPort ?? 0,
-          handler,
+          handler: handlerFor("direct"),
         })
         return { bound, url: `https://${displayHost}:${bound.port}/` }
       })
 
     if (options.http === true) {
-      const bound = yield* httpBind(options, explicitHost, explicitPort, uiListener, handler)
+      const bound = yield* httpBind(options, explicitHost, explicitPort, uiListener, handlerFor)
       return { bound: bound.bound, url: bound.url, teardown: Effect.void }
     }
 
@@ -674,7 +684,7 @@ const resolveListener = (args: {
     const candidates = explicitPort !== undefined ? [explicitPort] : SERVE_PORT_CANDIDATES
     const tried: Array<{ readonly port: number; readonly reason: string }> = []
     for (const candidate of candidates) {
-      const attempt = yield* attemptServe(candidate, worktree, uiListener, handler)
+      const attempt = yield* attemptServe(candidate, worktree, uiListener, handlerFor)
       if (attempt.ok) {
         return {
           bound: attempt.bound,
@@ -820,6 +830,25 @@ export const runUiCommand = (
       })
     }
 
+    // Looked up on first use and kept once known, so a tailnet that comes up
+    // after `gtd ui` starts is still picked up.
+    const tailnet = <A>(effect: Effect.Effect<A, never, UiShell>): Promise<A> =>
+      Effect.runPromise(effect.pipe(Effect.provideService(UiShell, runner)))
+    let owner: string | undefined
+    const users = async (): Promise<readonly string[] | undefined> => {
+      if (config?.users !== undefined) return config.users
+      owner ??= await tailnet(probeNodeOwner())
+      return owner === undefined ? undefined : [owner]
+    }
+    const logins = new Map<string, string>()
+    const peerLogin = async (address: string): Promise<string | undefined> => {
+      const known = logins.get(address)
+      if (known !== undefined) return known
+      const login = await tailnet(whois(address))
+      if (login !== undefined) logins.set(address, login)
+      return login
+    }
+
     const { bound, url, teardown } = yield* resolveListener({
       options,
       config,
@@ -827,7 +856,7 @@ export const runUiCommand = (
       explicitHost,
       worktree: root,
       uiListener,
-      handler,
+      handlerFor: (exposure) => guard({ exposure, users, whois: peerLogin }, handler),
       out,
     })
 

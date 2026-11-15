@@ -67,16 +67,23 @@ function createPathShim(): string {
  * published target URL — `GTD_TEST_TAILSCALE_DIR/fail-publish`, when
  * present, makes the next `serve --bg` fail, for the "publishServe itself
  * fails" fallback scenario.
+ * Every peer is the node owner to `whois`.
  */
 const FAKE_TAILSCALE_SCRIPT = `#!/usr/bin/env bash
 set -euo pipefail
 STATE_DIR="\${GTD_TEST_TAILSCALE_DIR:?GTD_TEST_TAILSCALE_DIR not set}"
 mkdir -p "$STATE_DIR"
 HOSTNAME="test-node.tailnet.ts.net"
+OWNER="owner@example.com"
 FAIL_MARKER="$STATE_DIR/fail-publish"
 
 if [ "\${1:-}" = "status" ] && [ "\${2:-}" = "--json" ]; then
-  printf '{"BackendState":"Running","CertDomains":["%s"],"Self":{"DNSName":"%s."}}\\n' "$HOSTNAME" "$HOSTNAME"
+  printf '{"BackendState":"Running","CertDomains":["%s"],"Self":{"DNSName":"%s.","UserID":1},"User":{"1":{"LoginName":"%s"}}}\\n' "$HOSTNAME" "$HOSTNAME" "$OWNER"
+  exit 0
+fi
+
+if [ "\${1:-}" = "whois" ]; then
+  printf '{"UserProfile":{"LoginName":"%s"}}\\n' "$OWNER"
   exit 0
 fi
 
