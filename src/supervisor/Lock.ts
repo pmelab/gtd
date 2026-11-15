@@ -1,5 +1,5 @@
-import { createHash } from "node:crypto"
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { createHash, randomBytes } from "node:crypto"
+import { linkSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { UiError } from "../ui/index.js"
 
@@ -40,17 +40,46 @@ export const acquireLock = (
   const path = join(directory, "lock")
   const write = (holder: Holder, flag: "wx" | "w"): void =>
     writeFileSync(path, `${JSON.stringify(holder)}\n`, { flag, mode: 0o600 })
-  try {
-    write({ pid: process.pid }, "wx")
-  } catch (error) {
-    if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
-    const holder = readHolder(path)
-    if (holder !== undefined && isPidAlive(holder.pid)) {
-      throw new UiError(
-        `gtd workspace: a supervisor already runs for ${root} — pid ${holder.pid}, ${holder.url ?? "not serving yet"}`,
-      )
+  const refuse = (holder: Holder | undefined): never => {
+    throw new UiError(
+      `gtd workspace: a supervisor already runs for ${root} — pid ${holder?.pid ?? "unknown"}, ${holder?.url ?? "not serving yet"}`,
+    )
+  }
+  const claim = (): boolean => {
+    try {
+      write({ pid: process.pid }, "wx")
+      return true
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error
+      return false
     }
-    write({ pid: process.pid }, "w")
+  }
+  // A takeover moves the stale lock aside first: of two supervisors taking it over, one moves it.
+  const takeOver = (stale: Holder | undefined): void => {
+    const aside = `${path}.${process.pid}.${randomBytes(4).toString("hex")}`
+    try {
+      renameSync(path, aside)
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error
+    }
+    const moved = readHolder(aside)
+    if (moved !== undefined && moved.pid !== stale?.pid) {
+      // It was another supervisor's fresh lock: put it back.
+      try {
+        linkSync(aside, path)
+      } catch {
+        // A third supervisor claimed the lock meanwhile: it holds it now.
+      }
+      rmSync(aside, { force: true })
+      refuse(moved)
+    }
+    rmSync(aside, { force: true })
+    if (!claim()) refuse(readHolder(path))
+  }
+  if (!claim()) {
+    const holder = readHolder(path)
+    if (holder !== undefined && isPidAlive(holder.pid)) refuse(holder)
+    takeOver(holder)
   }
   return {
     serving: (url) => write({ pid: process.pid, url }, "w"),
