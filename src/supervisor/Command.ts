@@ -239,7 +239,7 @@ export const runWorkspaceCommand = (
       const control = controls({
         worktrees,
         drivers: driverRuns,
-        projects: snapshot.projects,
+        projects: () => noted.withNotes(snapshot.projects()),
         oneShot: host.oneShot,
         after: host.after,
         refreshDriver: snapshot.refreshDriver,

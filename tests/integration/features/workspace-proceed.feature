@@ -123,3 +123,13 @@ Feature: Proceed and Retry from the dashboard
     Then gtd refuses the press with "Retry is for a worktree in error; this one needs you"
     And the driver one-shots ran:
       | worktree | argv |
+
+  Scenario: Retry is for a worktree an error note puts in error
+    Given a driver that an earlier supervisor started runs in "portal/plan"
+    When I start gtd workspace
+    And I run "gtd workspace note portal.wt/plan 'deploy failed' --error" in the workspace
+    And I press Retry on "portal/plan"
+    Then gtd accepts the press
+    And the driver one-shots ran:
+      | worktree    | argv               |
+      | portal/plan | drive retry <HEAD> |
