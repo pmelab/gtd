@@ -16,6 +16,8 @@ export interface WorktreeView extends WorktreeStatus {
   readonly main: boolean
   /** The path of the worktree's gate page. */
   readonly gate: string
+  /** Why gtd or the driver refused the last Proceed or Retry at this HEAD. */
+  readonly refusal?: string
   /** The adapter read that failed: the status is the last one known, shown greyed. */
   readonly unavailable?: AdapterFailure
 }

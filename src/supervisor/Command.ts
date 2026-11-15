@@ -14,6 +14,8 @@ import {
   type UiShell,
 } from "../ui/index.js"
 import { findWorkspaceModule, loadWorkspace } from "./Config.js"
+import { auditLog } from "./Audit.js"
+import { controls } from "./Controls.js"
 import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf } from "./Gate.js"
 import { acquireLock, stateDirectory } from "./Lock.js"
@@ -78,19 +80,32 @@ export const runWorkspaceCommand = (
         catch: asUiError,
       })
       const worktrees = settings.adapters?.worktrees ?? host.defaultWorktrees(root)
+      const driverOps = drivers(
+        settings.adapters?.terminal ?? host.defaultTerminal(),
+        settings,
+        driverPanes(directory),
+      )
       const snapshot = liveSnapshot({
         worktrees,
         next: host.next,
         settings,
-        drivers: drivers(
-          settings.adapters?.terminal ?? host.defaultTerminal(),
-          settings,
-          driverPanes(directory),
-        ),
+        drivers: driverOps,
         after: host.after,
       })
       closeSnapshot = snapshot.close
       yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })
+      const audit = auditLog(directory)
+      const control = controls({
+        worktrees,
+        drivers: driverOps,
+        projects: snapshot.projects,
+        oneShot: host.oneShot,
+        after: host.after,
+        refreshDriver: snapshot.refreshDriver,
+        audit,
+        now: clock.now,
+      })
+      const projects = () => control.withRefusals(snapshot.projects())
       const feeds = feedRunner({
         feeds: feedExports,
         root,
@@ -120,7 +135,7 @@ export const runWorkspaceCommand = (
         })(request, afterResponse, peer)
       }
 
-      const handler: UiHandler = async (request, afterResponse, peer) => {
+      const handler: UiHandler = async (request, afterResponse, peer, identity) => {
         const path = new URL(request.url).pathname
         if (path === TRPC || path.startsWith(`${TRPC}/`)) {
           return fetchRequestHandler({
@@ -128,9 +143,31 @@ export const runWorkspaceCommand = (
             req: request,
             router: workspaceRouter,
             createContext: () => ({
-              projects: snapshot.projects,
+              projects,
               banners: snapshot.banners,
-              feeds,
+              feeds: {
+                ...feeds,
+                dismiss: (feed: string, key: string) => {
+                  const item = feeds.items().find((i) => i.feed === feed && i.key === key)
+                  const dismissed = feeds.dismiss(feed, key)
+                  audit.write({
+                    time: new Date(clock.now()).toISOString(),
+                    identity: identity ?? "-",
+                    endpoint: path,
+                    ...(item !== undefined ? { project: item.project } : {}),
+                    action: "dismiss",
+                    outcome: dismissed ? "accepted" : "unknown",
+                  })
+                  return dismissed
+                },
+              },
+              press: (action, input) =>
+                control.press({
+                  action,
+                  ...input,
+                  ...(identity !== undefined ? { identity } : {}),
+                  endpoint: path,
+                }),
             }),
           })
         }
@@ -138,7 +175,7 @@ export const runWorkspaceCommand = (
           new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } })
         if (path === "/inbox") return html(inboxPage(feeds.items(), feeds.feeds()))
         if (path !== "/") return gatePage(request, afterResponse, peer)
-        return html(projectsPage(snapshot.projects(), snapshot.banners()))
+        return html(projectsPage(projects(), snapshot.banners()))
       }
 
       const { url, close } = yield* exposeHandler({

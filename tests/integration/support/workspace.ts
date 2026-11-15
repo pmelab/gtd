@@ -125,6 +125,12 @@ export class WorkspaceBench {
   readonly overlapped = new Set<string>()
   /** Files inside worktrees, by absolute path. */
   readonly files = new Map<string, string>()
+  /** Each driver one-shot the supervisor ran, in order. */
+  readonly oneShots: { readonly worktree: string; readonly argv: readonly string[] }[] = []
+  /** Worktrees whose driver refuses every one-shot, with its stderr. */
+  readonly refusing = new Map<string, string>()
+  /** Worktrees whose driver never answers a one-shot, as if it never listened. */
+  readonly silent = new Set<string>()
   /** A feed's `ctx.exec` answers, by argv joined with spaces. */
   readonly commands = new Map<string, ExecResult>()
   /** The feeds' clock. */
@@ -206,6 +212,24 @@ export class WorkspaceBench {
     return this.nextIn(path)
   }
 
+  /** A driver one-shot: answered while the worktree's newest pane runs, else exit 2. */
+  private async oneShot(argv: readonly string[], worktree: string): Promise<ExecResult> {
+    this.oneShots.push({ worktree, argv })
+    const pane = this.terminal
+      .panes()
+      .filter((p) => p.worktree === worktree)
+      .at(-1)
+    const alive =
+      pane !== undefined && (await this.terminal.adapter.status(pane.handle))?.alive === true
+    if (!alive || this.silent.has(worktree)) {
+      return { status: 2, stdout: "", stderr: "no driver runs\n" }
+    }
+    const refusal = this.refusing.get(worktree)
+    return refusal === undefined
+      ? { status: 0, stdout: "", stderr: "" }
+      : { status: 1, stdout: "", stderr: refusal }
+  }
+
   private nextIn(path: string): SpawnOutcome {
     return this.answers.get(path) ?? { status: 0, stdout: IDLE_NEXT, stderr: "" }
   }
@@ -253,6 +277,7 @@ export class WorkspaceBench {
       defaultTerminal: () => this.terminal.adapter,
       isPidAlive: (pid) => pid === process.pid,
       after: this.clock.after,
+      oneShot: (argv, worktree) => this.oneShot(argv, worktree),
     })
     const tools = Layer.succeed(UserlandTools, {
       exec: async (argv) => {

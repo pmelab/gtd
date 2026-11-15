@@ -34,6 +34,8 @@ export const driverPanes = (stateDirectory: string): DriverPanes => {
 
 export interface Drivers {
   readonly state: (worktree: string) => Promise<DriverState>
+  /** The project's driver command, `undefined` when none is configured. */
+  readonly command: (project: string) => readonly string[] | undefined
   /** Opens a pane running the project's driver command; `false` when none is configured. */
   readonly start: (project: string, worktree: string) => Promise<boolean>
   /** The terminal's hints, each a pane handle whose status may have changed. */
@@ -55,6 +57,7 @@ export const drivers = (
       return { kind: "unknown" }
     }
   },
+  command: (project) => settings.projects?.[project]?.driver ?? settings.driver,
   start: async (project, worktree) => {
     const argv = settings.projects?.[project]?.driver ?? settings.driver
     if (argv === undefined) return false

@@ -18,6 +18,8 @@ interface SupervisorHostOps {
   readonly isPidAlive: (pid: number) => boolean
   /** Runs `run` once after `ms`; the result cancels it. The twin's clock moves only when a test moves it. */
   readonly after: (ms: number, run: () => void) => () => void
+  /** A driver one-shot (`<driver> proceed <commit>`, …), run with the worktree as cwd. */
+  readonly oneShot: (argv: readonly string[], worktree: string) => Promise<ExecResult>
 }
 
 const isPidAlive = (pid: number): boolean => {
@@ -42,6 +44,7 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
       const timer = setTimeout(run, ms)
       return () => clearTimeout(timer)
     },
+    oneShot: (argv, worktree) => exec(argv, worktree),
   })
 }
 
