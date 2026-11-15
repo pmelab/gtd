@@ -19,12 +19,13 @@ export interface GuardOptions {
 const refuse = (status: number, message: string): Response =>
   new Response(`${message}\n`, { status, headers: { "content-type": "text/plain" } })
 
+// Behind `--http` the proxy may still name the login, as tailscale serve does.
 const identityOf = async (
   options: GuardOptions,
   request: Request,
   peer: string | undefined,
 ): Promise<string | undefined> => {
-  if (options.exposure === "serve") {
+  if (options.exposure !== "direct") {
     return request.headers.get("tailscale-user-login") ?? undefined
   }
   return peer === undefined ? undefined : options.whois(peer)
@@ -49,15 +50,9 @@ const originMatches = (request: Request): boolean => {
 const isSameOrigin = (request: Request): boolean =>
   request.headers.get("sec-fetch-site") === "same-origin" || originMatches(request)
 
-const isAllowed = async (
-  options: GuardOptions,
-  request: Request,
-  peer: string | undefined,
-): Promise<boolean> => {
-  if (options.exposure === "proxy") return true
-  const [identity, users] = await Promise.all([identityOf(options, request, peer), options.users()])
-  return identity !== undefined && (users ?? []).includes(identity)
-}
+const isAllowed = async (options: GuardOptions, identity: string | undefined): Promise<boolean> =>
+  options.exposure === "proxy" ||
+  (identity !== undefined && ((await options.users()) ?? []).includes(identity))
 
 const methodRefusal = (request: Request): Response | undefined => {
   if (request.method === "GET" || request.method === "HEAD") return undefined
@@ -67,22 +62,17 @@ const methodRefusal = (request: Request): Response | undefined => {
   return undefined
 }
 
-/** Why `request` must not reach the handler, or `undefined` when it may. */
-const refusalFor = async (
-  options: GuardOptions,
-  request: Request,
-  peer: string | undefined,
-): Promise<Response | undefined> =>
-  (await isAllowed(options, request, peer))
-    ? methodRefusal(request)
-    : refuse(403, "gtd ui: this tailnet identity is not in ui.users")
-
 /**
  * Every request needs an allowed tailnet identity; every state change is a
  * same-origin JSON POST. A GET passes, because no GET changes state: tRPC
- * serves a mutation over POST only.
+ * serves a mutation over POST only. The handler gets the identity.
  */
 export const guard =
   (options: GuardOptions, handler: UiHandler): UiHandler =>
-  async (request, afterResponse, peer) =>
-    (await refusalFor(options, request, peer)) ?? handler(request, afterResponse, peer)
+  async (request, afterResponse, peer) => {
+    const identity = await identityOf(options, request, peer)
+    if (!(await isAllowed(options, identity))) {
+      return refuse(403, "gtd ui: this tailnet identity is not in ui.users")
+    }
+    return methodRefusal(request) ?? handler(request, afterResponse, peer, identity)
+  }
