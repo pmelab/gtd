@@ -2,6 +2,7 @@ import { useState } from "react"
 import { Button } from "../Button.js"
 import { cn } from "../cn.js"
 import { ActionPicker } from "./ActionPicker.js"
+import { NoteLine } from "./NoteLine.js"
 import { PressButton, Refused } from "./Press.js"
 import { ServiceChips } from "./ServiceChips.js"
 import { TabBar } from "./TabBar.js"
@@ -68,6 +69,7 @@ export const Detail = ({
         <span className={cn("text-small", STATUS_COLOR[worktree.status])}>
           {statusText(worktree)}: {detailText(worktree)}
         </span>
+        <NoteLine worktree={worktree} />
         <Refused worktree={worktree} />
         <ServiceChips worktree={worktree} />
         <PressButton worktree={worktree} />

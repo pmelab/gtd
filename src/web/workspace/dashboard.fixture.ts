@@ -12,7 +12,7 @@ const worktree = (project: string, branch: string, over: Partial<WorktreeView>):
   ...over,
 })
 
-/** A workspace with a worktree in each status, chips, a refusal and a greyed project. */
+/** A workspace with a worktree in each status, chips, a refusal, a note and a greyed project. */
 export const workspace: readonly ProjectView[] = [
   {
     id: "api",
@@ -42,6 +42,7 @@ export const workspace: readonly ProjectView[] = [
         refusal: "busy: still answering the last question",
       }),
       worktree("portal", "login", {
+        note: { message: "merged into main", error: false },
         services: [
           { name: "web", url: "https://web.login.portal.example.ts.net", running: false },
           { name: "jobs", running: false, error: "exit code 3" },
