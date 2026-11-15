@@ -27,14 +27,22 @@ const find = (projects: readonly ProjectView[], path: string | undefined): Entry
 const InboxView = () => {
   const inbox = workspaceTrpc.inbox.useQuery(undefined, { refetchInterval: REFRESH_MS })
   const utils = workspaceTrpc.useUtils()
-  const dismiss = workspaceTrpc.dismiss.useMutation({
-    onSettled: () => utils.inbox.invalidate(),
-  })
+  const settled = { onSettled: () => utils.inbox.invalidate() }
+  const dismiss = workspaceTrpc.dismiss.useMutation(settled)
+  const start = workspaceTrpc.startItem.useMutation(settled)
+  const retry = workspaceTrpc.retryItem.useMutation(settled)
   if (inbox.data === undefined) return <p className="text-muted">Loading…</p>
   return (
     <Inbox
       items={inbox.data.items}
       feeds={inbox.data.feeds}
+      drives={inbox.data.drives}
+      onStart={(item) => {
+        start.mutate({ feed: item.feed, key: item.key })
+      }}
+      onRetry={(item) => {
+        retry.mutate({ feed: item.feed, key: item.key })
+      }}
       onDismiss={(item) => {
         dismiss.mutate({ feed: item.feed, key: item.key })
       }}

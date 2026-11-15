@@ -140,7 +140,7 @@ Feature: feeds file items into the workspace inbox
     Then the Inbox lists:
       | feed    | key  | title     | state   |
       | reviews | pr-8 | Review #8 | blocked |
-      | reviews | pr-7 | Review #7 | queued  |
+      | reviews | pr-7 | Review #7 | failed  |
     And the Inbox reports these feeds:
       | feed    | project | mode    | failing           |
       | broken  | portal  | propose | gh: not logged in |

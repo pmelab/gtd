@@ -6,6 +6,7 @@ import { Dashboard } from "./Dashboard.js"
 import { workspace } from "./dashboard.fixture.js"
 
 const dismissed: unknown[] = []
+const started: unknown[] = []
 
 const inbox = {
   items: [
@@ -21,7 +22,21 @@ const inbox = {
       state: "proposed",
       firstSeen: "2026-01-01T00:00:00.000Z",
     },
+    {
+      feed: "reviews",
+      project: "api",
+      key: "pr-7",
+      title: "Review #7",
+      action: "start:review",
+      priority: 0,
+      blockedBy: [],
+      data: null,
+      state: "queued",
+      firstSeen: "2026-01-01T00:00:00.000Z",
+      message: "2 of 2 drives in use (limits.maxDrives)",
+    },
   ],
+  drives: { inUse: 2, max: 2 },
   feeds: [
     { feed: "boardReady", project: "portal", mode: "propose", every: "5m" },
     {
@@ -50,6 +65,9 @@ const meta: Meta<typeof Dashboard> = {
           inbox: () => inbox,
           dismiss: (input) => {
             dismissed.push(input)
+          },
+          startItem: (input) => {
+            started.push(input)
           },
           terminal: () => ({}),
         }}
@@ -116,13 +134,30 @@ export const InboxDismissesAProposedItem: Story = {
     dismissed.length = 0
     const canvas = within(canvasElement)
     await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
-    const item = await canvas.findByTestId("inbox-item")
-    await expect(item.textContent).toContain("proposed · boardReady · portal")
+    const [item] = await canvas.findAllByTestId("inbox-item")
+    await expect(item!.textContent).toContain("proposed · boardReady · portal")
     await expect(canvas.getByTestId("feed-failing").textContent).toBe(
       "feed reviews failing: gh: not logged in",
     )
-    await userEvent.click(within(item).getByRole("button", { name: "Dismiss" }))
+    await userEvent.click(within(item!).getByRole("button", { name: "Dismiss" }))
     await waitFor(() => expect(dismissed).toEqual([{ feed: "boardReady", key: "1" }]))
+  },
+}
+
+/** The Inbox shows the drives in use out of maxDrives, why an item waits, and starts a proposed item. */
+export const InboxStartsAnItemAndSaysWhyOneWaits: Story = {
+  play: async ({ canvasElement }) => {
+    started.length = 0
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    await expect((await canvas.findByTestId("drives")).textContent).toBe("2 of 2 drives in use")
+    const [proposed, queued] = canvas.getAllByTestId("inbox-item")
+    await expect(within(queued!).getByTestId("inbox-message").textContent).toBe(
+      "2 of 2 drives in use (limits.maxDrives)",
+    )
+    await expect(within(queued!).queryByRole("button")).not.toBeInTheDocument()
+    await userEvent.click(within(proposed!).getByRole("button", { name: "Start" }))
+    await waitFor(() => expect(started).toEqual([{ feed: "boardReady", key: "1" }]))
   },
 }
 
