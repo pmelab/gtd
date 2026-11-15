@@ -39,6 +39,14 @@ export interface Notifier {
     path: string,
     note: { readonly message: string; readonly error: boolean },
   ) => void
+  /** A notification a reaction sends; `link` is a path on the dashboard. */
+  readonly message: (message: {
+    readonly key: string
+    readonly title: string
+    readonly body: string
+    readonly link: string
+    readonly priority: NotificationPriority
+  }) => void
 }
 
 // The sent keys are kept for restarts; the oldest go first.
@@ -214,6 +222,11 @@ export const notifier = (deps: NotifierDeps): Notifier => {
         return
       }
     },
+    message: (m) => {
+      const deliver = (): void => publish(m.key, m.title, m.body, m.link, m.priority)
+      if (url === undefined) waiting.push(deliver)
+      else deliver()
+    },
   }
 }
 
@@ -249,4 +262,4 @@ const feedNews = (
 ]
 
 /** The dashboard, with the worktree's detail open. */
-const detailLink = (path: string): string => `/?worktree=${encodeURIComponent(path)}`
+export const detailLink = (path: string): string => `/?worktree=${encodeURIComponent(path)}`

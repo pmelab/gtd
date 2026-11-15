@@ -6,8 +6,9 @@ import {
   workspaceProblems,
   type WorkspaceSettings,
   type Feed,
+  type Reaction,
 } from "../workspace/index.js"
-import { isFeed } from "../workspace/internal.js"
+import { isFeed, isReaction } from "../workspace/internal.js"
 
 const WORKSPACE_MODULE = "gtd.workspace.ts"
 
@@ -18,6 +19,8 @@ export interface LoadedWorkspace {
   readonly settings: WorkspaceSettings
   /** The `feed()` exports, by export name. */
   readonly feeds: ReadonlyMap<string, Feed>
+  /** The `reaction()` exports, by export name. */
+  readonly reactions: ReadonlyMap<string, Reaction>
 }
 
 /** `--config`, else the innermost `gtd.workspace.ts` from `cwd` up. */
@@ -67,7 +70,10 @@ export const loadWorkspace = async (
   const feeds = new Map(
     Object.entries(exports).filter((entry): entry is [string, Feed] => isFeed(entry[1])),
   )
-  return { root: dirname(file), file, settings: settings as WorkspaceSettings, feeds }
+  const reactions = new Map(
+    Object.entries(exports).filter((entry): entry is [string, Reaction] => isReaction(entry[1])),
+  )
+  return { root: dirname(file), file, settings: settings as WorkspaceSettings, feeds, reactions }
 }
 
 export interface WorkspaceReload {
