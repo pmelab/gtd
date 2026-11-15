@@ -1,7 +1,7 @@
 import { Button } from "../Button.js"
 import type { DrivesView, FeedView, InboxItem } from "./view.js"
 
-export type ItemPress = "start" | "retry" | "dismiss"
+type ItemPress = "start" | "retry" | "dismiss"
 
 type OnPress = (press: ItemPress, item: InboxItem) => void
 
