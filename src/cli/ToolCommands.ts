@@ -31,6 +31,18 @@ interface WorkspaceRequest {
   readonly loadModule: (path: string) => Promise<Readonly<Record<string, unknown>>>
 }
 
+/** `gtd workspace proceed|retry`: a request for the running supervisor. */
+interface WorkspaceControlRequest {
+  readonly request: {
+    readonly command: "proceed" | "retry"
+    readonly worktree: string
+    readonly commit: string
+  }
+  readonly config?: string
+  readonly cwd: string
+  readonly stateHome: string
+}
+
 interface JudgeRequest {
   readonly provider: "fixed" | "jev" | "llm" | undefined
   readonly answers?: string | undefined
@@ -55,6 +67,7 @@ export class ToolCommands extends Context.Service<
       request: WorkspaceRequest,
       out: { readonly write: (chunk: string) => void; readonly flush: () => void },
     ) => Effect.Effect<void, Error>
+    readonly workspaceControl: (request: WorkspaceControlRequest) => Effect.Effect<void, Error>
     /** `gtd` runs THIS gtd, so the LSP never reads a different version's state than the one it ships with. */
     readonly lsp: (gtd: HostOps["self"]) => Effect.Effect<void, Error>
     readonly judge: (request: JudgeRequest) => Promise<string>

@@ -3,6 +3,7 @@ import { spawn } from "node:child_process"
 import {
   existsSync,
   mkdirSync,
+  statSync,
   mkdtempSync,
   readdirSync,
   realpathSync,
@@ -16,6 +17,7 @@ import { runCli } from "../../../src/cli/index.js"
 import { GtdError, GtdUsageError, NodeServices } from "../../../src/platform/index.js"
 import {
   driverPanes,
+  runControlCommand,
   runWorkspaceCommand,
   stateDirectory,
   SupervisorClock,
@@ -142,6 +144,10 @@ export class WorkspaceBench {
   lastRun: CapturedCliResult | undefined
   lastStatus: number | undefined
   lastSignal: { code: number | null; signal: NodeJS.Signals | null } | undefined
+  /** The last `gtd workspace proceed|retry` run beside the supervisor. */
+  lastCommand: CapturedCliResult | undefined
+  /** The mode bits of the supervisor's socket while a spawned supervisor served. */
+  socketMode: number | undefined
 
   writeFile(rel: string, content: string): void {
     const path = join(this.root, rel)
@@ -311,6 +317,24 @@ export class WorkspaceBench {
       )
   }
 
+  /** Runs `gtd <args>` from the workspace root, as a script beside the supervisor does. */
+  async command(args: readonly string[]): Promise<void> {
+    const { io, result } = makeCapturingCliIo(
+      new InMemRepo(),
+      { XDG_STATE_HOME: this.stateHome },
+      {
+        workspaceControl: (request) =>
+          runControlCommand(request).pipe(
+            Effect.mapError((error) => new GtdError(error.message, error.detail)),
+          ),
+      },
+      "",
+      this.root,
+    )
+    await Effect.runPromise(runCli(["node", "gtd.js", ...args], io)).catch(() => {})
+    this.lastCommand = result()
+  }
+
   /** Starts `gtd workspace` and returns once it serves or has exited. */
   async start(...args: string[]): Promise<void> {
     const abort = new AbortController()
@@ -450,11 +474,16 @@ export class WorkspaceBench {
     return existsSync(join(stateDirectory(this.stateHome, this.root), "lock"))
   }
 
-  /** A real `gtd workspace --http`, spawned from the workspace root, sent `signal` once it serves. */
+  /**
+   * A real `gtd workspace --http`, spawned from the workspace root, sent
+   * `signal` once it serves — and once `beside`, the args of a second real
+   * gtd run from the root, has ended.
+   */
   async spawnAndSignal(
     gtdBin: string,
     env: NodeJS.ProcessEnv,
     signal: NodeJS.Signals,
+    beside?: readonly string[],
   ): Promise<void> {
     const child = spawn(process.execPath, [gtdBin, "workspace", "--http", "--port", "0"], {
       cwd: this.root,
@@ -473,8 +502,34 @@ export class WorkspaceBench {
       child.kill("SIGKILL")
       throw new Error(`gtd workspace never printed its URL: ${output}`)
     }
+    if (beside !== undefined) {
+      this.socketMode =
+        statSync(join(stateDirectory(this.stateHome, this.root), "socket")).mode & 0o777
+      this.lastCommand = await this.spawnBeside(gtdBin, env, beside)
+    }
     child.kill(signal)
     this.lastSignal = await exited
+  }
+
+  private spawnBeside(
+    gtdBin: string,
+    env: NodeJS.ProcessEnv,
+    args: readonly string[],
+  ): Promise<CapturedCliResult> {
+    const child = spawn(process.execPath, [gtdBin, ...args], {
+      cwd: this.root,
+      env: { ...env, XDG_STATE_HOME: this.stateHome },
+      stdio: ["ignore", "pipe", "pipe"],
+    })
+    let stdout = ""
+    let stderr = ""
+    child.stdout.on("data", (chunk: Buffer) => (stdout += chunk.toString("utf8")))
+    child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")))
+    return new Promise((resolve) =>
+      child.once("close", (code) =>
+        resolve({ stdout, stdoutBytes: Buffer.from(stdout), stderr, exitCode: code ?? -1 }),
+      ),
+    )
   }
 
   async dispose(): Promise<void> {

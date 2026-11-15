@@ -215,6 +215,14 @@ The API is the tRPC mutations `proceed` and `retry` under `/trpc`, each with
 `head` as the query `projects` returns them. A refusal answers 409 with the
 reason; an unknown worktree answers 404.
 
+From a script, `gtd workspace proceed <worktree> <commit>` and
+`gtd workspace retry <worktree> <commit>` press the same buttons. `<worktree>`
+is the worktree's path, relative to the current directory or absolute. The
+command finds the workspace like `gtd workspace` does and reaches its running
+supervisor. It exits 0 when the press is accepted. It exits 1 with the reason
+when the press is refused, and with "supervisor not running" when no supervisor
+runs. Its audit line has the endpoint `cli`.
+
 ## Gate pages
 
 The supervisor also serves the gate page of every worktree, at
@@ -292,6 +300,10 @@ login shell (Rex's default when absent).
 Every request, to the dashboard and to the gate pages, must come from a tailnet
 user in `ui.users`. Other users get 403. Requests that change state must be
 POSTs with a JSON body from the dashboard's own origin.
+
+The commands for your scripts reach the supervisor through the unix socket
+`socket` in its state directory. Only you can open it: the socket is 0600 and
+its directory 0700. These file permissions are the authentication.
 
 The supervisor keeps its state in `~/.local/state/gtd/workspace/` (or under
 `$XDG_STATE_HOME`). Nothing goes into your repositories. Deleting that state

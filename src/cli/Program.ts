@@ -154,6 +154,13 @@ export type Command =
       readonly http?: boolean
     }
   | {
+      readonly kind: "workspaceControl"
+      readonly command: "proceed" | "retry"
+      readonly worktree: string
+      readonly commit: string
+      readonly config?: string
+    }
+  | {
       readonly kind: "land"
       readonly cost?: number
       readonly model?: string
@@ -1132,16 +1139,33 @@ const runWorkspaceCliCommand = (
     const host = yield* Host
     const paths = yield* Path.Path
     const { kind: _, ...flags } = command
-    const stateHome = host.env["XDG_STATE_HOME"] || paths.join(host.home, ".local", "state")
     yield* (yield* ToolCommands).workspace(
       {
         flags,
         cwd: host.root,
-        stateHome,
+        stateHome: stateHomeOf(host, paths),
         loadModule: (file) => evaluateModule(paths, file),
       },
       out,
     )
+  })
+
+const stateHomeOf = (host: HostOps, paths: Path.Path): string =>
+  host.env["XDG_STATE_HOME"] || paths.join(host.home, ".local", "state")
+
+/** `gtd workspace proceed|retry`: handed to the running supervisor. */
+const runWorkspaceControlCliCommand = (
+  command: Extract<Command, { kind: "workspaceControl" }>,
+): Effect.Effect<void, Error, ToolCommands | Host | Path.Path> =>
+  Effect.gen(function* () {
+    const host = yield* Host
+    const paths = yield* Path.Path
+    yield* (yield* ToolCommands).workspaceControl({
+      request: { command: command.command, worktree: command.worktree, commit: command.commit },
+      ...(command.config !== undefined ? { config: command.config } : {}),
+      cwd: host.root,
+      stateHome: stateHomeOf(host, paths),
+    })
   })
 
 /**
@@ -1203,6 +1227,7 @@ export const needsOf = (kind: Command["kind"]): Needs => {
     case "judgeRun":
     case "strays":
     case "workspace":
+    case "workspaceControl":
       return "none"
     case "check":
       return "fs"
@@ -1219,6 +1244,7 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
   "judgeRun",
   "strays",
   "workspace",
+  "workspaceControl",
 ]
 
 /**
@@ -1249,6 +1275,8 @@ const dispatchVoidCommand = (
       return runUiCliCommand(command, out)
     case "workspace":
       return runWorkspaceCliCommand(command, out)
+    case "workspaceControl":
+      return runWorkspaceControlCliCommand(command)
     case "land":
       return runLandCommand(
         {
