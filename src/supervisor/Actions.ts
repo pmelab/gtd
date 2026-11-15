@@ -58,6 +58,8 @@ export interface ActionRuns {
     env?: Readonly<Record<string, string>>,
   ) => Promise<void>
   readonly last: (worktree: string) => ActionRun | undefined
+  /** The handles of the action panes gtd opened in the worktree while it runs. */
+  readonly panes: (worktree: string) => readonly string[]
   /** Stops waiting for the panes of running actions. */
   readonly stop: () => void
 }
@@ -123,6 +125,7 @@ const messageOf = (error: unknown): string =>
 
 export const actionRuns = (deps: ActionRunsDeps): ActionRuns => {
   const runs = new Map<string, ActionRun>()
+  const opened = new Map<string, string[]>()
   const waiting = new Map<string, Set<() => void>>()
   let hints: AsyncIterator<string> | undefined
   let stopped = false
@@ -224,6 +227,7 @@ export const actionRuns = (deps: ActionRunsDeps): ActionRuns => {
           GTD_WORKSPACE_STATUS: statusVariable(status, worktree),
           ...env,
         })
+        opened.set(path, [...(opened.get(path) ?? []), handle])
         runs.set(path, { id, label: action.label, exit: null })
         void follow(project, path, action, handle, env)
       } catch (error) {
@@ -232,6 +236,7 @@ export const actionRuns = (deps: ActionRunsDeps): ActionRuns => {
       }
     },
     last: (path) => runs.get(path),
+    panes: (path) => opened.get(path) ?? [],
     stop: () => {
       stopped = true
       for (const set of waiting.values()) for (const wake of set) wake()

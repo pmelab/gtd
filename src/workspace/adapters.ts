@@ -55,6 +55,11 @@ export interface Worktree {
    * tell.
    */
   readonly integrated: boolean | undefined
+  /**
+   * `true` when the tree has changes that are not committed (untracked files
+   * count), `undefined` or absent when the adapter cannot tell.
+   */
+  readonly dirty?: boolean | undefined
 }
 
 /**
@@ -71,6 +76,23 @@ export interface WorktreesAdapter {
   readonly projects: () => Promise<readonly Project[]>
   /** Fails with an adapter error for a project id `projects` does not report. */
   readonly list: (project: string) => Promise<readonly Worktree[]>
+  /**
+   * A new worktree on the new branch `branch`, made from `base` (default: the
+   * default branch). Returns the worktree's path. Without it, the dashboard
+   * creates no worktree.
+   */
+  readonly create?: (project: string, branch: string, base?: string) => Promise<string>
+  /**
+   * Removes the worktree at `worktree` (its path) and deletes its branch, and
+   * returns when the removal is complete. Without `force`, it fails on a
+   * dirty tree and keeps a branch that is not merged. Without it, the
+   * dashboard removes no worktree.
+   */
+  readonly remove?: (
+    project: string,
+    worktree: string,
+    options: { readonly force: boolean },
+  ) => Promise<void>
   /**
    * Hints while it is iterated, until gtd stops iterating. When the stream
    * ends or fails, gtd watches again and reads a full snapshot. Without it,

@@ -27,6 +27,7 @@ import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
 import { liveSnapshot, type Banner } from "./Snapshot.js"
 import { serveSocket, socketPath } from "./Socket.js"
+import { worktreeChanges } from "./WorktreeChanges.js"
 import { worktreeStatus } from "./Status.js"
 
 export interface WorkspaceCommand {
@@ -90,6 +91,7 @@ export const runWorkspaceCommand = (
       const config = () => current
       const worktrees = settings.adapters?.worktrees ?? host.defaultWorktrees(root)
       const terminal = settings.adapters?.terminal ?? host.defaultTerminal()
+      const services = settings.adapters?.services ?? host.defaultServices()
       const driverRuns = drivers(terminal, config, driverPanes(directory))
       const actions = actionRuns({
         worktrees,
@@ -105,7 +107,7 @@ export const runWorkspaceCommand = (
         settings: config,
         configName: basename(file),
         drivers: driverRuns,
-        services: settings.adapters?.services ?? host.defaultServices(),
+        services,
         lastAction: actions.last,
         after: host.after,
       })
@@ -139,6 +141,17 @@ export const runWorkspaceCommand = (
         catch: asUiError,
       })
       closeSocket = socket.close
+      const changes = worktreeChanges({
+        worktrees,
+        services,
+        terminal,
+        drivers: driverRuns,
+        next: host.next,
+        panes: actions.panes,
+        refresh: snapshot.refresh,
+        audit,
+        now: clock.now,
+      })
       const feeds = feedRunner({
         feeds: loaded.feeds,
         root,
@@ -227,6 +240,9 @@ export const runWorkspaceCommand = (
                   ...(identity !== undefined ? { identity } : {}),
                   endpoint: path,
                 }),
+              worktreeChanges: changes,
+              identity: identity ?? "-",
+              endpoint: path,
             }),
           })
         }

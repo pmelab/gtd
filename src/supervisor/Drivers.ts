@@ -10,6 +10,7 @@ import type { DriverState } from "./Status.js"
 export interface DriverPanes {
   readonly get: (worktree: string) => string | undefined
   readonly set: (worktree: string, handle: string) => void
+  readonly delete: (worktree: string) => void
 }
 
 export const driverPanes = (stateDirectory: string): DriverPanes => {
@@ -21,13 +22,16 @@ export const driverPanes = (stateDirectory: string): DriverPanes => {
       return {}
     }
   }
+  const write = (handles: Record<string, string>): void => {
+    mkdirSync(stateDirectory, { recursive: true, mode: 0o700 })
+    writeFileSync(file, `${JSON.stringify(handles, null, 2)}\n`, { mode: 0o600 })
+  }
   return {
     get: (worktree) => read()[worktree],
-    set: (worktree, handle) => {
-      mkdirSync(stateDirectory, { recursive: true, mode: 0o700 })
-      writeFileSync(file, `${JSON.stringify({ ...read(), [worktree]: handle }, null, 2)}\n`, {
-        mode: 0o600,
-      })
+    set: (worktree, handle) => write({ ...read(), [worktree]: handle }),
+    delete: (worktree) => {
+      const { [worktree]: _gone, ...rest } = read()
+      write(rest)
     },
   }
 }
@@ -42,6 +46,10 @@ export interface Drivers {
     worktree: string,
     env?: Readonly<Record<string, string>>,
   ) => Promise<boolean>
+  /** The handle of the worktree's driver pane, while gtd keeps one. */
+  readonly pane: (worktree: string) => string | undefined
+  /** Lets go of the worktree's driver pane, once the worktree is gone. */
+  readonly forget: (worktree: string) => void
   /** The terminal's hints, each a pane handle whose status may have changed. */
   readonly watch?: () => AsyncIterable<string>
 }
@@ -73,6 +81,8 @@ export const drivers = (
       panes.set(worktree, await terminal.run(project, worktree, argv, env))
       return true
     },
+    pane: panes.get,
+    forget: panes.delete,
     ...(terminal.watch !== undefined ? { watch: terminal.watch.bind(terminal) } : {}),
   }
 }

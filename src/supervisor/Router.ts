@@ -4,6 +4,7 @@ import type { PressAction, PressOutcome } from "./Controls.js"
 import type { FeedRunner } from "./Feeds.js"
 import type { ProjectView } from "./Scan.js"
 import type { Banner } from "./Snapshot.js"
+import { WorktreeRefusal, type WorktreeChanges } from "./WorktreeChanges.js"
 
 interface WorkspaceRouterContext {
   /** Every project with its worktrees and their statuses, as of now. */
@@ -17,6 +18,10 @@ interface WorkspaceRouterContext {
     action: PressAction,
     input: { readonly worktree: string; readonly commit: string },
   ) => Promise<PressOutcome>
+  readonly worktreeChanges: WorktreeChanges
+  /** Who sent the request, and its path, for the audit log. */
+  readonly identity: string
+  readonly endpoint: string
 }
 
 const t = initTRPC.context<WorkspaceRouterContext>().create()
@@ -45,13 +50,28 @@ const REFUSAL_CODES = {
   notFound: "NOT_FOUND",
   notOffered: "CONFLICT",
   invalid: "BAD_REQUEST",
+  protected: "CONFLICT",
+  unsupported: "PRECONDITION_FAILED",
 } as const
+
+const createWorktreeInput = (value: unknown) => {
+  const { branch, base } = (value ?? {}) as Record<string, unknown>
+  if (typeof branch !== "string" || (base !== undefined && typeof base !== "string")) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "expected { project, branch, base? }" })
+  }
+  return { project: text(value, "project"), branch, base: base as string | undefined }
+}
+
+const removeWorktreeInput = (value: unknown) => ({
+  ...worktreeInput(value),
+  confirmed: (value as Record<string, unknown>)["confirmed"] === true,
+})
 
 const refusals = async <A>(body: () => Promise<A>): Promise<A> => {
   try {
     return await body()
   } catch (error) {
-    if (error instanceof ActionRefusal) {
+    if (error instanceof ActionRefusal || error instanceof WorktreeRefusal) {
       throw new TRPCError({ code: REFUSAL_CODES[error.reason], message: error.message })
     }
     throw error
@@ -101,6 +121,20 @@ export const workspaceRouter = t.router({
   retry: t.procedure
     .input(pressInput)
     .mutation(({ ctx, input }) => pressed(ctx.press("retry", input))),
+  /** New worktree: `failure` says why its services did not start. */
+  createWorktree: t.procedure
+    .input(createWorktreeInput)
+    .mutation(({ ctx, input }) =>
+      refusals(() => ctx.worktreeChanges.create(input.project, input.branch, input.base, ctx)),
+    ),
+  /** Remove: `{ confirm }` lists what a person must confirm first; `{ removed: true }` once it is gone. */
+  removeWorktree: t.procedure
+    .input(removeWorktreeInput)
+    .mutation(({ ctx, input }) =>
+      refusals(() =>
+        ctx.worktreeChanges.remove(input.project, input.worktree, input.confirmed, ctx),
+      ),
+    ),
   inbox: t.procedure.query(({ ctx }) => ({ items: ctx.feeds.items(), feeds: ctx.feeds.feeds() })),
   dismiss: t.procedure.input(itemRef).mutation(({ ctx, input }) => {
     if (!ctx.feeds.dismiss(input.feed, input.key))

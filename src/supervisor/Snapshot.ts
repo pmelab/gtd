@@ -37,6 +37,8 @@ export interface Snapshot {
   readonly recheckWorktree: (path: string) => void
   /** Reads one worktree's driver pane again, without `gtd next`. */
   readonly refreshDriver: (path: string) => Promise<void>
+  /** Lists the project again at once, and runs `gtd next` where HEAD moved or the worktree is new. */
+  readonly refresh: (project: string) => Promise<void>
   /** Subscribes to the watches, starts orphaned drivers and reads the full snapshot. */
   readonly start: () => Promise<void>
   readonly close: () => void
@@ -350,6 +352,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
       const project = [...kept].find(([, p]) => p.worktrees.some((w) => w.path === path))
       if (project !== undefined) void request(project[0], false, path)
     },
+    refresh: (project) => request(project, false),
     start: async () => {
       const watch = deps.worktrees.watch
       const pollMs = durationMs(deps.settings().pollEvery ?? DEFAULT_POLL)

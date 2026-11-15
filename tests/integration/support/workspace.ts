@@ -6,6 +6,7 @@ import {
   statSync,
   mkdtempSync,
   readdirSync,
+  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -46,7 +47,13 @@ import {
   type UiHandler,
   type UiHostOps,
 } from "../../../src/ui/index.js"
-import type { ExecResult, InboxItem } from "../../../src/workspace/index.js"
+import type {
+  ExecResult,
+  InboxItem,
+  ServicesAdapter,
+  TerminalAdapter,
+  WorktreesAdapter,
+} from "../../../src/workspace/index.js"
 import { fakeTailnet, inMemoryUiLayers, TAILNET_OWNER, TAILNET_PEER } from "./ui-host.js"
 
 type ToolWorkspace = NonNullable<NonNullable<Parameters<typeof makeCapturingCliIo>[2]>["workspace"]>
@@ -125,6 +132,8 @@ export class WorkspaceBench {
   /** Whether the default worktrees adapter offers a watch. */
   watching = true
   readonly services = inMemoryServices()
+  /** The changing calls the supervisor made to the worktrees, services and terminal adapters, in order. */
+  readonly calls: { call: string; worktree: string }[] = []
   private readonly answers = new Map<string, SpawnOutcome>()
   /** The worktree of each `gtd next` the supervisor ran, in order. */
   readonly nextRuns: string[] = []
@@ -217,6 +226,52 @@ export class WorkspaceBench {
     return pane.handle
   }
 
+  private loggedWorktrees(): WorktreesAdapter {
+    const adapter = this.worktrees.adapter
+    return {
+      ...adapter,
+      create: async (project, branch, base) => {
+        const path = await adapter.create!(project, branch, base)
+        this.calls.push({ call: "worktrees.create", worktree: `${project}/${branch}` })
+        return path
+      },
+      remove: async (project, path, options) => {
+        this.calls.push({
+          call: options.force ? "worktrees.remove (force)" : "worktrees.remove",
+          worktree: await this.refOf(path),
+        })
+        await adapter.remove!(project, path, options)
+      },
+    }
+  }
+
+  private loggedServices(): ServicesAdapter {
+    const adapter = this.services.adapter
+    const logged =
+      (call: string, op: (project: string, path: string) => Promise<void>) =>
+      async (project: string, path: string) => {
+        this.calls.push({ call, worktree: await this.refOf(path) })
+        await op(project, path)
+      }
+    return {
+      ...adapter,
+      up: logged("services.up", adapter.up),
+      down: logged("services.down", adapter.down),
+    }
+  }
+
+  private loggedTerminal(): TerminalAdapter {
+    const adapter = this.terminal.adapter
+    return {
+      ...adapter,
+      close: async (handle) => {
+        const pane = this.terminal.panes().find((p) => p.handle === handle)
+        this.calls.push({ call: "terminal.close", worktree: await this.refOf(pane!.worktree) })
+        await adapter.close(handle)
+      },
+    }
+  }
+
   answer(path: string, outcome: SpawnOutcome): void {
     this.answers.set(path, outcome)
   }
@@ -304,11 +359,11 @@ export class WorkspaceBench {
     const host = Layer.succeed(SupervisorHost, {
       next: (path) => this.runNext(path),
       defaultWorktrees: () => {
-        const { projects, list } = this.worktrees.adapter
-        return this.watching ? this.worktrees.adapter : { projects, list }
+        const { watch, ...adapter } = this.loggedWorktrees()
+        return this.watching ? { ...adapter, watch: watch! } : adapter
       },
-      defaultTerminal: () => this.terminal.adapter,
-      defaultServices: () => this.services.adapter,
+      defaultTerminal: () => this.loggedTerminal(),
+      defaultServices: () => this.loggedServices(),
       defaultActions: () => this.actions.adapter,
       isPidAlive: (pid) => pid === process.pid,
       after: this.clock.after,
