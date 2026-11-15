@@ -376,17 +376,21 @@ export default {
     {
       name: "web-imports-only-contracts",
       comment:
-        "Unit map, tools import only contracts: src/web/ imports itself and the contracts, plus the ui router's TYPES — the tRPC client is typed by the server it talks to, and a type import is erased before it runs.",
+        "Unit map, tools import only contracts: src/web/ imports itself and the contracts, plus the ui's and the supervisor's router TYPES — the tRPC client is typed by the server it talks to, and a type import is erased before it runs.",
       severity: "error",
       from: { path: "^src/web/" },
-      to: { path: local, pathNot: ["^src/web/", units.contracts, "^src/ui/index\\.ts$"] },
+      to: {
+        path: local,
+        pathNot: ["^src/web/", units.contracts, "^src/(ui|supervisor)/index\\.ts$"],
+      },
     },
     {
       name: "web-sees-ui-types-only",
-      comment: "Unit map, tools import only contracts: src/web/ never imports ui code at runtime.",
+      comment:
+        "Unit map, tools import only contracts: src/web/ never imports ui or supervisor code at runtime.",
       severity: "error",
       from: { path: "^src/web/" },
-      to: { path: "^src/ui/", dependencyTypesNot: ["type-only"] },
+      to: { path: "^src/(ui|supervisor)/", dependencyTypesNot: ["type-only"] },
     },
     {
       name: "testkit-imports-only-core-and-flows",

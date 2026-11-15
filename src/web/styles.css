@@ -34,6 +34,8 @@
   --color-disabled: #606060; /* radix: gray-dark.8 */
   --color-warning: #ffca16; /* radix: amber-dark.11 */
   --color-danger: #ff9592; /* radix: red-dark.11 */
+  /* A running service on the dashboard. */
+  --color-success: #1fd8a4; /* radix: jade-dark.11 */
 
   /* Diff line backgrounds. Step 4, not 3: step 3 is the resting component
      background and sits so close to the page that the band reads as hue

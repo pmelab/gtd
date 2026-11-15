@@ -5,6 +5,7 @@ import type { FeedRunner } from "./Feeds.js"
 import type { ProjectView } from "./Scan.js"
 import type { Banner } from "./Snapshot.js"
 import { WorktreeRefusal, type Caller, type WorktreeChanges } from "./WorktreeChanges.js"
+import type { TerminalTab, TerminalView } from "./Terminal.js"
 
 interface WorkspaceRouterContext {
   /** Every project with its worktrees and their statuses, as of now. */
@@ -13,6 +14,9 @@ interface WorkspaceRouterContext {
   readonly banners: () => readonly Banner[]
   readonly actions: ActionRuns
   readonly feeds: FeedRunner
+  readonly terminal: TerminalTab["driver"]
+  /** Opens a shell pane, as the identity that sent the request. */
+  readonly openShell: (project: string, worktree: string) => Promise<TerminalView>
   /** Proceed or Retry, as the identity that sent the request. */
   readonly press: (
     action: PressAction,
@@ -114,6 +118,13 @@ export const workspaceRouter = t.router({
       return { ok: true as const }
     }),
   ),
+  /** The Terminal tab: how to attach to the driver's pane. */
+  terminal: t.procedure
+    .input(worktreeInput)
+    .query(({ ctx, input }) => refusals(() => ctx.terminal(input.project, input.worktree))),
+  openShell: t.procedure
+    .input(worktreeInput)
+    .mutation(({ ctx, input }) => refusals(() => ctx.openShell(input.project, input.worktree))),
   proceed: t.procedure
     .input(pressInput)
     .mutation(({ ctx, input }) => pressed(ctx.press("proceed", input))),
@@ -145,3 +156,5 @@ export const workspaceRouter = t.router({
       })
   }),
 })
+
+export type WorkspaceRouter = typeof workspaceRouter

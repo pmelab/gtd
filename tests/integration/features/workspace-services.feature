@@ -28,19 +28,6 @@ Feature: each worktree shows its service chips
       | portal/main  | web     | https://web.portal.example.ts.net       | yes     |             |
       | portal/login | web     | https://web.login.portal.example.ts.net | no      |             |
       | portal/login | jobs    |                                         | no      | exit code 3 |
-    And the dashboard page reads:
-      """
-      Projects
-      api
-      idle main Idle
-      portal
-      idle main Idle web (running)
-      idle login Idle web (stopped) jobs (error: exit code 3)
-      """
-    And the dashboard page links these services:
-      | service | url                                     |
-      | web     | https://web.portal.example.ts.net       |
-      | web     | https://web.login.portal.example.ts.net |
 
   @inmem
   Scenario: the services are listed again every pollEvery, not on each request
@@ -77,12 +64,7 @@ Feature: each worktree shows its service chips
     Then the Projects view lists:
       | project | worktree | status | label |
       | portal  | main     | idle   | Idle  |
-    And the dashboard page reads:
-      """
-      Projects
-      portal
-      idle main Idle services unavailable: the pitchfork supervisor is not running
-      """
+    And the Projects view shows "portal/main" with services unavailable: "the pitchfork supervisor is not running"
 
   @inmem
   Scenario: a services adapter written in gtd.workspace.ts replaces the default

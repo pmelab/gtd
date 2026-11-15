@@ -47,10 +47,14 @@ Then("the Projects view shows these service chips:", async (world: GtdWorld, tab
   assert.deepStrictEqual(rows, table.hashes())
 })
 
-Then("the dashboard page links these services:", async (world: GtdWorld, table: DataTable) => {
-  const html = await (await bench(world).request("/")).text()
-  const links = [...html.matchAll(/<a class="service[^"]*" href="([^"]*)">(.*?)<\/a>/g)].map(
-    ([, url, service]) => ({ service: service!, url: url! }),
-  )
-  assert.deepStrictEqual(links, table.hashes())
-})
+Then(
+  "the Projects view shows {string} with services unavailable: {string}",
+  async (world: GtdWorld, ref: string, message: string) => {
+    const [project, branch] = ref.split("/")
+    const worktree = (await bench(world).projects())
+      .find((p) => p.id === project)
+      ?.worktrees.find((w) => w.branch === branch)
+    assert.strictEqual(worktree?.servicesFailure?.message, message)
+    assert.deepStrictEqual(worktree.services, [])
+  },
+)
