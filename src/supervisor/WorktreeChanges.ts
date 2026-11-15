@@ -7,7 +7,7 @@ import {
   type WorktreesAdapter,
 } from "../workspace/index.js"
 import type { SpawnOutcome } from "../ui/index.js"
-import type { Audit } from "./Audit.js"
+import type { AuditLog } from "./Audit.js"
 import { branchProblem } from "./Branch.js"
 import type { Drivers } from "./Drivers.js"
 import { processEnded } from "./Status.js"
@@ -68,7 +68,8 @@ export interface WorktreeChangesDeps {
   readonly errorNote?: (worktree: string) => boolean
   /** Reads the project again, so the Projects view shows the change at once. */
   readonly refresh: (project: string) => Promise<void>
-  readonly audit: Audit
+  readonly audit: AuditLog
+  readonly now: () => number
 }
 
 export type RemoveResult = { readonly removed: true } | { readonly confirm: readonly string[] }
@@ -99,6 +100,17 @@ const messageOf = (error: unknown): string =>
   isAdapterFailure(error) || error instanceof Error ? error.message : String(error)
 
 export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
+  const accepted = (identity: string, procedure: string, project: string, worktree: string) =>
+    deps.audit.write({
+      time: new Date(deps.now()).toISOString(),
+      identity,
+      endpoint: `/trpc/${procedure}`,
+      project,
+      worktree,
+      action: procedure,
+      outcome: "accepted",
+    })
+
   const listed = async (project: string): Promise<readonly Worktree[]> => {
     try {
       return await deps.worktrees.list(project)
@@ -147,7 +159,7 @@ export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
         refuse("invalid", `${project} has a worktree on ${branch} already`)
       }
       const path = await create.call(deps.worktrees, project, branch, base)
-      deps.audit({ identity, endpoint: "createWorktree", project, worktree: branch })
+      accepted(identity, "createWorktree", project, branch)
       let failure: string | undefined
       try {
         await deps.services.up(project, path)
@@ -174,7 +186,7 @@ export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
       for (const { handle } of await paneStates(path)) await deps.terminal.close(handle)
       deps.drivers.forget(path)
       await remove.call(deps.worktrees, project, path, { force: confirm.length > 0 })
-      deps.audit({ identity, endpoint: "removeWorktree", project, worktree: nameOf(worktree) })
+      accepted(identity, "removeWorktree", project, nameOf(worktree))
       await deps.refresh(project)
       return { removed: true }
     },

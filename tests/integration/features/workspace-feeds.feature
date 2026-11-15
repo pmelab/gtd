@@ -94,6 +94,9 @@ Feature: feeds file items into the workspace inbox
       | feed       | key | title      | state    |
       | boardReady | 2   | Fix footer | proposed |
     And the workspace directory holds only "gtd.workspace.ts"
+    And the audit log reads:
+      | identity          | endpoint      | action  | outcome  |
+      | owner@example.com | /trpc/dismiss | dismiss | accepted |
 
   Scenario: deleting the state store brings dismissed items back and loses nothing else
     Given the command "gh issue list" prints:

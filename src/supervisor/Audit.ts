@@ -1,34 +1,48 @@
 import { appendFileSync, mkdirSync, renameSync, statSync } from "node:fs"
 import { join } from "node:path"
 
-/** One state change a person asked for. Field values never go in: they may hold anything. */
+/** One state change. It never carries field values: they may hold secrets. */
 export interface AuditEntry {
-  /** The tailnet login, or the peer address when the request carries none. */
+  /** ISO time. */
+  readonly time: string
+  /** The tailnet login, or `-` when gtd cannot know it. */
   readonly identity: string
-  /** The API procedure, for example `removeWorktree`. */
+  /** Where the change came in, such as `/trpc/proceed`. */
   readonly endpoint: string
-  readonly project: string
-  /** The worktree's branch, else its directory name. */
-  readonly worktree: string
-  readonly action?: string
+  readonly project?: string
+  readonly worktree?: string
+  /** The action id: `proceed`, `retry`, `dismiss`, … */
+  readonly action: string
+  readonly outcome: string
 }
 
-export type Audit = (entry: AuditEntry) => void
+export interface AuditLog {
+  readonly write: (entry: AuditEntry) => void
+}
 
-// One rotated file is kept: the log answers "who did what lately", not forever.
-const ROTATE_BYTES = 1024 * 1024
+const MAX_BYTES = 1024 * 1024
 
-/** `audit.log` in the state directory: one JSON line per state change. */
-export const auditLog =
-  (stateDirectory: string, now: () => number): Audit =>
-  (entry) => {
-    const file = join(stateDirectory, "audit.log")
-    mkdirSync(stateDirectory, { recursive: true, mode: 0o700 })
-    try {
-      if (statSync(file).size >= ROTATE_BYTES) renameSync(file, `${file}.1`)
-    } catch {
-      // No log yet.
-    }
-    const line = JSON.stringify({ time: new Date(now()).toISOString(), ...entry })
-    appendFileSync(file, `${line}\n`, { mode: 0o600 })
+const sizeOf = (file: string): number => {
+  try {
+    return statSync(file).size
+  } catch {
+    return 0
   }
+}
+
+/** `audit.log` in the state directory; a full one moves to `audit.log.1`, which keeps one generation. */
+export const auditLog = (
+  stateDirectory: string,
+  { maxBytes = MAX_BYTES }: { readonly maxBytes?: number } = {},
+): AuditLog => {
+  const file = join(stateDirectory, "audit.log")
+  return {
+    write: (entry) => {
+      const line = `${JSON.stringify(entry)}\n`
+      mkdirSync(stateDirectory, { recursive: true, mode: 0o700 })
+      const size = sizeOf(file)
+      if (size > 0 && size + Buffer.byteLength(line) > maxBytes) renameSync(file, `${file}.1`)
+      appendFileSync(file, line, { mode: 0o600 })
+    },
+  }
+}

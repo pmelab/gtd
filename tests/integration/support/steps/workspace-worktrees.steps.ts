@@ -60,7 +60,3 @@ Then("gtd made these adapter calls:", (world: GtdWorld, table: DataTable) => {
 Then("gtd made no adapter calls", (world: GtdWorld) => {
   assert.deepStrictEqual(bench(world).calls, [])
 })
-
-Then("the audit log reads:", (world: GtdWorld, expected: string) => {
-  assert.strictEqual(bench(world).auditLog(), `${expected.trim()}\n`)
-})

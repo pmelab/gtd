@@ -5,7 +5,6 @@ import {
   mkdirSync,
   mkdtempSync,
   readdirSync,
-  readFileSync,
   realpathSync,
   rmSync,
   writeFileSync,
@@ -144,6 +143,12 @@ export class WorkspaceBench {
   readonly files = new Map<string, string>()
   /** What the supervisor runs when a watched file changes, by path; each returns once that change is handled. */
   private readonly fileWatches = new Map<string, Set<() => Promise<void>>>()
+  /** Each driver one-shot the supervisor ran, in order. */
+  readonly oneShots: { readonly worktree: string; readonly argv: readonly string[] }[] = []
+  /** Worktrees whose driver refuses every one-shot, with its stderr. */
+  readonly refusing = new Map<string, string>()
+  /** Worktrees whose driver never answers a one-shot, as if it never listened. */
+  readonly silent = new Set<string>()
   /** A feed's `ctx.exec` answers, by argv joined with spaces. */
   readonly commands = new Map<string, ExecResult>()
   /** The feeds' clock. */
@@ -263,15 +268,6 @@ export class WorkspaceBench {
     }
   }
 
-  /** The supervisor's audit log, `""` when it has none. */
-  auditLog(): string {
-    try {
-      return readFileSync(join(stateDirectory(this.stateHome, this.root), "audit.log"), "utf8")
-    } catch {
-      return ""
-    }
-  }
-
   answer(path: string, outcome: SpawnOutcome): void {
     this.answers.set(path, outcome)
   }
@@ -296,6 +292,26 @@ export class WorkspaceBench {
     if (waiting !== undefined) await new Promise<void>((resume) => waiting.push(resume))
     this.running.delete(path)
     return this.nextIn(path)
+  }
+
+  /** Whether a driver runs in the worktree's newest pane and answers one-shots. */
+  private async driverListens(worktree: string): Promise<boolean> {
+    const pane = this.terminal
+      .panes()
+      .filter((p) => p.worktree === worktree)
+      .at(-1)
+    if (pane === undefined || this.silent.has(worktree)) return false
+    return (await this.terminal.adapter.status(pane.handle))?.alive === true
+  }
+
+  /** A driver one-shot: answered while the driver listens, else exit 2. */
+  private async oneShot(argv: readonly string[], worktree: string): Promise<ExecResult> {
+    this.oneShots.push({ worktree, argv })
+    if (!(await this.driverListens(worktree))) {
+      return { status: 2, stdout: "", stderr: "no driver runs\n" }
+    }
+    const refusal = this.refusing.get(worktree)
+    return { status: refusal === undefined ? 0 : 1, stdout: "", stderr: refusal ?? "" }
   }
 
   private nextIn(path: string): SpawnOutcome {
@@ -353,6 +369,7 @@ export class WorkspaceBench {
         watches.add(changed)
         return () => void watches.delete(changed)
       },
+      oneShot: (argv, worktree) => this.oneShot(argv, worktree),
     })
     const tools = Layer.succeed(UserlandTools, {
       exec: async (argv) => {

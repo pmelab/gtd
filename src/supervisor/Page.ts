@@ -38,7 +38,11 @@ const worktreeRow = (w: WorktreeView): string => {
     w.unavailable === undefined
       ? ""
       : ` <span class="unavailable">${escape(`${w.unavailable.adapter} unavailable`)}</span>`
-  return `<li class="${w.status}${w.unavailable === undefined ? "" : " greyed"}"><span class="status">${STATUS_TEXT[w.status]}</span> <b><a href="${escape(w.gate)}">${escape(name)}</a></b> <span class="label">${escape(detail)}</span>${unavailable}${serviceChips(w)}</li>`
+  return `<li class="${w.status}${w.unavailable === undefined ? "" : " greyed"}"><span class="status">${STATUS_TEXT[w.status]}</span> <b><a href="${escape(w.gate)}">${escape(name)}</a></b> <span class="label">${escape(detail)}</span>${unavailable}${serviceChips(w)}${
+    w.refusal === undefined
+      ? ""
+      : ` <span class="failure">${escape(`refused: ${w.refusal}`)}</span>`
+  }</li>`
 }
 
 const projectSection = (p: ProjectView): string =>

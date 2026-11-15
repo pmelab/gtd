@@ -38,6 +38,8 @@ export const driverPanes = (stateDirectory: string): DriverPanes => {
 
 export interface Drivers {
   readonly state: (worktree: string) => Promise<DriverState>
+  /** The project's driver command, `undefined` when none is configured. */
+  readonly command: (project: string) => readonly string[] | undefined
   /** Opens a pane running the project's driver command; `false` when none is configured. */
   readonly start: (
     project: string,
@@ -56,25 +58,31 @@ export const drivers = (
   terminal: TerminalAdapter,
   settings: () => WorkspaceSettings,
   panes: DriverPanes,
-): Drivers => ({
-  state: async (worktree) => {
-    const handle = panes.get(worktree)
-    if (handle === undefined) return { kind: "none" }
-    try {
-      const pane = await terminal.status(handle)
-      return pane === undefined ? { kind: "none" } : { kind: "pane", pane }
-    } catch {
-      return { kind: "unknown" }
-    }
-  },
-  start: async (project, worktree, env = {}) => {
+): Drivers => {
+  const command = (project: string): readonly string[] | undefined => {
     const { projects, driver } = settings()
-    const argv = projects?.[project]?.driver ?? driver
-    if (argv === undefined) return false
-    panes.set(worktree, await terminal.run(project, worktree, argv, env))
-    return true
-  },
-  pane: panes.get,
-  forget: panes.delete,
-  ...(terminal.watch !== undefined ? { watch: terminal.watch.bind(terminal) } : {}),
-})
+    return projects?.[project]?.driver ?? driver
+  }
+  return {
+    state: async (worktree) => {
+      const handle = panes.get(worktree)
+      if (handle === undefined) return { kind: "none" }
+      try {
+        const pane = await terminal.status(handle)
+        return pane === undefined ? { kind: "none" } : { kind: "pane", pane }
+      } catch {
+        return { kind: "unknown" }
+      }
+    },
+    command,
+    start: async (project, worktree, env = {}) => {
+      const argv = command(project)
+      if (argv === undefined) return false
+      panes.set(worktree, await terminal.run(project, worktree, argv, env))
+      return true
+    },
+    pane: panes.get,
+    forget: panes.delete,
+    ...(terminal.watch !== undefined ? { watch: terminal.watch.bind(terminal) } : {}),
+  }
+}

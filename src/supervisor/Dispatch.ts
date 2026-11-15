@@ -14,7 +14,7 @@ import {
 } from "../workspace/internal.js"
 import type { SpawnOutcome } from "../ui/index.js"
 import type { ActionRuns } from "./Actions.js"
-import type { Audit } from "./Audit.js"
+import type { AuditLog } from "./Audit.js"
 import { branchProblem } from "./Branch.js"
 import type { Drivers } from "./Drivers.js"
 import type { FeedRunner } from "./Feeds.js"
@@ -32,7 +32,8 @@ export interface DispatchDeps {
   readonly projects: () => readonly ProjectView[]
   /** Reads the project again, so the Projects view shows a new worktree at once. */
   readonly refresh: (project: string) => Promise<void>
-  readonly audit: Audit
+  readonly audit: AuditLog
+  readonly now: () => number
 }
 
 export interface Dispatcher {
@@ -171,12 +172,15 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
       const item = deps.feeds.items().find((i) => i.feed === feed && i.key === key)
       if (item?.state !== (action === "start" ? "proposed" : "failed")) return false
       set(item, { state: "approved" })
-      deps.audit({
+      const procedure = action === "start" ? "startItem" : "retryItem"
+      deps.audit.write({
+        time: new Date(deps.now()).toISOString(),
         identity,
-        endpoint: action === "start" ? "startItem" : "retryItem",
+        endpoint: `/trpc/${procedure}`,
         project: item.project,
         worktree: branchOf(item),
-        action: item.action,
+        action: procedure,
+        outcome: "accepted",
       })
       await pass()
       return true

@@ -257,6 +257,22 @@ Remove asks for confirmation when the tree has uncommitted changes (untracked
 files count) or when the branch is not integrated. A confirmed Remove throws
 away those changes and commits.
 
+## Proceed and Retry
+
+A worktree that needs you has Proceed. A worktree in error has Retry. Each sends
+the HEAD commit that the page showed. gtd refuses the press when the worktree's
+HEAD is now a different commit. Else it runs `<driver> proceed <commit>` or
+`<driver> retry <commit>` in the worktree (see
+[Workspace drivers](./driver.md#workspace-drivers)). When the driver answers
+that no driver runs (exit 2), gtd starts the driver and sends the press again
+for up to 5 seconds. A refusal shows on the worktree, with the driver's first
+line of stderr, until the next accepted press or a new HEAD.
+
+The API is the tRPC mutations `proceed` and `retry` under `/trpc`, each with
+`{ worktree, commit }`: `worktree` is the worktree's `path` and `commit` is its
+`head` as the query `projects` returns them. A refusal answers 409 with the
+reason; an unknown worktree answers 404.
+
 ## Gate pages
 
 The supervisor also serves the gate page of every worktree, at
@@ -388,13 +404,13 @@ Every request, to the dashboard and to the gate pages, must come from a tailnet
 user in `ui.users`. Other users get 403. Requests that change state must be
 POSTs with a JSON body from the dashboard's own origin.
 
-Each New worktree, Remove, Start and Retry adds one line to `audit.log` in the
-supervisor's state directory: a JSON object with `time`, `identity` (the tailnet
-login), `endpoint`, `project`, `worktree` (the branch) and, for Start and Retry,
-`action`. Field values are never written. At 1 MiB the log moves to
-`audit.log.1`.
-
 The supervisor keeps its state in `~/.local/state/gtd/workspace/` (or under
 `$XDG_STATE_HOME`). Nothing goes into your repositories. Deleting that state
 loses the dismissals and what gtd knows of started and failed items; the next
 polls file every waiting item again.
+
+Every state change (Proceed, Retry, Dismiss, New worktree, Remove, and Start and
+Retry of an item) adds one JSON line to `audit.log` in that directory: `time`,
+`identity` (the tailnet login, `-` when unknown), `endpoint`, `project`,
+`worktree`, `action` and `outcome`. It never holds the values of fields. When
+the log reaches 1 MiB, it moves to `audit.log.1`, replacing the older one.

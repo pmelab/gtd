@@ -16,6 +16,7 @@ import {
 import { actionRuns } from "./Actions.js"
 import { auditLog } from "./Audit.js"
 import { findWorkspaceModule, loadWorkspace, reloadWorkspace } from "./Config.js"
+import { controls } from "./Controls.js"
 import { dispatcher } from "./Dispatch.js"
 import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf } from "./Gate.js"
@@ -111,7 +112,18 @@ export const runWorkspaceCommand = (
       })
       closeSnapshot = snapshot.close
       yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })
-      const audit = auditLog(directory, clock.now)
+      const audit = auditLog(directory)
+      const control = controls({
+        worktrees,
+        drivers: driverRuns,
+        projects: snapshot.projects,
+        oneShot: host.oneShot,
+        after: host.after,
+        refreshDriver: snapshot.refreshDriver,
+        audit,
+        now: clock.now,
+      })
+      const projects = () => control.withRefusals(snapshot.projects())
       const feeds = feedRunner({
         feeds: loaded.feeds,
         root,
@@ -138,6 +150,7 @@ export const runWorkspaceCommand = (
         projects: snapshot.projects,
         refresh: snapshot.refresh,
         audit,
+        now: clock.now,
       })
       const changes = worktreeChanges({
         worktrees,
@@ -149,6 +162,7 @@ export const runWorkspaceCommand = (
         starting: dispatch.starting,
         refresh: snapshot.refresh,
         audit,
+        now: clock.now,
       })
 
       const reload = reloadWorkspace({
@@ -190,7 +204,7 @@ export const runWorkspaceCommand = (
         })(request, afterResponse, peer)
       }
 
-      const handler: UiHandler = async (request, afterResponse, peer) => {
+      const handler: UiHandler = async (request, afterResponse, peer, identity) => {
         const path = new URL(request.url).pathname
         if (path === TRPC || path.startsWith(`${TRPC}/`)) {
           return fetchRequestHandler({
@@ -198,13 +212,35 @@ export const runWorkspaceCommand = (
             req: request,
             router: workspaceRouter,
             createContext: () => ({
-              projects: snapshot.projects,
+              projects,
               banners,
               actions,
-              feeds,
+              feeds: {
+                ...feeds,
+                dismiss: (feed: string, key: string) => {
+                  const item = feeds.items().find((i) => i.feed === feed && i.key === key)
+                  const dismissed = feeds.dismiss(feed, key)
+                  audit.write({
+                    time: new Date(clock.now()).toISOString(),
+                    identity: identity ?? "-",
+                    endpoint: path,
+                    ...(item !== undefined ? { project: item.project } : {}),
+                    action: "dismiss",
+                    outcome: dismissed ? "accepted" : "unknown",
+                  })
+                  return dismissed
+                },
+              },
+              press: (action, input) =>
+                control.press({
+                  action,
+                  ...input,
+                  ...(identity !== undefined ? { identity } : {}),
+                  endpoint: path,
+                }),
               dispatch,
               worktreeChanges: changes,
-              identity: request.headers.get("tailscale-user-login") ?? peer ?? "unknown",
+              identity: identity ?? "-",
             }),
           })
         }
@@ -212,7 +248,7 @@ export const runWorkspaceCommand = (
           new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } })
         if (path === "/inbox") return html(inboxPage(feeds.items(), feeds.feeds()))
         if (path !== "/") return gatePage(request, afterResponse, peer)
-        return html(projectsPage(snapshot.projects(), banners()))
+        return html(projectsPage(projects(), banners()))
       }
 
       const { url, close } = yield* exposeHandler({
