@@ -5,8 +5,11 @@ import { stateDirectory } from "../../../../src/supervisor/index.js"
 import type { GtdWorld } from "../world.js"
 import { bench } from "./workspace.steps.js"
 
+// A 'single-quoted' part is one word.
 const words = (command: string): string[] => {
-  const [gtd, ...args] = command.split(" ")
+  const [gtd, ...args] = (command.match(/'[^']*'|\S+/g) ?? []).map((word) =>
+    word.startsWith("'") ? word.slice(1, -1) : word,
+  )
   assert.strictEqual(gtd, "gtd", `not a gtd command: ${command}`)
   return args
 }

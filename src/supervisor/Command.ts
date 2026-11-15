@@ -17,7 +17,7 @@ import {
 import { actionRuns } from "./Actions.js"
 import { auditLog } from "./Audit.js"
 import { findWorkspaceModule, loadWorkspace, reloadWorkspace } from "./Config.js"
-import { controls } from "./Controls.js"
+import { controls, type Controls } from "./Controls.js"
 import { dispatcher } from "./Dispatch.js"
 import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf } from "./Gate.js"
@@ -27,7 +27,14 @@ import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
 import { liveSnapshot, type Banner } from "./Snapshot.js"
-import { serveSocket, socketPath } from "./Socket.js"
+import { notes, type Notes } from "./Notes.js"
+import {
+  drainSpool,
+  serveSocket,
+  socketPath,
+  type ControlReply,
+  type ControlRequest,
+} from "./Socket.js"
 import { worktreeChanges } from "./WorktreeChanges.js"
 import { terminalTab } from "./Terminal.js"
 import { worktreeStatus } from "./Status.js"
@@ -40,6 +47,24 @@ export interface WorkspaceCommand {
 }
 
 const TRPC = "/trpc"
+
+/** One dispatcher for the socket and the spool; `endpoint` goes into the audit log. */
+const controlHandler =
+  (noted: Notes, control: Controls) =>
+  (endpoint: string) =>
+  async (request: ControlRequest): Promise<ControlReply> => {
+    if (request.command === "note") {
+      const refusal = noted.note(request.worktree, request.note, endpoint)
+      return refusal === undefined ? { ok: true } : { ok: false, message: refusal }
+    }
+    const outcome = await control.press({
+      action: request.command,
+      worktree: request.worktree,
+      commit: request.commit,
+      endpoint,
+    })
+    return outcome.outcome === "accepted" ? { ok: true } : { ok: false, message: outcome.message }
+  }
 
 const asUiError = (error: unknown): UiError =>
   error instanceof UiError
@@ -96,13 +121,24 @@ export const runWorkspaceCommand = (
       const services = settings.adapters?.services ?? host.defaultServices()
       const panes = driverPanes(directory)
       const driverRuns = drivers(terminal, config, panes)
+      const store = openStore(directory)
+      const audit = auditLog(directory)
+      const noted = notes({
+        store,
+        projects: () => snapshot.projects(),
+        audit,
+        now: clock.now,
+      })
       const actions = actionRuns({
         worktrees,
         actions: settings.adapters?.actions ?? host.defaultActions(),
         terminal,
         drivers: driverRuns,
         status: async (worktree) =>
-          worktreeStatus(await host.next(worktree), await driverRuns.state(worktree)),
+          noted.withNote(
+            worktree,
+            worktreeStatus(await host.next(worktree), await driverRuns.state(worktree)),
+          ),
       })
       const snapshot = liveSnapshot({
         worktrees,
@@ -116,7 +152,6 @@ export const runWorkspaceCommand = (
       })
       closeSnapshot = snapshot.close
       yield* Effect.tryPromise({ try: snapshot.start, catch: asUiError })
-      const audit = auditLog(directory)
       const control = controls({
         worktrees,
         drivers: driverRuns,
@@ -127,20 +162,15 @@ export const runWorkspaceCommand = (
         audit,
         now: clock.now,
       })
-      const projects = () => control.withRefusals(snapshot.projects())
+      const projects = () => noted.withNotes(control.withRefusals(snapshot.projects()))
+      const handleControl = controlHandler(noted, control)
+      // Before the socket opens: a spooled note is older than any sent to it.
+      const spoolRefusals = yield* Effect.tryPromise({
+        try: () => drainSpool(directory, handleControl("spool")),
+        catch: asUiError,
+      })
       const socket = yield* Effect.tryPromise({
-        try: () =>
-          serveSocket(socketPath(directory), async (request) => {
-            const outcome = await control.press({
-              action: request.command,
-              worktree: request.worktree,
-              commit: request.commit,
-              endpoint: "cli",
-            })
-            return outcome.outcome === "accepted"
-              ? { ok: true }
-              : { ok: false, message: outcome.message }
-          }),
+        try: () => serveSocket(socketPath(directory), handleControl("cli")),
         catch: asUiError,
       })
       closeSocket = socket.close
@@ -160,7 +190,7 @@ export const runWorkspaceCommand = (
         fetch: tools.fetch,
         now: clock.now,
         every: clock.every,
-        store: openStore(directory),
+        store,
         log: (line) => {
           out.write(line)
           out.flush()
@@ -189,6 +219,7 @@ export const runWorkspaceCommand = (
         panes: actions.panes,
         starting: dispatch.starting,
         refresh: snapshot.refresh,
+        errorNote: noted.errorNote,
         audit,
         now: clock.now,
       })
@@ -293,6 +324,7 @@ export const runWorkspaceCommand = (
       })
       lock.serving(url)
       out.write(`${url}\n`)
+      out.write(spoolRefusals.map((refusal) => `spool ${refusal}\n`).join(""))
       out.flush()
       feeds.start()
       yield* Effect.never.pipe(
