@@ -1,5 +1,6 @@
 import { readFileSync, renameSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import type { Entry } from "../workspace/internal.js"
 
 /**
  * `state.json` in the state directory. Everything in it can be rebuilt: a
@@ -9,9 +10,23 @@ import { join } from "node:path"
 export interface Store {
   readonly dismissed: () => readonly string[]
   readonly saveDismissed: (ids: Iterable<string>) => void
+  /** The items a person started, and those gtd dispatched. */
+  readonly items: () => readonly Entry[]
+  readonly saveItems: (entries: readonly Entry[]) => void
 }
 
 type StoreData = Record<string, unknown>
+
+// gtd writes this file itself: a shape check is enough to skip a hand-edited entry.
+const isEntry = (value: unknown): value is Entry => {
+  const entry = value as Partial<Entry> | null
+  return (
+    typeof entry?.feed === "string" &&
+    typeof entry.project === "string" &&
+    typeof entry.item?.key === "string" &&
+    typeof entry.dispatch?.state === "string"
+  )
+}
 
 export const openStore = (directory: string): Store => {
   const path = join(directory, "state.json")
@@ -36,5 +51,10 @@ export const openStore = (directory: string): Store => {
       return Array.isArray(ids) ? ids.filter((id): id is string => typeof id === "string") : []
     },
     saveDismissed: (ids) => write({ ...read(), dismissed: [...ids].sort() }),
+    items: () => {
+      const entries = read()["items"]
+      return Array.isArray(entries) ? entries.filter(isEntry) : []
+    },
+    saveItems: (entries) => write({ ...read(), items: entries }),
   }
 }
