@@ -49,11 +49,17 @@ const compositionRootTests = compositionRoots.map((root) =>
 // They bind production code; a rule that says "tests included" binds a unit's
 // tests too.
 const units = {
-  contracts: "^src/(flows|wire|steering)/",
+  contracts: "^src/(flows|wire|steering|workspace)/",
   core: "^src/(cli|edge|emit|flags|install|platform|replay|step|workflow)/",
   kit: "^src/workflow-kit/",
   drivers: "^claude/",
-  tools: "^src/(ui|web|lsp|judges)/",
+  tools: "^src/(ui|web|lsp|judges|supervisor)/",
+  // The bundled workspace adapters, `@pmelab/gtd/workspace/adapters`: plain
+  // TypeScript over Node, built on the workspace contract alone.
+  adapters: "^src/workspace-adapters/",
+  // The adapter contract-test kit, `@pmelab/gtd/workspace/adapters/testkit`:
+  // runner-agnostic cases over the workspace contract.
+  adapterKit: "^src/workspace-testkit/",
   testkit: "^src/testkit/",
   // The in-memory twins of git, the repo files and the CLI io the testkit and
   // gtd's own tests run on. Never a package subpath: their shape follows the engine.
@@ -89,7 +95,7 @@ const npmAllowList = [
       units.core,
       units.testkit,
       units.twins,
-      "^src/(lsp|ui|judges)/",
+      "^src/(lsp|ui|judges|supervisor)/",
       ...compositionRoots,
       ...compositionRootTests,
       "^tests/",
@@ -134,7 +140,7 @@ const npmAllowList = [
     ],
     units: ["^src/web/"],
   },
-  { packages: ["@trpc/server", "@trpc/client"], units: ["^src/(ui|web)/", "^tests/"] },
+  { packages: ["@trpc/server", "@trpc/client"], units: ["^src/(ui|web|supervisor)/", "^tests/"] },
   {
     packages: ["vscode-languageserver", "vscode-languageserver-textdocument"],
     units: ["^src/lsp/"],
@@ -279,9 +285,9 @@ export default {
     {
       name: "contracts-import-nothing-outside-themselves",
       comment:
-        "Unit map, contracts import nothing outside themselves: src/flows/, src/wire/ and src/steering/ each import only their own folder.",
+        "Unit map, contracts import nothing outside themselves: src/flows/, src/wire/, src/steering/ and src/workspace/ each import only their own folder.",
       severity: "error",
-      from: { path: "^src/(flows|wire|steering)/", pathNot: productionExcluded },
+      from: { path: "^src/(flows|wire|steering|workspace)/", pathNot: productionExcluded },
       to: { path: local, pathNot: "^src/$1/" },
     },
     {
@@ -344,6 +350,30 @@ export default {
       to: { path: local, pathNot: ["^src/$1/", units.contracts, "^src/platform/"] },
     },
     {
+      name: "supervisor-imports-contracts-ui-and-adapters",
+      comment:
+        "Unit map, tools import only contracts: src/supervisor/ also serves through the ui's exposure and request checks and defaults to the bundled adapters, through their barrels.",
+      severity: "error",
+      from: { path: "^src/supervisor/", pathNot: productionExcluded },
+      to: {
+        path: local,
+        pathNot: [
+          "^src/supervisor/",
+          units.contracts,
+          "^src/ui/index\\.ts$",
+          "^src/workspace-adapters/index\\.ts$",
+        ],
+      },
+    },
+    {
+      name: "adapters-import-only-the-workspace-contract",
+      comment:
+        "Unit map: the bundled adapters and their contract-test kit are what a userland adapter could be — built on the workspace contract alone. The adapters' tests also run the kit.",
+      severity: "error",
+      from: { path: "^(src/workspace-adapters|src/workspace-testkit)/", pathNot: "\\.test\\.ts$" },
+      to: { path: local, pathNot: ["^src/workspace/", "^$1/"] },
+    },
+    {
       name: "web-imports-only-contracts",
       comment:
         "Unit map, tools import only contracts: src/web/ imports itself and the contracts, plus the ui router's TYPES — the tRPC client is typed by the server it talks to, and a type import is erased before it runs.",
@@ -366,7 +396,14 @@ export default {
       from: { path: [units.testkit, units.twins] },
       to: {
         path: "^src/",
-        pathNot: [units.testkit, units.twins, units.gherkin, units.core, units.contracts],
+        pathNot: [
+          units.testkit,
+          units.twins,
+          units.gherkin,
+          units.core,
+          units.contracts,
+          units.adapterKit,
+        ],
       },
     },
     {
@@ -397,7 +434,7 @@ export default {
       comment:
         "Unit map, only composition roots import drivers and tools: they reach the CLI as the ToolCommands port, provided in src/program.ts.",
       severity: "error",
-      from: { path: "^(src/[^/]+|claude)/", pathNot: productionExcluded },
+      from: { path: "^(src/[^/]+|claude)/", pathNot: [productionExcluded, "^src/supervisor/"] },
       to: {
         path: [units.drivers, units.tools],
         pathNot: "^$1/",
@@ -410,7 +447,7 @@ export default {
         "Unit map, npm dependencies — a Node builtin is one too: src/flows/ and src/steering/ load standalone, the kit and claude/'s hooks run where Node's modules may be missing.",
       severity: "error",
       from: {
-        path: ["^src/(flows|steering|workflow-kit)/", "^claude/"],
+        path: ["^src/(flows|steering|workflow-kit|workspace|workspace-testkit)/", "^claude/"],
         pathNot: productionExcluded,
       },
       to: { dependencyTypes: ["core"] },

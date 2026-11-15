@@ -39,7 +39,7 @@ const NODE_BANNER = `#!/usr/bin/env node
 import { createRequire as __createRequire } from 'module';
 const require = __createRequire(import.meta.url);`
 
-// A pinned process carries no ui or lsp: loading either fails, and the
+// A pinned process carries no ui, lsp or supervisor: loading one fails, and the
 // command that loaded it fails with this message as a GtdError.
 const PINNED_STUB = "\0gtd-core-stub"
 const withoutUiAndLsp = {
@@ -49,9 +49,11 @@ const withoutUiAndLsp = {
     source: string,
     importer: string | undefined,
   ) {
-    if (!/(^|\/)(ui|lsp)\/index\.js$/.test(source)) return null
+    if (!/(^|\/)(ui|lsp|supervisor)\/index\.js$/.test(source)) return null
     const resolved = await this.resolve(source, importer)
-    return resolved && /[\\/]src[\\/](ui|lsp)[\\/]index\.ts$/.test(resolved.id) ? PINNED_STUB : null
+    return resolved && /[\\/]src[\\/](ui|lsp|supervisor)[\\/]index\.ts$/.test(resolved.id)
+      ? PINNED_STUB
+      : null
   },
   load(id: string) {
     return id === PINNED_STUB ? 'throw new Error("not available in a pinned process")' : null
@@ -130,13 +132,21 @@ const pack: PackUserConfig[] = [
       "workflow-kit": "src/workflow-kit/index.ts",
       testkit: "src/testkit/index.ts",
       "testkit/gherkin": "src/gherkin/index.ts",
+      workspace: "src/workspace/index.ts",
+      "workspace/adapters": "src/workspace-adapters/index.ts",
+      "workspace/adapters/testkit": "src/workspace-testkit/index.ts",
     },
     format: ["esm"],
     platform: "node",
     target: "node20",
     outDir: "dist",
     outExtensions: () => ({ js: ".mjs" }),
-    clean: ["dist/chunks", "dist/testkit", "dist/{flows,wire,steering,workflow-kit,testkit}.mjs"],
+    clean: [
+      "dist/chunks",
+      "dist/testkit",
+      "dist/workspace",
+      "dist/{flows,wire,steering,workflow-kit,testkit,workspace}.mjs",
+    ],
     // The test runner the gherkin steps run inside is the consumer's own: its
     // optional peers stay imports.
     deps: { alwaysBundle: (id) => !/^(vitest|quickpickle|@vitest\/)/.test(id) },

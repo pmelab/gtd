@@ -1,4 +1,4 @@
-import { Effect, Option, type Path, Schema } from "effect"
+import { Effect, Option, Path, Schema } from "effect"
 import {
   GtdError,
   GtdUsageError,
@@ -22,6 +22,7 @@ import {
   pin,
   refuseLegacyRc,
   ConfigService,
+  evaluateModule,
   formatDiagnostic,
   type PendingChange,
   type StateName,
@@ -143,6 +144,14 @@ export type Command =
       readonly selfSigned: boolean
       readonly http?: boolean
       readonly dev: boolean
+    }
+  | {
+      readonly kind: "workspace"
+      readonly config?: string
+      readonly host?: string
+      readonly port?: number
+      readonly selfSigned: boolean
+      readonly http?: boolean
     }
   | {
       readonly kind: "land"
@@ -1112,6 +1121,30 @@ const runUiCliCommand = (
   })
 
 /**
+ * `gtd workspace` runs outside any repository: its config is
+ * `gtd.workspace.ts`, found from the invoking directory up.
+ */
+const runWorkspaceCliCommand = (
+  command: Extract<Command, { kind: "workspace" }>,
+  out: ArtifactOut,
+): Effect.Effect<void, Error, ToolCommands | Host | Path.Path> =>
+  Effect.gen(function* () {
+    const host = yield* Host
+    const paths = yield* Path.Path
+    const { kind: _, ...flags } = command
+    const stateHome = host.env["XDG_STATE_HOME"] || paths.join(host.home, ".local", "state")
+    yield* (yield* ToolCommands).workspace(
+      {
+        flags,
+        cwd: host.root,
+        stateHome,
+        loadModule: (file) => evaluateModule(paths, file),
+      },
+      out,
+    )
+  })
+
+/**
  * Everything gtd derives is resolved against the process cwd, so running
  * from anywhere but the repository root would silently mis-derive state.
  * Refuses with a clear error instead. Real paths are compared so symlinked
@@ -1169,6 +1202,7 @@ export const needsOf = (kind: Command["kind"]): Needs => {
     case "guide":
     case "judgeRun":
     case "strays":
+    case "workspace":
       return "none"
     case "check":
       return "fs"
@@ -1184,6 +1218,7 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
   "guide",
   "judgeRun",
   "strays",
+  "workspace",
 ]
 
 /**
@@ -1212,6 +1247,8 @@ const dispatchVoidCommand = (
       return runLspCommand()
     case "ui":
       return runUiCliCommand(command, out)
+    case "workspace":
+      return runWorkspaceCliCommand(command, out)
     case "land":
       return runLandCommand(
         {

@@ -47,6 +47,9 @@ export interface UiCommandOptions {
   readonly dev: boolean
 }
 
+/** How a server is reached: the flags `gtd ui` and `gtd workspace` share. */
+export type ExposeOptions = Omit<UiCommandOptions, "dev">
+
 interface BoundServer {
   readonly port: number
   readonly close: () => void
@@ -82,7 +85,7 @@ export const resolveBindHost = (
  * hostname; a self-signed cert for a CGNAT IP warns on every load.
  */
 export const resolveCertPair = (
-  options: UiCommandOptions,
+  options: ExposeOptions,
   config: UiConfig | undefined,
   bindHost: string,
   displayHost: string,
@@ -408,7 +411,7 @@ const refusalFor = (step: StepRead): UiUsageError => {
  * given, and `displayHost` falls back to `bindHost` whenever it doesn't.
  */
 const resolveHostsAndCert = (
-  options: UiCommandOptions,
+  options: ExposeOptions,
   config: UiConfig | undefined,
 ): Effect.Effect<
   { readonly bindHost: string; readonly displayHost: string; readonly certPair: CertPair },
@@ -601,7 +604,7 @@ const isLoopbackHost = (host: string): boolean =>
   (isIP(host) === 4 && host.startsWith("127."))
 
 const httpBind = (
-  options: UiCommandOptions,
+  options: ExposeOptions,
   explicitHost: string | undefined,
   explicitPort: number | undefined,
   uiListener: Context.Service.Shape<typeof UiListener>,
@@ -633,7 +636,7 @@ const httpBind = (
  * failure reason above the URL before falling back. Never a refusal either way.
  */
 const resolveListener = (args: {
-  readonly options: UiCommandOptions
+  readonly options: ExposeOptions
   readonly config: UiConfig | undefined
   readonly explicitPort: number | undefined
   readonly explicitHost: string | undefined
@@ -744,10 +747,6 @@ export const runUiCommand = (
 
     const runner = yield* UiShell
     const fs = yield* FileSystem.FileSystem
-    const uiListener = yield* UiListener
-
-    const explicitPort = normalizePort(options.port ?? config?.port)
-    const explicitHost = options.host ?? config?.host
 
     // T5: resolved ONCE, here, ahead of `uiListener.listen` — never inside
     // the request handler. The server lives for exactly one step, so a
@@ -830,8 +829,39 @@ export const runUiCommand = (
       })
     }
 
+    const { url, close } = yield* exposeHandler({ options, config, handler, label: root, out })
+
+    out.write(`${url}\n`)
+    out.flush()
+    yield* Deferred.await(movedOnDeferred).pipe(Effect.ensuring(close))
+  })
+
+/** A server listening, and how to stop it and undo its `tailscale serve` mapping. */
+export interface Exposed {
+  readonly url: string
+  readonly close: Effect.Effect<void, never, UiShell | UiHost>
+}
+
+/**
+ * Serves `handler` the way `gtd ui` does: through `tailscale serve`, on the
+ * tailnet interface, or behind `--http`, with every request held to the
+ * tailnet identity and same-origin checks (ADR 0014). `label` names the
+ * server in its serve ownership record.
+ */
+export const exposeHandler = (args: {
+  readonly options: ExposeOptions
+  readonly config: UiConfig | undefined
+  readonly handler: UiHandler
+  readonly label: string
+  readonly out: UiOut
+}): Effect.Effect<Exposed, UiError, UiShell | UiHost | FileSystem.FileSystem | UiListener> =>
+  Effect.gen(function* () {
+    const { options, config, handler, label, out } = args
+    const runner = yield* UiShell
+    const uiListener = yield* UiListener
+
     // Looked up on first use and kept once known, so a tailnet that comes up
-    // after `gtd ui` starts is still picked up.
+    // after the server starts is still picked up.
     const tailnet = <A>(effect: Effect.Effect<A, never, UiShell>): Promise<A> =>
       Effect.runPromise(effect.pipe(Effect.provideService(UiShell, runner)))
     let owner: string | undefined
@@ -852,17 +882,12 @@ export const runUiCommand = (
     const { bound, url, teardown } = yield* resolveListener({
       options,
       config,
-      explicitPort,
-      explicitHost,
-      worktree: root,
+      explicitPort: normalizePort(options.port ?? config?.port),
+      explicitHost: options.host ?? config?.host,
+      worktree: label,
       uiListener,
       handlerFor: (exposure) => guard({ exposure, users, whois: peerLogin }, handler),
       out,
     })
-
-    out.write(`${url}\n`)
-    out.flush()
-    yield* Deferred.await(movedOnDeferred).pipe(
-      Effect.ensuring(Effect.sync(() => bound.close()).pipe(Effect.andThen(teardown))),
-    )
+    return { url, close: Effect.sync(() => bound.close()).pipe(Effect.andThen(teardown)) }
   })

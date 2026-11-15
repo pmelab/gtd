@@ -165,7 +165,7 @@ describe("parseArgv — scope", () => {
     const plan = parseArgv(["node", "gtd.js", "next", "--host", "x"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") {
-      expect(plan.message).toBe("gtd: --host is only valid for `gtd ui`")
+      expect(plan.message).toBe("gtd: --host is only valid for `gtd ui` and `gtd workspace`")
     }
   })
 
@@ -937,7 +937,7 @@ describe("parseArgv — gtd strays", () => {
 
 describe("standaloneKinds / needsOf", () => {
   it("pins the standalone kinds", () => {
-    expect(standaloneKinds()).toEqual(["lsp", "check", "guide", "judgeRun", "strays"])
+    expect(standaloneKinds()).toEqual(["lsp", "check", "guide", "judgeRun", "strays", "workspace"])
   })
 
   it("needsOf matches none/fs for the standalone kinds and state for everything else", () => {

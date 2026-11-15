@@ -60,8 +60,8 @@ histories written by an older or newer gtd.
 - **CLI** — every command (`next`, `land`, `start`, `abandon`, `restore`,
   `repin`, `check`, `guide`, `bundle`, `summary`, `base`, `strays`,
   `history list`, `history show`, `history fetch`, `version`, `help`, `ui`,
-  `lsp`, `judge`, `judge answer`, `judge run`), option and argument in
-  [CLI reference](docs/cli.md) — the bare `gtd start --json` and
+  `workspace`, `lsp`, `judge`, `judge answer`, `judge run`), option and argument
+  in [CLI reference](docs/cli.md) — the bare `gtd start --json` and
   `gtd history list --json` arrays (bare arrays with no `schema`), and
   `gtd history show --json` (no `schema`; not a driver document).
 - **The error envelope and stream discipline** — `{ "state": "error", … }` on
@@ -83,6 +83,11 @@ histories written by an older or newer gtd.
   - `@pmelab/gtd/testkit/gherkin`: its `TestkitWorld` and the wording of every
     step it registers (see [Testing a workflow](docs/testing.md#steps)), with
     its optional peers `vitest` and `quickpickle`
+  - `@pmelab/gtd/workspace`: `defineWorkspace`, `AdapterError` and the adapter
+    interfaces — a change to an interface breaks userland adapters (ADR 0013)
+  - `@pmelab/gtd/workspace/adapters`
+  - `@pmelab/gtd/workspace/adapters/testkit`: the contract cases every adapter
+    passes
 
   An export marked `@deprecated` keeps its name, type and behaviour until a
   major release removes it.

@@ -313,3 +313,64 @@ title, a sentence on what it changes and why, and its hunk pointers.
 
 **Hunk**: One `- [ ] ./path/to/file.ts#42-70` pointer inside a chunk — a place
 to look, and a box a reviewer ticks.
+
+### Workspace
+
+**Workspace**: A directory of [projects](#project) that one dashboard covers,
+marked by a `gtd.workspace.ts` at its root. _Avoid_: bench, workbench, fleet
+
+**Project**: One repository in a workspace, with all its worktrees. Its id is
+what the worktrees [adapter](#adapter) reports. _Avoid_: repo (in the
+dashboard), site
+
+**Supervisor**: The one long-running `gtd workspace` process of a workspace. It
+reads every worktree, serves the dashboard and the gate pages, and dispatches.
+It decides nothing about a process. _Avoid_: daemon, server, orchestrator
+
+**Adapter**: The workspace's link to one outside tool: terminal, services,
+worktrees, actions or notifications. Each has a bundled default that a workspace
+can replace. _Avoid_: plugin, provider, backend
+
+**Driver command**: The command the supervisor starts in a worktree to drive its
+process — as the only command of a new terminal pane, never as its own child. It
+takes no arguments and answers `proceed <commit>`, `retry <commit>` and `quit`,
+where the commit is the HEAD the person saw. _Avoid_: agent command, runner,
+rest id (the commit names the rest)
+
+**Worktree status**: What a worktree needs, as the dashboard shows it: needs
+you, working, error or idle. Derived from `gtd next` and the driver's OSC
+record. _Avoid_: row, card, tile
+
+**Action**: A command a person can run on a worktree from the dashboard, with
+fields to fill in. Start actions begin work in an idle worktree. _Avoid_: task
+(in the dashboard), button, command
+
+**Feed**: Workspace code that looks at a source (a board, a tracker, open pull
+requests) on a schedule and returns the [items](#item) that match now. _Avoid_:
+trigger, rule, watcher, poller
+
+**Inbox**: The items a workspace knows about that have not started, or failed to
+start. _Avoid_: queue, backlog
+
+**Item**: One piece of work a feed found, with the start action that begins it.
+_Avoid_: queue item, ticket, job
+
+**Propose / Queue**: The two modes of a feed. A proposed item waits for a person
+to Start or [Dismiss](#dismiss) it; a queued item is dispatched without one.
+
+**Dispatch**: Starting an item: making or choosing its worktree and running its
+start action, within the limits and pauses. _Avoid_: launch, schedule
+
+**Dismiss**: Hiding a proposed or failed item until its feed stops returning it.
+_Avoid_: reject, delete
+
+**Note**: A message that workspace code puts on a worktree, for things gtd does
+not track itself, such as an open pull request or a failed deploy. An **error
+note** turns the worktree status to error. _Avoid_: mark, event, label, flag
+
+**Reaction**: Workspace code that runs when a worktree status changes, for
+example to try a fix when it turns to error. _Avoid_: hook, handler, listener
+
+**Integrated**: Said of a worktree whose branch has commits of its own, all of
+them already on the default branch. Only an integrated worktree is cleaned up
+automatically. _Avoid_: merged, done

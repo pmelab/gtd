@@ -26,6 +26,7 @@ Inspect:
   history show <ref>        Replay one finished process
   history fetch [remote]    Print a script that fetches finished processes
   ui                        Serve the web and phone client
+  workspace                 Serve the dashboard of a workspace
 
 Driver plumbing:
   guide                     Print a briefing for writing a driver
@@ -564,6 +565,32 @@ Options:
                       127.0.0.1 unless a loopback --host is given
   --dev               Serve local development sources instead of the packaged
                       build
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace`
+
+```
+Usage: gtd workspace [options]
+
+Run the supervisor of the workspace whose gtd.workspace.ts is innermost from the
+current directory, or the one --config names, and serve its dashboard: every
+worktree of every project, each with its worktree status. It is published like
+`gtd ui`. Only one supervisor runs for a workspace: a second one exits 1 and
+prints the pid and URL of the first. It runs until a signal ends it.
+
+Options:
+  --port=<n>          The tailscale serve port (default: the first free of 8443,
+                      10000, 443), or with --host or --http the port to bind
+                      (default: any free one)
+  --host=<addr>       Bind this address directly instead of publishing through
+                      tailscale serve
+  --self-signed       Bind directly with a throwaway self-signed certificate
+                      instead of the configured ui.cert/ui.key
+  --http              Serve plain HTTP for a local TLS-terminating proxy; binds
+                      127.0.0.1 unless a loopback --host is given
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
   -v, --verbose       Narrate on stderr what gtd resolved
 ```
 
