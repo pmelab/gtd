@@ -277,6 +277,7 @@ export const runWorkspaceCommand = (
         drivers: driverRuns,
         next: host.next,
         projects: snapshot.projects,
+        driving: snapshot.driving,
         refresh: snapshot.refresh,
         settings: config,
         audit,

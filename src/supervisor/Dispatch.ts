@@ -21,7 +21,7 @@ import type { Drivers } from "./Drivers.js"
 import type { FeedRunner } from "./Feeds.js"
 import type { PauseScope } from "./Pauses.js"
 import type { ProjectView } from "./Scan.js"
-import { processEnded } from "./Status.js"
+import { driverRuns, processEnded } from "./Status.js"
 import type { Caller } from "./WorktreeChanges.js"
 
 export interface DispatchDeps {
@@ -39,6 +39,8 @@ export interface DispatchDeps {
   readonly settings: () => WorkspaceSettings
   readonly audit: AuditLog
   readonly now: () => number
+  /** The worktrees where a driver runs, by project, as the snapshot last read them. */
+  readonly driving: () => ReadonlyMap<string, readonly string[]>
   /** Why a pause holds an item now; none when no pause does. */
   readonly paused?: (item: InboxItem) => string | undefined
 }
@@ -59,7 +61,8 @@ export interface Dispatcher {
   ) => Promise<boolean>
   /** Dispatches each started or queued item that can start now, in start order. */
   readonly pass: () => Promise<void>
-  readonly drives: () => Promise<DrivesView>
+  /** As the snapshot last saw the drivers: the dashboard asks every few seconds. */
+  readonly drives: () => DrivesView
   /** The drives in use in the workspace, a project, or among a feed's items in its project. */
   readonly drivesIn: (scope: PauseScope) => Promise<number>
   /** An item is starting in the worktree. */
@@ -109,8 +112,7 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     return [
       starting(worktree.path) && "an item is starting in it",
       !processEnded(outcome) && "its process has not ended",
-      (driver.kind === "unknown" || (driver.kind === "pane" && driver.pane.alive)) &&
-        "its driver runs",
+      driverRuns(driver) && "its driver runs",
       worktree.dirty !== false && "the tree has uncommitted changes",
     ].filter((reason): reason is string => reason !== false)
   }
@@ -120,10 +122,7 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     const listed = await Promise.all(
       deps.projects().map(async (project) => {
         const runs = await Promise.all(
-          project.worktrees.map(async ({ path }) => {
-            const driver = await deps.drivers.state(path)
-            return driver.kind === "unknown" || (driver.kind === "pane" && driver.pane.alive)
-          }),
+          project.worktrees.map(async ({ path }) => driverRuns(await deps.drivers.state(path))),
         )
         return [project.id, project.worktrees.filter((_, i) => runs[i]).map((w) => w.path)] as const
       }),
@@ -131,20 +130,29 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     return new Map(listed)
   }
 
-  // The worktrees that hold a drive, by project: a driver runs, or an item is starting in it.
-  // The starting items are read first: one that starts meanwhile then counts by its driver.
-  const drives = async (): Promise<Map<string, Set<string>>> => {
-    const starting = [...deps.feeds.inbox().entries].flatMap(([id, entry]) =>
+  // The worktrees an item is starting in (else the item's id), by project.
+  const startingIn = (): readonly (readonly [string, string])[] =>
+    [...deps.feeds.inbox().entries].flatMap(([id, entry]) =>
       entry.dispatch?.state === "starting"
         ? [[entry.project, entry.dispatch.worktree ?? id] as const]
         : [],
     )
-    const inUse = new Map(
-      [...(await running())].map(([project, paths]) => [project, new Set(paths)]),
-    )
+
+  // The worktrees that hold a drive, by project: a driver runs, or an item is starting in it.
+  const drivesOf = (
+    starting: readonly (readonly [string, string])[],
+    running: ReadonlyMap<string, readonly string[]>,
+  ): Map<string, Set<string>> => {
+    const inUse = new Map([...running].map(([project, paths]) => [project, new Set(paths)]))
     for (const [project, worktree] of starting)
       inUse.set(project, (inUse.get(project) ?? new Set()).add(worktree))
     return inUse
+  }
+
+  // Read live, the starting items first: one that starts meanwhile then counts by its driver.
+  const drives = async (): Promise<Map<string, Set<string>>> => {
+    const starting = startingIn()
+    return drivesOf(starting, await running())
   }
 
   const total = (inUse: ReadonlyMap<string, ReadonlySet<string>>): number =>
@@ -276,9 +284,10 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
       return true
     },
     pass,
-    drives: async () => {
+    drives: () => {
       const max = deps.settings().limits?.maxDrives
-      return { inUse: total(await drives()), ...(max !== undefined ? { max } : {}) }
+      const inUse = total(drivesOf(startingIn(), deps.driving()))
+      return { inUse, ...(max !== undefined ? { max } : {}) }
     },
     drivesIn: async ({ project, feed }) => {
       const inUse = await drives()

@@ -145,6 +145,18 @@ Feature: queue feeds dispatch their items within the limits
       | api/board/2 | ["start:feature"] |
     And the Inbox counts "2 of 2" drives in use
 
+  Scenario: the Inbox counts drives from what gtd keeps, without asking the terminal
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      import { defineWorkspace } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"], limits: { maxDrives: 2 } })
+      """
+    And a driver that an earlier supervisor started runs in "portal/login"
+    When I start gtd workspace
+    And the terminal adapter stops answering
+    Then the Inbox counts "1 of 2" drives in use
+
   Scenario: wip holds items while that many drivers run in the project
     Given a workspace file "gtd.workspace.ts" with:
       """

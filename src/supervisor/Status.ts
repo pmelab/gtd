@@ -68,7 +68,8 @@ const crashed = (driver: DriverState): number | undefined =>
     ? driver.pane.exit.code
     : undefined
 
-const driverRuns = (driver: DriverState): boolean =>
+/** The driver's pane runs, or the terminal could not tell. */
+export const driverRuns = (driver: DriverState): boolean =>
   driver.kind === "unknown" || (driver.kind === "pane" && driver.pane.alive)
 
 /**
