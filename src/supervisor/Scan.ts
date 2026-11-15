@@ -6,6 +6,7 @@ import {
   type WorkspaceSettings,
 } from "../workspace/index.js"
 import type { SpawnOutcome } from "../ui/index.js"
+import type { ActionRun } from "./Actions.js"
 import type { Drivers } from "./Drivers.js"
 import { gatePath } from "./Gate.js"
 import { isOrphan, worktreeStatus, type DriverState, type WorktreeStatus } from "./Status.js"
@@ -17,6 +18,8 @@ export interface WorktreeView extends WorktreeStatus {
   readonly main: boolean
   /** The path of the worktree's gate page. */
   readonly gate: string
+  /** The last action gtd ran here while this supervisor runs. */
+  readonly action?: ActionRun
 }
 
 export interface ProjectView {

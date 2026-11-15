@@ -1,7 +1,7 @@
 import { Context, Layer } from "effect"
 import { liveRunInWorktree, type SpawnOutcome } from "../ui/index.js"
-import { rex, worktrunk } from "../workspace-adapters/index.js"
-import type { TerminalAdapter, WorktreesAdapter } from "../workspace/index.js"
+import { mise, rex, worktrunk } from "../workspace-adapters/index.js"
+import type { ActionsAdapter, TerminalAdapter, WorktreesAdapter } from "../workspace/index.js"
 
 /**
  * What the supervisor reaches outside its process besides the adapters a
@@ -14,6 +14,8 @@ interface SupervisorHostOps {
   readonly defaultWorktrees: (root: string) => WorktreesAdapter
   /** The terminal adapter of a workspace that names none. */
   readonly defaultTerminal: () => TerminalAdapter
+  /** The actions adapter of a workspace that names none. */
+  readonly defaultActions: () => ActionsAdapter
   readonly isPidAlive: (pid: number) => boolean
 }
 
@@ -34,6 +36,7 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
     // Each directory at the workspace root that is a repository's main checkout.
     defaultWorktrees: (root) => worktrunk({ roots: [`${root}/*`] }),
     defaultTerminal: () => rex(),
+    defaultActions: () => mise(),
     isPidAlive,
   })
 }

@@ -46,7 +46,11 @@ export interface InMemoryTerminalOptions {
 export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemoryTerminal => {
   const panes = new Map<string, InMemoryPane>()
   const closed = new Set<string>()
+  const watchers = new Set<(handle: string) => void>()
   let opened = 0
+  const changed = (handle: string): void => {
+    for (const watcher of watchers) watcher(handle)
+  }
 
   const live = (handle: string): InMemoryPane | undefined =>
     closed.has(handle) ? undefined : panes.get(handle)
@@ -63,9 +67,15 @@ export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemor
     if (pane.record?.state === "working" || pane.record?.state === "blocked") {
       pane.record = undefined
     }
+    changed(handle)
   }
   const report = (handle: string, record: StatusRecord): void => {
     paneOf(handle).record = record
+    changed(handle)
+  }
+  const gone = (handle: string): void => {
+    closed.add(handle)
+    changed(handle)
   }
 
   const adapter: TerminalAdapter = {
@@ -103,7 +113,31 @@ export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemor
       }
       return status
     },
-    close: async (handle) => void closed.add(handle),
+    close: async (handle) => gone(handle),
+    watch: () => ({
+      [Symbol.asyncIterator]: () => {
+        const queue: string[] = []
+        let waiting: ((result: IteratorResult<string>) => void) | undefined
+        const watcher = (handle: string): void => {
+          if (waiting === undefined) queue.push(handle)
+          else waiting({ done: false, value: handle })
+          waiting = undefined
+        }
+        watchers.add(watcher)
+        return {
+          next: () =>
+            queue.length > 0
+              ? Promise.resolve({ done: false, value: queue.shift()! })
+              : new Promise<IteratorResult<string>>((resolve) => (waiting = resolve)),
+          return: async () => {
+            watchers.delete(watcher)
+            waiting?.({ done: true, value: undefined })
+            waiting = undefined
+            return { done: true, value: undefined }
+          },
+        }
+      },
+    }),
   }
 
   return {
@@ -111,7 +145,7 @@ export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemor
     panes: () => [...panes.values()],
     report,
     exit,
-    lose: (handle) => void closed.add(handle),
+    lose: gone,
   }
 }
 

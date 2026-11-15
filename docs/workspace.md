@@ -55,8 +55,8 @@ The one reserved export, made with `defineWorkspace`. Every key is optional.
 
 - **`driver`**: the driver command, as an argv, for example `["my-driver"]`. See
   [Workspace drivers](./driver.md#workspace-drivers).
-- **`adapters`**: `worktrees`, `terminal`. An omitted adapter is the bundled
-  default with its default options. See [Adapters](#adapters).
+- **`adapters`**: `worktrees`, `terminal`, `actions`. An omitted adapter is the
+  bundled default with its default options. See [Adapters](#adapters).
 - **`projects`**: settings per project id: `name` (shown on the dashboard) and
   `driver` (this project's driver command, instead of the workspace's).
 - **`ui`**: `port`, `host`, `cert`, `key`, as for `gtd ui`, and `users` (the
@@ -95,6 +95,7 @@ that worktree at once.
 | ----------- | --------- | ------------------------ |
 | `worktrees` | worktrunk | `worktrunk({ roots })`   |
 | `terminal`  | rex       | `rex({ server, shell })` |
+| `actions`   | mise      | `mise()`                 |
 
 The factories come from `@pmelab/gtd/workspace/adapters`. To use another tool,
 give an object that implements the adapter's interface from
@@ -143,6 +144,33 @@ root is a project.
 `rex({ server, shell })` opens one Rex session per project id and one window per
 pane. `server` is a Rex server address as `rex -S` takes it; `shell` is the
 login shell (Rex's default when absent).
+
+### `actions`
+
+- **`list(worktree)`**: the worktree's actions, as
+  `{ id, label, status, fields }`. `status` is the worktree status the action is
+  offered in: `idle`, `needsYou`, `error`, or `any`. An action for `idle` is a
+  start action. Each field is `{ name, type, required, choices, help }`, and
+  `type` is `flag`, `select` (one of `choices`) or `text`.
+- **`argv(worktree, id, values)`**: the action's command line. `values` has a
+  value for each field that was filled in: `true` for a flag that is on, a
+  string otherwise. Each value must reach the action unchanged. The adapter may
+  refuse a value with an adapter error, but it must never change it.
+
+The supervisor checks the values against the fields, then runs the argv in a new
+terminal pane in the worktree, never in the driver's pane and never through a
+shell. Every action gets `GTD_WORKSPACE_STATUS`, a JSON object with `status`,
+`errorKind` and `message` (when the worktree has them) and `commit` (the
+worktree's HEAD commit). When a start action exits 0, the supervisor starts the
+driver.
+
+`mise()` makes the mise tasks of the worktree into actions: `start:*` for idle,
+`gate:*` for needs you, `error:*` for error and `any:*` for any status. Hidden
+tasks are left out. The task's description is the label, and its usage spec
+gives the fields: each `arg` is a text field, each `flag` that takes a value is
+a text field, each flag without a value is a flag field, and one with `choices`
+is a select field. mise reads a flag's value that spells one of the task's own
+flags (for example `--dry`) as that flag, so `mise()` refuses such a value.
 
 ## Security
 

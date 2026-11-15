@@ -31,7 +31,7 @@ Then("gtd opened these driver panes:", async (world: GtdWorld, table: DataTable)
   const opened = await Promise.all(
     b.terminal
       .panes()
-      .filter((pane) => !b.seeded.has(pane.handle))
+      .filter((pane) => !b.seeded.has(pane.handle) && !("GTD_WORKSPACE_STATUS" in pane.env))
       .map(async (pane) => ({
         worktree: await b.refOf(pane.worktree),
         argv: pane.argv.join(" "),

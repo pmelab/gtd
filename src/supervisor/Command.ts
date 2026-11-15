@@ -13,6 +13,7 @@ import {
   type UiOut,
   type UiShell,
 } from "../ui/index.js"
+import { actionRuns } from "./Actions.js"
 import { findWorkspaceModule, loadWorkspace } from "./Config.js"
 import { gateOf } from "./Gate.js"
 import { driverPanes, drivers } from "./Drivers.js"
@@ -66,17 +67,28 @@ export const runWorkspaceCommand = (
         try: () => loadWorkspace(file, command.loadModule),
         catch: asUiError,
       })
+      const terminal = settings.adapters?.terminal ?? host.defaultTerminal()
       const deps = {
         worktrees: settings.adapters?.worktrees ?? host.defaultWorktrees(root),
         next: host.next,
         settings,
-        drivers: drivers(
-          settings.adapters?.terminal ?? host.defaultTerminal(),
-          settings,
-          driverPanes(state),
-        ),
+        drivers: drivers(terminal, settings, driverPanes(state)),
       }
-      const projects = (): Promise<readonly ProjectView[]> => scan(deps)
+      const actions = actionRuns({
+        worktrees: deps.worktrees,
+        actions: settings.adapters?.actions ?? host.defaultActions(),
+        terminal,
+        drivers: deps.drivers,
+        status: (worktree) => recheck(deps, worktree),
+      })
+      const projects = async (): Promise<readonly ProjectView[]> =>
+        (await scan(deps)).map((project) => ({
+          ...project,
+          worktrees: project.worktrees.map((w) => {
+            const action = actions.last(w.path)
+            return action === undefined ? w : { ...w, action }
+          }),
+        }))
       // Drivers run in their own panes and outlive this process; only the
       // orphans are started here, and a crashed driver waits for Retry.
       yield* Effect.tryPromise({ try: () => restartOrphans(deps), catch: asUiError })
@@ -102,7 +114,7 @@ export const runWorkspaceCommand = (
             endpoint: TRPC,
             req: request,
             router: workspaceRouter,
-            createContext: () => ({ projects }),
+            createContext: () => ({ projects, actions }),
           })
         }
         if (path !== "/") return gatePage(request, afterResponse, peer)
@@ -121,6 +133,9 @@ export const runWorkspaceCommand = (
       lock.serving(url)
       out.write(`${url}\n`)
       out.flush()
-      yield* Effect.never.pipe(Effect.ensuring(close))
+      yield* Effect.never.pipe(
+        Effect.ensuring(close),
+        Effect.ensuring(Effect.sync(() => actions.stop())),
+      )
     }).pipe(Effect.ensuring(Effect.sync(() => lock.release())))
   })

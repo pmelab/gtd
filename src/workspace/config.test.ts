@@ -3,13 +3,14 @@ import { defineWorkspace, durationMs, workspaceProblems } from "./config.js"
 
 const worktrees = { projects: async () => [], list: async () => [] }
 const terminal = { run: async () => "h", status: async () => undefined, close: async () => {} }
+const actions = { list: async () => [], argv: async () => [] }
 
 describe("workspaceProblems", () => {
   it("accepts every documented key", () => {
     expect(
       workspaceProblems({
         driver: ["my-driver"],
-        adapters: { worktrees, terminal, services: {}, actions: {}, notifications: {} },
+        adapters: { worktrees, terminal, services: {}, actions, notifications: {} },
         limits: { maxDrives: 3, wip: 2 },
         pollEvery: "30s",
         projects: {
@@ -46,7 +47,11 @@ describe("workspaceProblems", () => {
         driver: [],
         pollEvery: "soon",
         clean: {},
-        adapters: { worktrees: { projects: async () => [] }, terminal: { run: async () => "h" } },
+        adapters: {
+          worktrees: { projects: async () => [] },
+          terminal: { run: async () => "h" },
+          actions: { list: async () => [] },
+        },
         projects: { portal: { clean: true, wip: 0 } },
       }),
     ).toEqual([
@@ -54,6 +59,7 @@ describe("workspaceProblems", () => {
       { path: ["adapters", "worktrees", "list"], message: "must be a function" },
       { path: ["adapters", "terminal", "status"], message: "must be a function" },
       { path: ["adapters", "terminal", "close"], message: "must be a function" },
+      { path: ["adapters", "actions", "argv"], message: "must be a function" },
       { path: ["pollEvery"], message: 'must be a duration like "30s", "5m" or "1h"' },
       { path: ["projects", "portal", "wip"], message: "must be a positive integer" },
       {

@@ -152,3 +152,9 @@ export {
   type TerminalFixture,
   type TerminalHarness,
 } from "./terminal.js"
+export {
+  actionsContract,
+  type ActionSight,
+  type ActionsFixture,
+  type ActionsHarness,
+} from "./actions.js"

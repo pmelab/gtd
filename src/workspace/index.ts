@@ -13,6 +13,11 @@ export {
 } from "./config.js"
 export {
   AdapterError,
+  type Action,
+  type ActionField,
+  type ActionsAdapter,
+  type ActionStatus,
+  type ActionValues,
   isAdapterFailure,
   type AdapterFailure,
   type PaneStatus,

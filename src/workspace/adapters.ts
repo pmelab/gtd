@@ -115,3 +115,45 @@ export interface TerminalAdapter {
   /** Hints, each a pane handle, that a pane's status may have changed. */
   readonly watch?: () => AsyncIterable<string>
 }
+
+/** One input of an action. */
+export interface ActionField {
+  readonly name: string
+  /** `flag` is on or off, `select` takes one of `choices`, `text` takes any string. */
+  readonly type: "flag" | "select" | "text"
+  readonly required: boolean
+  /** With `select`: the values it accepts. */
+  readonly choices?: readonly string[]
+  readonly help?: string
+}
+
+/** The worktree status an action is offered in; `any` offers it in every status. */
+export type ActionStatus = "idle" | "needsYou" | "error" | "any"
+
+export interface Action {
+  /** Unique among the worktree's actions. */
+  readonly id: string
+  readonly label: string
+  /** An action for `idle` is a start action: when it exits 0, gtd starts the driver. */
+  readonly status: ActionStatus
+  readonly fields: readonly ActionField[]
+}
+
+/**
+ * A value for each field that was filled in: `true` for a flag that is on, a
+ * string otherwise. A field that is absent was left empty.
+ */
+export type ActionValues = Readonly<Record<string, string | true>>
+
+/**
+ * The actions adapter only describes actions. gtd runs the argv in a pane of
+ * its own, never through a shell.
+ */
+export interface ActionsAdapter {
+  readonly list: (worktree: string) => Promise<readonly Action[]>
+  /**
+   * The action's command line. gtd has checked `values` against the fields;
+   * each value must reach the action unchanged.
+   */
+  readonly argv: (worktree: string, id: string, values: ActionValues) => Promise<readonly string[]>
+}
