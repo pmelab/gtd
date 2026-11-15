@@ -23,7 +23,7 @@ export interface InboxItem {
 
 /** How far gtd got with dispatching an item. */
 export type Dispatch =
-  /** A person pressed Start or Retry; `waits` says why it has not started yet. */
+  /** A person pressed Start or Retry, or a `queue` feed filed it; `waits` says why it has not started yet. */
   | { readonly state: "approved"; readonly waits?: string }
   | { readonly state: "starting"; readonly worktree?: string }
   | { readonly state: "started"; readonly worktree: string }
@@ -176,9 +176,13 @@ export const inboxItems = (inbox: Inbox): readonly InboxItem[] =>
     .map((entry) => view(entry, inbox))
     .filter((item) => item.state !== "started")
 
-/** The items a person started that may be dispatched now, in start order. */
-export const approvedItems = (inbox: Inbox): readonly InboxItem[] =>
+/** The items a person started or a `queue` feed filed, unblocked, in start order. */
+export const dispatchableItems = (inbox: Inbox): readonly InboxItem[] =>
   startOrder(inbox)
-    .filter((entry) => entry.dispatch?.state === "approved")
+    .filter(
+      (entry) =>
+        entry.dispatch?.state === "approved" ||
+        (entry.mode === "queue" && entry.dispatch === undefined),
+    )
     .map((entry) => view(entry, inbox))
     .filter((item) => item.state === "queued")

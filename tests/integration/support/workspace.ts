@@ -550,10 +550,20 @@ export class WorkspaceBench {
     return response
   }
 
-  async inbox(): Promise<{ items: readonly InboxItem[]; feeds: readonly FeedView[] }> {
+  async inbox(): Promise<{
+    items: readonly InboxItem[]
+    feeds: readonly FeedView[]
+    drives: { inUse: number; max?: number }
+  }> {
     const response = await this.request("/trpc/inbox")
     const body = (await response.json()) as {
-      result: { data: { items: readonly InboxItem[]; feeds: readonly FeedView[] } }
+      result: {
+        data: {
+          items: readonly InboxItem[]
+          feeds: readonly FeedView[]
+          drives: { inUse: number; max?: number }
+        }
+      }
     }
     return body.result.data
   }

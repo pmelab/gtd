@@ -149,7 +149,11 @@ export const workspaceRouter = t.router({
         ctx.worktreeChanges.remove(input.project, input.worktree, input.confirmed, ctx.caller),
       ),
     ),
-  inbox: t.procedure.query(({ ctx }) => ({ items: ctx.feeds.items(), feeds: ctx.feeds.feeds() })),
+  inbox: t.procedure.query(async ({ ctx }) => ({
+    items: ctx.feeds.items(),
+    feeds: ctx.feeds.feeds(),
+    drives: await ctx.dispatch.drives(),
+  })),
   dismiss: t.procedure.input(itemRef).mutation(({ ctx, input }) => {
     if (!ctx.feeds.dismiss(input.feed, input.key))
       throw new TRPCError({

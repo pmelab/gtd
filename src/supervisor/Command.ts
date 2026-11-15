@@ -207,6 +207,7 @@ export const runWorkspaceCommand = (
         next: host.next,
         projects: snapshot.projects,
         refresh: snapshot.refresh,
+        settings: config,
         audit,
         now: clock.now,
       })

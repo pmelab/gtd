@@ -90,12 +90,15 @@ The one reserved export, made with `defineWorkspace`. Every key is optional.
 - **`adapters`**: `worktrees`, `terminal`, `services`, `actions`. An omitted
   adapter is the bundled default with its default options. See
   [Adapters](#adapters).
+- **`limits`**: `maxDrives`, the most drives in the workspace, and `wip`, the
+  most drives in each project. No limit applies when a key is not set. See
+  [Inbox](#inbox).
 - **`pollEvery`** (duration, default `"10s"`): how often the services are
   listed, and how often a worktrees adapter without `watch()` is read.
 - **`projects`**: settings per project id, as the worktrees adapter names the
-  project: `name` (shown on the dashboard) and `driver` (this project's driver
-  command, instead of the workspace's). An id that no project has shows a
-  banner.
+  project: `name` (shown on the dashboard), `driver` (this project's driver
+  command, instead of the workspace's) and `wip` (instead of `limits.wip`). An
+  id that no project has shows a banner.
 - **`ui`**: `port`, `host`, `cert`, `key`, as for `gtd ui`, and `users` (the
   tailnet logins that may use the dashboard; default: the owner of this node).
 
@@ -142,7 +145,8 @@ export const boardReady = feed({
 - **`poll(ctx)`**: returns every item that matches now. gtd adds new keys,
   updates known ones, and removes waiting items that the poll no longer returns.
 - **`canStart(item, ctx)`** (optional): return `false` to hold an item at
-  dispatch.
+  dispatch. gtd runs it each time it tries to dispatch the item. An item it
+  holds, or holds by a throw, waits with the reason.
 
 `ctx` has `exec(argv, { cwd })`, `fetch` and `log(message)`. `exec` runs argv
 without a shell, in the project's main checkout unless `cwd` is given, and
@@ -195,25 +199,38 @@ set when the feed fails. `dismiss(key)` dismisses a proposed item, and
 
 The Inbox view lists the items that feeds filed and that have not started, in
 start order: priority, then the order the poll returned them, then the time gtd
-first saw them. It also names each failing feed.
+first saw them. It also names each failing feed, and shows the drives in use,
+out of `limits.maxDrives` when it is set. A drive is a worktree where a driver
+runs, or where an item is starting.
 
 | State    | When                                                                                    |
 | -------- | --------------------------------------------------------------------------------------- |
 | proposed | A `propose` feed filed it; it waits for a person.                                       |
-| queued   | A `queue` feed filed it, or a person started it and it waits for its worktree.          |
+| queued   | A `queue` feed filed it, or a person started it, and it waits to start.                 |
 | blocked  | It is queued, and an item it names in `blockedBy` is still in the inbox.                |
 | starting | gtd dispatches it: its worktree, services and start action are on their way.            |
 | failed   | Its dispatch failed. It stays, with the reason, until a person retries or dismisses it. |
 
-**Start** dispatches a proposed item; **Retry** dispatches a failed one again.
-gtd then:
+gtd dispatches each queued item by itself: the items of a `queue` feed, and the
+items a person started. **Start** starts a proposed item; **Retry** starts a
+failed one again. gtd tries the queued items in start order after each poll of a
+feed, and after each Start or Retry. It does not dispatch until every feed has
+polled once since the supervisor started, so that a blocker of another feed is
+in the inbox. An item waits, queued, with the reason, when:
+
+- an item it names in `blockedBy` is in the inbox (it shows as blocked),
+- `limits.maxDrives` drives are in use in the workspace,
+- `wip` drives are in use in its project (`projects.<id>.wip`, else
+  `limits.wip`),
+- its feed's `canStart` returns `false` or throws.
+
+To dispatch an item, gtd:
 
 1. picks the worktree: the item's `branch`, else the branch `<feed>/<key>`. When
    a worktree is on that branch, gtd uses it only when it is free: its process
    has ended, no driver runs in it, its tree is clean and no other item is
-   starting in it. Otherwise the item waits, queued, with the reason, and gtd
-   tries again after the next poll of a feed. When no worktree is on the branch,
-   gtd creates one.
+   starting in it. Otherwise the item waits, queued, with the reason. When no
+   worktree is on the branch, gtd creates one.
 2. starts the worktree's services,
 3. runs the item's start action in a pane of its own, with `GTD_WORKSPACE_ITEM`:
    the item as JSON (`key`, `title`, `url`, `action`, `priority`, `blockedBy`,
