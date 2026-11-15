@@ -476,6 +476,14 @@ export class WorkspaceBench {
     return this.runs.at(-1)?.output() ?? ""
   }
 
+  /** What the supervisors that were stopped printed. */
+  private stoppedOutput = ""
+
+  /** What every supervisor of the scenario printed, in order. */
+  get allOutput(): string {
+    return this.stoppedOutput + this.runs.map((run) => run.output()).join("")
+  }
+
   /** The URL the first supervisor printed. */
   get firstUrl(): string | undefined {
     return this.runs[0]?.url
@@ -485,6 +493,7 @@ export class WorkspaceBench {
     const runs = this.runs.splice(0)
     for (const run of runs) run.abort.abort()
     await Promise.all(runs.map((run) => run.done))
+    this.stoppedOutput += runs.map((run) => run.output()).join("")
     this.handler = undefined
   }
 

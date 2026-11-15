@@ -1,5 +1,6 @@
 // What only gtd's own code uses: the supervisor and the testkit share one poll and the inbox's diff.
 export { isFeed, runPoll } from "./feed.js"
+export { isReaction, matches, runReaction } from "./reaction.js"
 export {
   applyPoll,
   dispatchableItems,

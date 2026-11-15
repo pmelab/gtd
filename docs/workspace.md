@@ -199,6 +199,88 @@ with `feed`, `project`, `state` and `firstSeen`, in start order. `failure` is
 set when the feed fails. `dismiss(key)` dismisses a proposed item, and
 `canStart(item)` runs the feed's `canStart`.
 
+### Reactions
+
+A reaction is a named export made with `reaction()` from
+`@pmelab/gtd/workspace`. The export name is the reaction's name. Its `run` gets
+each worktree status change that matches `on`.
+
+```ts
+import { reaction } from "@pmelab/gtd/workspace"
+
+export const autofix = reaction({
+  on: { to: "error", errorKind: "crashed" },
+  run: async (change, ctx) => {
+    if (change.atStartup) return
+    const outcome = await ctx.retry(change.commit)
+    if (!outcome.ok) ctx.log(`retry refused: ${outcome.message}`)
+  },
+})
+```
+
+- **`on`**: the change must match each key given; an array matches any of its
+  values. Keys: `project`, `from` and `to` (`needsYou`, `working`, `error`,
+  `idle`; `to` also `cleaned`), `errorKind` (`stalled`, `crashed`, `driver`,
+  `note`) and `kind` (what the driver waits for). `{}` matches every change.
+- **`run(change, ctx)`**: `change` has `project`, `worktree` (the path),
+  `branch`, `from` (absent for a worktree gtd had not seen), `to`, `errorKind`,
+  `kind`, `label`, `message`, `commit` (the HEAD commit at the change) and
+  `atStartup`.
+
+A change is a new status, or a new error kind. An error note is a change to
+`error` of kind `note`. Each change is delivered once to each reaction that
+matches it, and one reaction gets its changes one at a time, in order.
+
+`ctx` acts through the same paths as a person:
+
+- **`action(id, values)`** runs the worktree's action, as the action picker
+  does;
+- **`proceed(commit)`** and **`retry(commit)`** press Proceed or Retry, as the
+  dashboard does, and are refused in the same cases. The audit log names the
+  endpoint `reaction:<name>`;
+- each of these returns `{ ok: true }` or `{ ok: false, message }`;
+- **`notify({ title, body, priority })`** sends a notification that links to the
+  worktree's detail;
+- **`exec`**, **`fetch`** and **`log`** are as for feeds; `exec` runs in the
+  worktree unless `cwd` is given, and `log` lines start with `reaction <name>:`.
+
+A `run` that throws is printed (`reaction <name> failed: …`); the other
+reactions and the feeds keep running.
+
+The supervisor keeps the last worktree statuses in its state store. When it
+starts, it delivers what changed while it was down, with `atStartup: true`. With
+no state store (the first start, or after you deleted it), the statuses at
+startup are a silent baseline.
+
+### Testing reactions
+
+`testReaction(reaction, change, { exec, fetch, answer })` from
+`@pmelab/gtd/testkit` delivers one change to a reaction, under any test runner.
+`exec` and `fetch` answer the reaction's `ctx`. `answer(call)` answers
+`ctx.action`, `ctx.proceed` and `ctx.retry` (default: `{ ok: true }`).
+`atStartup` is `false` unless the change sets it.
+
+```ts
+import { testReaction } from "@pmelab/gtd/testkit"
+import { autofix } from "./gtd.workspace.ts"
+
+const { ran, failure, logs, calls } = await testReaction(autofix, {
+  project: "portal",
+  worktree: "/code/portal.wt/build",
+  branch: "build",
+  from: "working",
+  to: "error",
+  errorKind: "crashed",
+  label: "Build",
+  commit: "4f2a…",
+})
+// calls: [{ call: "retry", commit: "4f2a…" }]
+```
+
+`ran` is `false` when the change does not match `on`. `failure` is set when
+`run` throws. `calls` lists each `action`, `proceed`, `retry` and `notify` in
+order.
+
 ## Inbox
 
 The Inbox view lists the items that feeds filed and that have not started, in
@@ -361,6 +443,7 @@ The supervisor sends a notification through the notifications adapter when:
 | `feedFailing` | a feed's poll fails                                 | the dashboard            | low      |
 | `configError` | `gtd.workspace.ts` does not reload                  | the dashboard            | default  |
 | note          | `gtd workspace note --notify` (high with `--error`) | the worktree's detail    | default  |
+| reaction      | a reaction's `ctx.notify`                           | the worktree's detail    | default  |
 
 `notify` in `workspace`, and in each project of `projects`, switches a kind off
 (`false`) or on. A project's own switch wins. A note sent with `--notify` always
