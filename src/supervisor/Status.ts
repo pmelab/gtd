@@ -129,3 +129,9 @@ export const isOrphan = (outcome: SpawnOutcome, driver: DriverState): boolean =>
     crashed(driver) === undefined
   )
 }
+
+/** The worktree has no process mid-flow: `gtd next` answered, and with `idle`. */
+export const processEnded = (outcome: SpawnOutcome): boolean => {
+  const next = parseNext(outcome)
+  return next.ok && next.idle === true
+}
