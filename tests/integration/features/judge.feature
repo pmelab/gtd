@@ -429,6 +429,65 @@ Feature: gtd judge / gtd judge answer — the judgment surface's CLI plumbing
     And stdout matches "^judge\n$"
 
   @inmem
+  Scenario: gtd next --json at a judge gate reports the judge file the step declares
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human, judge } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await judge("criteria", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { note: "criteria" },
+          judgeFile: ".gtd/REQUIREMENTS.md",
+        })
+        await human("done", { message: "chore: done" })
+      }
+      """
+    When I run gtd next with "--json=judgeFile"
+    Then it succeeds
+    And stdout matches "^\.gtd/REQUIREMENTS\.md\n$"
+
+  @inmem
+  Scenario: gtd next --json carries no judge file at a judge gate that declares none, nor at any other rest
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human, judge } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await judge("verdict", {
+          questions: [{ id: "q1", primitive: "noul", instructions: "i", criteria: "c" }],
+          evidence: { note: "verdict" },
+        })
+        await human("done", { message: "chore: done", file: ".gtd/DONE.md" })
+      }
+      """
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout does not contain "judgeFile"
+    When I run gtd with args "land"
+    Then it succeeds
+    When I run gtd next with "--json"
+    Then it succeeds
+    And stdout does not contain "judgeFile"
+
+  @inmem
+  Scenario: a judgeFile on any step but judge() is refused as an unknown option
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("done", { message: "chore: done", judgeFile: ".gtd/DONE.md" } as never)
+      }
+      """
+    When I run gtd next with "--json"
+    Then it fails
+    And stderr contains "unknown key(s) judgeFile in human() options"
+
+  @inmem
   Scenario: a verdict landed at a judge gate writes a gtd(judge): subject
     Given a test project
     And a gtd config file at "gtd.config.ts" with:

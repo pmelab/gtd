@@ -82,13 +82,14 @@ export interface BeatDocument {
   readonly cost: number | undefined
   readonly costByModel: readonly ModelCost[] | undefined
   readonly judge: string | undefined
+  readonly judgeFile: string | undefined
   readonly skills: readonly string[] | undefined
   readonly access: StepAccess | undefined
   readonly approvals: readonly ApprovalEntry[]
 }
 
 /**
- * Flatten a `Demand` plus its `BeatStatus` into the single 27-key document
+ * Flatten a `Demand` plus its `BeatStatus` into the single 26-key document
  * `gtd next --json` emits — the ONLY place the two are joined. `cost`/
  * `costByModel` are omitted together, exactly when no cost was recorded
  * (`cost <= 0`).
@@ -119,6 +120,7 @@ export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument =
     cost: hasCost ? status.cost : undefined,
     costByModel: hasCost ? status.costByModel : undefined,
     judge: status.judge,
+    judgeFile: status.judgeFile,
     skills,
     access,
     approvals: status.approvals,

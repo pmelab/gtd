@@ -799,6 +799,7 @@ const judgeDef = (common: StepCommon, request: RequestOf<"judge">, step: Reached
     kind: "message",
     content: step.truncated ? `${message}\n\n${TRUNCATION_NOTICE}` : message,
     ...optional("judge", judgeDocument(step)),
+    ...optional("judgeFile", request.options.judgeFile),
   }
 }
 
@@ -865,6 +866,7 @@ export interface RestHints {
   readonly label?: string
   readonly file?: string
   readonly judge?: string
+  readonly judgeFile?: string
   readonly system?: string
   readonly skills?: readonly string[]
   readonly access?: StepAccess
@@ -875,6 +877,7 @@ const hintsOf = (def: StepDef): RestHints => ({
   ...optional("label", def.label),
   ...optional("file", def.file),
   ...optional("judge", def.judge),
+  ...optional("judgeFile", def.judgeFile),
   ...optional("system", def.system),
   ...optional("skills", def.skills),
   ...optional("access", def.access),
