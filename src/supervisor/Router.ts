@@ -195,9 +195,10 @@ export const workspaceRouter = t.router({
   /** Pauses dispatch in the workspace (`{}`), a project, or a feed of a project. */
   pause: t.procedure.input(pauseInput).mutation(({ ctx, input }) => setPause(ctx, input, true)),
   /** Takes off the pause of exactly that scope, and starts what can start now. */
-  resume: t.procedure.input(pauseInput).mutation(async ({ ctx, input }) => {
+  resume: t.procedure.input(pauseInput).mutation(({ ctx, input }) => {
     setPause(ctx, input, false)
-    await ctx.dispatch.pass()
+    // What can start now starts after the answer.
+    void ctx.dispatch.pass().catch(() => {})
   }),
 })
 

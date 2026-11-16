@@ -250,7 +250,8 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
 
   // One dispatch at a time, so two items never take the same free worktree.
   let queue: Promise<void> = Promise.resolve()
-  const pass = (): Promise<void> => {
+  // `handled` is told each item the pass is done with.
+  const pass = (handled: (item: InboxItem) => void = () => {}): Promise<void> => {
     const run = queue.then(async () => {
       deps.feeds.change(endStarted)
       // Until every feed has polled, a blocker of another feed may be missing.
@@ -260,6 +261,7 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
           deps.paused?.(item) ?? (await limited(item.project)) ?? (await deps.feeds.canStart(item))
         if (held === undefined) await dispatch(item)
         else if (item.message !== held) set(item, { state: "approved", waits: held })
+        handled(item)
       }
     })
     queue = run.catch(() => {})
@@ -280,10 +282,16 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
         action: procedure,
         outcome: "accepted",
       })
-      await pass()
+      // The person waits for their item, not for the rest of the pass.
+      const pressed = idOf(feed, key)
+      await new Promise<void>((resolve, reject) => {
+        pass((done) => {
+          if (idOf(done.feed, done.key) === pressed) resolve()
+        }).then(resolve, reject)
+      })
       return true
     },
-    pass,
+    pass: () => pass(),
     drives: () => {
       const max = deps.settings().limits?.maxDrives
       const inUse = total(drivesOf(startingIn(), deps.driving()))
