@@ -14,6 +14,7 @@ import {
   idOf,
   inboxItems,
   runPoll,
+  type PollOutcome,
   type Entry,
   type Inbox,
 } from "../workspace/internal.js"
@@ -107,6 +108,20 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
     }
   }
 
+  const apply = async (name: string, feed: Feed, outcome: PollOutcome): Promise<void> => {
+    polled.add(name)
+    if ("failure" in outcome) {
+      if (failing.get(name) !== outcome.failure)
+        deps.log(`feed ${name} failing: ${outcome.failure}\n`)
+      failing.set(name, outcome.failure)
+      return
+    }
+    const source = { feed: name, project: feed.project, mode: feed.mode }
+    setInbox(applyPoll(deps.ended?.(inbox) ?? inbox, source, outcome.items, deps.now()))
+    failing.delete(name)
+    await deps.polled?.()
+  }
+
   const poll = async (name: string, feed: Feed): Promise<void> => {
     // A slow poll is not stacked on itself.
     if (polling.has(feed)) return
@@ -114,18 +129,7 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
     try {
       const outcome = await runPoll(feed, await contextOf(name, feed))
       // A reload changed or removed the feed meanwhile: its result is stale.
-      if (feeds.get(name) !== feed) return
-      polled.add(name)
-      if ("failure" in outcome) {
-        if (failing.get(name) !== outcome.failure)
-          deps.log(`feed ${name} failing: ${outcome.failure}\n`)
-        failing.set(name, outcome.failure)
-        return
-      }
-      const source = { feed: name, project: feed.project, mode: feed.mode }
-      setInbox(applyPoll(deps.ended?.(inbox) ?? inbox, source, outcome.items, deps.now()))
-      failing.delete(name)
-      await deps.polled?.()
+      if (feeds.get(name) === feed) await apply(name, feed, outcome)
     } finally {
       if (feeds.get(name) === feed) deps.afterPoll?.(name)
       polling.delete(feed)
