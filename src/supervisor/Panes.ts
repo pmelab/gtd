@@ -1,11 +1,12 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import type { Action } from "../workspace/index.js"
 
 /** A pane gtd opened in a worktree besides the driver's. */
 export interface OpenedPane {
   readonly handle: string
   /** The action the pane runs; none for a shell pane. */
-  readonly action?: { readonly id: string; readonly label: string; readonly status: string }
+  readonly action?: Pick<Action, "id" | "label" | "status">
 }
 
 /**

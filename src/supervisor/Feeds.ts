@@ -65,18 +65,12 @@ export interface FeedDeps {
   readonly afterPoll?: (feed: string) => void
 }
 
-// An item the last supervisor left starting never reports how its start ended.
-const restored = (entry: Entry): Entry =>
-  entry.dispatch?.state === "starting"
-    ? { ...entry, dispatch: { state: "failed", message: "gtd stopped while the item started" } }
-    : entry
-
 const keptJson = (inbox: Inbox): string =>
   JSON.stringify([...inbox.entries.values()].filter((entry) => entry.dispatch !== undefined))
 
 /** Polls every feed on its own schedule and keeps the inbox from the results. */
 export const feedRunner = (deps: FeedDeps): FeedRunner => {
-  let inbox: Inbox = emptyInbox(deps.store.dismissed(), deps.store.items().map(restored))
+  let inbox: Inbox = emptyInbox(deps.store.dismissed(), deps.store.items())
   let saved = keptJson(inbox)
   let feeds = deps.feeds
   const failing = new Map<string, string>()

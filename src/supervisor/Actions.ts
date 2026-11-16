@@ -40,7 +40,7 @@ export interface ActionRunsDeps {
   readonly actions: ActionsAdapter
   readonly terminal: TerminalAdapter
   readonly drivers: Drivers
-  readonly panes: Pick<OpenedPanes, "add">
+  readonly panes: Pick<OpenedPanes, "add" | "of">
   /** The worktree's status as of now. */
   readonly status: (worktree: string) => Promise<WorktreeStatus>
 }
@@ -61,6 +61,16 @@ export interface ActionRuns {
     /** Told how the action ended, once its exit is known (`exit: null` when it is not). */
     ended?: (run: ActionRun) => void,
   ) => Promise<void>
+  /**
+   * Follows the newest action pane an earlier supervisor opened in the
+   * worktree, as `run` does; `false` when that pane is gone.
+   */
+  readonly resume: (
+    project: string,
+    worktree: string,
+    env: Readonly<Record<string, string>>,
+    ended: (run: ActionRun) => void,
+  ) => Promise<boolean>
   readonly last: (worktree: string) => ActionRun | undefined
   /** Stops waiting for the panes of running actions. */
   readonly stop: () => void
@@ -190,7 +200,7 @@ export const actionRuns = (deps: ActionRunsDeps): ActionRuns => {
   const follow = async (
     project: string,
     path: string,
-    action: Action,
+    action: Pick<Action, "id" | "label" | "status">,
     handle: string,
     env: Readonly<Record<string, string>>,
     ended: (run: ActionRun) => void,
@@ -242,6 +252,15 @@ export const actionRuns = (deps: ActionRunsDeps): ActionRuns => {
         runs.set(path, { id, label: action.label, exit: null, message: messageOf(error) })
         throw error
       }
+    },
+    resume: async (project, path, env, ended) => {
+      const pane = deps.panes.of(path).findLast((p) => p.action !== undefined)
+      if (pane?.action === undefined) return false
+      if ((await deps.terminal.status(pane.handle).catch(() => undefined)) === undefined)
+        return false
+      runs.set(path, { id: pane.action.id, label: pane.action.label, exit: null })
+      void follow(project, path, pane.action, pane.handle, env, ended)
+      return true
     },
     last: (path) => runs.get(path),
     stop: () => {

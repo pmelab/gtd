@@ -471,6 +471,7 @@ export const runWorkspaceCommand = (
       out.write(subscribeLine(notifications.subscribe))
       out.write(spoolRefusals.map((refusal) => `spool ${refusal}\n`).join(""))
       out.flush()
+      yield* Effect.promise(dispatch.resume)
       feeds.start()
       clean.schedule()
       yield* Effect.never.pipe(

@@ -14,7 +14,7 @@ import {
   type Inbox,
 } from "../workspace/internal.js"
 import type { SpawnOutcome } from "../ui/index.js"
-import type { ActionRuns } from "./Actions.js"
+import type { ActionRun, ActionRuns } from "./Actions.js"
 import type { AuditLog } from "./Audit.js"
 import { branchProblem } from "./Branch.js"
 import type { Drivers } from "./Drivers.js"
@@ -69,6 +69,8 @@ export interface Dispatcher {
   readonly starting: (worktree: string) => boolean
   /** The inbox without the started items whose worktree is gone. */
   readonly endStarted: (inbox: Inbox) => Inbox
+  /** Follows the start actions of the items an earlier supervisor left starting. */
+  readonly resume: () => Promise<void>
 }
 
 const messageOf = (error: unknown): string =>
@@ -237,6 +239,23 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     return path
   }
 
+  // The start action's exit settles the item.
+  const ended =
+    (item: InboxItem, worktree: string) =>
+    (run: ActionRun): void => {
+      const ok = run.exit === 0 && run.message === undefined
+      const message = run.message ?? `${item.action} exited ${run.exit}`
+      set(item, ok ? { state: "started", worktree } : { state: "failed", message })
+    }
+
+  const resumeOne = async (item: InboxItem, worktree: string | undefined): Promise<void> => {
+    const env = { GTD_WORKSPACE_ITEM: itemVariable(item) }
+    const following =
+      worktree !== undefined &&
+      (await deps.actions.resume(item.project, worktree, env, ended(item, worktree)))
+    if (!following) set(item, { state: "failed", message: "gtd stopped while the item started" })
+  }
+
   // Runs the item up to its start action's pane; the action's exit settles it.
   const dispatch = async (item: InboxItem): Promise<void> => {
     const branch = branchOf(item)
@@ -247,11 +266,7 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
       const worktree = found?.path ?? (await create(item, branch))
       await deps.services.up(item.project, worktree)
       const env = { GTD_WORKSPACE_ITEM: itemVariable(item) }
-      await deps.actions.run(item.project, worktree, item.action, {}, env, (run) => {
-        const ok = run.exit === 0 && run.message === undefined
-        const message = run.message ?? `${item.action} exited ${run.exit}`
-        set(item, ok ? { state: "started", worktree } : { state: "failed", message })
-      })
+      await deps.actions.run(item.project, worktree, item.action, {}, env, ended(item, worktree))
     } catch (error) {
       set(item, { state: "failed", message: messageOf(error) })
     }
@@ -326,5 +341,13 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     },
     starting,
     endStarted,
+    resume: async () => {
+      const items = deps.feeds.items()
+      for (const [id, entry] of deps.feeds.inbox().entries) {
+        const item = items.find((i) => idOf(i.feed, i.key) === id)
+        if (entry.dispatch?.state === "starting" && item !== undefined)
+          await resumeOne(item, entry.dispatch.worktree)
+      }
+    },
   }
 }
