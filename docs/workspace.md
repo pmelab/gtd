@@ -189,7 +189,7 @@ An item has these fields:
 - **`action`**: the start action that begins the work, for example
   `start:feature`;
 - **`priority`**: a number; a higher number starts first;
-- **`blockedBy`** (optional): keys of items that must finish first. Use
+- **`blockedBy`** (optional): keys of items that must start first. Use
   `<feed>/<key>` for an item of another feed;
 - **`branch`** (optional): start the work in the existing worktree of this
   branch;

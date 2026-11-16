@@ -128,9 +128,12 @@ const stateOf = (entry: Entry, inbox: Inbox): ItemState => {
   const dispatch = entry.dispatch?.state
   if (dispatch !== undefined && dispatch !== "approved") return dispatch
   if (entry.mode === "propose" && dispatch === undefined) return "proposed"
-  // A bare key names an item of the same feed first.
-  const waiting = (ref: string): boolean =>
-    inbox.entries.has(idOf(entry.feed, ref)) || inbox.entries.has(ref)
+  // A bare key names an item of the same feed first. A started item has left the inbox.
+  const inInbox = (id: string): boolean => {
+    const blocker = inbox.entries.get(id)
+    return blocker !== undefined && blocker.dispatch?.state !== "started"
+  }
+  const waiting = (ref: string): boolean => inInbox(idOf(entry.feed, ref)) || inInbox(ref)
   return (entry.item.blockedBy ?? []).some(waiting) ? "blocked" : "queued"
 }
 
