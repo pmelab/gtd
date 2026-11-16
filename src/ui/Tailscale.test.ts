@@ -207,11 +207,12 @@ describe("parseWhois", () => {
 })
 
 describe("nodeOwnerCache", () => {
-  const counting = (answers: (string | undefined | "fails")[]) => {
+  // `null`: tailscale does not answer.
+  const counting = (answers: (string | undefined | null)[]) => {
     const probe = { runs: 0 }
     const ask = async () => {
       const answer = answers[Math.min(probe.runs++, answers.length - 1)]
-      return answer === "fails" ? undefined : { owner: answer }
+      return answer === null ? undefined : { owner: answer }
     }
     return { probe, ask }
   }
@@ -233,7 +234,7 @@ describe("nodeOwnerCache", () => {
   })
 
   it("asks again after a failed probe only once 30 seconds passed", async () => {
-    const { probe, ask } = counting(["fails", "owner@example.com"])
+    const { probe, ask } = counting([null, "owner@example.com"])
     let time = 0
     const owner = nodeOwnerCache(ask, () => time)
     expect(await owner()).toBeUndefined()

@@ -78,7 +78,11 @@ const createWorktreeInput = (value: unknown) => {
   if (typeof branch !== "string" || (base !== undefined && typeof base !== "string")) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "expected { project, branch, base? }" })
   }
-  return { project: text(value, "project"), branch, base: base as string | undefined }
+  return {
+    project: text(value, "project"),
+    branch,
+    ...(typeof base === "string" ? { base } : {}),
+  }
 }
 
 const removeWorktreeInput = (value: unknown) => ({
@@ -163,10 +167,10 @@ export const workspaceRouter = t.router({
         ctx.worktreeChanges.remove(input.project, input.worktree, input.confirmed, ctx.caller),
       ),
     ),
-  inbox: t.procedure.query(async ({ ctx }) => ({
+  inbox: t.procedure.query(({ ctx }) => ({
     items: ctx.feeds.items(),
     feeds: ctx.feeds.feeds(),
-    drives: await ctx.dispatch.drives(),
+    drives: ctx.dispatch.drives(),
     paused: ctx.pauses.list(),
   })),
   dismiss: t.procedure.input(itemRef).mutation(({ ctx, input }) => {
