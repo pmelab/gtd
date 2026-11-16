@@ -24,11 +24,14 @@ When("the driver in {string} exits {int}", async (world: GtdWorld, ref: string, 
   await settle()
 })
 
-Given("the driver pane of {string} is gone", async (world: GtdWorld, ref: string) => {
-  const b = bench(world)
-  b.terminal.lose(await b.paneOf(ref))
-  await settle()
-})
+Given(
+  /^the (driver|action) pane of "([^"]*)" is gone$/,
+  async (world: GtdWorld, kind: string, ref: string) => {
+    const b = bench(world)
+    b.terminal.lose(kind === "driver" ? await b.paneOf(ref) : await b.actionPaneOf(ref))
+    await settle()
+  },
+)
 
 Then("gtd opened these driver panes:", async (world: GtdWorld, table: DataTable) => {
   const b = bench(world)

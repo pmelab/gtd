@@ -175,6 +175,48 @@ Feature: Start and Retry dispatch an inbox item
       | worktree       | argv  |
       | portal/board/7 | drive |
 
+  Scenario: a restarted supervisor follows the start action the last one left running
+    Given the command "gh issue list" prints:
+      """
+      [{ "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0 }]
+      """
+    When I start gtd workspace
+    And I start "board/7" in the Inbox
+    And I stop gtd workspace
+    And I start gtd workspace
+    Then the Inbox lists:
+      | feed  | key | title      | state    |
+      | board | 7   | Add signup | starting |
+    When I remove "portal/board/7" and confirm
+    Then gtd refuses the worktree change with:
+      """
+      gtd keeps portal/board/7: a pane runs a command, an item is starting in it
+      """
+    When the action in "portal/board/7" exits 0
+    Then gtd opened these driver panes:
+      | worktree       | argv  |
+      | portal/board/7 | drive |
+    And the driver in "portal/board/7" got GTD_WORKSPACE_ITEM:
+      """
+      { "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0, "blockedBy": [], "data": null, "feed": "board", "project": "portal" }
+      """
+    And the Inbox lists:
+      | feed | key | title | state |
+
+  Scenario: an item whose start action is gone after a restart fails
+    Given the command "gh issue list" prints:
+      """
+      [{ "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0 }]
+      """
+    When I start gtd workspace
+    And I start "board/7" in the Inbox
+    And I stop gtd workspace
+    And the action pane of "portal/board/7" is gone
+    And I start gtd workspace
+    Then the Inbox lists:
+      | feed  | key | title      | state  | message                            |
+      | board | 7   | Add signup | failed | gtd stopped while the item started |
+
   Scenario: a start action gtd cannot run fails the item
     Given the command "gh issue list" prints:
       """

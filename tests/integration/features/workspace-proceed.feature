@@ -88,6 +88,15 @@ Feature: Proceed and Retry from the dashboard
       | portal/plan | drive proceed <HEAD> |
       | portal/plan | drive proceed <HEAD> |
 
+  Scenario: two Proceed presses at once start one driver
+    When I start gtd workspace
+    And I press Proceed on "portal/plan" twice at once
+    Then gtd accepts the press
+    And gtd opened these driver panes:
+      | worktree     | argv  |
+      | portal/build | drive |
+      | portal/plan  | drive |
+
   Scenario: Proceed gives up when the started driver never answers
     Given the driver in "portal/plan" never answers its one-shots
     When I start gtd workspace

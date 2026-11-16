@@ -17,10 +17,10 @@ Given("{string} has uncommitted changes", (world: GtdWorld, ref: string) => {
 })
 
 Given(
-  "a person runs a command in the driver pane of {string}",
-  async (world: GtdWorld, ref: string) => {
+  /^a person runs a command in the (driver|shell) pane of "([^"]*)"$/,
+  async (world: GtdWorld, kind: string, ref: string) => {
     const b = bench(world)
-    const handle = await b.paneOf(ref)
+    const handle = kind === "driver" ? await b.paneOf(ref) : await b.shellPaneOf(ref)
     b.terminal.panes().find((p) => p.handle === handle)!.busy = true
     await settle()
   },

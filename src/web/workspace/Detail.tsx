@@ -19,7 +19,7 @@ const TABS: readonly (readonly [Tab, string])[] = [
 ]
 
 /** The worktree's gate page, embedded from the URL the API names, with a way out to a full tab. */
-const Gate = ({ gate }: { readonly gate: string }) => (
+const Gate = ({ gate, head }: { readonly gate: string; readonly head: string }) => (
   <div className="flex min-h-0 flex-1 flex-col" data-testid="gate-tab">
     <div className="flex items-center justify-between gap-2 border-b border-divider px-4 py-2 text-small">
       <span className="min-w-0 text-muted">{gate}</span>
@@ -33,7 +33,13 @@ const Gate = ({ gate }: { readonly gate: string }) => (
         open in tab ↗
       </a>
     </div>
-    <iframe className="min-h-0 w-full flex-1 border-0 bg-page" src={gate} title="Gate page" />
+    {/* The rest moves only with HEAD: a new commit loads the page again, for the new rest. */}
+    <iframe
+      key={head}
+      className="min-h-0 w-full flex-1 border-0 bg-page"
+      src={gate}
+      title="Gate page"
+    />
   </div>
 )
 
@@ -77,7 +83,7 @@ export const Detail = ({
         <RemoveButton project={project.id} worktree={worktree} onRemoved={onClose} />
       </header>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:order-2">
-        {tab === "gate" && <Gate gate={worktree.gate} />}
+        {tab === "gate" && <Gate gate={worktree.gate} head={worktree.head} />}
         {tab === "terminal" && <TerminalTab project={project.id} worktree={worktree} />}
         {tab === "actions" && <ActionPicker project={project.id} worktree={worktree} />}
       </div>

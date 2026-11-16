@@ -160,6 +160,8 @@ export class WorkspaceBench {
   terminalStopped = false
   /** A feed's `ctx.exec` answers, by argv joined with spaces. */
   readonly commands = new Map<string, ExecResult>()
+  /** Commands whose runs wait for `answerCommand`, with what releases each waiting run. */
+  private readonly heldCommands = new Map<string, (() => void)[]>()
   /** The feeds' clock. */
   readonly feedClock = new ManualClock()
   private readonly tailnet = fakeTailnet()
@@ -177,7 +179,25 @@ export class WorkspaceBench {
     this.writeFile(rel, content)
     const watches = this.fileWatches.get(join(this.root, rel)) ?? []
     await Promise.all([...watches].map((changed) => changed()))
-    await this.feedClock.settled()
+    await this.feedsSettled()
+  }
+
+  // A held command would keep a feed's poll running for good.
+  private async feedsSettled(): Promise<void> {
+    if (this.heldCommands.size === 0) await this.feedClock.settled()
+    else await settle()
+  }
+
+  holdCommand(argv: string): void {
+    this.heldCommands.set(argv, [])
+  }
+
+  /** Lets the held runs of the command answer, and no longer holds new ones. */
+  async answerCommand(argv: string): Promise<void> {
+    const waiting = this.heldCommands.get(argv) ?? []
+    this.heldCommands.delete(argv)
+    for (const resume of waiting) resume()
+    await this.feedsSettled()
   }
 
   writeFile(rel: string, content: string): void {
@@ -404,6 +424,8 @@ export class WorkspaceBench {
     })
     const tools = Layer.succeed(UserlandTools, {
       exec: async (argv) => {
+        const waiting = this.heldCommands.get(argv.join(" "))
+        if (waiting !== undefined) await new Promise<void>((resume) => waiting.push(resume))
         const answer = this.commands.get(argv.join(" "))
         if (answer === undefined) throw new Error(`no answer scripted for ${argv.join(" ")}`)
         return answer
@@ -481,7 +503,7 @@ export class WorkspaceBench {
     // The URL is printed right after the listener binds; the first polls follow.
     await delay(0)
     run.url = result().stdout.split("\n")[0]!.trim()
-    await this.feedClock.settled()
+    await this.feedsSettled()
   }
 
   /** What the latest supervisor printed so far. */

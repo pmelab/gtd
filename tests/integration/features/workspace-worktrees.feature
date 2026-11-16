@@ -122,6 +122,31 @@ Feature: the dashboard creates and removes worktrees
       """
     And gtd made no adapter calls
 
+  Scenario: Remove keeps a worktree whose shell pane runs a command, even after a restart
+    When I start gtd workspace
+    And I open a shell pane in "portal/login"
+    And a person runs a command in the shell pane of "portal/login"
+    And I stop gtd workspace
+    And I start gtd workspace
+    And I remove "portal/login" and confirm
+    Then gtd refuses the worktree change with:
+      """
+      gtd keeps portal/login: a pane runs a command
+      """
+    And gtd made no adapter calls
+
+  Scenario: Remove closes an idle shell pane
+    Given a commit lands on "portal/login"
+    And "portal/login" is merged into main
+    When I start gtd workspace
+    And I open a shell pane in "portal/login"
+    And I remove "portal/login"
+    Then gtd made these adapter calls:
+      | call             | worktree     |
+      | services.down    | portal/login |
+      | terminal.close   | portal/login |
+      | worktrees.remove | portal/login |
+
   Scenario: Remove keeps a worktree with an error note
     When I start gtd workspace
     And I run "gtd workspace note portal.wt/login 'deploy failed' --error" in the workspace

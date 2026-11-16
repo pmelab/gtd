@@ -10,6 +10,7 @@ import type { SpawnOutcome } from "../ui/index.js"
 import type { AuditLog } from "./Audit.js"
 import { branchProblem } from "./Branch.js"
 import type { Drivers } from "./Drivers.js"
+import type { OpenedPanes } from "./Panes.js"
 import { processEnded } from "./Status.js"
 
 export type WorktreeRefusalReason = "invalid" | "notFound" | "protected" | "unsupported"
@@ -60,8 +61,8 @@ export interface WorktreeChangesDeps {
   readonly terminal: TerminalAdapter
   readonly drivers: Drivers
   readonly next: (worktree: string) => Promise<SpawnOutcome>
-  /** The panes besides the driver's that gtd opened in the worktree. */
-  readonly panes: (worktree: string) => readonly string[]
+  /** The action and shell panes gtd opened in the worktree. */
+  readonly panes: Pick<OpenedPanes, "of" | "forget">
   /** An item is starting in the worktree. */
   readonly starting?: (worktree: string) => boolean
   /** The worktree has an error note. */
@@ -136,12 +137,16 @@ export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
 
   const paneStates = async (path: string) => {
     const driver = deps.drivers.pane(path)
-    const handles = [...(driver === undefined ? [] : [driver]), ...deps.panes(path)]
+    const opened = deps.panes.of(path)
+    const handles = [...(driver === undefined ? [] : [driver]), ...opened.map((p) => p.handle)]
     const states = await Promise.all(
       handles.map(async (handle) => ({ handle, pane: await deps.terminal.status(handle) })),
     )
+    // A shell keeps the worktree only while it runs a command; an action while it runs.
+    const shell = (handle: string): boolean =>
+      opened.some((p) => p.handle === handle && p.action === undefined)
     return states.flatMap(({ handle, pane }) =>
-      pane === undefined ? [] : [{ handle, pane, driver: handle === driver }],
+      pane === undefined ? [] : [{ handle, pane, quiet: handle === driver || shell(handle) }],
     )
   }
 
@@ -155,7 +160,7 @@ export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
       main: worktree.main,
       processEnded: processEnded(outcome),
       driverRuns: driver.kind === "unknown" || (driver.kind === "pane" && driver.pane.alive),
-      paneBusy: panes.some(({ pane, driver }) => pane.busy || (!driver && pane.alive)),
+      paneBusy: panes.some(({ pane, quiet }) => pane.busy || (!quiet && pane.alive)),
       starting: deps.starting?.(worktree.path) ?? false,
       errorNote: deps.errorNote?.(worktree.path) ?? false,
     }
@@ -180,6 +185,7 @@ export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
     await deps.services.down(project, worktree.path)
     for (const { handle } of await paneStates(worktree.path)) await deps.terminal.close(handle)
     deps.drivers.forget(worktree.path)
+    deps.panes.forget(worktree.path)
     await remove.call(deps.worktrees, project, worktree.path, { force })
   }
 

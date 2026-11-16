@@ -47,6 +47,7 @@ import {
   type ControlRequest,
 } from "./Socket.js"
 import { worktreeChanges } from "./WorktreeChanges.js"
+import { openedPanes } from "./Panes.js"
 import { terminalTab } from "./Terminal.js"
 import { worktreeStatus } from "./Status.js"
 
@@ -187,6 +188,7 @@ export const runWorkspaceCommand = (
       const terminal = settings.adapters?.terminal ?? host.defaultTerminal()
       const services = settings.adapters?.services ?? host.defaultServices()
       const panes = driverPanes(directory)
+      const opened = openedPanes(directory)
       const driverRuns = drivers(terminal, config, panes)
       const store = openStore(directory)
       const audit = auditLog(directory)
@@ -213,6 +215,7 @@ export const runWorkspaceCommand = (
         actions: settings.adapters?.actions ?? host.defaultActions(),
         terminal,
         drivers: driverRuns,
+        panes: opened,
         status: async (worktree) =>
           noted.withNote(
             worktree,
@@ -265,6 +268,7 @@ export const runWorkspaceCommand = (
         worktrees,
         terminal,
         panes,
+        opened,
         shell: host.loginShell,
         audit,
         now: clock.now,
@@ -311,7 +315,7 @@ export const runWorkspaceCommand = (
         terminal,
         drivers: driverRuns,
         next: host.next,
-        panes: actions.panes,
+        panes: opened,
         starting: dispatch.starting,
         refresh: snapshot.refresh,
         errorNote: noted.errorNote,
@@ -467,6 +471,7 @@ export const runWorkspaceCommand = (
       out.write(subscribeLine(notifications.subscribe))
       out.write(spoolRefusals.map((refusal) => `spool ${refusal}\n`).join(""))
       out.flush()
+      yield* Effect.promise(dispatch.resume)
       feeds.start()
       clean.schedule()
       yield* Effect.never.pipe(

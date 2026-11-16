@@ -227,6 +227,39 @@ Feature: pause and resume dispatch
     And 1 second passes
     Then the command exits 0
 
+  Scenario: a pause holds an item whose dispatch it overtakes, and --wait waits for that dispatch
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"] })
+
+      export const bugs = feed({
+        project: "portal",
+        every: "5m",
+        mode: "queue",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "issue", "list", "bugs"])).stdout),
+        canStart: async (item, ctx) => (await ctx.exec(["ready"])).status === 0,
+      })
+      """
+    And the command "gh issue list bugs" prints:
+      """
+      [{ "key": "b1", "title": "Crash", "action": "start:feature", "priority": 0 }]
+      """
+    And the command "ready" exits 0
+    And the command "ready" holds its answer
+    When I start gtd workspace
+    And I run "gtd workspace pause --wait" in the workspace without waiting for it
+    Then the command still runs
+    When the command "ready" gives its answer
+    And 1 second passes
+    Then the command exits 0
+    And gtd opened these action panes:
+      | worktree | argv |
+    And the Inbox lists:
+      | feed | key | title | state  | message                         |
+      | bugs | b1  | Crash | queued | dispatch is paused in workspace |
+
   Scenario: an unknown project or feed exits 1
     When I start gtd workspace
     And I run "gtd workspace pause shop" in the workspace

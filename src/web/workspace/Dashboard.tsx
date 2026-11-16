@@ -4,7 +4,7 @@ import { Notice } from "../Notice.js"
 import { workspaceTrpc } from "./api.js"
 import { Banners } from "./Banners.js"
 import { Detail } from "./Detail.js"
-import { Inbox } from "./Inbox.js"
+import { Inbox, type PressFailure } from "./Inbox.js"
 import { Now } from "./Now.js"
 import { Projects } from "./Projects.js"
 import { TabBar } from "./TabBar.js"
@@ -24,6 +24,27 @@ const find = (projects: readonly ProjectView[], path: string | undefined): Entry
   return undefined
 }
 
+interface Sent<Input> {
+  readonly error: { readonly message: string } | null
+  readonly variables?: Input | undefined
+}
+
+const pressFailuresOf = (
+  sent: readonly Sent<{ readonly feed: string; readonly key: string }>[],
+): readonly PressFailure[] =>
+  sent.flatMap(({ error, variables }) =>
+    error !== null && variables !== undefined ? [{ ...variables, message: error.message }] : [],
+  )
+
+const Unread = ({ error }: { readonly error: { readonly message: string } | null }) =>
+  error === null ? (
+    <p className="text-muted">Loading…</p>
+  ) : (
+    <Notice tone="error" data-testid="inbox-error">
+      Could not read the inbox: {error.message}
+    </Notice>
+  )
+
 const InboxView = () => {
   const inbox = workspaceTrpc.inbox.useQuery(undefined, { refetchInterval: REFRESH_MS })
   const utils = workspaceTrpc.useUtils()
@@ -35,7 +56,9 @@ const InboxView = () => {
   }
   const pause = workspaceTrpc.pause.useMutation(settled)
   const resume = workspaceTrpc.resume.useMutation(settled)
-  if (inbox.data === undefined) return <p className="text-muted">Loading…</p>
+  if (inbox.data === undefined) return <Unread error={inbox.error} />
+  // The latest of Pause and Resume: a Resume that went through clears a failed Pause.
+  const pausing = pause.submittedAt > resume.submittedAt ? pause : resume
   return (
     <Inbox
       items={inbox.data.items}
@@ -49,6 +72,8 @@ const InboxView = () => {
         if (paused) pause.mutate(scope)
         else resume.mutate(scope)
       }}
+      pressFailures={pressFailuresOf(Object.values(mutations))}
+      pauseFailure={pausing.error?.message}
     />
   )
 }

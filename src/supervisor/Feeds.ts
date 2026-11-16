@@ -14,6 +14,7 @@ import {
   idOf,
   inboxItems,
   runPoll,
+  type PollOutcome,
   type Entry,
   type Inbox,
 } from "../workspace/internal.js"
@@ -41,7 +42,7 @@ export interface FeedRunner {
   readonly inbox: () => Inbox
   /** Changes the inbox; what a person decided is saved. */
   readonly change: (next: (inbox: Inbox) => Inbox) => void
-  /** Runs the item's feed's `canStart`: why it holds the item, `undefined` when it may start. */
+  /** Why the item's feed holds it (its `canStart`, or the feed is gone); `undefined` when it may start. */
   readonly canStart: (item: InboxItem) => Promise<string | undefined>
   /** Every feed has polled once since it was added: a blocker of another feed is in the inbox. */
   readonly ready: () => boolean
@@ -65,22 +66,17 @@ export interface FeedDeps {
   readonly afterPoll?: (feed: string) => void
 }
 
-// An item the last supervisor left starting never reports how its start ended.
-const restored = (entry: Entry): Entry =>
-  entry.dispatch?.state === "starting"
-    ? { ...entry, dispatch: { state: "failed", message: "gtd stopped while the item started" } }
-    : entry
-
 const keptJson = (inbox: Inbox): string =>
   JSON.stringify([...inbox.entries.values()].filter((entry) => entry.dispatch !== undefined))
 
 /** Polls every feed on its own schedule and keeps the inbox from the results. */
 export const feedRunner = (deps: FeedDeps): FeedRunner => {
-  let inbox: Inbox = emptyInbox(deps.store.dismissed(), deps.store.items().map(restored))
+  let inbox: Inbox = emptyInbox(deps.store.dismissed(), deps.store.items())
   let saved = keptJson(inbox)
   let feeds = deps.feeds
   const failing = new Map<string, string>()
-  const polling = new Set<string>()
+  // By feed, not name: a reload's new feed polls while the old one's poll runs out.
+  const polling = new Set<Feed>()
   const polled = new Set<string>()
 
   const setInbox = (next: Inbox): void => {
@@ -112,26 +108,31 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
     }
   }
 
+  const apply = async (name: string, feed: Feed, outcome: PollOutcome): Promise<void> => {
+    polled.add(name)
+    if ("failure" in outcome) {
+      if (failing.get(name) !== outcome.failure)
+        deps.log(`feed ${name} failing: ${outcome.failure}\n`)
+      failing.set(name, outcome.failure)
+      return
+    }
+    const source = { feed: name, project: feed.project, mode: feed.mode }
+    setInbox(applyPoll(deps.ended?.(inbox) ?? inbox, source, outcome.items, deps.now()))
+    failing.delete(name)
+    await deps.polled?.()
+  }
+
   const poll = async (name: string, feed: Feed): Promise<void> => {
     // A slow poll is not stacked on itself.
-    if (polling.has(name)) return
-    polling.add(name)
+    if (polling.has(feed)) return
+    polling.add(feed)
     try {
       const outcome = await runPoll(feed, await contextOf(name, feed))
-      polled.add(name)
-      if ("failure" in outcome) {
-        if (failing.get(name) !== outcome.failure)
-          deps.log(`feed ${name} failing: ${outcome.failure}\n`)
-        failing.set(name, outcome.failure)
-        return
-      }
-      const source = { feed: name, project: feed.project, mode: feed.mode }
-      setInbox(applyPoll(deps.ended?.(inbox) ?? inbox, source, outcome.items, deps.now()))
-      failing.delete(name)
-      await deps.polled?.()
+      // A reload changed or removed the feed meanwhile: its result is stale.
+      if (feeds.get(name) === feed) await apply(name, feed, outcome)
     } finally {
-      deps.afterPoll?.(name)
-      polling.delete(name)
+      if (feeds.get(name) === feed) deps.afterPoll?.(name)
+      polling.delete(feed)
     }
   }
 
@@ -171,8 +172,9 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
     change: (next) => setInbox(next(inbox)),
     canStart: async (item) => {
       const feed = feeds.get(item.feed)
+      if (feed === undefined) return `its feed ${item.feed} is not in the config`
       const filed = inbox.entries.get(idOf(item.feed, item.key))?.item
-      if (feed?.canStart === undefined || filed === undefined) return undefined
+      if (feed.canStart === undefined || filed === undefined) return undefined
       try {
         if (await feed.canStart(filed, await contextOf(item.feed, feed))) return undefined
         return "its feed's canStart holds it"

@@ -38,6 +38,18 @@ When(
 )
 
 When(
+  /^I press (Proceed|Retry) on "([^"]+)" twice at once$/,
+  async (world: GtdWorld, button: string, ref: string) => {
+    const [first, second] = await Promise.all([
+      press(world, button, ref),
+      press(world, button, ref),
+    ])
+    assert.deepStrictEqual(first, second)
+    presses.set(world, second)
+  },
+)
+
+When(
   /^I press (Proceed|Retry) on "([^"]+)" while (\d+) seconds pass$/,
   async (world: GtdWorld, button: string, ref: string, seconds: string) => {
     const b = bench(world)

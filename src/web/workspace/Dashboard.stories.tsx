@@ -213,6 +213,70 @@ export const UnreachableSupervisor: Story = {
   },
 }
 
+/** An inbox the supervisor cannot read says why, never "Loading…" for good. */
+export const InboxThatCannotBeRead: Story = {
+  decorators: [
+    (Story) => (
+      <WorkspaceTrpcTestProvider
+        resolvers={{
+          projects: () => workspace,
+          banners: () => [],
+          inbox: () => {
+            throw new Error("the supervisor is restarting")
+          },
+        }}
+      >
+        <Story />
+      </WorkspaceTrpcTestProvider>
+    ),
+  ],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    await expect((await canvas.findByTestId("inbox-error")).textContent).toBe(
+      "Could not read the inbox: the supervisor is restarting",
+    )
+  },
+}
+
+/** A Start or Pause the supervisor turns down shows why beside the control that sent it. */
+export const InboxShowsFailedPresses: Story = {
+  decorators: [
+    (Story) => (
+      <WorkspaceTrpcTestProvider
+        resolvers={{
+          projects: () => workspace,
+          banners: () => [],
+          inbox: () => inbox,
+          startItem: () => {
+            throw new Error("no proposed item boardReady/1")
+          },
+          pause: () => {
+            throw new Error("no feed boardReady in portal")
+          },
+        }}
+      >
+        <Story />
+      </WorkspaceTrpcTestProvider>
+    ),
+  ],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    const [proposed, failed] = await canvas.findAllByTestId("inbox-item")
+    await userEvent.click(within(proposed!).getByRole("button", { name: "Start" }))
+    await expect((await within(proposed!).findByTestId("press-error")).textContent).toBe(
+      "no proposed item boardReady/1",
+    )
+    await expect(within(failed!).queryByTestId("press-error")).not.toBeInTheDocument()
+    const scopes = canvas.getAllByTestId("pause-scope")
+    await userEvent.click(within(scopes[4]!).getByRole("button", { name: "Pause" }))
+    await expect((await canvas.findByTestId("pause-error")).textContent).toBe(
+      "no feed boardReady in portal",
+    )
+  },
+}
+
 /** The Inbox pauses and resumes dispatch in the workspace, a project or a feed. */
 export const InboxPausesDispatch: Story = {
   play: async ({ canvasElement }) => {
