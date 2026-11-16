@@ -85,3 +85,20 @@ export const OpensTheTappedWorktree: Story = {
     )
   },
 }
+
+/** A main checkout the last clean pass could not bring up to date is marked on its project. */
+export const MarksAStaleMainCheckout: Story = {
+  args: {
+    projects: workspace.map((project) =>
+      project.id === "portal"
+        ? { ...project, mainStale: "git fetch failed: could not resolve host" }
+        : project,
+    ),
+  },
+  play: async ({ canvasElement }) => {
+    const marks = within(canvasElement).getAllByTestId("main-stale")
+    await expect(marks.map((m) => m.textContent)).toEqual([
+      "main checkout stale: git fetch failed: could not resolve host",
+    ])
+  },
+}

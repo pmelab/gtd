@@ -484,8 +484,8 @@ is left out.
 A pass first refreshes the project's main checkout with the worktrees adapter's
 `refresh`, so that `integrated` is told against a current default branch. A
 refresh never resets or rebases. A main checkout that it cannot bring up to date
-is stale: a banner shows the reason until a pass refreshes it, and a `mainStale`
-notification is sent.
+is stale: a banner and the project's heading in the Projects view show the
+reason until a pass refreshes it, and a `mainStale` notification is sent.
 
 Then the pass removes each worktree that the adapter reports as integrated
 (`true`; `undefined` never counts) and whose tree is clean (`dirty: false`),

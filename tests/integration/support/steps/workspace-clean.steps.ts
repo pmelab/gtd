@@ -1,4 +1,5 @@
-import { Given, When } from "quickpickle"
+import { Given, Then, When } from "quickpickle"
+import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
 import { bench } from "./workspace.steps.js"
 
@@ -33,3 +34,12 @@ Given(
 When("the main checkout of {string} refreshes again", (world: GtdWorld, project: string) => {
   bench(world).worktrees.stale(project, undefined)
 })
+
+// An empty docstring: the project's main checkout is not marked stale.
+Then(
+  "the Projects view marks the main checkout of {string} stale with:",
+  async (world: GtdWorld, project: string, reason: string) => {
+    const view = (await bench(world).projects()).find((p) => p.id === project)
+    assert.strictEqual(view?.mainStale ?? "", reason.trim())
+  },
+)

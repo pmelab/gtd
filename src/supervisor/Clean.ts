@@ -6,6 +6,7 @@ import {
   type WorkspaceSettings,
   type WorktreesAdapter,
 } from "../workspace/index.js"
+import type { ProjectView } from "./Scan.js"
 import type { Banner } from "./Snapshot.js"
 import type { WorktreeChanges } from "./WorktreeChanges.js"
 
@@ -25,6 +26,8 @@ export interface Cleaner {
   /** Follows `clean.every` as the settings say now: call it after each reload. */
   readonly schedule: () => void
   readonly banners: () => readonly Banner[]
+  /** The projects with each stale main checkout's reason. */
+  readonly withStale: (projects: readonly ProjectView[]) => readonly ProjectView[]
   readonly stop: () => void
 }
 
@@ -90,6 +93,11 @@ export const cleaner = (deps: CleanDeps): Cleaner => {
       if (every === undefined) stale = new Map()
       arm()
     },
+    withStale: (projects) =>
+      projects.map((project) => {
+        const reason = stale.get(project.id)
+        return reason === undefined ? project : { ...project, mainStale: reason }
+      }),
     banners: () =>
       [...stale].map(([project, reason]) => ({
         kind: "mainStale" as const,

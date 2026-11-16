@@ -63,6 +63,11 @@ export const Projects = ({
     {projects.map((project) => (
       <section key={project.id} className="flex flex-col" data-testid="project">
         <h2 className="font-medium">{project.name}</h2>
+        {project.mainStale !== undefined && (
+          <p className="text-small text-danger" data-testid="main-stale">
+            main checkout stale: {project.mainStale}
+          </p>
+        )}
         {project.failure !== undefined && (
           <p className="text-small text-danger">
             {project.failure.adapter} unavailable: {project.failure.message}

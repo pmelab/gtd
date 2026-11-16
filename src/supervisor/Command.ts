@@ -255,7 +255,8 @@ export const runWorkspaceCommand = (
         audit,
         now: clock.now,
       })
-      const projects = () => noted.withNotes(control.withRefusals(snapshot.projects()))
+      const projects = () =>
+        clean.withStale(noted.withNotes(control.withRefusals(snapshot.projects())))
       const terminalTabs = terminalTab({
         worktrees,
         terminal,
