@@ -6,6 +6,13 @@ type ItemPress = "start" | "retry" | "dismiss"
 
 type OnPress = (press: ItemPress, item: InboxItem) => void
 
+/** Why the supervisor turned down the last Start, Retry or Dismiss of an item. */
+export interface PressFailure {
+  readonly feed: string
+  readonly key: string
+  readonly message: string
+}
+
 // Start on a proposed item, Retry on a failed one; both can be dismissed.
 const PRESSES: Partial<Record<InboxItem["state"], readonly [ItemPress, string][]>> = {
   proposed: [
@@ -65,13 +72,35 @@ const Facts = ({ item }: { readonly item: InboxItem }) => (
   </>
 )
 
-const Item = ({ item, onPress }: { readonly item: InboxItem; readonly onPress: OnPress }) => (
+const Failure = ({
+  message,
+  testId,
+}: {
+  readonly message?: string | undefined
+  readonly testId: string
+}) =>
+  message === undefined ? null : (
+    <span className="text-small text-danger" data-testid={testId}>
+      {message}
+    </span>
+  )
+
+const Item = ({
+  item,
+  onPress,
+  failure,
+}: {
+  readonly item: InboxItem
+  readonly onPress: OnPress
+  readonly failure?: string | undefined
+}) => (
   <article className="flex flex-col gap-1 rounded-lg bg-surface p-3" data-testid="inbox-item">
     <span>
       <Title item={item} />
     </span>
     <Facts item={item} />
     <Presses item={item} onPress={onPress} />
+    <Failure message={failure} testId="press-error" />
   </article>
 )
 
@@ -83,6 +112,8 @@ export const Inbox = ({
   paused,
   onPress,
   onPause,
+  pressFailures = [],
+  pauseFailure,
 }: {
   readonly items: readonly InboxItem[]
   readonly feeds: readonly FeedView[]
@@ -90,6 +121,8 @@ export const Inbox = ({
   readonly paused: readonly PauseScope[]
   readonly onPress: OnPress
   readonly onPause: (scope: PauseScope, pause: boolean) => void
+  readonly pressFailures?: readonly PressFailure[]
+  readonly pauseFailure?: string | undefined
 }) => (
   <div className="flex flex-col gap-3">
     <p className="text-small text-muted" data-testid="drives">
@@ -98,6 +131,7 @@ export const Inbox = ({
         : `${drives.inUse} of ${drives.max} drives in use`}
     </p>
     <Pauses feeds={feeds} paused={paused} onPause={onPause} />
+    <Failure message={pauseFailure} testId="pause-error" />
     {feeds
       .filter((f) => f.failing !== undefined)
       .map((f) => (
@@ -111,7 +145,12 @@ export const Inbox = ({
       ))}
     {items.length === 0 && <p className="py-12 text-center text-muted">The inbox is empty.</p>}
     {items.map((item) => (
-      <Item key={`${item.feed}/${item.key}`} item={item} onPress={onPress} />
+      <Item
+        key={`${item.feed}/${item.key}`}
+        item={item}
+        onPress={onPress}
+        failure={pressFailures.find((f) => f.feed === item.feed && f.key === item.key)?.message}
+      />
     ))}
   </div>
 )
