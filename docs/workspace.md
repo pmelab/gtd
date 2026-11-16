@@ -98,8 +98,10 @@ code 1.
 The supervisor reloads the file each time you save it. A reload with a bad file
 keeps the last good config, and a banner above the projects shows the findings
 until a reload succeeds. A reload changes `driver`, `limits`, `projects`,
-`notify`, `clean`, the feeds and the reactions, and polls each feed at once.
-`adapters`, `pollEvery` and `ui` change only when the supervisor starts again.
+`notify`, `clean`, the feeds and the reactions, and polls each feed at once. A
+poll that was running drops its result. The waiting items of a feed the file no
+longer exports stay queued and do not start. `adapters`, `pollEvery` and `ui`
+change only when the supervisor starts again.
 
 ### `workspace`
 
@@ -356,7 +358,8 @@ To dispatch an item, gtd:
 The item is then started and leaves the Inbox. A feed that still returns its key
 does not file it again until its worktree is removed. A step that fails makes
 the item failed; a failed item stays when its feed stops returning it. An item
-that was starting when the supervisor stopped is failed when it starts again.
+that was starting when the supervisor stopped is still starting when it starts
+again, while the pane of its start action is there; otherwise it is failed.
 
 **Dismiss** hides a proposed or failed item until its feed stops returning it. A
 later poll that returns the key again files it anew.
