@@ -163,3 +163,36 @@ Feature: feeds file items into the workspace inbox
     And the Inbox reports these feeds:
       | feed       | project | mode    | failing                    |
       | boardReady | portal  | propose | item 0: title: is required |
+
+  Scenario: one feed exported under two names polls under each name
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      import { feed } from "@pmelab/gtd/workspace"
+
+      const board = feed({
+        project: "portal",
+        every: "5m",
+        mode: "propose",
+        poll: async (ctx) => {
+          const out = await ctx.exec(["gh", "issue", "list"])
+          return JSON.parse(out.stdout).map((i: { number: number; title: string }) => ({
+            key: String(i.number),
+            title: i.title,
+            action: "start:feature",
+            priority: 0,
+          }))
+        },
+      })
+
+      export const portal = board
+      export const mirror = board
+      """
+    And the command "gh issue list" prints:
+      """
+      [{ "number": 1, "title": "Add login" }]
+      """
+    When I start gtd workspace
+    Then the Inbox lists:
+      | feed   | key | title     | state    |
+      | mirror | 1   | Add login | proposed |
+      | portal | 1   | Add login | proposed |
