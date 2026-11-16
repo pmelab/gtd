@@ -445,7 +445,9 @@ runs. Its audit line has the endpoint `cli`.
 
 ## New worktree and Remove
 
-The dashboard has no buttons for these yet. They are the tRPC mutations
+In the Projects view, each project has a New worktree button, and a worktree's
+detail has a Remove button (not on the main checkout). Remove first shows what
+would be lost, and a second press confirms it. Scripts use the tRPC mutations
 `createWorktree` with `{ project, branch, base }` (`base` is optional) and
 `removeWorktree` with `{ project, worktree, confirmed }`, where `worktree` is
 the worktree's `path` as the query `projects` returns it. A branch or base that

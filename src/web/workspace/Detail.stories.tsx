@@ -153,3 +153,59 @@ export const Closes: Story = {
     await expect(args.onClose).toHaveBeenCalled()
   },
 }
+
+/** Remove first lists what would be lost; a second press confirms, removes and closes the detail. */
+export const RemoveAsksToConfirm: Story = {
+  decorators: withApi({
+    removeWorktree: (input) => {
+      calls.push({ procedure: "removeWorktree", input })
+      return (input as { confirmed?: boolean }).confirmed === true
+        ? { removed: true }
+        : { confirm: ["the tree has uncommitted changes", "the branch is not integrated"] }
+    },
+  }),
+  play: async ({ canvasElement, args }) => {
+    calls.length = 0
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("button", { name: "Remove" }))
+    await expect((await canvas.findByTestId("remove-confirm")).textContent).toBe(
+      "Remove anyway? This loses: the tree has uncommitted changes, the branch is not integrated",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Remove anyway" }))
+    await waitFor(() => expect(args.onClose).toHaveBeenCalled())
+    await expect(calls).toEqual([
+      {
+        procedure: "removeWorktree",
+        input: { project: "portal", worktree: "/ws/portal-plan", confirmed: false },
+      },
+      {
+        procedure: "removeWorktree",
+        input: { project: "portal", worktree: "/ws/portal-plan", confirmed: true },
+      },
+    ])
+  },
+}
+
+/** A worktree that Remove keeps shows gtd's reason. */
+export const ShowsWhyRemoveKeepsAWorktree: Story = {
+  decorators: withApi({
+    removeWorktree: () => {
+      throw new Error("its driver runs")
+    },
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("button", { name: "Remove" }))
+    await expect((await canvas.findByTestId("remove-error")).textContent).toBe("its driver runs")
+  },
+}
+
+/** The main checkout has no Remove. */
+export const NoRemoveOnTheMainCheckout: Story = {
+  args: { entry: { project: portal, worktree: portal.worktrees[0]! } },
+  play: async ({ canvasElement }) => {
+    await expect(
+      within(canvasElement).queryByRole("button", { name: "Remove" }),
+    ).not.toBeInTheDocument()
+  },
+}

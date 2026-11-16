@@ -7,6 +7,7 @@ import { PressButton, Refused } from "./Press.js"
 import { ServiceChips } from "./ServiceChips.js"
 import { TabBar } from "./TabBar.js"
 import { TerminalTab } from "./TerminalTab.js"
+import { RemoveButton } from "./WorktreeChanges.js"
 import { detailText, STATUS_COLOR, statusText, worktreeName, type Entry } from "./view.js"
 
 type Tab = "gate" | "terminal" | "actions"
@@ -73,6 +74,7 @@ export const Detail = ({
         <Refused worktree={worktree} />
         <ServiceChips worktree={worktree} />
         <PressButton worktree={worktree} />
+        <RemoveButton project={project.id} worktree={worktree} onRemoved={onClose} />
       </header>
       <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:order-2">
         {tab === "gate" && <Gate gate={worktree.gate} />}
