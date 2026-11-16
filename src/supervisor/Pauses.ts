@@ -68,7 +68,8 @@ export const pauses = (deps: PausesDeps): Pauses => {
   return {
     list: () => sorted(kept.values()),
     set: (scope, paused, caller) => {
-      const refused = refusal(scope)
+      // A stored pause can be lifted after its project or feed left the config.
+      const refused = !paused && kept.has(keyOf(scope)) ? undefined : refusal(scope)
       if (refused !== undefined) return refused
       if (paused) kept.set(keyOf(scope), scope)
       else kept.delete(keyOf(scope))

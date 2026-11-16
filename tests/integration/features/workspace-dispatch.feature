@@ -196,3 +196,21 @@ Feature: Start and Retry dispatch an inbox item
     And I dismiss "board/7" in the Inbox
     Then the Inbox lists:
       | feed | key | title | state |
+
+  Scenario: Start answers once its item is dispatched, while the other waiting items still dispatch
+    Given the command "gh issue list" prints:
+      """
+      [
+        { "key": "7", "title": "Add signup", "action": "start:feature", "priority": 1 },
+        { "key": "8", "title": "Fix login", "action": "start:feature", "priority": 0, "branch": "login" }
+      ]
+      """
+    And a driver that an earlier supervisor started runs in "portal/login"
+    When I start gtd workspace
+    And I start "board/8" in the Inbox
+    And gtd next in "portal/login" holds its answer
+    And I start "board/7" in the Inbox
+    Then gtd opened these action panes:
+      | worktree       | argv              |
+      | portal/board/7 | ["start:feature"] |
+    When gtd next in "portal/login" gives its answer

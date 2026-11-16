@@ -11,6 +11,9 @@ export const gatePath = (project: string, worktree: Pick<Worktree, "branch" | "p
 
 const GATE = /^(\/([^/]+)\/([^/]+)\/gate)(?:\/|$)/
 
+/** The path is a gate page's or its API's; a project may be named `trpc`. */
+export const isGatePath = (pathname: string): boolean => GATE.test(pathname)
+
 const decode = (segment: string): string | undefined => {
   try {
     return decodeURIComponent(segment)

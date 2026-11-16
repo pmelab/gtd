@@ -10,11 +10,16 @@ import type { ActionRun } from "./Actions.js"
 import { gatePath } from "./Gate.js"
 import { asFailure, byPath, type ProjectView, type ScanDeps } from "./Scan.js"
 import { listServices, type ServicesView } from "./Services.js"
-import { isOrphan, worktreeStatus, type DriverState } from "./Status.js"
+import { driverRuns, isOrphan, worktreeStatus, type DriverState } from "./Status.js"
 
 /** A problem with the workspace itself, shown above every project. */
 export interface Banner {
-  readonly kind: "adapterUnavailable" | "configError" | "unknownProject" | "mainStale"
+  readonly kind:
+    | "adapterUnavailable"
+    | "configError"
+    | "unknownProject"
+    | "mainStale"
+    | "reactionFailed"
   readonly message: string
 }
 
@@ -35,6 +40,8 @@ export interface SnapshotDeps extends ScanDeps {
 export interface Snapshot {
   readonly projects: () => readonly ProjectView[]
   readonly banners: () => readonly Banner[]
+  /** The worktrees where a driver runs, by project, as last read. */
+  readonly driving: () => ReadonlyMap<string, readonly string[]>
   /** Runs `gtd next` in the worktree at once, in turn with its project's other rechecks. */
   readonly recheckWorktree: (path: string) => void
   /** Reads one worktree's driver pane again, without `gtd next`. */
@@ -353,6 +360,13 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
         }))
       return [...unavailable, ...unknown]
     },
+    driving: () =>
+      new Map(
+        [...kept].map(([id, project]) => [
+          id,
+          [...project.seen].filter(([, { driver }]) => driverRuns(driver)).map(([path]) => path),
+        ]),
+      ),
     refreshDriver,
     recheckWorktree: (path) => {
       const project = [...kept].find(([, p]) => p.worktrees.some((w) => w.path === path))

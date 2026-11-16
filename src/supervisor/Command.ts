@@ -22,10 +22,15 @@ import { findWorkspaceModule, loadWorkspace, reloadWorkspace } from "./Config.js
 import { controls, type Controls } from "./Controls.js"
 import { dispatcher, type Dispatcher } from "./Dispatch.js"
 import { driverPanes, drivers } from "./Drivers.js"
-import { gateOf } from "./Gate.js"
+import { gateOf, isGatePath } from "./Gate.js"
 import { acquireLock, stateDirectory } from "./Lock.js"
 import { feedRunner } from "./Feeds.js"
-import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
+import {
+  SupervisorClock,
+  SupervisorHost,
+  UserlandTools,
+  type DefaultNotifications,
+} from "./Ports.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
 import type { ProjectView } from "./Scan.js"
@@ -118,8 +123,15 @@ const controlHandler =
 
 const notificationsOf = (
   settings: WorkspaceSettings,
-  byDefault: () => NotificationsAdapter,
-): NotificationsAdapter => settings.adapters?.notifications ?? byDefault()
+  byDefault: () => DefaultNotifications,
+): { readonly adapter: NotificationsAdapter; readonly subscribe?: string } => {
+  const configured = settings.adapters?.notifications
+  return configured !== undefined ? { adapter: configured } : byDefault()
+}
+
+// The default topic is random: this line is the only way to learn it.
+const subscribeLine = (url: string | undefined): string =>
+  url === undefined ? "" : `notifications: subscribe to ${url}\n`
 
 const asUiError = (error: unknown): UiError =>
   error instanceof UiError
@@ -182,8 +194,9 @@ export const runWorkspaceCommand = (
         out.write(line)
         out.flush()
       }
+      const notifications = notificationsOf(settings, () => host.defaultNotifications(directory))
       const notify = notifier({
-        adapter: notificationsOf(settings, () => host.defaultNotifications(directory)),
+        adapter: notifications.adapter,
         store,
         settings: config,
         now: clock.now,
@@ -239,14 +252,15 @@ export const runWorkspaceCommand = (
       const control = controls({
         worktrees,
         drivers: driverRuns,
-        projects: snapshot.projects,
+        projects: () => noted.withNotes(snapshot.projects()),
         oneShot: host.oneShot,
         after: host.after,
         refreshDriver: snapshot.refreshDriver,
         audit,
         now: clock.now,
       })
-      const projects = () => noted.withNotes(control.withRefusals(snapshot.projects()))
+      const projects = () =>
+        clean.withStale(noted.withNotes(control.withRefusals(snapshot.projects())))
       const terminalTabs = terminalTab({
         worktrees,
         terminal,
@@ -277,6 +291,7 @@ export const runWorkspaceCommand = (
         drivers: driverRuns,
         next: host.next,
         projects: snapshot.projects,
+        driving: snapshot.driving,
         refresh: snapshot.refresh,
         settings: config,
         audit,
@@ -366,6 +381,7 @@ export const runWorkspaceCommand = (
             : []),
           ...snapshot.banners(),
           ...clean.banners(),
+          ...reactions.banners(),
         ]
       }
 
@@ -385,6 +401,7 @@ export const runWorkspaceCommand = (
 
       const handler: UiHandler = async (request, afterResponse, peer, identity) => {
         const path = new URL(request.url).pathname
+        if (isGatePath(path)) return gatePage(request, afterResponse, peer)
         if (path === TRPC || path.startsWith(`${TRPC}/`)) {
           return fetchRequestHandler({
             endpoint: TRPC,
@@ -447,6 +464,7 @@ export const runWorkspaceCommand = (
       notify.begin(url, snapshot.projects())
       reactions.begin(noted.withNotes(snapshot.projects()))
       out.write(`${url}\n`)
+      out.write(subscribeLine(notifications.subscribe))
       out.write(spoolRefusals.map((refusal) => `spool ${refusal}\n`).join(""))
       out.flush()
       feeds.start()

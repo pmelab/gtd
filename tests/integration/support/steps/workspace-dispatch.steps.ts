@@ -53,6 +53,10 @@ Given("the command {string} exits {int}", (world: GtdWorld, argv: string, status
   bench(world).commands.set(argv, { status, stdout: "", stderr: "" })
 })
 
+When("the terminal adapter stops answering", (world: GtdWorld) => {
+  bench(world).terminalStopped = true
+})
+
 // "2 of 3", or "2" when no `limits.maxDrives` is set.
 Then("the Inbox counts {string} drives in use", async (world: GtdWorld, expected: string) => {
   const { drives } = await bench(world).inbox()

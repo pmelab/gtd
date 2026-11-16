@@ -1,11 +1,23 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { outage, workspace } from "./dashboard.fixture.js"
 import { Projects } from "./Projects.js"
+
+const calls: { procedure: string; input: unknown }[] = []
+
+const withApi = (resolvers: Record<string, (input: unknown) => unknown>) => [
+  (Story: () => React.JSX.Element) => (
+    <WorkspaceTrpcTestProvider resolvers={{ projects: () => workspace, ...resolvers }}>
+      <Story />
+    </WorkspaceTrpcTestProvider>
+  ),
+]
 
 const meta: Meta<typeof Projects> = {
   component: Projects,
   args: { projects: workspace, selected: undefined, onOpen: fn() },
+  decorators: withApi({}),
 }
 
 export default meta
@@ -82,6 +94,82 @@ export const OpensTheTappedWorktree: Story = {
     await userEvent.click(within(canvasElement).getByText("plan"))
     await expect(args.onOpen).toHaveBeenCalledWith(
       expect.objectContaining({ worktree: expect.objectContaining({ branch: "plan" }) }),
+    )
+  },
+}
+
+/** A main checkout the last clean pass could not bring up to date is marked on its project. */
+export const MarksAStaleMainCheckout: Story = {
+  args: {
+    projects: workspace.map((project) =>
+      project.id === "portal"
+        ? { ...project, mainStale: "git fetch failed: could not resolve host" }
+        : project,
+    ),
+  },
+  play: async ({ canvasElement }) => {
+    const marks = within(canvasElement).getAllByTestId("main-stale")
+    await expect(marks.map((m) => m.textContent)).toEqual([
+      "main checkout stale: git fetch failed: could not resolve host",
+    ])
+  },
+}
+
+/** New worktree on a project takes a branch name and creates the worktree. */
+export const CreatesANewWorktree: Story = {
+  decorators: withApi({
+    createWorktree: (input) => {
+      calls.push({ procedure: "createWorktree", input })
+      return { path: "/ws/portal-signup" }
+    },
+  }),
+  play: async ({ canvasElement }) => {
+    calls.length = 0
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getAllByRole("button", { name: "New worktree" })[1]!)
+    await userEvent.type(canvas.getByRole("textbox", { name: "Branch" }), "signup")
+    await userEvent.click(canvas.getByRole("button", { name: "Create" }))
+    await waitFor(() =>
+      expect(calls).toEqual([
+        { procedure: "createWorktree", input: { project: "portal", branch: "signup" } },
+      ]),
+    )
+    await waitFor(() =>
+      expect(canvas.queryByRole("textbox", { name: "Branch" })).not.toBeInTheDocument(),
+    )
+  },
+}
+
+/** A branch name gtd refuses keeps the form open with gtd's reason. */
+export const ShowsWhyANewWorktreeIsRefused: Story = {
+  decorators: withApi({
+    createWorktree: () => {
+      throw new Error("a worktree of portal is on plan already")
+    },
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getAllByRole("button", { name: "New worktree" })[1]!)
+    await userEvent.type(canvas.getByRole("textbox", { name: "Branch" }), "plan")
+    await userEvent.click(canvas.getByRole("button", { name: "Create" }))
+    await expect((await canvas.findByTestId("new-worktree-error")).textContent).toBe(
+      "a worktree of portal is on plan already",
+    )
+  },
+}
+
+/** A new worktree whose services do not start stays, and says why. */
+export const SaysWhyTheNewWorktreesServicesDidNotStart: Story = {
+  decorators: withApi({
+    createWorktree: () => ({ path: "/ws/portal-signup", failure: "web: exit code 3" }),
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getAllByRole("button", { name: "New worktree" })[1]!)
+    await userEvent.type(canvas.getByRole("textbox", { name: "Branch" }), "signup")
+    await userEvent.click(canvas.getByRole("button", { name: "Create" }))
+    await expect((await canvas.findByTestId("new-worktree-failure")).textContent).toBe(
+      "services did not start: web: exit code 3",
     )
   },
 }

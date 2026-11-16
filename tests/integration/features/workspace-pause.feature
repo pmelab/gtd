@@ -251,3 +251,17 @@ Feature: pause and resume dispatch
       """
       gtd workspace resume: supervisor not running for
       """
+
+  Scenario: a pause of a feed that left the config can still be resumed
+    When I start gtd workspace
+    And I run "gtd workspace pause api board" in the workspace
+    And the workspace file "gtd.workspace.ts" changes to:
+      """
+      import { defineWorkspace } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"] })
+      """
+    And I run "gtd workspace resume api board" in the workspace
+    Then the command exits 0
+    And the Inbox reports these pauses:
+      | project | feed |

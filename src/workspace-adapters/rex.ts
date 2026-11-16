@@ -1,4 +1,5 @@
-import { execFile, spawn } from "node:child_process"
+import { execFile, spawn, type ChildProcessByStdio } from "node:child_process"
+import type { Readable } from "node:stream"
 import { basename } from "node:path"
 import {
   AdapterError,
@@ -120,6 +121,47 @@ export const changedPane = (line: string): string | undefined => {
  * opens a new window there whose terminal runs argv through the login shell
  * and keeps the pane open after argv exits. A handle is the block id.
  */
+/**
+ * The pane handles `rex events` reports. Hand-written, not a generator: a
+ * generator's `return()` waits behind a pending `next()`, so the child would
+ * live on until its next event.
+ */
+const paneEvents = (events: ChildProcessByStdio<null, Readable, null>): AsyncIterator<string> => {
+  const handles: string[] = []
+  let ended = false
+  let wake = (): void => {}
+  let pending = ""
+  const end = (): void => {
+    ended = true
+    wake()
+  }
+  events.stdout.on("data", (chunk) => {
+    const lines = (pending + String(chunk)).split("\n")
+    pending = lines.pop() ?? ""
+    for (const line of lines) {
+      const handle = changedPane(line)
+      if (handle !== undefined) handles.push(handle)
+    }
+    wake()
+  })
+  events.stdout.on("end", end)
+  events.on("error", end)
+  events.on("exit", end)
+  return {
+    next: async () => {
+      while (handles.length === 0 && !ended) await new Promise<void>((resolve) => (wake = resolve))
+      const value = handles.shift()
+      return value === undefined ? { done: true, value: undefined } : { done: false, value }
+    },
+    return: async () => {
+      handles.length = 0
+      end()
+      events.kill()
+      return { done: true, value: undefined }
+    },
+  }
+}
+
 export const rex = (options: RexOptions = {}): TerminalAdapter => {
   const bin = options.bin ?? "rex"
   const global = (autostart: boolean): string[] => [
@@ -217,24 +259,12 @@ export const rex = (options: RexOptions = {}): TerminalAdapter => {
       if (outcome.code !== 0 && !isGone(outcome)) fail("close", outcome)
     },
     watch: () => ({
-      [Symbol.asyncIterator]: async function* () {
-        const events = spawn(bin, [...global(false), "events", "--all", "--json"], {
-          stdio: ["ignore", "pipe", "ignore"],
-        })
-        try {
-          let pending = ""
-          for await (const chunk of events.stdout) {
-            const lines = (pending + String(chunk)).split("\n")
-            pending = lines.pop() ?? ""
-            for (const line of lines) {
-              const handle = changedPane(line)
-              if (handle !== undefined) yield handle
-            }
-          }
-        } finally {
-          events.kill()
-        }
-      },
+      [Symbol.asyncIterator]: () =>
+        paneEvents(
+          spawn(bin, [...global(false), "events", "--all", "--json"], {
+            stdio: ["ignore", "pipe", "ignore"],
+          }),
+        ),
     }),
   }
 }

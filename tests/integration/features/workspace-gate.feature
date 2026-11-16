@@ -36,6 +36,13 @@ Feature: gtd workspace serves every worktree's gate page
     And every listed gate page answers 200
     And the gate page of "portal/plan" shows the rest "Answer the plan"
 
+  Scenario: a project named trpc has its gate page
+    Given the worktrees adapter reports these worktrees:
+      | project | branch |
+      | trpc    | main   |
+    When I start gtd workspace
+    Then every listed gate page answers 200
+
   Scenario: a worktree the workspace does not list has no gate page
     When I start gtd workspace
     And "owner@example.com" sends this request to gtd workspace:

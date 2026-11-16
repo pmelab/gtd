@@ -40,6 +40,8 @@ export interface ProjectView {
   readonly worktrees: readonly WorktreeView[]
   /** The worktrees adapter could not list this project. */
   readonly failure?: AdapterFailure
+  /** Why the last clean pass could not bring the main checkout up to date. */
+  readonly mainStale?: string
 }
 
 export interface ScanDeps {

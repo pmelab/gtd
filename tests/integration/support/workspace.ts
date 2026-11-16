@@ -156,6 +156,8 @@ export class WorkspaceBench {
   readonly refusing = new Map<string, string>()
   /** Worktrees whose driver never answers a one-shot, as if it never listened. */
   readonly silent = new Set<string>()
+  /** The terminal adapter no longer answers status reads. */
+  terminalStopped = false
   /** A feed's `ctx.exec` answers, by argv joined with spaces. */
   readonly commands = new Map<string, ExecResult>()
   /** The feeds' clock. */
@@ -283,6 +285,7 @@ export class WorkspaceBench {
     const adapter = this.terminal.adapter
     return {
       ...adapter,
+      status: (handle) => (this.terminalStopped ? new Promise(() => {}) : adapter.status(handle)),
       close: async (handle) => {
         const pane = this.terminal.panes().find((p) => p.handle === handle)
         this.calls.push({ call: "terminal.close", worktree: await this.refOf(pane!.worktree) })
@@ -384,7 +387,10 @@ export class WorkspaceBench {
       defaultTerminal: () => this.loggedTerminal(),
       defaultServices: () => this.loggedServices(),
       defaultActions: () => this.actions.adapter,
-      defaultNotifications: () => this.notifications.adapter,
+      defaultNotifications: () => ({
+        adapter: this.notifications.adapter,
+        subscribe: "https://ntfy.sh/gtd-topic-of-this-workspace",
+      }),
       isPidAlive: (pid) => pid === process.pid,
       after: this.clock.after,
       watchFile: (path, changed) => {

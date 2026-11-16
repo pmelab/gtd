@@ -1,6 +1,7 @@
 import { Given, Then, When, type DataTable } from "quickpickle"
 import assert from "node:assert"
 import { setTimeout as delay } from "node:timers/promises"
+import { inMemoryTerminal } from "../../../../src/twins/index.js"
 import type { Action } from "../../../../src/workspace/index.js"
 import type { GtdWorld } from "../world.js"
 import { bench } from "./workspace.steps.js"
@@ -15,6 +16,15 @@ const target = async (world: GtdWorld, ref: string) => {
 Given("the actions adapter offers these actions:", (world: GtdWorld, actions: string) => {
   bench(world).actions.offer(JSON.parse(actions) as readonly Action[])
 })
+
+Given(
+  "the program {string} exits {int} as soon as it starts",
+  (world: GtdWorld, program: string, code: number) => {
+    bench(world).terminal = inMemoryTerminal({
+      programs: (argv) => (argv[0] === program ? (process) => process.exit(code) : undefined),
+    })
+  },
+)
 
 Then(
   "the action picker of {string} offers:",

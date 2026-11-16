@@ -247,3 +247,10 @@ Feature: gtd workspace sends notifications
       not sent: no route to ntfy.sh
       """
     And gtd sent no notification
+
+  Scenario: with the default notifications, the supervisor prints where to subscribe
+    When I start gtd workspace
+    Then the supervisor printed:
+      """
+      notifications: subscribe to https://ntfy.sh/gtd-topic-of-this-workspace
+      """

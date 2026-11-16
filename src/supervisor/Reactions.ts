@@ -11,6 +11,7 @@ import type {
 import { runReaction } from "../workspace/internal.js"
 import type { Press, PressOutcome } from "./Controls.js"
 import type { ProjectView, WorktreeView } from "./Scan.js"
+import type { Banner } from "./Snapshot.js"
 import type { Store } from "./Store.js"
 
 export interface ReactionDeps {
@@ -46,6 +47,8 @@ export interface ReactionRunner {
   readonly replace: (reactions: ReadonlyMap<string, Reaction>) => void
   /** Auto-clean removed the worktree: a `cleaned` change, from its last status. */
   readonly cleaned: (project: string, worktree: WorktreeView) => void
+  /** Each reaction whose last run failed. */
+  readonly banners: () => readonly Banner[]
 }
 
 interface Kept {
@@ -118,6 +121,8 @@ export const reactionRunner = (deps: ReactionDeps): ReactionRunner => {
   let saved = stored !== undefined
   // One run of a reaction at a time, in the order of the changes.
   const chains = new Map<string, Promise<void>>()
+  // The failure of each reaction's last run, until a run goes through.
+  const failures = new Map<string, string>()
 
   const contextOf = (name: string, change: WorktreeChange): ReactionContext => {
     const press = async (action: Press["action"], commit: string): Promise<ReactionOutcome> =>
@@ -158,7 +163,9 @@ export const reactionRunner = (deps: ReactionDeps): ReactionRunner => {
     for (const [name, reaction] of reactions) {
       const run = async (): Promise<void> => {
         const { failure } = await runReaction(reaction, change, contextOf(name, change))
-        if (failure !== undefined) deps.log(`reaction ${name} failed: ${failure}\n`)
+        if (failure === undefined) return void failures.delete(name)
+        failures.set(name, failure)
+        deps.log(`reaction ${name} failed: ${failure}\n`)
       }
       chains.set(name, (chains.get(name) ?? Promise.resolve()).then(run))
     }
@@ -194,6 +201,7 @@ export const reactionRunner = (deps: ReactionDeps): ReactionRunner => {
     },
     replace: (next) => {
       reactions = next
+      for (const name of failures.keys()) if (!next.has(name)) failures.delete(name)
     },
     cleaned: (project, w) => {
       const before = kept.get(w.path)
@@ -202,5 +210,12 @@ export const reactionRunner = (deps: ReactionDeps): ReactionRunner => {
       saved = true
       deliver({ ...changeOf(project, w, before, false), to: "cleaned" })
     },
+    banners: () =>
+      [...failures]
+        .sort(([a], [b]) => a.localeCompare(b))
+        .map(([name, failure]) => ({
+          kind: "reactionFailed" as const,
+          message: `reaction ${name} failed: ${failure}`,
+        })),
   }
 }

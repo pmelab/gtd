@@ -2,6 +2,7 @@ import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { UiShell } from "./index.js"
 import {
+  nodeOwnerCache,
   parseNodeOwner,
   parseTailscaleStatus,
   parseWhois,
@@ -202,5 +203,46 @@ describe("parseWhois", () => {
 
   it("names no login on unparseable JSON", () => {
     expect(parseWhois("peer not found")).toBeUndefined()
+  })
+})
+
+describe("nodeOwnerCache", () => {
+  // `null`: tailscale does not answer.
+  const counting = (answers: (string | undefined | null)[]) => {
+    const probe = { runs: 0 }
+    const ask = async () => {
+      const answer = answers[Math.min(probe.runs++, answers.length - 1)]
+      return answer === null ? undefined : { owner: answer }
+    }
+    return { probe, ask }
+  }
+
+  it("asks tailscale once for a node that has an owner", async () => {
+    const { probe, ask } = counting(["owner@example.com"])
+    const owner = nodeOwnerCache(ask, () => 0)
+    expect(await owner()).toBe("owner@example.com")
+    expect(await owner()).toBe("owner@example.com")
+    expect(probe.runs).toBe(1)
+  })
+
+  it("asks tailscale once for a tagged node that has no owner", async () => {
+    const { probe, ask } = counting([undefined])
+    const owner = nodeOwnerCache(ask, () => 0)
+    expect(await owner()).toBeUndefined()
+    expect(await owner()).toBeUndefined()
+    expect(probe.runs).toBe(1)
+  })
+
+  it("asks again after a failed probe only once 30 seconds passed", async () => {
+    const { probe, ask } = counting([null, "owner@example.com"])
+    let time = 0
+    const owner = nodeOwnerCache(ask, () => time)
+    expect(await owner()).toBeUndefined()
+    time = 29_999
+    expect(await owner()).toBeUndefined()
+    expect(probe.runs).toBe(1)
+    time = 30_000
+    expect(await owner()).toBe("owner@example.com")
+    expect(probe.runs).toBe(2)
   })
 })

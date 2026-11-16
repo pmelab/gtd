@@ -189,7 +189,7 @@ An item has these fields:
 - **`action`**: the start action that begins the work, for example
   `start:feature`;
 - **`priority`**: a number; a higher number starts first;
-- **`blockedBy`** (optional): keys of items that must finish first. Use
+- **`blockedBy`** (optional): keys of items that must start first. Use
   `<feed>/<key>` for an item of another feed;
 - **`branch`** (optional): start the work in the existing worktree of this
   branch;
@@ -270,7 +270,8 @@ matches it, and one reaction gets its changes one at a time, in order.
 - **`exec`**, **`fetch`** and **`log`** are as for feeds; `exec` runs in the
   worktree unless `cwd` is given, and `log` lines start with `reaction <name>:`.
 
-A `run` that throws is printed (`reaction <name> failed: …`); the other
+A `run` that throws is printed (`reaction <name> failed: …`), and a banner on
+the dashboard shows it until a run of that reaction goes through; the other
 reactions and the feeds keep running.
 
 The supervisor keeps the last worktree statuses in its state store. When it
@@ -444,7 +445,9 @@ runs. Its audit line has the endpoint `cli`.
 
 ## New worktree and Remove
 
-The dashboard has no buttons for these yet. They are the tRPC mutations
+In the Projects view, each project has a New worktree button, and a worktree's
+detail has a Remove button (not on the main checkout). Remove first shows what
+would be lost, and a second press confirms it. Scripts use the tRPC mutations
 `createWorktree` with `{ project, branch, base }` (`base` is optional) and
 `removeWorktree` with `{ project, worktree, confirmed }`, where `worktree` is
 the worktree's `path` as the query `projects` returns it. A branch or base that
@@ -483,8 +486,8 @@ is left out.
 A pass first refreshes the project's main checkout with the worktrees adapter's
 `refresh`, so that `integrated` is told against a current default branch. A
 refresh never resets or rebases. A main checkout that it cannot bring up to date
-is stale: a banner shows the reason until a pass refreshes it, and a `mainStale`
-notification is sent.
+is stale: a banner and the project's heading in the Projects view show the
+reason until a pass refreshes it, and a `mainStale` notification is sent.
 
 Then the pass removes each worktree that the adapter reports as integrated
 (`true`; `undefined` never counts) and whose tree is clean (`dirty: false`),
@@ -707,8 +710,9 @@ flags (for example `--dry`) as that flag, so `mise()` refuses such a value.
 topic. Anyone who knows a topic on a public server can read it. Without a
 `notifications` adapter, the supervisor publishes to a random topic on
 `https://ntfy.sh`, kept in the file `ntfy-topic` in its
-[state directory](#security). gtd does not print it: read it there, and
-subscribe to that topic in the ntfy app.
+[state directory](#security). At each start, after the URL line, the supervisor
+prints the line `notifications: subscribe to <url>` with the topic's URL:
+subscribe to it in the ntfy app.
 
 ## Security
 

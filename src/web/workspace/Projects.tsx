@@ -2,6 +2,7 @@ import { cn } from "../cn.js"
 import { NoteLine } from "./NoteLine.js"
 import { Refused } from "./Press.js"
 import { ServiceChips } from "./ServiceChips.js"
+import { NewWorktree } from "./WorktreeChanges.js"
 import {
   detailText,
   STATUS_COLOR,
@@ -62,7 +63,15 @@ export const Projects = ({
   <div className="flex flex-col gap-5">
     {projects.map((project) => (
       <section key={project.id} className="flex flex-col" data-testid="project">
-        <h2 className="font-medium">{project.name}</h2>
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-medium">{project.name}</h2>
+          <NewWorktree project={project.id} />
+        </div>
+        {project.mainStale !== undefined && (
+          <p className="text-small text-danger" data-testid="main-stale">
+            main checkout stale: {project.mainStale}
+          </p>
+        )}
         {project.failure !== undefined && (
           <p className="text-small text-danger">
             {project.failure.adapter} unavailable: {project.failure.message}

@@ -78,7 +78,11 @@ const createWorktreeInput = (value: unknown) => {
   if (typeof branch !== "string" || (base !== undefined && typeof base !== "string")) {
     throw new TRPCError({ code: "BAD_REQUEST", message: "expected { project, branch, base? }" })
   }
-  return { project: text(value, "project"), branch, base: base as string | undefined }
+  return {
+    project: text(value, "project"),
+    branch,
+    ...(typeof base === "string" ? { base } : {}),
+  }
 }
 
 const removeWorktreeInput = (value: unknown) => ({
@@ -163,10 +167,10 @@ export const workspaceRouter = t.router({
         ctx.worktreeChanges.remove(input.project, input.worktree, input.confirmed, ctx.caller),
       ),
     ),
-  inbox: t.procedure.query(async ({ ctx }) => ({
+  inbox: t.procedure.query(({ ctx }) => ({
     items: ctx.feeds.items(),
     feeds: ctx.feeds.feeds(),
-    drives: await ctx.dispatch.drives(),
+    drives: ctx.dispatch.drives(),
     paused: ctx.pauses.list(),
   })),
   dismiss: t.procedure.input(itemRef).mutation(({ ctx, input }) => {
@@ -195,9 +199,10 @@ export const workspaceRouter = t.router({
   /** Pauses dispatch in the workspace (`{}`), a project, or a feed of a project. */
   pause: t.procedure.input(pauseInput).mutation(({ ctx, input }) => setPause(ctx, input, true)),
   /** Takes off the pause of exactly that scope, and starts what can start now. */
-  resume: t.procedure.input(pauseInput).mutation(async ({ ctx, input }) => {
+  resume: t.procedure.input(pauseInput).mutation(({ ctx, input }) => {
     setPause(ctx, input, false)
-    await ctx.dispatch.pass()
+    // What can start now starts after the answer.
+    void ctx.dispatch.pass().catch(() => {})
   }),
 })
 

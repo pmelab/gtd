@@ -105,10 +105,44 @@ const tailscaleStdout = (command: string): Effect.Effect<string | undefined, nev
     return outcome.stdout ?? outcome.output
   })
 
-export const probeNodeOwner = (): Effect.Effect<string | undefined, never, UiShell> =>
+/** What tailscale answered about the node's owner; `owner` is absent on a tagged node. */
+export interface NodeOwner {
+  readonly owner: string | undefined
+}
+
+/** `undefined` when tailscale did not answer. */
+export const probeNodeOwner = (): Effect.Effect<NodeOwner | undefined, never, UiShell> =>
   tailscaleStdout("tailscale status --json").pipe(
-    Effect.map((stdout) => (stdout === undefined ? undefined : parseNodeOwner(stdout))),
+    Effect.map((stdout) => (stdout === undefined ? undefined : { owner: parseNodeOwner(stdout) })),
   )
+
+// A tailnet that comes up after the server starts is picked up this long after a failed probe.
+const OWNER_RETRY_MS = 30_000
+
+/**
+ * The node's owner, asked once and kept, also when the node has none: the
+ * guard asks on every request. A probe that failed is tried again later.
+ */
+export const nodeOwnerCache = (
+  probe: () => Promise<NodeOwner | undefined>,
+  now: () => number,
+): (() => Promise<string | undefined>) => {
+  let known: NodeOwner | undefined
+  let failedAt: number | undefined
+  let asking: Promise<string | undefined> | undefined
+  return async () => {
+    if (known !== undefined) return known.owner
+    if (failedAt !== undefined && now() - failedAt < OWNER_RETRY_MS) return undefined
+    asking ??= probe()
+      .then((answer) => {
+        if (answer === undefined) failedAt = now()
+        else known = answer
+        return answer?.owner
+      })
+      .finally(() => (asking = undefined))
+    return asking
+  }
+}
 
 export const whois = (address: string): Effect.Effect<string | undefined, never, UiShell> =>
   tailscaleStdout(`tailscale whois --json ${shellQuote(address)}`).pipe(

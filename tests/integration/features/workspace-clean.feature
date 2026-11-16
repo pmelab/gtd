@@ -226,7 +226,7 @@ Feature: auto-clean removes integrated worktrees
     And the clock advances "1h"
     Then gtd made no adapter calls
 
-  Scenario: a stale main checkout shows a banner and sends a mainStale notification
+  Scenario: a stale main checkout shows a banner, marks its project and sends a mainStale notification
     Given a commit lands on "portal/login"
     And "portal/login" is merged into main
     And the main checkout of "portal" does not refresh:
@@ -242,12 +242,19 @@ Feature: auto-clean removes integrated worktrees
     And gtd sent these notifications:
       | key              | title                               | body                                     | link | priority |
       | mainStale:portal | portal: the main checkout is stale | git fetch failed: could not resolve host | /    | default  |
+    And the Projects view marks the main checkout of "portal" stale with:
+      """
+      git fetch failed: could not resolve host
+      """
     And the Projects view lists:
       | project | worktree | status | label |
       | portal  | main     | idle   | Idle  |
     When the main checkout of "portal" refreshes again
     And the clock advances "30m"
     Then the dashboard shows no banner
+    And the Projects view marks the main checkout of "portal" stale with:
+      """
+      """
 
   Scenario: a cleaned worktree is a cleaned change for the reactions
     Given a workspace file "gtd.workspace.ts" with:
