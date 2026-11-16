@@ -1,7 +1,7 @@
 import { Given, Then, When, type DataTable } from "quickpickle"
 import assert from "node:assert"
 import { setTimeout as delay } from "node:timers/promises"
-import { inMemoryTerminal } from "../../../../src/twins/Terminal.js"
+import { inMemoryTerminal } from "../../../../src/twins/index.js"
 import type { Action } from "../../../../src/workspace/index.js"
 import type { GtdWorld } from "../world.js"
 import { bench } from "./workspace.steps.js"
