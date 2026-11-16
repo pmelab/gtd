@@ -108,6 +108,16 @@ const exitCase = (label: string, end: ProbeEnd, code: number) => (harness: Termi
   }),
 })
 
+const within = <A>(ms: number, promise: Promise<A>, what: string): Promise<A> => {
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${what} within ${ms} ms`)), ms)
+  })
+  return Promise.race([promise, late]).finally(() => clearTimeout(timer))
+}
+
+const RETURN_WAIT_MS = 5_000
+
 const HOSTILE_ARGS = ["two words", "$HOME", "it's", '"quoted"', "`id`", "a;b|c&", "--", "x=y", "*"]
 
 /** The cases every terminal adapter passes, bundled or userland. */
@@ -188,6 +198,17 @@ export const terminalContract = (harness: TerminalHarness): readonly ContractCas
         fail(`the record is ${JSON.stringify(record)}`)
       }
       await probe.release()
+    }),
+  },
+  {
+    name: "watch() ends when its consumer stops, even while it waits for a hint",
+    run: withFixture(harness, async (fixture) => {
+      if (fixture.adapter.watch === undefined) return
+      const hints = fixture.adapter.watch()[Symbol.asyncIterator]()
+      const waiting = hints.next()
+      await within(RETURN_WAIT_MS, Promise.resolve(hints.return?.()), "return() did not resolve")
+      const result = await within(RETURN_WAIT_MS, waiting, "the waiting next() did not end")
+      if (result.done !== true) fail("the waiting next() gave a hint instead of ending")
     }),
   },
 ]
