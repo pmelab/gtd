@@ -1,7 +1,13 @@
 import { Effect } from "effect"
 import { describe, expect, it } from "vitest"
 import { UiShell } from "./index.js"
-import { parseTailscaleStatus, probeTailscaleStatus } from "./Tailscale.js"
+import {
+  nodeOwnerCache,
+  parseNodeOwner,
+  parseTailscaleStatus,
+  parseWhois,
+  probeTailscaleStatus,
+} from "./Tailscale.js"
 
 const running = (self: Record<string, unknown>, top: Record<string, unknown> = {}): string =>
   JSON.stringify({ BackendState: "Running", ...top, Self: self })
@@ -159,5 +165,84 @@ describe("probeTailscaleStatus", () => {
     )
     const status = await Effect.runPromise(probeTailscaleStatus().pipe(Effect.provide(runner)))
     expect(status?.hostname).toBe("host.tailnet.ts.net")
+  })
+})
+
+describe("parseNodeOwner", () => {
+  it("names the login of the user that owns this node", () => {
+    const json = JSON.stringify({
+      BackendState: "Running",
+      Self: { UserID: 7 },
+      User: { "7": { ID: 7, LoginName: "owner@example.com" } },
+    })
+    expect(parseNodeOwner(json)).toBe("owner@example.com")
+  })
+
+  it("names no owner for a tagged node, which has no user entry", () => {
+    const json = JSON.stringify({ BackendState: "Running", Self: { UserID: 9 }, User: {} })
+    expect(parseNodeOwner(json)).toBeUndefined()
+  })
+
+  it("names no owner on unparseable JSON", () => {
+    expect(parseNodeOwner("not json")).toBeUndefined()
+  })
+})
+
+describe("parseWhois", () => {
+  it("names the login of the peer's user", () => {
+    const json = JSON.stringify({
+      Node: { Name: "phone.tailnet.ts.net." },
+      UserProfile: { ID: 7, LoginName: "owner@example.com", DisplayName: "Owner" },
+    })
+    expect(parseWhois(json)).toBe("owner@example.com")
+  })
+
+  it("names no login for an answer without a user profile", () => {
+    expect(parseWhois(JSON.stringify({ Node: {} }))).toBeUndefined()
+  })
+
+  it("names no login on unparseable JSON", () => {
+    expect(parseWhois("peer not found")).toBeUndefined()
+  })
+})
+
+describe("nodeOwnerCache", () => {
+  // `null`: tailscale does not answer.
+  const counting = (answers: (string | undefined | null)[]) => {
+    const probe = { runs: 0 }
+    const ask = async () => {
+      const answer = answers[Math.min(probe.runs++, answers.length - 1)]
+      return answer === null ? undefined : { owner: answer }
+    }
+    return { probe, ask }
+  }
+
+  it("asks tailscale once for a node that has an owner", async () => {
+    const { probe, ask } = counting(["owner@example.com"])
+    const owner = nodeOwnerCache(ask, () => 0)
+    expect(await owner()).toBe("owner@example.com")
+    expect(await owner()).toBe("owner@example.com")
+    expect(probe.runs).toBe(1)
+  })
+
+  it("asks tailscale once for a tagged node that has no owner", async () => {
+    const { probe, ask } = counting([undefined])
+    const owner = nodeOwnerCache(ask, () => 0)
+    expect(await owner()).toBeUndefined()
+    expect(await owner()).toBeUndefined()
+    expect(probe.runs).toBe(1)
+  })
+
+  it("asks again after a failed probe only once 30 seconds passed", async () => {
+    const { probe, ask } = counting([null, "owner@example.com"])
+    let time = 0
+    const owner = nodeOwnerCache(ask, () => time)
+    expect(await owner()).toBeUndefined()
+    time = 29_999
+    expect(await owner()).toBeUndefined()
+    expect(probe.runs).toBe(1)
+    time = 30_000
+    expect(await owner()).toBe("owner@example.com")
+    expect(probe.runs).toBe(2)
   })
 })

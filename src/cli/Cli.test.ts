@@ -165,8 +165,33 @@ describe("parseArgv — scope", () => {
     const plan = parseArgv(["node", "gtd.js", "next", "--host", "x"])
     expect(plan.kind).toBe("usage")
     if (plan.kind === "usage") {
-      expect(plan.message).toBe("gtd: --host is only valid for `gtd ui`")
+      expect(plan.message).toBe("gtd: --host is only valid for `gtd ui` and `gtd workspace`")
     }
+  })
+
+  it("gtd workspace pause takes at most a project and a feed, and --wait", () => {
+    expect(parseArgv(["node", "gtd.js", "workspace", "pause", "portal", "bugs", "--wait"])).toEqual(
+      expect.objectContaining({
+        command: {
+          kind: "workspaceControl",
+          command: "pause",
+          project: "portal",
+          feed: "bugs",
+          wait: true,
+        },
+      }),
+    )
+    const plan = parseArgv(["node", "gtd.js", "workspace", "pause", "portal", "bugs", "x"])
+    expect(plan.kind === "usage" && plan.message).toBe(
+      "gtd workspace pause: too many arguments — expected at most a project and a feed, got: portal, bugs, x",
+    )
+  })
+
+  it("--wait outside `gtd workspace pause` is rejected", () => {
+    const plan = parseArgv(["node", "gtd.js", "workspace", "resume", "--wait"])
+    expect(plan.kind === "usage" && plan.message).toBe(
+      "gtd: --wait is only valid for `gtd workspace pause`",
+    )
   })
 
   it("--var outside `gtd start` is rejected", () => {
@@ -937,7 +962,15 @@ describe("parseArgv — gtd strays", () => {
 
 describe("standaloneKinds / needsOf", () => {
   it("pins the standalone kinds", () => {
-    expect(standaloneKinds()).toEqual(["lsp", "check", "guide", "judgeRun", "strays"])
+    expect(standaloneKinds()).toEqual([
+      "lsp",
+      "check",
+      "guide",
+      "judgeRun",
+      "strays",
+      "workspace",
+      "workspaceControl",
+    ])
   })
 
   it("needsOf matches none/fs for the standalone kinds and state for everything else", () => {

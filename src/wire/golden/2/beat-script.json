@@ -30,5 +30,6 @@
       "cost": 12
     }
   ],
-  "judge": "{\"schema\":1,\"state\":{\"diff\":\"…\"},\"questions\":[{\"id\":\"q1\",\"primitive\":\"noul\",\"instructions\":\"Is the change done?\",\"criteria\":\"yes: every item ticked\"}]}"
+  "judge": "{\"schema\":1,\"state\":{\"diff\":\"…\"},\"questions\":[{\"id\":\"q1\",\"primitive\":\"noul\",\"instructions\":\"Is the change done?\",\"criteria\":\"yes: every item ticked\"}]}",
+  "judgeFile": ".gtd/REQUIREMENTS.md"
 }

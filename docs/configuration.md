@@ -180,6 +180,7 @@ Every step takes an options object; all keys are optional.
 | `widgets`     | `agent`, with `file` | The widget kinds the steering file may hold: `"single-select"`, `"multi-select"`, `"boolean"`, `"review-checklist"` (static content is always allowed). Another kind sends the turn back.                                                                                                                                                                                                                                                                                                                                                                                      |
 | `coverage`    | `agent`, with `file` | `true`: every range the review base diff changes must be listed by a 🔍 widget.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
 | `message`     | `human`, `judge`     | The text shown to the person at this rest.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `judgeFile`   | `judge`              | The repository file the judgment is about, which a person may want to open at this rest. Not a steering file: gtd neither checks nor rewrites it. `gtd next --json` reports it as `judgeFile`.                                                                                                                                                                                                                                                                                                                                                                                 |
 | `model`       | `agent`              | An opaque model hint passed through to the driver.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `system`      | `agent`              | A system prompt passed through to the driver — a full replacement for the harness's own, not an addition.                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
 | `allowEmpty`  | `agent`              | An agent turn that changes nothing completes the step. Without it, such a turn is an **attempt** (see [Landing rules](#landing-rules)).                                                                                                                                                                                                                                                                                                                                                                                                                                        |
@@ -884,7 +885,7 @@ of `workflow()` (see [Settings](#settings)).
 
 ### `ui`
 
-`config.ui` holds `gtd ui`'s four settings, all optional — a flat struct, so an
+`config.ui` holds `gtd ui`'s five settings, all optional — a flat struct, so an
 unknown sub-key is rejected the same way any other unknown config key is.
 `gtd ui` serves exactly the ONE worktree it is invoked in — there is no
 roots/discovery setting, because there is no fleet to discover:
@@ -907,6 +908,17 @@ roots/discovery setting, because there is no fleet to discover:
   freshly generated throwaway pair, even when both are configured. `--http`
   ignores both: it serves plain HTTP on a loopback bind for a local
   TLS-terminating proxy.
+- **`users`** (non-empty string array, optional) — the tailnet logins (for
+  example `"alice@example.com"`) allowed to use `gtd ui`. Without it, only the
+  user that owns the node is allowed. Every request from any other identity gets
+  `403`. Under `tailscale serve` the identity is the `Tailscale-User-Login`
+  header; on a direct bind it is what `tailscale whois` reports for the peer.
+  With `--http` the local proxy is trusted to check it, and this key is not
+  read.
+
+Every state change is a `POST` with a JSON content type that carries
+`Sec-Fetch-Site: same-origin` or an `Origin` that matches the host. `gtd ui`
+refuses any other `POST`, and a `GET` never changes state.
 
 Flags (`--host`, `--port`, `--self-signed`, `--http`) always override the
 matching `ui` value; see `docs/cli.md`'s `ui` row for the full flag list.

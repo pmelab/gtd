@@ -17,9 +17,26 @@ export interface FakeTailnet {
   readonly mappings: Map<number, string>
   /** Every later `serve --bg` fails while set. */
   failPublish: boolean
+  /** `tailscale whois`: each peer address's login. */
+  readonly peers: Map<string, string>
 }
 
 const TAILNET_HOST = "test-node.tailnet.ts.net"
+/** The user that owns the node `gtd ui` runs on. */
+export const TAILNET_OWNER = "owner@example.com"
+/** The address every in-memory request comes from. */
+export const TAILNET_PEER = "100.64.0.2"
+
+export const fakeTailnet = (): FakeTailnet => ({
+  mappings: new Map(),
+  failPublish: false,
+  peers: new Map([[TAILNET_PEER, TAILNET_OWNER]]),
+})
+
+const whoisAnswer = (login: string | undefined): { status: number; output: string } =>
+  login === undefined
+    ? { status: 1, output: "peer not found\n" }
+    : { status: 0, output: JSON.stringify({ UserProfile: { LoginName: login } }) }
 
 /** The CLI the live tier's fake `tailscale` script answers as, in memory. */
 const tailscale = (tailnet: FakeTailnet, command: string): { status: number; output: string } => {
@@ -29,10 +46,13 @@ const tailscale = (tailnet: FakeTailnet, command: string): { status: number; out
       output: JSON.stringify({
         BackendState: "Running",
         CertDomains: [TAILNET_HOST],
-        Self: { DNSName: `${TAILNET_HOST}.` },
+        Self: { DNSName: `${TAILNET_HOST}.`, UserID: 1 },
+        User: { "1": { ID: 1, LoginName: TAILNET_OWNER } },
       }),
     }
   }
+  const whois = /^tailscale whois --json '([^']+)'$/.exec(command)
+  if (whois !== null) return whoisAnswer(tailnet.peers.get(whois[1]!))
   if (command === "tailscale serve status --json") {
     const web = Object.fromEntries(
       [...tailnet.mappings].map(([port, target]) => [

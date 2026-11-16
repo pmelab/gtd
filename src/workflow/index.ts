@@ -1,5 +1,6 @@
 export {
   load,
+  evaluateModule,
   refuseLegacyRc,
   ConfigService,
   type ConfigOperations,

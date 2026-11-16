@@ -584,21 +584,21 @@ program case with the `prompt` arm pointed at a headless agent CLI, and
 
 ### What the minimal driver actually reads
 
-`gtd next --json` emits 25 keys (21 of them outside `kind: "prompt"`, which is
+`gtd next --json` emits 26 keys (22 of them outside `kind: "prompt"`, which is
 the only kind that ever carries `session`/`skills`/`access`, and `pin`, which
 only a pin or unpin beat carries; `fresh` is on every beat and is `null` except
-on a validator retry); a real driver reads 9 of the 25. The minimal driver below
+on a validator retry); a real driver reads 9 of the 26. The minimal driver below
 is the reference for exactly which: `kind`, `idle`, `content`, `log`, `session`
 (read as its two sub-paths, `session.id`/`session.resume`), `model`, `system`,
 `fresh`, and `judge` — every `--json=<path>` selector its `case` arms touch. The
-remaining 16 (`schema`, `initial`, `state`, `actor`, `workflow`, `label`,
+remaining 17 (`schema`, `initial`, `state`, `actor`, `workflow`, `label`,
 `memory`, `file`, `changes`, `next`, `cost`, `costByModel`, `skills`, `access`,
-`approvals`, `pin`) are read only by a human looking at plain output, or by a
-driver author deciding what to log or preload — no `case` arm in THIS reference
-driver branches on them. This is a property of what a driver NEEDS, not a
-smaller wire: every key stays on every `gtd next --json` line, unconditionally,
-so `--json=<path>` keeps resolving the same way for a human poking at one field
-as for the reference driver reading ten of them in a loop.
+`approvals`, `pin`, `judgeFile`) are read only by a human looking at plain
+output, or by a driver author deciding what to log or preload — no `case` arm in
+THIS reference driver branches on them. This is a property of what a driver
+NEEDS, not a smaller wire: every key stays on every `gtd next --json` line,
+unconditionally, so `--json=<path>` keeps resolving the same way for a human
+poking at one field as for the reference driver reading ten of them in a loop.
 
 (`gtd land --json` is a separate command with its own eight-key document —
 `schema`/`script`/`settled`/`idle`/`state`/`subject`/`cost`/`model` — never a
@@ -851,15 +851,19 @@ green suite can catch.)
 
 A judge gate is a `judge()` step (actor `judge`) and a `kind: "message"` rest
 whose `--json=judge` field is non-empty — the rendered JSON document
-`{ schema, state, questions: [...] }` the pending judgment asks about. The gtd
-engine never calls a model — `gtd judge run` is an answerer a driver chooses to
-pipe through. The reference driver above is an aware driver: it reads
-`--json=judge` and, when non-empty, pipes `gtd judge --json | gtd judge run`
-into `gtd judge answer --json=script | sh`, with no `--provider` (auto
-selection, below). If `gtd judge run` fails it stops at the gate for you, as for
-any message. A driver that wants a different judgment model pipes the same
-document to it and the verdict it gets back into
-`gtd judge answer --json=script` on stdin.
+`{ schema, state, questions: [...] }` the pending judgment asks about. When the
+step declares one, `--json=judgeFile` names the repository file the judgment is
+about (for example `.gtd/REQUIREMENTS.md`), so a driver or dashboard can open it
+for a person without keeping its own map of judge steps to files; it is absent
+at a judge gate that declares none and at every other rest. The gtd engine never
+calls a model — `gtd judge run` is an answerer a driver chooses to pipe through.
+The reference driver above is an aware driver: it reads `--json=judge` and, when
+non-empty, pipes `gtd judge --json | gtd judge run` into
+`gtd judge answer --json=script | sh`, with no `--provider` (auto selection,
+below). If `gtd judge run` fails it stops at the gate for you, as for any
+message. A driver that wants a different judgment model pipes the same document
+to it and the verdict it gets back into `gtd judge answer --json=script` on
+stdin.
 
 Whose-turn-is-it status reporting (like the herdr wrapper above) should treat
 `actor` as an ALLOWLIST, not a denylist: stand down — report the run as resting
@@ -1008,3 +1012,78 @@ do not queue it, store it, or hand it to another worktree.
   names the paste passes to `claude --model` for the workflow's `smart` and
   `base` hints. Unset, the hint is dropped and `claude` runs its own default
   model.
+
+## Workspace drivers
+
+[`gtd workspace`](./workspace.md) starts and steers a driver for each worktree.
+A driver that follows this section works there. The beat protocol above does not
+change. This is an extension that a driver can opt into.
+
+### Invocations
+
+Set the driver command as `driver` in `gtd.workspace.ts` (an argv). gtd runs it
+in these forms, always with the worktree as the working directory:
+
+| Invocation                  | What the driver does                                                                                                                          | Exit codes                                              |
+| --------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `<driver>`                  | Start. Take no arguments. Resume where `gtd next` rests, and wait there if it is a rest for a person or a judge. Do not land an opening beat. | Any; see [Exit codes](#exit-codes-of-a-started-driver). |
+| `<driver> proceed <commit>` | Tell the running driver to proceed from the rest at that HEAD commit.                                                                         | `0` accepted, `1` refused, `2` no driver runs           |
+| `<driver> retry <commit>`   | Tell the running driver to retry the step that rests at that HEAD commit.                                                                     | `0` accepted, `1` refused, `2` no driver runs           |
+| `<driver> quit`             | Tell the running driver to stop.                                                                                                              | `0` accepted, `1` refused, `2` no driver runs           |
+
+gtd runs `<driver>`, `proceed` and `retry`. It does not run `quit` yet, but
+`quit` is part of the contract: implement it all the same.
+
+`proceed`, `retry` and `quit` return at once. How they reach the running driver
+(a socket, a file, a signal) is up to the driver. Refuse with exit 1 and a
+one-line reason on stderr when HEAD is no longer that commit or the driver is
+busy. gtd shows that line on the dashboard.
+
+When you press Proceed and no driver runs, gtd starts the driver and repeats
+`proceed` for a few seconds while it gets exit 2.
+
+### Which rest
+
+The commit in `proceed` and `retry` is the full HEAD commit the person saw.
+History is gtd's only state, so that commit names one rest. Compare it with the
+current HEAD before you act, and refuse a different one.
+
+### Exit codes of a started driver
+
+gtd starts the driver as the only command of a new terminal pane, with no gtd
+process above it. The terminal reports how the driver ended, and the pane stays
+open so that you can read its last output:
+
+- exit 0 when the process has ended: done;
+- exit 0 while the process is mid-flow, or exit 130 or 143: quit;
+- any other exit: crashed. The dashboard shows an error with Retry.
+
+gtd does not restart a crashed driver by itself. It restarts a driver only when
+the supervisor starts and finds a process that waits for an agent or a check
+with no driver running, or whose pane is gone (for example after a reboot).
+Until then, such a worktree needs you, with the message "no driver runs".
+
+### Status
+
+Print OSC 7501 records to show what the driver does. gtd reads the root record
+(no `id`) and ignores child records, `app` and `progress`:
+
+| Root record                | Worktree status                                   |
+| -------------------------- | ------------------------------------------------- |
+| `state=working`            | working, labelled with `title`                    |
+| `state=blocked`            | needs you, labelled with `title`, and its `kind`  |
+| `state=error`              | error, with `msg` as the message                  |
+| none, or any other `state` | from `gtd next` and whether the driver still runs |
+
+A driver that prints none still gets a correct status from `gtd next`: needs you
+at a rest for a person or a judge, working while it runs at a rest for an agent
+or a check, idle when the process has ended, and an error when it stalls.
+
+### Environment
+
+The driver runs in your login-shell environment: your shell's startup files run
+first, as in a terminal you open yourself. gtd adds only the variable below.
+
+- **`GTD_WORKSPACE_ITEM`**: when the driver starts for an inbox item, the item
+  as JSON: `key`, `title`, `url`, `action`, `priority`, `blockedBy`, `branch`,
+  `data`, `feed`, `project`.

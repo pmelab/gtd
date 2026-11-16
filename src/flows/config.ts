@@ -6,6 +6,8 @@ export interface UiSettings {
   readonly host?: string
   readonly cert?: string
   readonly key?: string
+  /** The tailnet logins allowed to use `gtd ui`; the node owner when absent. */
+  readonly users?: readonly string[]
 }
 
 /** The repository settings a `gtd.config.ts` exports as `config`. */
@@ -23,7 +25,7 @@ export interface ConfigProblem {
 }
 
 const CONFIG_KEYS = ["ui", "skills", "access", "historyRemote"] as const
-const UI_KEYS = ["port", "host", "cert", "key"] as const
+const UI_KEYS = ["port", "host", "cert", "key", "users"] as const
 
 /** Keys that once meant something, and what replaced them. */
 const REMOVED: Readonly<Record<string, string>> = {
@@ -59,6 +61,9 @@ const recordOf = (
     ? Object.entries(value).flatMap(([key, v]) => entry(v, [...path, key]))
     : [{ path, message: `must be an object of ${shape}` }]
 
+const isLoginList = (v: unknown): boolean =>
+  Array.isArray(v) && v.length > 0 && v.every((entry) => typeof entry === "string" && entry !== "")
+
 const uiProblems = (value: unknown, path: readonly string[]): ConfigProblem[] => {
   if (!isRecord(value)) return [{ path, message: "must be an object" }]
   return [
@@ -66,15 +71,13 @@ const uiProblems = (value: unknown, path: readonly string[]): ConfigProblem[] =>
     ...UI_KEYS.flatMap((key) => {
       const v = value[key]
       if (v === undefined) return []
-      const ok = key === "port" ? Number.isInteger(v) : typeof v === "string"
-      return ok
-        ? []
-        : [
-            {
-              path: [...path, key],
-              message: key === "port" ? "must be an integer" : "must be a string",
-            },
-          ]
+      const [ok, message] =
+        key === "port"
+          ? [Number.isInteger(v), "must be an integer"]
+          : key === "users"
+            ? [isLoginList(v), "must be a non-empty array of tailnet login names"]
+            : [typeof v === "string", "must be a string"]
+      return ok ? [] : [{ path: [...path, key], message }]
     }),
   ]
 }

@@ -26,6 +26,17 @@ Inspect:
   history show <ref>        Replay one finished process
   history fetch [remote]    Print a script that fetches finished processes
   ui                        Serve the web and phone client
+  workspace                 Serve the dashboard of a workspace
+  workspace proceed <worktree> <commit>
+                            Press Proceed on a worktree
+  workspace retry <worktree> <commit>
+                            Press Retry on a worktree
+  workspace note <worktree> [message]
+                            Put a note on a worktree
+  workspace pause [project [feed]]
+                            Pause dispatch
+  workspace resume [project [feed]]
+                            Resume dispatch
 
 Driver plumbing:
   guide                     Print a briefing for writing a driver
@@ -150,6 +161,13 @@ landed now and reports the step it would reach. Plain output prints a
 nothing); `--json`'s `next` key mirrors it as `{ target }`, or `null`. It is a
 preview, not a landing: a guard or a `refuse()` can still turn the real
 `gtd land` away.
+
+### `gtd next`'s `judgeFile`
+
+At a judge rest whose step declares a `judgeFile`, `--json` carries it: the
+repository path of the file the judgment is about, for a driver or dashboard to
+open for a person. It is absent at a judge rest that declares none and at every
+other rest. `--json=judgeFile` prints it, or nothing.
 
 ### Error envelope
 
@@ -557,6 +575,144 @@ Options:
                       127.0.0.1 unless a loopback --host is given
   --dev               Serve local development sources instead of the packaged
                       build
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace`
+
+```
+Usage: gtd workspace [options]
+
+Run the supervisor of the workspace whose gtd.workspace.ts is innermost from the
+current directory, or the one --config names, and serve its dashboard: every
+worktree of every project, each with its worktree status. It is published like
+`gtd ui`. Only one supervisor runs for a workspace: a second one exits 1 and
+prints the pid and URL of the first. It runs until a signal ends it.
+
+Options:
+  --port=<n>          The tailscale serve port (default: the first free of 8443,
+                      10000, 443), or with --host or --http the port to bind
+                      (default: any free one)
+  --host=<addr>       Bind this address directly instead of publishing through
+                      tailscale serve
+  --self-signed       Bind directly with a throwaway self-signed certificate
+                      instead of the configured ui.cert/ui.key
+  --http              Serve plain HTTP for a local TLS-terminating proxy; binds
+                      127.0.0.1 unless a loopback --host is given
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace proceed`
+
+```
+Usage: gtd workspace proceed <worktree> <commit> [options]
+
+Press Proceed on the worktree at the path <worktree>, as the dashboard does.
+<commit> is the full HEAD commit you saw: gtd refuses when the worktree's HEAD
+is now another commit, and else runs the driver's `proceed <commit>` in the
+worktree.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is
+innermost from the current directory, or the one --config names, through a unix
+socket only you may open. A refusal exits 1 with the reason; so does a
+supervisor that is not running.
+
+Options:
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace retry`
+
+```
+Usage: gtd workspace retry <worktree> <commit> [options]
+
+Press Retry on the worktree at the path <worktree>, as the dashboard does.
+<commit> is the full HEAD commit you saw: gtd refuses when the worktree's HEAD
+is now another commit, and else runs the driver's `retry <commit>` in the
+worktree.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is
+innermost from the current directory, or the one --config names, through a unix
+socket only you may open. A refusal exits 1 with the reason; so does a
+supervisor that is not running.
+
+Options:
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace note`
+
+```
+Usage: gtd workspace note <worktree> [message] [options]
+
+Put <message> on the worktree at the path <worktree>, in place of its last note,
+for example the outcome of a merge or a deploy. With --error the worktree status
+becomes an error of kind note. With --notify the note is also sent as a
+notification. --clear takes the note off and needs no message.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is
+innermost from the current directory, or the one --config names, through a unix
+socket only you may open. When no supervisor runs, the note waits in the
+supervisor's state directory and applies when the supervisor starts. A path that
+is no worktree exits 1.
+
+Options:
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
+  --error             Make it an error note: the worktree status becomes an
+                      error of kind note
+  --notify            Also send the note as a notification
+  --clear             Take the worktree's note off
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace pause`
+
+```
+Usage: gtd workspace pause [project [feed]] [options]
+
+Pause dispatch in the workspace, in the project <project>, or for its feed
+<feed>, as the dashboard's Inbox does: no item in that scope starts until
+`gtd workspace resume` with the same words. An item a pause holds waits, queued.
+Drivers that run go on; with --wait the command returns once no driver runs in
+that scope, for example before a deploy. The pause stays when the supervisor
+restarts.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is
+innermost from the current directory, or the one --config names, through a unix
+socket only you may open. An unknown project or feed exits 1; so does a
+supervisor that is not running.
+
+Options:
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
+  --wait              Return once no driver runs in that scope
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace resume`
+
+```
+Usage: gtd workspace resume [project [feed]] [options]
+
+Take off the pause that `gtd workspace pause` with the same words put on, and
+start the items it held that can start now. A pause of a wider scope still holds
+them.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is
+innermost from the current directory, or the one --config names, through a unix
+socket only you may open. An unknown project or feed exits 1; so does a
+supervisor that is not running.
+
+Options:
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
   -v, --verbose       Narrate on stderr what gtd resolved
 ```
 

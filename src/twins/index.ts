@@ -2,7 +2,7 @@ export { InMemRepo } from "./InMemRepo.js"
 export {
   inMemPath,
   inMemoryHost,
-  makeInMemoryWorkspaceOps,
+  makeInMemoryRepoFilesOps,
   testLayers,
   type CommandTable,
   type ScriptedCommand,
@@ -16,3 +16,9 @@ export { fakeGitOperations } from "./FakeGitOperations.js"
 export { takePinBeat } from "./PinBeats.js"
 export { inMemPinFile } from "./PinFile.js"
 export { inMemorySyncIo } from "./SyncIo.js"
+export { inMemoryClock, settle } from "./Clock.js"
+export { inMemoryWorktrees } from "./Worktrees.js"
+export { inMemoryTerminal, type InMemoryPane } from "./Terminal.js"
+export { inMemoryServices } from "./Services.js"
+export { inMemoryNotifications } from "./Notifications.js"
+export { inMemoryActions } from "./Actions.js"

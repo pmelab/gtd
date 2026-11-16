@@ -8,6 +8,8 @@ import type { Command } from "./Program.js"
 /** What the core a pin carries lacks, or what must read the live state: these never hand over. */
 const LIVE_KINDS: ReadonlySet<Command["kind"]> = new Set<Command["kind"]>([
   "ui",
+  "workspace",
+  "workspaceControl",
   "lsp",
   "guide",
   "bundle",

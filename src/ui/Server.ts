@@ -6,20 +6,23 @@ import { isIP } from "node:net"
 import { dirname, join } from "node:path"
 import { Readable } from "node:stream"
 import { fileURLToPath } from "node:url"
-import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 import { Context, Deferred, Effect, FileSystem, Layer } from "effect"
 import generatedClientHtml from "./client.generated.html"
-import { readStep, type BeatDeps, type Step, type StepRead } from "./Beat.js"
+import { readStep, type Step, type StepRead } from "./Beat.js"
+import { beatDepsOf, gateHandler } from "./Gate.js"
 import { pickBindHost } from "./Bind.js"
+import { guard, type Exposure } from "./Guard.js"
 import { UiError, UiHost, UiShell, UiUsageError, type UiHandler } from "./Ports.js"
-import { resolveDiff, type DiffDeps } from "./Diff.js"
-import { readSteeringFile, type ReadSteeringFileDeps } from "./ReadSteeringFile.js"
-import { appRouter, type RouterContext } from "./Router.js"
 import { inlineScript, inlineStyles } from "./scriptTag.mjs"
 import { parseServeStatus, publishServe, type ServeMapping, unpublishServe } from "./Serve.js"
-import { probeTailscaleStatus, type TailscaleStatus } from "./Tailscale.js"
+import {
+  nodeOwnerCache,
+  probeNodeOwner,
+  probeTailscaleStatus,
+  type TailscaleStatus,
+  whois,
+} from "./Tailscale.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert, type CertPair } from "./Tls.js"
-import { actorVia, writeNote, writeValue, type WriteDeps } from "./Write.js"
 
 /** `/trpc` prefix: everything under it is the tRPC API surface; everything else keeps serving the client HTML exactly as before. */
 const TRPC_PATH_PREFIX = "/trpc"
@@ -29,6 +32,7 @@ export interface UiConfig {
   readonly host?: string | undefined
   readonly cert?: string | undefined
   readonly key?: string | undefined
+  readonly users?: readonly string[] | undefined
 }
 
 /** Where `gtd ui` prints its URL; `flush` hands it to stdout before the server blocks. */
@@ -44,6 +48,9 @@ export interface UiCommandOptions {
   readonly http?: boolean
   readonly dev: boolean
 }
+
+/** How a server is reached: the flags `gtd ui` and `gtd workspace` share. */
+export type ExposeOptions = Omit<UiCommandOptions, "dev">
 
 interface BoundServer {
   readonly port: number
@@ -80,7 +87,7 @@ export const resolveBindHost = (
  * hostname; a self-signed cert for a CGNAT IP warns on every load.
  */
 export const resolveCertPair = (
-  options: UiCommandOptions,
+  options: ExposeOptions,
   config: UiConfig | undefined,
   bindHost: string,
   displayHost: string,
@@ -202,7 +209,8 @@ const viaNode =
       res.end()
       return
     }
-    void handler(request, (callback) => res.once("finish", callback)).then(
+    const peer = req.socket.remoteAddress?.replace(/^::ffff:/, "")
+    void handler(request, (callback) => res.once("finish", callback), peer).then(
       async (response) => {
         res.writeHead(response.status, Object.fromEntries(response.headers))
         res.end(Buffer.from(await response.arrayBuffer()))
@@ -405,7 +413,7 @@ const refusalFor = (step: StepRead): UiUsageError => {
  * given, and `displayHost` falls back to `bindHost` whenever it doesn't.
  */
 const resolveHostsAndCert = (
-  options: UiCommandOptions,
+  options: ExposeOptions,
   config: UiConfig | undefined,
 ): Effect.Effect<
   { readonly bindHost: string; readonly displayHost: string; readonly certPair: CertPair },
@@ -505,7 +513,7 @@ const attemptServe = (
   servePort: number,
   worktree: string,
   uiListener: Context.Service.Shape<typeof UiListener>,
-  handler: UiHandler,
+  handlerFor: (exposure: Exposure) => UiHandler,
 ): Effect.Effect<ServeAttempt, never, UiShell | UiHost> =>
   Effect.gen(function* () {
     const tailscaleStatus = yield* probeTailscaleStatus()
@@ -529,10 +537,12 @@ const attemptServe = (
       } as const
     }
 
-    const boundAttempt = yield* uiListener.listen({ host: "127.0.0.1", port: 0, handler }).pipe(
-      Effect.map((bound) => ({ ok: true as const, bound })),
-      Effect.catch((e) => Effect.succeed({ ok: false as const, reason: e.message })),
-    )
+    const boundAttempt = yield* uiListener
+      .listen({ host: "127.0.0.1", port: 0, handler: handlerFor("serve") })
+      .pipe(
+        Effect.map((bound) => ({ ok: true as const, bound })),
+        Effect.catch((e) => Effect.succeed({ ok: false as const, reason: e.message })),
+      )
     if (!boundAttempt.ok) {
       return {
         ok: false,
@@ -596,11 +606,11 @@ const isLoopbackHost = (host: string): boolean =>
   (isIP(host) === 4 && host.startsWith("127."))
 
 const httpBind = (
-  options: UiCommandOptions,
+  options: ExposeOptions,
   explicitHost: string | undefined,
   explicitPort: number | undefined,
   uiListener: Context.Service.Shape<typeof UiListener>,
-  handler: UiHandler,
+  handlerFor: (exposure: Exposure) => UiHandler,
 ): Effect.Effect<{ readonly bound: BoundServer; readonly url: string }, UiError> =>
   Effect.gen(function* () {
     const bindHost = explicitHost ?? "127.0.0.1"
@@ -611,7 +621,11 @@ const httpBind = (
         ]),
       )
     }
-    const bound = yield* uiListener.listen({ host: bindHost, port: explicitPort ?? 0, handler })
+    const bound = yield* uiListener.listen({
+      host: bindHost,
+      port: explicitPort ?? 0,
+      handler: handlerFor("proxy"),
+    })
     return {
       bound,
       url: `http://${isIP(bindHost) === 6 ? `[${bindHost}]` : bindHost}:${bound.port}/`,
@@ -624,13 +638,13 @@ const httpBind = (
  * failure reason above the URL before falling back. Never a refusal either way.
  */
 const resolveListener = (args: {
-  readonly options: UiCommandOptions
+  readonly options: ExposeOptions
   readonly config: UiConfig | undefined
   readonly explicitPort: number | undefined
   readonly explicitHost: string | undefined
   readonly worktree: string
   readonly uiListener: Context.Service.Shape<typeof UiListener>
-  readonly handler: UiHandler
+  readonly handlerFor: (exposure: Exposure) => UiHandler
   readonly out: UiOut
 }): Effect.Effect<
   {
@@ -642,7 +656,8 @@ const resolveListener = (args: {
   UiShell | UiHost | FileSystem.FileSystem
 > =>
   Effect.gen(function* () {
-    const { options, config, explicitPort, explicitHost, worktree, uiListener, handler, out } = args
+    const { options, config, explicitPort, explicitHost, worktree, uiListener, handlerFor, out } =
+      args
 
     const directBind = (): Effect.Effect<
       { readonly bound: BoundServer; readonly url: string },
@@ -655,13 +670,13 @@ const resolveListener = (args: {
           tls: certPair,
           host: bindHost,
           port: explicitPort ?? 0,
-          handler,
+          handler: handlerFor("direct"),
         })
         return { bound, url: `https://${displayHost}:${bound.port}/` }
       })
 
     if (options.http === true) {
-      const bound = yield* httpBind(options, explicitHost, explicitPort, uiListener, handler)
+      const bound = yield* httpBind(options, explicitHost, explicitPort, uiListener, handlerFor)
       return { bound: bound.bound, url: bound.url, teardown: Effect.void }
     }
 
@@ -674,7 +689,7 @@ const resolveListener = (args: {
     const candidates = explicitPort !== undefined ? [explicitPort] : SERVE_PORT_CANDIDATES
     const tried: Array<{ readonly port: number; readonly reason: string }> = []
     for (const candidate of candidates) {
-      const attempt = yield* attemptServe(candidate, worktree, uiListener, handler)
+      const attempt = yield* attemptServe(candidate, worktree, uiListener, handlerFor)
       if (attempt.ok) {
         return {
           bound: attempt.bound,
@@ -716,11 +731,7 @@ export const runUiCommand = (
     // Read before resolving the bind host or the certificate, so a refusal
     // never invokes openssl (T1's own acceptance bullet).
     const host = yield* UiHost
-    const beatDeps: BeatDeps = {
-      run: host.run,
-      readLocalGtdVersion: host.readLocalGtdVersion,
-      headSha: host.headSha,
-    }
+    const beatDeps = beatDepsOf(host)
     const step = yield* Effect.promise(() => readStep({ path: root }, beatDeps))
     if (step.status === "broken" || !isRenderable(step)) {
       return yield* Effect.fail(refusalFor(step))
@@ -734,10 +745,6 @@ export const runUiCommand = (
 
     const runner = yield* UiShell
     const fs = yield* FileSystem.FileSystem
-    const uiListener = yield* UiListener
-
-    const explicitPort = normalizePort(options.port ?? config?.port)
-    const explicitHost = options.host ?? config?.host
 
     // T5: resolved ONCE, here, ahead of `uiListener.listen` — never inside
     // the request handler. The server lives for exactly one step, so a
@@ -745,15 +752,6 @@ export const runUiCommand = (
     // build per unauthenticated HTTP request was subprocess amplification
     // reachable by anything on the tailnet.
     const clientHtml = yield* resolveClientHtml(options.dev, runner, fs)
-
-    const writeDeps: WriteDeps = {
-      headSha: host.headSha,
-      actorAt: actorVia(host.run),
-      readFile: host.readFile,
-      writeFile: host.writeFile,
-    }
-    const diffDeps: DiffDeps = { run: host.run }
-    const readDeps: ReadSteeringFileDeps = { headSha: host.headSha, readFile: host.readFile }
 
     // Resolved only by the moved-on detection below (the outer loop advanced
     // while this server was up); a signal is the only other way out.
@@ -778,62 +776,73 @@ export const runUiCommand = (
       return { status: "moved-on", label: read.status === "ok" ? read.label : servedLabel }
     }
 
-    // T4's confinement gate: every read/write is narrowed to the ONE file
-    // the served step actually named at startup (`step.file`, captured
-    // above) — never the whole worktree. Lives here, not inside
-    // `writeNote`/`writeValue`/`readSteeringFile` themselves, because those
-    // functions have no notion of "the step this server serves"; only the
-    // context closing over `step` does. `"file-vanished"` reuses the
-    // existing refusal rather than adding a seventh `WriteRefusalReason` —
-    // a seventh value means a seventh client display sentence for a case
-    // only a hand-rolled client (never the real phone UI, which only ever
-    // requests `step.file`) could reach.
-    const isServedFile = (filePath: string): boolean => filePath === step.file
+    const handler = gateHandler({
+      root,
+      host,
+      endpoint: TRPC_PATH_PREFIX,
+      clientHtml,
+      readStep: readServedStep,
+      // Only the file the step named at startup.
+      servedFile: () => Promise.resolve(step.file),
+    })
 
-    const handler: UiHandler = (request) => {
-      const path = new URL(request.url).pathname
-      if (path !== TRPC_PATH_PREFIX && !path.startsWith(`${TRPC_PATH_PREFIX}/`)) {
-        return Promise.resolve(
-          new Response(clientHtml, { headers: { "content-type": "text/html; charset=utf-8" } }),
-        )
-      }
-      return fetchRequestHandler({
-        endpoint: TRPC_PATH_PREFIX,
-        req: request,
-        router: appRouter,
-        createContext: (): RouterContext => ({
-          readStep: readServedStep,
-          writeNote: (request) =>
-            isServedFile(request.filePath)
-              ? writeNote({ ...request, worktreePath: root }, writeDeps)
-              : Promise.resolve({ ok: false, reason: "file-vanished" }),
-          writeValue: (request) =>
-            isServedFile(request.filePath)
-              ? writeValue({ ...request, worktreePath: root }, writeDeps)
-              : Promise.resolve({ ok: false, reason: "file-vanished" }),
-          resolveDiff: (path, line, endLine) => resolveDiff(root, path, line, endLine, diffDeps),
-          readSteeringFile: (request) =>
-            isServedFile(request.filePath)
-              ? readSteeringFile({ ...request, worktreePath: root }, readDeps)
-              : Promise.resolve({ ok: false, reason: "file-vanished" }),
-        }),
-      })
+    const { url, close } = yield* exposeHandler({ options, config, handler, label: root, out })
+
+    out.write(`${url}\n`)
+    out.flush()
+    yield* Deferred.await(movedOnDeferred).pipe(Effect.ensuring(close))
+  })
+
+/** A server listening, and how to stop it and undo its `tailscale serve` mapping. */
+export interface Exposed {
+  readonly url: string
+  readonly close: Effect.Effect<void, never, UiShell | UiHost>
+}
+
+/**
+ * Serves `handler` the way `gtd ui` does: through `tailscale serve`, on the
+ * tailnet interface, or behind `--http`, with every request held to the
+ * tailnet identity and same-origin checks (ADR 0014). `label` names the
+ * server in its serve ownership record.
+ */
+export const exposeHandler = (args: {
+  readonly options: ExposeOptions
+  readonly config: UiConfig | undefined
+  readonly handler: UiHandler
+  readonly label: string
+  readonly out: UiOut
+}): Effect.Effect<Exposed, UiError, UiShell | UiHost | FileSystem.FileSystem | UiListener> =>
+  Effect.gen(function* () {
+    const { options, config, handler, label, out } = args
+    const runner = yield* UiShell
+    const uiListener = yield* UiListener
+
+    const tailnet = <A>(effect: Effect.Effect<A, never, UiShell>): Promise<A> =>
+      Effect.runPromise(effect.pipe(Effect.provideService(UiShell, runner)))
+    const nodeOwner = nodeOwnerCache(() => tailnet(probeNodeOwner()), Date.now)
+    const users = async (): Promise<readonly string[] | undefined> => {
+      if (config?.users !== undefined) return config.users
+      const owner = await nodeOwner()
+      return owner === undefined ? undefined : [owner]
+    }
+    const logins = new Map<string, string>()
+    const peerLogin = async (address: string): Promise<string | undefined> => {
+      const known = logins.get(address)
+      if (known !== undefined) return known
+      const login = await tailnet(whois(address))
+      if (login !== undefined) logins.set(address, login)
+      return login
     }
 
     const { bound, url, teardown } = yield* resolveListener({
       options,
       config,
-      explicitPort,
-      explicitHost,
-      worktree: root,
+      explicitPort: normalizePort(options.port ?? config?.port),
+      explicitHost: options.host ?? config?.host,
+      worktree: label,
       uiListener,
-      handler,
+      handlerFor: (exposure) => guard({ exposure, users, whois: peerLogin }, handler),
       out,
     })
-
-    out.write(`${url}\n`)
-    out.flush()
-    yield* Deferred.await(movedOnDeferred).pipe(
-      Effect.ensuring(Effect.sync(() => bound.close()).pipe(Effect.andThen(teardown))),
-    )
+    return { url, close: Effect.sync(() => bound.close()).pipe(Effect.andThen(teardown)) }
   })

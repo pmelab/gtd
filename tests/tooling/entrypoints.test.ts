@@ -60,7 +60,7 @@ const unitsOf = (entry: string): readonly string[] =>
   ].sort()
 
 describe("package entrypoints", () => {
-  for (const unit of ["flows", "wire", "steering"]) {
+  for (const unit of ["flows", "wire", "steering", "workspace"]) {
     it(`the bundled ./${unit} entry contains only src/${unit}/ code`, () => {
       expect(unitsOf(unit)).toEqual([`src/${unit}/`])
     })
@@ -71,6 +71,18 @@ describe("package entrypoints", () => {
     const runners = /from\s*"(vitest|quickpickle|@vitest\/[^"]*)"/
     for (const file of filesOf("testkit")) expect(readFileSync(file, "utf8")).not.toMatch(runners)
     expect(unitsOf("testkit")).not.toContain("src/gherkin/")
+  })
+
+  // A userland adapter is held to the same kit, under the test runner it already has.
+  it("the bundled ./workspace/adapters/testkit entry imports no test runner and only the workspace contract", () => {
+    const runners = /from\s*"(vitest|quickpickle|@vitest\/[^"]*)"/
+    for (const file of filesOf("workspace/adapters/testkit")) {
+      expect(readFileSync(file, "utf8")).not.toMatch(runners)
+    }
+    expect(unitsOf("workspace/adapters/testkit")).toEqual([
+      "src/workspace-testkit/",
+      "src/workspace/",
+    ])
   })
 
   // The check above sees across chunks: an entry built on other units shows them.

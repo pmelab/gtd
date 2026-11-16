@@ -225,4 +225,31 @@ describe("styles.css contrast", () => {
       },
     )
   })
+
+  /**
+   * The workspace dashboard paints a worktree status in its colour on the
+   * page (the Projects list) and on a surface (a Now card, the detail pane,
+   * a service chip), and outlines a Now card in it.
+   */
+  describe("the workspace dashboard", () => {
+    const statusColors = ["warning", "danger", "link", "muted", "success"]
+
+    it.each(statusColors.flatMap((fg) => ["page", "surface"].map((bg) => [fg, bg] as const)))(
+      "%s status text reads as body text on %s (4.5:1 AA)",
+      (fg, bg) => {
+        expect(contrastRatio(tokens[fg]!, tokens[bg]!)).toBeGreaterThanOrEqual(4.5)
+      },
+    )
+
+    it.each(["warning", "danger"])(
+      "a Now card's %s outline is a visible boundary on the page (3:1 AA)",
+      (name) => {
+        expect(contrastRatio(tokens[name]!, tokens.page!)).toBeGreaterThanOrEqual(3)
+      },
+    )
+
+    it("a primary button's label (page on accent) clears 4.5:1 AA", () => {
+      expect(contrastRatio(tokens.page!, tokens.accent!)).toBeGreaterThanOrEqual(4.5)
+    })
+  })
 })

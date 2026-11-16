@@ -15,6 +15,51 @@ export interface UiRequest {
   readonly root: string
 }
 
+interface WorkspaceRequest {
+  readonly flags: {
+    readonly config?: string
+    readonly host?: string
+    readonly port?: number
+    readonly selfSigned: boolean
+    readonly http?: boolean
+  }
+  /** Where the innermost `gtd.workspace.ts` lookup starts, and what `--config` is relative to. */
+  readonly cwd: string
+  /** `$XDG_STATE_HOME`, else `~/.local/state`: the supervisor's state lives below it. */
+  readonly stateHome: string
+  /** Evaluates a TypeScript module the way `gtd.config.ts` is, `@pmelab/gtd/*` served by this gtd. */
+  readonly loadModule: (path: string) => Promise<Readonly<Record<string, unknown>>>
+}
+
+/** `gtd workspace proceed|retry|note|pause|resume`: a request for the running supervisor. */
+export interface WorkspaceControlRequest {
+  readonly request:
+    | {
+        readonly command: "proceed" | "retry"
+        readonly worktree: string
+        readonly commit: string
+      }
+    | {
+        readonly command: "note"
+        readonly worktree: string
+        readonly note: {
+          readonly message: string
+          readonly error: boolean
+          /** Also send it as a notification. */
+          readonly notify?: boolean
+        } | null
+      }
+    | {
+        readonly command: "pause" | "resume"
+        readonly project?: string
+        readonly feed?: string
+        readonly wait?: boolean
+      }
+  readonly config?: string
+  readonly cwd: string
+  readonly stateHome: string
+}
+
 interface JudgeRequest {
   readonly provider: "fixed" | "jev" | "llm" | undefined
   readonly answers?: string | undefined
@@ -35,6 +80,11 @@ export class ToolCommands extends Context.Service<
       request: UiRequest,
       out: { readonly write: (chunk: string) => void; readonly flush: () => void },
     ) => Effect.Effect<void, Error>
+    readonly workspace: (
+      request: WorkspaceRequest,
+      out: { readonly write: (chunk: string) => void; readonly flush: () => void },
+    ) => Effect.Effect<void, Error>
+    readonly workspaceControl: (request: WorkspaceControlRequest) => Effect.Effect<void, Error>
     /** `gtd` runs THIS gtd, so the LSP never reads a different version's state than the one it ships with. */
     readonly lsp: (gtd: HostOps["self"]) => Effect.Effect<void, Error>
     readonly judge: (request: JudgeRequest) => Promise<string>

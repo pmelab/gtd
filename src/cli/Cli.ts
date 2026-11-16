@@ -6,7 +6,7 @@ import {
   renderFailure,
   GitService,
   Host,
-  Workspace,
+  RepoFiles,
   CommandRunner,
   NodeServices,
   nodeStdio,
@@ -64,7 +64,8 @@ export type CliPlan =
 // Flag table
 // ---------------------------------------------------------------------------
 
-type FlagScope = (kind: Command["kind"] | undefined) => boolean
+// `token` tells apart the subcommands that share one kind.
+type FlagScope = (kind: Command["kind"] | undefined, token?: string) => boolean
 
 interface FlagRow {
   readonly name: string
@@ -149,6 +150,8 @@ const JSON_KINDS: ReadonlySet<Command["kind"] | undefined> = new Set<Command["ki
   "strays",
 ])
 
+const NOTE_FLAG_SCOPE = "gtd: --error, --notify and --clear are only valid for `gtd workspace note`"
+
 const FLAGS: readonly FlagRow[] = [
   {
     name: "--json",
@@ -171,14 +174,14 @@ const FLAGS: readonly FlagRow[] = [
     name: "--port",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "ui",
+    scope: (kind) => kind === "ui" || kind === "workspace",
     decode: ([raw]) => {
       const n = Number(raw)
       return raw !== undefined && Number.isInteger(n) && n >= 0 && n <= 65535
         ? Result.succeed(n)
         : Result.fail(`gtd: --port must be an integer 0–65535 (got '${raw ?? ""}')`)
     },
-    scopeError: "gtd: --port is only valid for `gtd ui`",
+    scopeError: "gtd: --port is only valid for `gtd ui` and `gtd workspace`",
     valueHint: "<n>",
     help: "The tailscale serve port (default: the first free of 8443, 10000, 443), or with --host or --http the port to bind (default: any free one)",
   },
@@ -186,12 +189,12 @@ const FLAGS: readonly FlagRow[] = [
     name: "--host",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "ui",
+    scope: (kind) => kind === "ui" || kind === "workspace",
     decode: ([raw]) =>
       raw === undefined || raw.trim() === "" || /[\r\n]/.test(raw)
         ? Result.fail("gtd: --host must be a non-empty, single-line value")
         : Result.succeed(raw),
-    scopeError: "gtd: --host is only valid for `gtd ui`",
+    scopeError: "gtd: --host is only valid for `gtd ui` and `gtd workspace`",
     valueHint: "<addr>",
     help: "Bind this address directly instead of publishing through tailscale serve",
   },
@@ -199,9 +202,9 @@ const FLAGS: readonly FlagRow[] = [
     name: "--self-signed",
     arity: 0,
     repeatable: false,
-    scope: (kind) => kind === "ui",
+    scope: (kind) => kind === "ui" || kind === "workspace",
     decode: () => Result.succeed(true),
-    scopeError: "gtd: --self-signed is only valid for `gtd ui`",
+    scopeError: "gtd: --self-signed is only valid for `gtd ui` and `gtd workspace`",
     valueHint: "",
     help: "Bind directly with a throwaway self-signed certificate instead of the configured ui.cert/ui.key",
   },
@@ -209,11 +212,64 @@ const FLAGS: readonly FlagRow[] = [
     name: "--http",
     arity: 0,
     repeatable: false,
-    scope: (kind) => kind === "ui",
+    scope: (kind) => kind === "ui" || kind === "workspace",
     decode: () => Result.succeed(true),
-    scopeError: "gtd: --http is only valid for `gtd ui`",
+    scopeError: "gtd: --http is only valid for `gtd ui` and `gtd workspace`",
     valueHint: "",
     help: "Serve plain HTTP for a local TLS-terminating proxy; binds 127.0.0.1 unless a loopback --host is given",
+  },
+  {
+    name: "--config",
+    arity: 1,
+    repeatable: false,
+    scope: (kind) => kind === "workspace" || kind === "workspaceControl",
+    decode: ([raw]) =>
+      raw === undefined || raw === ""
+        ? Result.fail("gtd: --config must be a non-empty path")
+        : Result.succeed(raw),
+    scopeError: "gtd: --config is only valid for `gtd workspace`",
+    valueHint: "<path>",
+    help: "Use this gtd.workspace.ts instead of the innermost one from the current directory",
+  },
+  {
+    name: "--error",
+    arity: 0,
+    repeatable: false,
+    scope: (_kind, token) => token === "workspace note",
+    decode: () => Result.succeed(true),
+    scopeError: NOTE_FLAG_SCOPE,
+    valueHint: "",
+    help: "Make it an error note: the worktree status becomes an error of kind note",
+  },
+  {
+    name: "--notify",
+    arity: 0,
+    repeatable: false,
+    scope: (_kind, token) => token === "workspace note",
+    decode: () => Result.succeed(true),
+    scopeError: NOTE_FLAG_SCOPE,
+    valueHint: "",
+    help: "Also send the note as a notification",
+  },
+  {
+    name: "--clear",
+    arity: 0,
+    repeatable: false,
+    scope: (_kind, token) => token === "workspace note",
+    decode: () => Result.succeed(true),
+    scopeError: NOTE_FLAG_SCOPE,
+    valueHint: "",
+    help: "Take the worktree's note off",
+  },
+  {
+    name: "--wait",
+    arity: 0,
+    repeatable: false,
+    scope: (_kind, token) => token === "workspace pause",
+    decode: () => Result.succeed(true),
+    scopeError: "gtd: --wait is only valid for `gtd workspace pause`",
+    valueHint: "",
+    help: "Return once no driver runs in that scope",
   },
   {
     name: "--dev",
@@ -344,6 +400,12 @@ type Arity =
   | { readonly name: string; readonly variadic: string; readonly bare: true }
   // At most one trailing positional.
   | { readonly name: string; readonly optional: true }
+  // Exactly two positionals.
+  | { readonly name: string; readonly second: string }
+  // One or two positionals; the command itself judges when the second is missing.
+  | { readonly name: string; readonly second: string; readonly optional: true }
+  // None, one, or two positionals.
+  | { readonly name: string; readonly second: string; readonly bare: true }
 
 type Group = "Core loop" | "Start and stop" | "Inspect" | "Driver plumbing"
 
@@ -491,6 +553,64 @@ Prints a sorted JSON array ([] when clean) and a summary on stderr; --verbose ad
     details: `Serve gtd's web and phone client for this worktree. By default it publishes through \`tailscale serve\`, reachable from anywhere on the tailnet, on the first of ports 8443, 10000 and 443 that works; when none does it serves HTTPS locally instead of refusing. Done saves the steering file and keeps serving; the server exits when the worktree moves on to another step, or on a signal.`,
   },
   {
+    token: "workspace",
+    kind: "workspace",
+    arity: "none",
+    group: "Inspect",
+    summary: "Serve the dashboard of a workspace",
+    details: `Run the supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, and serve its dashboard: every worktree of every project, each with its worktree status. It is published like \`gtd ui\`. Only one supervisor runs for a workspace: a second one exits 1 and prints the pid and URL of the first. It runs until a signal ends it.`,
+  },
+  {
+    token: "workspace proceed",
+    kind: "workspaceControl",
+    arity: { name: "worktree", second: "commit" },
+    group: "Inspect",
+    summary: "Press Proceed on a worktree",
+    details: `Press Proceed on the worktree at the path <worktree>, as the dashboard does. <commit> is the full HEAD commit you saw: gtd refuses when the worktree's HEAD is now another commit, and else runs the driver's \`proceed <commit>\` in the worktree.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. A refusal exits 1 with the reason; so does a supervisor that is not running.`,
+  },
+  {
+    token: "workspace retry",
+    kind: "workspaceControl",
+    arity: { name: "worktree", second: "commit" },
+    group: "Inspect",
+    summary: "Press Retry on a worktree",
+    details: `Press Retry on the worktree at the path <worktree>, as the dashboard does. <commit> is the full HEAD commit you saw: gtd refuses when the worktree's HEAD is now another commit, and else runs the driver's \`retry <commit>\` in the worktree.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. A refusal exits 1 with the reason; so does a supervisor that is not running.`,
+  },
+  {
+    token: "workspace note",
+    kind: "workspaceControl",
+    arity: { name: "worktree", second: "message", optional: true },
+    group: "Inspect",
+    summary: "Put a note on a worktree",
+    details: `Put <message> on the worktree at the path <worktree>, in place of its last note, for example the outcome of a merge or a deploy. With --error the worktree status becomes an error of kind note. With --notify the note is also sent as a notification. --clear takes the note off and needs no message.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. When no supervisor runs, the note waits in the supervisor's state directory and applies when the supervisor starts. A path that is no worktree exits 1.`,
+  },
+  {
+    token: "workspace pause",
+    kind: "workspaceControl",
+    arity: { name: "project", second: "feed", bare: true },
+    group: "Inspect",
+    summary: "Pause dispatch",
+    details: `Pause dispatch in the workspace, in the project <project>, or for its feed <feed>, as the dashboard's Inbox does: no item in that scope starts until \`gtd workspace resume\` with the same words. An item a pause holds waits, queued. Drivers that run go on; with --wait the command returns once no driver runs in that scope, for example before a deploy. The pause stays when the supervisor restarts.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. An unknown project or feed exits 1; so does a supervisor that is not running.`,
+  },
+  {
+    token: "workspace resume",
+    kind: "workspaceControl",
+    arity: { name: "project", second: "feed", bare: true },
+    group: "Inspect",
+    summary: "Resume dispatch",
+    details: `Take off the pause that \`gtd workspace pause\` with the same words put on, and start the items it held that can start now. A pause of a wider scope still holds them.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. An unknown project or feed exits 1; so does a supervisor that is not running.`,
+  },
+  {
     token: "guide",
     kind: "guide",
     arity: "none",
@@ -568,10 +688,23 @@ const OPTION_COLUMN = 22
 
 const synopsis = (row: CommandRow): string => {
   const { token, arity } = row
+  if (arity !== "none" && "bare" in arity && "second" in arity) {
+    return `${token} [${arity.name} [${arity.second}]]`
+  }
+  return pairlessSynopsis(token, arity)
+}
+
+const pairlessSynopsis = (token: string, arity: Arity): string => {
   if (arity === "none") return token
-  if ("bare" in arity) return `${token} [${arity.name}] [${arity.variadic}...]`
-  if ("variadic" in arity) return `${token} <${arity.name}> [${arity.variadic}...]`
+  if ("variadic" in arity) {
+    const name = "bare" in arity ? `[${arity.name}]` : `<${arity.name}>`
+    return `${token} ${name} [${arity.variadic}...]`
+  }
+  if ("second" in arity && "optional" in arity) {
+    return `${token} <${arity.name}> [${arity.second}]`
+  }
   if ("optional" in arity) return `${token} [${arity.name}]`
+  if ("second" in arity) return `${token} <${arity.name}> <${arity.second}>`
   return `${token} <${arity.name}>`
 }
 
@@ -657,9 +790,9 @@ const SHORT_USAGE = `Usage: gtd <command> [options]
 `
 
 const renderCommandHelp = (row: CommandRow): string => {
-  const options = FLAGS.filter((f) => f.name !== "--verbose" && f.scope(row.kind)).flatMap((f) =>
-    definition(flagHeader(f), f.helpFor?.[row.kind] ?? f.help, OPTION_COLUMN),
-  )
+  const options = FLAGS.filter(
+    (f) => f.name !== "--verbose" && f.scope(row.kind, row.token),
+  ).flatMap((f) => definition(flagHeader(f), f.helpFor?.[row.kind] ?? f.help, OPTION_COLUMN))
   const global = definition("-v, --verbose", "Narrate on stderr what gtd resolved", OPTION_COLUMN)
   return (
     `Usage: gtd ${synopsis(row)}${options.length > 0 ? " [options]" : ""}\n\n` +
@@ -832,9 +965,10 @@ const usagePlan = (message: string, json: boolean, stdout = ""): CliPlan => ({
 const scopeViolation = (
   kind: Command["kind"] | undefined,
   present: ReadonlySet<string>,
+  token?: string,
 ): string | undefined => {
   for (const row of FLAGS) {
-    if (present.has(row.name) && !row.scope(kind)) return row.scopeError
+    if (present.has(row.name) && !row.scope(kind, token)) return row.scopeError
   }
   return undefined
 }
@@ -860,9 +994,26 @@ const tooMany = (
     ? `gtd ${cmd}: too many arguments — expected ${expected}, got: ${rest.join(", ")}`
     : undefined
 
+const pairError = (
+  cmd: string,
+  rest: readonly string[],
+  arity: Extract<Arity, { readonly second: string }>,
+): string | undefined => {
+  if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
+  if ("optional" in arity) {
+    return tooMany(cmd, rest, `a ${arity.name} and at most one ${arity.second}`, 2)
+  }
+  if (rest.length === 1) return `gtd ${cmd}: missing ${arity.second} argument`
+  return tooMany(cmd, rest, `a ${arity.name} and a ${arity.second}`, 2)
+}
+
 const arityError = (cmd: string, rest: readonly string[], arity: Arity): string | undefined => {
   if (arity === "none") return tooMany(cmd, rest, "none", 0)
+  if ("bare" in arity && "second" in arity) {
+    return tooMany(cmd, rest, `at most a ${arity.name} and a ${arity.second}`, 2)
+  }
   if ("bare" in arity) return undefined
+  if ("second" in arity) return pairError(cmd, rest, arity)
   if ("optional" in arity) return tooMany(cmd, rest, `at most one ${arity.name}`, 1)
   if (rest.length === 0) return `gtd ${cmd}: missing ${arity.name} argument`
   return "variadic" in arity ? undefined : tooMany(cmd, rest, `one ${arity.name}`, 1)
@@ -895,6 +1046,51 @@ const buildLandCommand = (bag: {
   ...(bag["--cost"] !== undefined ? { cost: bag["--cost"] } : {}),
   ...(bag["--model"] !== undefined ? { model: bag["--model"] } : {}),
 })
+
+interface NoteFlags {
+  readonly "--error"?: boolean
+  readonly "--notify"?: boolean
+  readonly "--clear"?: boolean
+  readonly "--config"?: string
+}
+
+const noteProblem = (bag: NoteFlags, message: string | undefined): string | undefined => {
+  if (bag["--clear"] !== true) return message === undefined ? "missing message argument" : undefined
+  for (const flag of ["--error", "--notify"] as const) {
+    if (bag[flag] === true) return `--clear and ${flag} cannot be combined`
+  }
+  return message !== undefined ? "--clear takes no message" : undefined
+}
+
+const buildNoteCommand = (
+  [worktree = "", message]: readonly string[],
+  bag: NoteFlags,
+  json: JsonMode,
+  verbose: boolean,
+  jsonSeen: boolean,
+): CliPlan => {
+  const problem = noteProblem(bag, message)
+  if (problem !== undefined) return usagePlan(`gtd workspace note: ${problem}`, jsonSeen)
+  return {
+    kind: "command",
+    command: {
+      kind: "workspaceControl",
+      command: "note",
+      worktree,
+      note:
+        message === undefined
+          ? null
+          : {
+              message,
+              error: bag["--error"] === true,
+              ...(bag["--notify"] === true ? { notify: true } : {}),
+            },
+      ...(bag["--config"] !== undefined ? { config: bag["--config"] } : {}),
+    },
+    json,
+    verbose,
+  }
+}
 
 const HELP_FLAGS = new Set(["--help", "-h"])
 
@@ -944,10 +1140,10 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   if (first === "help") return helpCommandPlan(positionals.slice(1), jsonSeen)
 
   const isHistory = first === "history"
-  const row =
-    first === undefined
-      ? undefined
-      : commandByToken(isHistory ? `history ${positionals[1] ?? ""}` : first)
+  // `gtd workspace` alone is a command too; only a known second word makes a subcommand.
+  const pair = `${first ?? ""} ${positionals[1] ?? ""}`
+  const isSubcommand = isHistory || (first === "workspace" && commandByToken(pair) !== undefined)
+  const row = first === undefined ? undefined : commandByToken(isSubcommand ? pair : first)
 
   if (isHistory && row === undefined) {
     const subcommands = COMMAND_ROWS.filter((r) => r.token.startsWith("history ")).map(
@@ -1000,9 +1196,9 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
   const kind: Command["kind"] = judgeAnswer ? "judgeAnswer" : judgeRun ? "judgeRun" : row.kind
 
   // `judgeAnswer` consumes TWO leading positionals ("judge" and "answer"), everything else one.
-  const restPositionals = positionals.slice(judgeAnswer || judgeRun || isHistory ? 2 : 1)
+  const restPositionals = positionals.slice(judgeAnswer || judgeRun || isSubcommand ? 2 : 1)
 
-  const arityMsg = arityError(isHistory ? row.token : first, restPositionals, row.arity)
+  const arityMsg = arityError(isSubcommand ? row.token : first, restPositionals, row.arity)
   if (arityMsg !== undefined) {
     const hint =
       afterBareJson !== undefined && restPositionals.includes(afterBareJson)
@@ -1011,7 +1207,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     return usagePlan(arityMsg + hint, jsonSeen)
   }
 
-  const violation = scopeViolation(kind, present)
+  const violation = scopeViolation(kind, present, row.token)
   if (violation !== undefined) return usagePlan(violation, jsonSeen)
 
   const conflict = conflictViolation(present)
@@ -1032,6 +1228,11 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--dev"?: boolean
     readonly "--provider"?: "fixed" | "jev" | "llm"
     readonly "--answers"?: string
+    readonly "--config"?: string
+    readonly "--error"?: boolean
+    readonly "--notify"?: boolean
+    readonly "--clear"?: boolean
+    readonly "--wait"?: boolean
   }
 
   // `present.has("--json")` alone can't distinguish bare `--json` (no value
@@ -1088,6 +1289,62 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
         selfSigned: bag["--self-signed"] ?? false,
         ...(bag["--http"] === true ? { http: true } : {}),
         dev: bag["--dev"] ?? false,
+      },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "workspace") {
+    if (bag["--http"] === true && bag["--self-signed"] === true) {
+      return usagePlan("gtd: --http and --self-signed cannot be combined", jsonSeen)
+    }
+    return {
+      kind: "command",
+      command: {
+        kind: "workspace",
+        ...(bag["--config"] !== undefined ? { config: bag["--config"] } : {}),
+        ...(bag["--host"] !== undefined ? { host: bag["--host"] } : {}),
+        ...(bag["--port"] !== undefined ? { port: bag["--port"] } : {}),
+        selfSigned: bag["--self-signed"] ?? false,
+        ...(bag["--http"] === true ? { http: true } : {}),
+      },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "workspaceControl" && row.token === "workspace note") {
+    return buildNoteCommand(restPositionals, bag, json, verbose, jsonSeen)
+  }
+
+  if (row.token === "workspace pause" || row.token === "workspace resume") {
+    const [project, feed] = restPositionals
+    return {
+      kind: "command",
+      command: {
+        kind: "workspaceControl",
+        command: row.token === "workspace pause" ? "pause" : "resume",
+        ...(project !== undefined ? { project } : {}),
+        ...(feed !== undefined ? { feed } : {}),
+        ...(bag["--wait"] === true ? { wait: true } : {}),
+        ...(bag["--config"] !== undefined ? { config: bag["--config"] } : {}),
+      },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "workspaceControl") {
+    const [worktree = "", commit = ""] = restPositionals
+    return {
+      kind: "command",
+      command: {
+        kind: "workspaceControl",
+        command: row.token === "workspace proceed" ? "proceed" : "retry",
+        worktree,
+        commit,
+        ...(bag["--config"] !== undefined ? { config: bag["--config"] } : {}),
       },
       json,
       verbose,
@@ -1232,7 +1489,7 @@ export const nodeCliIo = (tools: LiveToolCommands): CliIo => ({
   // result does. `runCli` calls this thunk exactly when `plan.kind ===
   // "command"`, so --version/--help/a usage error never provoke it.
   layers: (verbose) =>
-    // Dependency order matters: Workspace.Live needs GitService, both need
+    // Dependency order matters: RepoFiles.Live needs GitService, both need
     // Host, and GitService needs NodeServices' ChildProcessSpawner. Each
     // `provideMerge` satisfies the layers above it AND stays in the output.
     tools.pipe(
@@ -1241,7 +1498,7 @@ export const nodeCliIo = (tools: LiveToolCommands): CliIo => ({
           ConfigService.Live,
           ConfigDiscovery.Live,
           EngineCore.Live,
-          Workspace.Live,
+          RepoFiles.Live,
           Narrator.layer(stdio.stderr, verbose),
           CommandRunner.Live,
         ).pipe(

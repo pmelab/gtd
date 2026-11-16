@@ -1,13 +1,21 @@
-export { runUiCommand, UiListener, type UiConfig } from "./Server.js"
+export {
+  exposeHandler,
+  runUiCommand,
+  UiListener,
+  type ExposeOptions,
+  type UiConfig,
+  type UiOut,
+} from "./Server.js"
 export { UiError, UiHost, UiShell, UiUsageError, type UiHandler, type UiHostOps } from "./Ports.js"
 export { liveUiHost } from "./Host.js"
+export { currentRest, dashboardPage, gateHandler } from "./Gate.js"
 export { contentHashOf, liveReadFile } from "./Write.js"
 export type { ReadFileResult, RunInWorktree, ServeRecord, SpawnOutcome } from "./Ports.js"
 export { readServeRecord, writeServeRecord, deleteServeRecord } from "./Serve.js"
 export { pickBindHost } from "./Bind.js"
 export { parseTailscaleStatus } from "./Tailscale.js"
 export { generateSelfSignedCert, type CertPair } from "./Tls.js"
-export { liveHeadSha } from "./Beat.js"
+export { liveHeadSha, liveRunInWorktree } from "./Beat.js"
 export type { AppRouter } from "./Router.js"
 export type { StepRead } from "./Beat.js"
 export type { DiffResult, FileDiff } from "./Diff.js"

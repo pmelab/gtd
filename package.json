@@ -36,6 +36,21 @@
       "types": "./src/gherkin/index.ts",
       "source": "./src/gherkin/index.ts",
       "default": "./dist/testkit/gherkin.mjs"
+    },
+    "./workspace": {
+      "types": "./src/workspace/index.ts",
+      "source": "./src/workspace/index.ts",
+      "default": "./dist/workspace.mjs"
+    },
+    "./workspace/adapters": {
+      "types": "./src/workspace-adapters/index.ts",
+      "source": "./src/workspace-adapters/index.ts",
+      "default": "./dist/workspace/adapters.mjs"
+    },
+    "./workspace/adapters/testkit": {
+      "types": "./src/workspace-testkit/index.ts",
+      "source": "./src/workspace-testkit/index.ts",
+      "default": "./dist/workspace/adapters/testkit.mjs"
     }
   },
   "files": [
@@ -44,6 +59,9 @@
     "src/workflow-kit/",
     "src/wire/",
     "src/steering/",
+    "src/workspace/",
+    "src/workspace-adapters/",
+    "src/workspace-testkit/",
     "src/testkit/",
     "src/twins/",
     "src/gherkin/",

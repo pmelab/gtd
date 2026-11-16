@@ -1,5 +1,5 @@
 import { Effect, type Path } from "effect"
-import { CommandRunner, GitService, Host, Narrator, Workspace } from "../platform/index.js"
+import { CommandRunner, GitService, Host, Narrator, RepoFiles } from "../platform/index.js"
 import {
   renderScriptJson,
   scriptFields,
@@ -68,7 +68,7 @@ export type CommandRequirements =
   | ConfigService
   | ConfigDiscovery
   | EngineCore
-  | Workspace
+  | RepoFiles
   | Host
   | Path.Path
   | Narrator

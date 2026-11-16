@@ -120,9 +120,9 @@ const liveDiscovery = (
  * port is a plain sync record for `compileWorkflow`'s own content-file-ref
  * reads; discovery is effectful and environment-dependent: `.Live` reads
  * REAL disk, so an `@inmem` scenario's fake
- * `Workspace` — a pure in-memory `Map`, no real files anywhere on disk —
+ * `RepoFiles` — a pure in-memory `Map`, no real files anywhere on disk —
  * cannot back it. `src/twins/Layers.ts` provides the in-memory
- * counterpart instead, mirroring how `Workspace`/`Host`/`GitService` already
+ * counterpart instead, mirroring how `RepoFiles`/`Host`/`GitService` already
  * each have a production and a fake layer behind one service.
  */
 export class ConfigDiscovery extends Context.Service<ConfigDiscovery, ConfigDiscoveryOps>()(

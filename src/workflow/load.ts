@@ -7,7 +7,7 @@ import * as flows from "../flows/index.js"
 import { configure, isFactoryWorkflow, markedOptions, type OptionIssue } from "../flows/internal.js"
 import type { WorkflowDefinition } from "./Workflow.js"
 import type { Door, Flow, ScopeAccess } from "../flows/index.js"
-import { Host, Workspace, type WorkspaceOps } from "../platform/index.js"
+import { Host, RepoFiles, type RepoFilesOps } from "../platform/index.js"
 import { compileConfig, type CompiledConfig } from "./compile.js"
 import { SETTING_NAME_RULE, isSettingName } from "./vars.js"
 import { ConfigDiscovery, WORKFLOW_MODULE, type WorkflowModule } from "./discovery.js"
@@ -124,7 +124,7 @@ const configModule: Effect.Effect<WorkflowModule, Error, Host | ConfigDiscovery>
 export const load: Effect.Effect<
   ConfigOperations,
   Error,
-  Narrator | Workspace | Host | Path.Path | ConfigDiscovery
+  Narrator | RepoFiles | Host | Path.Path | ConfigDiscovery
 > = Effect.gen(function* () {
   const host = yield* Host
   const paths = yield* Path.Path
@@ -166,7 +166,7 @@ export const load: Effect.Effect<
     return yield* Effect.die("unreachable: a default fails to build only with an error reported")
   }
 
-  const initial = yield* firstStep(loaded.default, headTree(yield* Workspace))
+  const initial = yield* firstStep(loaded.default, headTree(yield* RepoFiles))
   const define = (entry: LoadedWorkflow): WorkflowDefinition => ({
     flow: entry.flow,
     summary: entry.summary,
@@ -692,6 +692,17 @@ const evaluate = async (
   return { exports: execute(paths, chunk, module.filepath, require), files }
 }
 
+/** Evaluates a TypeScript module from disk the way `gtd.config.ts` is, and returns its exports. */
+export const evaluateModule = async (
+  paths: Path.Path,
+  filepath: string,
+): Promise<Readonly<Record<string, unknown>>> => {
+  const source = readFromDisk(filepath)
+  if (source === undefined) throw new Error(`cannot read ${filepath}`)
+  const { exports } = await evaluate(paths, { filepath, source }, await shippedModules(paths))
+  return exports as Readonly<Record<string, unknown>>
+}
+
 /**
  * What a pin registers: its workflow bundled, its origin relative to the
  * repository root, and the fingerprint of the files it was bundled from — the
@@ -1028,12 +1039,12 @@ const nameRejections = (rejections: readonly Rejection[]): Diagnostic[] => {
 }
 
 // The repository's HEAD, read lazily.
-const headTree = (workspace: WorkspaceOps): TreeView => {
+const headTree = (repoFiles: RepoFilesOps): TreeView => {
   let entries: ReadonlyMap<string, string> | undefined
-  const list = () => (entries ??= workspace.treeSync("HEAD"))
+  const list = () => (entries ??= repoFiles.treeSync("HEAD"))
   return {
     paths: () => [...list().keys()].sort(),
-    read: (path) => (list().has(path) ? workspace.readCommittedSync(path, "HEAD") : undefined),
+    read: (path) => (list().has(path) ? repoFiles.readCommittedSync(path, "HEAD") : undefined),
     id: (path) => list().get(path),
   }
 }
@@ -1158,7 +1169,7 @@ interface ConfigServiceOperations {
   readonly load: Effect.Effect<
     ConfigOperations,
     Error,
-    Narrator | Workspace | Host | Path.Path | ConfigDiscovery
+    Narrator | RepoFiles | Host | Path.Path | ConfigDiscovery
   >
 }
 

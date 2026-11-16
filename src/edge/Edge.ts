@@ -3,11 +3,11 @@ import {
   Narrator,
   GitService,
   Host,
-  Workspace,
+  RepoFiles,
   type AuthorIdent,
   type GitOperations,
   type HostOps,
-  type WorkspaceOps,
+  type RepoFilesOps,
 } from "../platform/index.js"
 import {
   ConfigDiscovery,
@@ -435,7 +435,7 @@ type ConfigRequirements =
   | ConfigService
   | ConfigDiscovery
   | Narrator
-  | Workspace
+  | RepoFiles
   | Host
   | Path.Path
 
@@ -526,10 +526,10 @@ const leftProcessTip = (
 
 // ── Trees ───────────────────────────────────────────────────────────────────
 
-const commitTree = (workspace: WorkspaceOps, hash: string): TreeView => {
+const commitTree = (repoFiles: RepoFilesOps, hash: string): TreeView => {
   let entries: ReadonlyMap<string, string> | undefined
-  const list = () => (entries ??= workspace.treeSync(hash))
-  // Sorted once per commit, not per call: `Workspace.episodeTrees` has
+  const list = () => (entries ??= repoFiles.treeSync(hash))
+  // Sorted once per commit, not per call: `RepoFiles.episodeTrees` has
   // already materialized `list()` before this is ever read, so the sort
   // itself is the only remaining per-call cost `paths()` used to pay.
   let sortedPaths: readonly string[] | undefined
@@ -538,7 +538,7 @@ const commitTree = (workspace: WorkspaceOps, hash: string): TreeView => {
     paths: () => (sortedPaths ??= [...list().keys()].sort()),
     read: (path) => {
       if (!list().has(path)) return undefined
-      if (!contents.has(path)) contents.set(path, workspace.readCommittedSync(path, hash))
+      if (!contents.has(path)) contents.set(path, repoFiles.readCommittedSync(path, hash))
       return contents.get(path)
     },
     id: (path) => list().get(path),
@@ -554,18 +554,18 @@ interface Rewrite {
 /**
  * The tree a landing would commit: the working tree, with any rewrite the
  * landing script applies first. `entries` is `setup.pendingWorktree()` —
- * already memoized — never a fresh `workspace.worktreeSync()` call; see that
- * field's own comment for why the memo lives there and not on `Workspace`.
+ * already memoized — never a fresh `repoFiles.worktreeSync()` call; see that
+ * field's own comment for why the memo lives there and not on `RepoFiles`.
  */
 const pendingTree = (
-  workspace: WorkspaceOps,
+  repoFiles: RepoFilesOps,
   entries: ReadonlyMap<string, string | undefined>,
   rewrite: Rewrite | undefined,
 ): TreeView => {
   const paths = [...entries.keys()]
   const readWorktree = (path: string): string | undefined => {
     try {
-      return workspace.readSync(path)
+      return repoFiles.readSync(path)
     } catch {
       // A submodule or another non-file entry has no content to read.
       return undefined
@@ -657,10 +657,10 @@ interface ReplaySetup {
   readonly budget: number
   readonly skills: Record<string, readonly string[]>
   readonly access: Record<string, ScopeAccess>
-  readonly workspace: WorkspaceOps
+  readonly repoFiles: RepoFilesOps
   /**
    * The episode's base tree and every commit's, built ONCE — after
-   * `Workspace.episodeTrees` has already materialized every one of them —
+   * `RepoFiles.episodeTrees` has already materialized every one of them —
    * and reused by both replays one `gtd` command runs (`restAt`'s own, then
    * `decideLanding`'s). Rebuilding these per `replayFor` call bought nothing
    * once the underlying `treeSync`/`readCommittedSync` reads are themselves
@@ -672,7 +672,7 @@ interface ReplaySetup {
   /**
    * The working tree `git add -A` would commit, read at most once — memoized
    * HERE, per `ReplaySetup` (built fresh every `restAt` call), rather than on
-   * `Workspace` itself: a long-lived runtime reusing one `Workspace` across
+   * `RepoFiles` itself: a long-lived runtime reusing one `RepoFiles` across
    * requests would otherwise keep serving the FIRST request's working tree
    * forever. A new
    * `ReplaySetup` per `restAt` call is what makes each request see the
@@ -699,7 +699,7 @@ const replayFor = (
     startTree:
       setup.run.diffBase === EMPTY_TREE
         ? treeFromRecord({})
-        : commitTree(setup.workspace, setup.run.diffBase),
+        : commitTree(setup.repoFiles, setup.run.diffBase),
     budgetBytes: setup.budget,
     skills: setup.skills,
     configuredSkills: setup.def.configuredSkills,
@@ -799,6 +799,7 @@ const judgeDef = (common: StepCommon, request: RequestOf<"judge">, step: Reached
     kind: "message",
     content: step.truncated ? `${message}\n\n${TRUNCATION_NOTICE}` : message,
     ...optional("judge", judgeDocument(step)),
+    ...optional("judgeFile", request.options.judgeFile),
   }
 }
 
@@ -865,6 +866,7 @@ export interface RestHints {
   readonly label?: string
   readonly file?: string
   readonly judge?: string
+  readonly judgeFile?: string
   readonly system?: string
   readonly skills?: readonly string[]
   readonly access?: StepAccess
@@ -875,6 +877,7 @@ const hintsOf = (def: StepDef): RestHints => ({
   ...optional("label", def.label),
   ...optional("file", def.file),
   ...optional("judge", def.judge),
+  ...optional("judgeFile", def.judgeFile),
   ...optional("system", def.system),
   ...optional("skills", def.skills),
   ...optional("access", def.access),
@@ -937,7 +940,7 @@ export type RestRequirements = ConfigRequirements
 const setupFor = (
   config: ConfigOperations,
   run: ProcessRun,
-  workspace: WorkspaceOps,
+  repoFiles: RepoFilesOps,
   host: HostOps,
   startOverrides: Readonly<Record<string, string>> = {},
 ) =>
@@ -959,18 +962,18 @@ const setupFor = (
       catch: (e) => (e instanceof Error ? e : new Error(String(e))),
     })
     // One bulk fetch materializes the base's and every commit's tree — via
-    // `Workspace`'s own cache, at most two subprocesses regardless of the
+    // `RepoFiles`'s own cache, at most two subprocesses regardless of the
     // episode's length — BEFORE `commitTree` below ever calls `treeSync`/
     // `readCommittedSync` per commit, so those calls always hit the cache
     // this just warmed.
-    yield* workspace.episodeTrees(
+    yield* repoFiles.episodeTrees(
       run.episode.base,
       run.episode.commits.map((c) => c.hash),
     )
     const base =
       run.episode.base === undefined
         ? { hash: EMPTY_TREE, tree: treeFromRecord({}) }
-        : { hash: run.episode.base, tree: commitTree(workspace, run.episode.base) }
+        : { hash: run.episode.base, tree: commitTree(repoFiles, run.episode.base) }
     const git = yield* GitService
     const episode: EpisodeCommit[] = []
     for (const c of run.episode.commits) {
@@ -980,8 +983,8 @@ const setupFor = (
       episode.push({
         hash: c.hash,
         message: c.message,
-        tree: commitTree(workspace, c.hash),
-        ...(exists ? { kept: { hash: tip, tree: commitTree(workspace, tip) } } : {}),
+        tree: commitTree(repoFiles, c.hash),
+        ...(exists ? { kept: { hash: tip, tree: commitTree(repoFiles, tip) } } : {}),
       })
     }
     let pendingMemo: ReadonlyMap<string, string | undefined> | undefined
@@ -993,10 +996,10 @@ const setupFor = (
       budget,
       skills,
       access,
-      workspace,
+      repoFiles,
       base,
       episode,
-      pendingWorktree: () => (pendingMemo ??= workspace.worktreeSync()),
+      pendingWorktree: () => (pendingMemo ??= repoFiles.worktreeSync()),
     }
     return { resolved, def, vars, env, setup }
   })
@@ -1042,13 +1045,13 @@ export const restAt = (
   Effect.gen(function* () {
     const git = yield* GitService
     const config = yield* (yield* ConfigService).load
-    const workspace = yield* Workspace
+    const repoFiles = yield* RepoFiles
     const host = yield* Host
     const run = yield* computeProcessRun(git, config.workflow, ref)
     const { resolved, def, vars, env, setup } = yield* setupFor(
       config,
       run,
-      workspace,
+      repoFiles,
       host,
       startOverrides,
     )
@@ -1059,7 +1062,7 @@ export const restAt = (
     // staying true; passing a pending tree here would make it serve a stale
     // steering file on every cache hit.
     const outcome = yield* Effect.promise(() => replayFor(setup))
-    const pinned = headHasPin(workspace, run)
+    const pinned = headHasPin(repoFiles, run)
     const pin = pinBeatAt(outcome, run, def, pinned)
     const resting = restingOn(outcome, pin)
     if (resting === undefined) {
@@ -1122,11 +1125,11 @@ export const repinAnchor: Effect.Effect<
 > = Effect.gen(function* () {
   const git = yield* GitService
   const config = yield* (yield* ConfigService).load
-  const workspace = yield* Workspace
+  const repoFiles = yield* RepoFiles
   const run = yield* computeProcessRun(git, config.workflow)
-  const { def, setup } = yield* setupFor(config, run, workspace, yield* Host)
+  const { def, setup } = yield* setupFor(config, run, repoFiles, yield* Host)
   const diverged = yield* Effect.promise(() => replayFor(setup))
-  if (diverged.kind !== "divergence" || !headHasPin(workspace, run)) return undefined
+  if (diverged.kind !== "divergence" || !headHasPin(repoFiles, run)) return undefined
   // A trial anchor naming the reserved pin state diverges at whatever step the
   // flow reaches once it stands on HEAD's tree.
   const trial: EpisodeCommit = {
@@ -1180,9 +1183,9 @@ const restFacts = (
         memory: { key: undefined, resumed: false },
       }
 
-const headHasPin = (workspace: WorkspaceOps, run: ProcessRun): boolean => {
+const headHasPin = (repoFiles: RepoFilesOps, run: ProcessRun): boolean => {
   const head = run.episode.commits.at(-1)?.hash ?? run.episode.base
-  return head !== undefined && workspace.treeSync(head).has(PIN_PATH)
+  return head !== undefined && repoFiles.treeSync(head).has(PIN_PATH)
 }
 
 const underwayAt = (run: ProcessRun, step: ReachedStep, def: WorkflowDefinition): boolean =>
@@ -1239,12 +1242,12 @@ export const startRefusal = (
     const { vars, env } = settingsFor(resolved, {}, host.env, startVars, yield* StartFlags)
     const skills = yield* resolveScopeSkills(resolved.def, vars)
     const access = yield* resolveScopeAccess(resolved.def, skills, vars)
-    const workspace = rest.setup.workspace
+    const repoFiles = rest.setup.repoFiles
     const outcome = yield* Effect.promise(() =>
       replay({
         flow: resolved.def.flow,
         episode: {
-          base: { hash: "", tree: pendingTree(workspace, rest.setup.pendingWorktree(), undefined) },
+          base: { hash: "", tree: pendingTree(repoFiles, rest.setup.pendingWorktree(), undefined) },
           commits: [],
         },
         vars,
@@ -1289,7 +1292,7 @@ const personEdit = (rest: Rest, file: string): string | undefined => {
   const turn = trace[index]
   if (turn === undefined) return undefined
   const parent = trace[index - 1]?.hash ?? rest.run.startParentHash
-  const read = (hash: string): string => rest.setup.workspace.readCommittedSync(file, hash) ?? ""
+  const read = (hash: string): string => rest.setup.repoFiles.readCommittedSync(file, hash) ?? ""
   return personEditNote(file, read(parent), read(turn.hash))
 }
 
@@ -1317,7 +1320,7 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
     ...steeringPrompt(rest),
     ...rest.hints,
     ...(failedRunStalled(rest)
-      ? { failure: rest.setup.workspace.readSync(RUN_FAILED_PATH) ?? "" }
+      ? { failure: rest.setup.repoFiles.readSync(RUN_FAILED_PATH) ?? "" }
       : {}),
     ...(rest.shipBlocked !== undefined ? { blocked: rest.shipBlocked } : {}),
     ...(rest.memory !== undefined ? { memory: rest.memory } : {}),
@@ -1348,7 +1351,7 @@ const failedRunStalled = (rest: Rest): boolean =>
   !rest.run.headTurn.step &&
   // Read from the (clean) tree, not the commit's touched paths: a retry that
   // fails with identical output touches nothing yet must still stall.
-  rest.setup.workspace.readSync(RUN_FAILED_PATH) !== undefined
+  rest.setup.repoFiles.readSync(RUN_FAILED_PATH) !== undefined
 
 /** No process is underway: the default workflow's first step, first visit — a dirty tree there is a turn not yet landed, not a process. */
 export const noProcessUnderway = (rest: Rest): boolean =>
@@ -1408,8 +1411,8 @@ const landingRewrite = (def: StepDef): Rewrite | undefined =>
 const formattingOnly = (rest: Rest): boolean => {
   const def = rest.stepDef
   if (!isWidgetStep(def) || rest.changes.some((c) => c.path !== def.file)) return false
-  const pending = rest.setup.workspace.readSync(def.file)
-  const committed = rest.setup.workspace.readCommittedSync(def.file)
+  const pending = rest.setup.repoFiles.readSync(def.file)
+  const committed = rest.setup.repoFiles.readCommittedSync(def.file)
   return pending !== undefined && committed !== undefined && serialize(pending) === committed
 }
 
@@ -1417,7 +1420,7 @@ const formattingOnly = (rest: Rest): boolean => {
 const humanWidgetRefusal = (rest: Rest): Landing | undefined => {
   const def = rest.stepDef
   if (rest.actor !== "human" || !isWidgetStep(def)) return undefined
-  const pending = rest.setup.workspace.readSync(def.file)
+  const pending = rest.setup.repoFiles.readSync(def.file)
   if (pending === undefined) return undefined
   const doc = parseWidgets(serialize(pending))
   const findings = doc.findings.length > 0 ? doc.findings : answerFindings(doc)
@@ -1602,7 +1605,7 @@ const decideLanding = (
       if (message !== undefined) return { kind: "refusal", message }
     }
     const landing = pendingTree(
-      rest.setup.workspace,
+      rest.setup.repoFiles,
       rest.setup.pendingWorktree(),
       landingRewrite(rest.stepDef),
     )
@@ -1710,9 +1713,9 @@ type ShipDecision =
   | { readonly kind: "blocked"; readonly message: string }
 
 /** `tree` with file modes read from `ref` (the working tree when `undefined`), for the ship decision only: reading them costs a git call. */
-const withModes = (workspace: WorkspaceOps, tree: TreeView, ref: string | undefined): TreeView => {
+const withModes = (repoFiles: RepoFilesOps, tree: TreeView, ref: string | undefined): TreeView => {
   let modes: ReadonlyMap<string, string> | undefined
-  return { ...tree, mode: (path) => (modes ??= workspace.modeSync(ref)).get(path) }
+  return { ...tree, mode: (path) => (modes ??= repoFiles.modeSync(ref)).get(path) }
 }
 
 const shippedPaths = (before: TreeView, after: TreeView): readonly string[] => {
@@ -1749,7 +1752,7 @@ const shipTarget = (git: GitOperations) =>
  */
 const revertedPaths = (
   git: GitOperations,
-  workspace: WorkspaceOps,
+  repoFiles: RepoFilesOps,
   parent: string,
   tree: TreeView,
   changed: ReadonlySet<string>,
@@ -1763,11 +1766,11 @@ const revertedPaths = (
     const foreign = Option.isNone(fork)
       ? [...changed]
       : shippedPaths(
-          withModes(workspace, commitTree(workspace, fork.value), fork.value),
-          withModes(workspace, commitTree(workspace, parent), parent),
+          withModes(repoFiles, commitTree(repoFiles, fork.value), fork.value),
+          withModes(repoFiles, commitTree(repoFiles, parent), parent),
         )
-    const committed = withModes(workspace, commitTree(workspace, head), head)
-    const moded = withModes(workspace, tree, treeRef)
+    const committed = withModes(repoFiles, commitTree(repoFiles, head), head)
+    const moded = withModes(repoFiles, tree, treeRef)
     return foreign.filter(
       (path) =>
         changed.has(path) &&
@@ -1783,7 +1786,7 @@ const revertedPaths = (
  * (whose process tip HEAD descends from), or since it forked from HEAD.
  */
 const decideShip = (
-  workspace: WorkspaceOps,
+  repoFiles: RepoFilesOps,
   tree: TreeView,
   /** The commit `tree` is of; `undefined` for the working tree. */
   treeRef: string | undefined,
@@ -1795,8 +1798,8 @@ const decideShip = (
     const { branch, parent } = target
     const changed = new Set(
       shippedPaths(
-        withModes(workspace, commitTree(workspace, parent), parent),
-        withModes(workspace, tree, treeRef),
+        withModes(repoFiles, commitTree(repoFiles, parent), parent),
+        withModes(repoFiles, tree, treeRef),
       ),
     )
     // A landing whose hook rejected after the ship moved `<b>`: its tip is a ship of this very HEAD.
@@ -1809,7 +1812,7 @@ const decideShip = (
     ) {
       return { kind: "recorded", hash: parent }
     }
-    const reverted = yield* revertedPaths(git, workspace, parent, tree, changed, treeRef)
+    const reverted = yield* revertedPaths(git, repoFiles, parent, tree, changed, treeRef)
     if (reverted.length > 0) {
       return {
         kind: "blocked",
@@ -1830,7 +1833,7 @@ const shipBlockedAt = (
   Effect.gen(function* () {
     if (pin !== undefined || step.request.kind !== "ship" || changes.length > 0) return undefined
     const head = yield* (yield* GitService).resolveRef("HEAD")
-    const decision = yield* decideShip(setup.workspace, commitTree(setup.workspace, head), head)
+    const decision = yield* decideShip(setup.repoFiles, commitTree(setup.repoFiles, head), head)
     return decision.kind === "blocked" ? decision.message : undefined
   })
 
@@ -1842,8 +1845,8 @@ const shipSnapshot = (
   approver: Option.Option<AuthorIdent>,
 ) =>
   Effect.gen(function* () {
-    const tree = pendingTree(rest.setup.workspace, rest.setup.pendingWorktree(), undefined)
-    const decision = yield* decideShip(rest.setup.workspace, tree, undefined)
+    const tree = pendingTree(rest.setup.repoFiles, rest.setup.pendingWorktree(), undefined)
+    const decision = yield* decideShip(rest.setup.repoFiles, tree, undefined)
     if (decision.kind === "blocked") return refusedSnapshot(rest, decision.message)
     const shipping = decision.kind === "ship"
     const decided = yield* decideLanding(
@@ -1880,7 +1883,7 @@ const shipSnapshot = (
 export const snapshotFromRest = (
   rest: Rest,
   verdicts?: readonly JudgeVerdict[],
-): Effect.Effect<RepoSnapshot, Error, Workspace | GitService | RestRequirements> =>
+): Effect.Effect<RepoSnapshot, Error, RepoFiles | GitService | RestRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
     const branch = yield* userBranch(git)
@@ -1990,7 +1993,7 @@ const configRefusal = (
 
 const differingConfigPaths = (
   git: GitService["Service"],
-  workspace: Workspace["Service"],
+  repoFiles: RepoFiles["Service"],
   root: string,
   config: { readonly fingerprint: ConfigFingerprint },
   hash: string,
@@ -2000,7 +2003,7 @@ const differingConfigPaths = (
     const configPaths = inRepoConfigPaths(yield* Path.Path, root, Object.keys(config.fingerprint))
     for (const path of configPaths) {
       const atTip = yield* Effect.orElseSucceed(git.readFileAtRef(hash, path), () => undefined)
-      if (atTip !== workspace.readSync(path)) differing.push(path)
+      if (atTip !== repoFiles.readSync(path)) differing.push(path)
     }
     return differing
   })
@@ -2075,7 +2078,7 @@ const replayFinishedProcess = (
 ): Effect.Effect<FinishedReplay, Error, RestRequirements> =>
   Effect.gen(function* () {
     const git = yield* GitService
-    const workspace = yield* Workspace
+    const repoFiles = yield* RepoFiles
     const host = yield* Host
     const recorded = parseCommitMessage(
       run.episode.commits.find((c) => c.hash === hash)?.message ?? "",
@@ -2084,12 +2087,12 @@ const replayFinishedProcess = (
     // A refusal is often caused by the version change, so it carries the warning.
     const withWarning = (err: Error): Error =>
       versionWarning === undefined ? err : new Error(`${err.message}\n${versionWarning}`)
-    const differing = yield* differingConfigPaths(git, workspace, host.root, config, hash)
+    const differing = yield* differingConfigPaths(git, repoFiles, host.root, config, hash)
     if (differing.length > 0)
       return yield* Effect.fail(
         withWarning(configRefusal(how.command, hash, differing, how.configReason)),
       )
-    const { setup } = yield* setupFor(config, run, workspace, host)
+    const { setup } = yield* setupFor(config, run, repoFiles, host)
     const outcome = yield* Effect.promise(() => replayFor(setup))
     if (outcome.kind !== "ended") return yield* Effect.fail(withWarning(how.notEnded(outcome)))
     return { outcome, recorded, ...(versionWarning !== undefined ? { versionWarning } : {}) }

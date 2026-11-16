@@ -1,11 +1,11 @@
-import { Effect, Option, type Path, Schema } from "effect"
+import { Effect, Option, Path, Schema } from "effect"
 import {
   GtdError,
   GtdUsageError,
   Narrator,
   GitService,
   Host,
-  Workspace,
+  RepoFiles,
   type GitOperations,
   type HostOps,
   HISTORY_REF,
@@ -22,6 +22,7 @@ import {
   pin,
   refuseLegacyRc,
   ConfigService,
+  evaluateModule,
   formatDiagnostic,
   type PendingChange,
   type StateName,
@@ -99,7 +100,7 @@ import {
   restoredOutcome,
 } from "../emit/index.js"
 import { GTD_VERSION, renderBriefing } from "../install/index.js"
-import { ToolCommands } from "./ToolCommands.js"
+import { ToolCommands, type WorkspaceControlRequest } from "./ToolCommands.js"
 import {
   normalizeScriptNewline,
   SelectorUsageError,
@@ -143,6 +144,42 @@ export type Command =
       readonly selfSigned: boolean
       readonly http?: boolean
       readonly dev: boolean
+    }
+  | {
+      readonly kind: "workspace"
+      readonly config?: string
+      readonly host?: string
+      readonly port?: number
+      readonly selfSigned: boolean
+      readonly http?: boolean
+    }
+  | {
+      readonly kind: "workspaceControl"
+      readonly command: "proceed" | "retry"
+      readonly worktree: string
+      readonly commit: string
+      readonly config?: string
+    }
+  | {
+      readonly kind: "workspaceControl"
+      readonly command: "note"
+      readonly worktree: string
+      /** `null` takes the note off. */
+      readonly note: {
+        readonly message: string
+        readonly error: boolean
+        /** Also send it as a notification. */
+        readonly notify?: boolean
+      } | null
+      readonly config?: string
+    }
+  | {
+      readonly kind: "workspaceControl"
+      readonly command: "pause" | "resume"
+      readonly project?: string
+      readonly feed?: string
+      readonly wait?: boolean
+      readonly config?: string
     }
   | {
       readonly kind: "land"
@@ -231,7 +268,7 @@ const runBundleCommand = (
 ): Effect.Effect<
   void,
   Error,
-  ConfigService | ConfigDiscovery | EngineCore | Host | Path.Path | Narrator | Workspace
+  ConfigService | ConfigDiscovery | EngineCore | Host | Path.Path | Narrator | RepoFiles
 > =>
   Effect.gen(function* () {
     yield* (yield* ConfigService).load
@@ -1004,12 +1041,12 @@ const runNextCommand = (
 const runWidgetCheckCommand = (
   file: string,
   write: boolean,
-): Effect.Effect<void, Error, Workspace> =>
+): Effect.Effect<void, Error, RepoFiles> =>
   Effect.gen(function* () {
-    const workspace = yield* Workspace
+    const repoFiles = yield* RepoFiles
     const content = yield* existingFile(file)
     const canonical = write ? serialize(content) : content
-    if (canonical !== content) yield* workspace.writeAtPath(file, canonical)
+    if (canonical !== content) yield* repoFiles.writeAtPath(file, canonical)
     const errors = parseWidgets(canonical).findings.map((finding) => formatFinding(file, finding))
     if (errors.length === 0) return
     return yield* Effect.fail(
@@ -1017,9 +1054,9 @@ const runWidgetCheckCommand = (
     )
   })
 
-const existingFile = (file: string): Effect.Effect<string, Error, Workspace> =>
-  Effect.flatMap(Workspace, (workspace) => {
-    const content = workspace.atPath(file)
+const existingFile = (file: string): Effect.Effect<string, Error, RepoFiles> =>
+  Effect.flatMap(RepoFiles, (repoFiles) => {
+    const content = repoFiles.atPath(file)
     return content === undefined
       ? Effect.fail(new Error(`gtd check: no such file: ${file}`))
       : Effect.succeed(content)
@@ -1112,6 +1149,63 @@ const runUiCliCommand = (
   })
 
 /**
+ * `gtd workspace` runs outside any repository: its config is
+ * `gtd.workspace.ts`, found from the invoking directory up.
+ */
+const runWorkspaceCliCommand = (
+  command: Extract<Command, { kind: "workspace" }>,
+  out: ArtifactOut,
+): Effect.Effect<void, Error, ToolCommands | Host | Path.Path> =>
+  Effect.gen(function* () {
+    const host = yield* Host
+    const paths = yield* Path.Path
+    const { kind: _, ...flags } = command
+    yield* (yield* ToolCommands).workspace(
+      {
+        flags,
+        cwd: host.root,
+        stateHome: stateHomeOf(host, paths),
+        loadModule: (file) => evaluateModule(paths, file),
+      },
+      out,
+    )
+  })
+
+const stateHomeOf = (host: HostOps, paths: Path.Path): string =>
+  host.env["XDG_STATE_HOME"] || paths.join(host.home, ".local", "state")
+
+type ControlCommand = Extract<Command, { kind: "workspaceControl" }>
+
+const controlRequestOf = (command: ControlCommand): WorkspaceControlRequest["request"] => {
+  switch (command.command) {
+    case "note":
+      return { command: "note", worktree: command.worktree, note: command.note }
+    case "pause":
+    case "resume": {
+      const { kind: _kind, config: _config, ...request } = command
+      return request
+    }
+    default:
+      return { command: command.command, worktree: command.worktree, commit: command.commit }
+  }
+}
+
+/** `gtd workspace proceed|retry|note|pause|resume`: handed to the running supervisor. */
+const runWorkspaceControlCliCommand = (
+  command: Extract<Command, { kind: "workspaceControl" }>,
+): Effect.Effect<void, Error, ToolCommands | Host | Path.Path> =>
+  Effect.gen(function* () {
+    const host = yield* Host
+    const paths = yield* Path.Path
+    yield* (yield* ToolCommands).workspaceControl({
+      request: controlRequestOf(command),
+      ...(command.config !== undefined ? { config: command.config } : {}),
+      cwd: host.root,
+      stateHome: stateHomeOf(host, paths),
+    })
+  })
+
+/**
  * Everything gtd derives is resolved against the process cwd, so running
  * from anywhere but the repository root would silently mis-derive state.
  * Refuses with a clear error instead. Real paths are compared so symlinked
@@ -1169,6 +1263,8 @@ export const needsOf = (kind: Command["kind"]): Needs => {
     case "guide":
     case "judgeRun":
     case "strays":
+    case "workspace":
+    case "workspaceControl":
       return "none"
     case "check":
       return "fs"
@@ -1184,6 +1280,8 @@ export const standaloneKinds = (): readonly Command["kind"][] => [
   "guide",
   "judgeRun",
   "strays",
+  "workspace",
+  "workspaceControl",
 ]
 
 /**
@@ -1212,6 +1310,10 @@ const dispatchVoidCommand = (
       return runLspCommand()
     case "ui":
       return runUiCliCommand(command, out)
+    case "workspace":
+      return runWorkspaceCliCommand(command, out)
+    case "workspaceControl":
+      return runWorkspaceControlCliCommand(command)
     case "land":
       return runLandCommand(
         {

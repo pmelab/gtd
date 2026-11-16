@@ -2,6 +2,72 @@
 
 lockfile_version = 1
 
+[[tools."aqua:binwiederhier/ntfy"]]
+version = "2.37.2"
+backend = "aqua:binwiederhier/ntfy"
+specifiers = ["2.37.2"]
+
+[tools."aqua:binwiederhier/ntfy"."platforms.linux-arm64"]
+checksum = "sha256:d440e696755f2032592ba6456995f7a9f04b8c47d288d2e3d2cffbc3d53831f6"
+url = "https://github.com/binwiederhier/ntfy/releases/download/v2.37.2/ntfy_2.37.2_linux_arm64.tar.gz"
+
+[tools."aqua:binwiederhier/ntfy"."platforms.linux-arm64-musl"]
+checksum = "sha256:d440e696755f2032592ba6456995f7a9f04b8c47d288d2e3d2cffbc3d53831f6"
+url = "https://github.com/binwiederhier/ntfy/releases/download/v2.37.2/ntfy_2.37.2_linux_arm64.tar.gz"
+
+[tools."aqua:binwiederhier/ntfy"."platforms.linux-x64"]
+checksum = "sha256:e67f53d7fbed529b83faf3993b584110921ef3567b0ac0b033c6910879a4ffd1"
+url = "https://github.com/binwiederhier/ntfy/releases/download/v2.37.2/ntfy_2.37.2_linux_amd64.tar.gz"
+
+[tools."aqua:binwiederhier/ntfy"."platforms.linux-x64-musl"]
+checksum = "sha256:e67f53d7fbed529b83faf3993b584110921ef3567b0ac0b033c6910879a4ffd1"
+url = "https://github.com/binwiederhier/ntfy/releases/download/v2.37.2/ntfy_2.37.2_linux_amd64.tar.gz"
+
+[tools."aqua:binwiederhier/ntfy"."platforms.macos-arm64"]
+checksum = "sha256:b60a9729651e9d7defae3bb8f955822370e0fb84c1a73cc1d9ab5088b2712241"
+url = "https://github.com/binwiederhier/ntfy/releases/download/v2.37.2/ntfy_2.37.2_darwin_all.tar.gz"
+
+[tools."aqua:binwiederhier/ntfy"."platforms.macos-x64"]
+checksum = "sha256:b60a9729651e9d7defae3bb8f955822370e0fb84c1a73cc1d9ab5088b2712241"
+url = "https://github.com/binwiederhier/ntfy/releases/download/v2.37.2/ntfy_2.37.2_darwin_all.tar.gz"
+
+[tools."aqua:binwiederhier/ntfy"."platforms.windows-x64"]
+checksum = "sha256:72a1ad4f8976ee9986a77670d68e3d58a5b9a6b9fbbcaf43fc6dd24255b2d44c"
+url = "https://github.com/binwiederhier/ntfy/releases/download/v2.37.2/ntfy_2.37.2_windows_amd64.zip"
+
+[[tools."aqua:max-sixty/worktrunk"]]
+version = "0.81.0"
+backend = "aqua:max-sixty/worktrunk"
+specifiers = ["0.81.0"]
+
+[tools."aqua:max-sixty/worktrunk"."platforms.linux-arm64"]
+checksum = "sha256:7a334d2e64c577afd0247e2411eff673360ab1f18897564f2d2e5d5374fbd74b"
+url = "https://github.com/max-sixty/worktrunk/releases/download/v0.81.0/worktrunk-aarch64-unknown-linux-musl.tar.xz"
+
+[tools."aqua:max-sixty/worktrunk"."platforms.linux-arm64-musl"]
+checksum = "sha256:7a334d2e64c577afd0247e2411eff673360ab1f18897564f2d2e5d5374fbd74b"
+url = "https://github.com/max-sixty/worktrunk/releases/download/v0.81.0/worktrunk-aarch64-unknown-linux-musl.tar.xz"
+
+[tools."aqua:max-sixty/worktrunk"."platforms.linux-x64"]
+checksum = "sha256:0c253f216985ce9cd7b202a11606b5ce6aa934b1019fd1fbb9b7ce2b47b1c74a"
+url = "https://github.com/max-sixty/worktrunk/releases/download/v0.81.0/worktrunk-x86_64-unknown-linux-musl.tar.xz"
+
+[tools."aqua:max-sixty/worktrunk"."platforms.linux-x64-musl"]
+checksum = "sha256:0c253f216985ce9cd7b202a11606b5ce6aa934b1019fd1fbb9b7ce2b47b1c74a"
+url = "https://github.com/max-sixty/worktrunk/releases/download/v0.81.0/worktrunk-x86_64-unknown-linux-musl.tar.xz"
+
+[tools."aqua:max-sixty/worktrunk"."platforms.macos-arm64"]
+checksum = "sha256:b9c3f2f8071554cf88500466d65d35e18ad5edad5762479a1f14bcddd5ab7882"
+url = "https://github.com/max-sixty/worktrunk/releases/download/v0.81.0/worktrunk-aarch64-apple-darwin.tar.xz"
+
+[tools."aqua:max-sixty/worktrunk"."platforms.macos-x64"]
+checksum = "sha256:211fa3585afa0ce243de0f007fbe2d8b86c5c88c85eda17d09311b32e8533714"
+url = "https://github.com/max-sixty/worktrunk/releases/download/v0.81.0/worktrunk-x86_64-apple-darwin.tar.xz"
+
+[tools."aqua:max-sixty/worktrunk"."platforms.windows-x64"]
+checksum = "sha256:389b595cb67482085419968939e329d61901cca9e959e4b6c288f01387b768b8"
+url = "https://github.com/max-sixty/worktrunk/releases/download/v0.81.0/worktrunk-x86_64-pc-windows-msvc.zip"
+
 [[tools.node]]
 version = "24.20.0"
 backend = "core:node"
@@ -34,6 +100,27 @@ url = "https://nodejs.org/dist/v24.20.0/node-v24.20.0-darwin-x64.tar.gz"
 [tools.node."platforms.windows-x64"]
 checksum = "sha256:6cac9ffbca8f6a47091e4b5c772e0606049c3871cb67d900c0cedde630e545ba"
 url = "https://nodejs.org/dist/v24.20.0/node-v24.20.0-win-x64.zip"
+
+[[tools.pitchfork]]
+version = "2.33.1"
+backend = "aqua:jdx/pitchfork"
+specifiers = ["2.33.1"]
+
+[tools.pitchfork."platforms.linux-arm64"]
+checksum = "sha256:bdae8c91b2339a6237e11068ae5e941ce1e19606a8573e17eadb25c0e225707d"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.33.1/pitchfork-aarch64-unknown-linux-gnu.tar.gz"
+
+[tools.pitchfork."platforms.linux-x64"]
+checksum = "sha256:8140bd9699b4b07fb5ba96a9d24b2e9091e2045c666420cd71329e804a3f3651"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.33.1/pitchfork-x86_64-unknown-linux-gnu.tar.gz"
+
+[tools.pitchfork."platforms.macos-arm64"]
+checksum = "sha256:a546f3a75e5df638c7a68327775c1d5dc58a7101f7e296188b30dbdfde5e5033"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.33.1/pitchfork-aarch64-apple-darwin.tar.gz"
+
+[tools.pitchfork."platforms.windows-x64"]
+checksum = "sha256:646ccd1b0d4f90dde3014b9eaec93f50bc1b340dd19ee9290b42e6a4d56f0186"
+url = "https://github.com/jdx/pitchfork/releases/download/v2.33.1/pitchfork-x86_64-pc-windows-msvc.zip"
 
 [[tools.shellcheck]]
 version = "0.11.0"

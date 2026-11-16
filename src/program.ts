@@ -55,6 +55,35 @@ export const liveToolCommands = Layer.effect(
               ),
             )
         }),
+      workspace: (request, out) =>
+        lazy("workspace", async () => {
+          const { runWorkspaceCommand, SupervisorClock, SupervisorHost, UserlandTools } =
+            await import("./supervisor/index.js")
+          const { UiListener, UiShell, UiUsageError, liveUiHost } = await import("./ui/index.js")
+          return () =>
+            runWorkspaceCommand(request, out).pipe(
+              Effect.provideService(UiShell, shell),
+              Effect.provideService(FileSystem.FileSystem, fs),
+              Effect.provide(UiListener.Live),
+              Effect.provide(liveUiHost),
+              Effect.provide(SupervisorHost.Live),
+              Effect.provide(UserlandTools.Live),
+              Effect.provide(SupervisorClock.Live),
+              Effect.mapError((error) =>
+                error instanceof UiUsageError
+                  ? new GtdUsageError(error.message, error.detail)
+                  : new GtdError(error.message, error.detail),
+              ),
+            )
+        }),
+      workspaceControl: (request) =>
+        lazy("workspace", async () => {
+          const { runControlCommand } = await import("./supervisor/index.js")
+          return () =>
+            runControlCommand(request).pipe(
+              Effect.mapError((error) => new GtdError(error.message, error.detail)),
+            )
+        }),
       lsp: (gtd) =>
         lazy("lsp", async () => {
           const { startLspServer } = await import("./lsp/index.js")

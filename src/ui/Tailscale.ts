@@ -1,5 +1,6 @@
 import { Effect } from "effect"
 import { UiShell } from "./Ports.js"
+import { shellQuote } from "./Quote.js"
 
 /** What `resolveBindHost`/`resolveCertPair` need out of `tailscale status --json`: a display hostname and the domains a `tailscale cert` call is available for. */
 export interface TailscaleStatus {
@@ -67,3 +68,83 @@ export const probeTailscaleStatus = (): Effect.Effect<
     // stdout only: a CLI/daemon version skew prints a warning on stderr that would break the JSON.
     return parseTailscaleStatus(outcome.stdout ?? outcome.output)
   })
+
+const parseJson = (json: string): unknown => {
+  try {
+    return JSON.parse(json) as unknown
+  } catch {
+    return undefined
+  }
+}
+
+const loginName = (user: unknown): string | undefined => {
+  const login = (user as { LoginName?: unknown } | undefined)?.LoginName
+  return typeof login === "string" && login !== "" ? login : undefined
+}
+
+/** The login of the user that owns this node, from `tailscale status --json`; a tagged node has none. */
+export const parseNodeOwner = (json: string): string | undefined => {
+  const parsed = parseJson(json) as
+    | { Self?: { UserID?: unknown }; User?: Record<string, unknown> }
+    | undefined
+  const id = parsed?.Self?.UserID
+  return typeof id === "number" ? loginName(parsed?.User?.[String(id)]) : undefined
+}
+
+/** The login of a peer's user, from `tailscale whois --json`. */
+export const parseWhois = (json: string): string | undefined =>
+  loginName((parseJson(json) as { UserProfile?: unknown } | undefined)?.UserProfile)
+
+/** Runs one `tailscale` command; `undefined` when it cannot run or exits non-zero. */
+const tailscaleStdout = (command: string): Effect.Effect<string | undefined, never, UiShell> =>
+  Effect.gen(function* () {
+    const outcome = yield* (yield* UiShell)
+      .bash(command)
+      .pipe(Effect.catch(() => Effect.succeed(undefined)))
+    if (outcome === undefined || outcome.status !== 0) return undefined
+    return outcome.stdout ?? outcome.output
+  })
+
+/** What tailscale answered about the node's owner; `owner` is absent on a tagged node. */
+export interface NodeOwner {
+  readonly owner: string | undefined
+}
+
+/** `undefined` when tailscale did not answer. */
+export const probeNodeOwner = (): Effect.Effect<NodeOwner | undefined, never, UiShell> =>
+  tailscaleStdout("tailscale status --json").pipe(
+    Effect.map((stdout) => (stdout === undefined ? undefined : { owner: parseNodeOwner(stdout) })),
+  )
+
+// A tailnet that comes up after the server starts is picked up this long after a failed probe.
+const OWNER_RETRY_MS = 30_000
+
+/**
+ * The node's owner, asked once and kept, also when the node has none: the
+ * guard asks on every request. A probe that failed is tried again later.
+ */
+export const nodeOwnerCache = (
+  probe: () => Promise<NodeOwner | undefined>,
+  now: () => number,
+): (() => Promise<string | undefined>) => {
+  let known: NodeOwner | undefined
+  let failedAt: number | undefined
+  let asking: Promise<string | undefined> | undefined
+  return async () => {
+    if (known !== undefined) return known.owner
+    if (failedAt !== undefined && now() - failedAt < OWNER_RETRY_MS) return undefined
+    asking ??= probe()
+      .then((answer) => {
+        if (answer === undefined) failedAt = now()
+        else known = answer
+        return answer?.owner
+      })
+      .finally(() => (asking = undefined))
+    return asking
+  }
+}
+
+export const whois = (address: string): Effect.Effect<string | undefined, never, UiShell> =>
+  tailscaleStdout(`tailscale whois --json ${shellQuote(address)}`).pipe(
+    Effect.map((stdout) => (stdout === undefined ? undefined : parseWhois(stdout))),
+  )
