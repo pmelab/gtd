@@ -707,8 +707,9 @@ flags (for example `--dry`) as that flag, so `mise()` refuses such a value.
 topic. Anyone who knows a topic on a public server can read it. Without a
 `notifications` adapter, the supervisor publishes to a random topic on
 `https://ntfy.sh`, kept in the file `ntfy-topic` in its
-[state directory](#security). gtd does not print it: read it there, and
-subscribe to that topic in the ntfy app.
+[state directory](#security). At each start, after the URL line, the supervisor
+prints the line `notifications: subscribe to <url>` with the topic's URL:
+subscribe to it in the ntfy app.
 
 ## Security
 

@@ -25,7 +25,12 @@ import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf, isGatePath } from "./Gate.js"
 import { acquireLock, stateDirectory } from "./Lock.js"
 import { feedRunner } from "./Feeds.js"
-import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
+import {
+  SupervisorClock,
+  SupervisorHost,
+  UserlandTools,
+  type DefaultNotifications,
+} from "./Ports.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
 import type { ProjectView } from "./Scan.js"
@@ -118,8 +123,11 @@ const controlHandler =
 
 const notificationsOf = (
   settings: WorkspaceSettings,
-  byDefault: () => NotificationsAdapter,
-): NotificationsAdapter => settings.adapters?.notifications ?? byDefault()
+  byDefault: () => DefaultNotifications,
+): { readonly adapter: NotificationsAdapter; readonly subscribe?: string } => {
+  const configured = settings.adapters?.notifications
+  return configured !== undefined ? { adapter: configured } : byDefault()
+}
 
 const asUiError = (error: unknown): UiError =>
   error instanceof UiError
@@ -182,8 +190,9 @@ export const runWorkspaceCommand = (
         out.write(line)
         out.flush()
       }
+      const notifications = notificationsOf(settings, () => host.defaultNotifications(directory))
       const notify = notifier({
-        adapter: notificationsOf(settings, () => host.defaultNotifications(directory)),
+        adapter: notifications.adapter,
         store,
         settings: config,
         now: clock.now,
@@ -449,6 +458,10 @@ export const runWorkspaceCommand = (
       notify.begin(url, snapshot.projects())
       reactions.begin(noted.withNotes(snapshot.projects()))
       out.write(`${url}\n`)
+      // The default topic is random: this line is the only way to learn it.
+      if (notifications.subscribe !== undefined) {
+        out.write(`notifications: subscribe to ${notifications.subscribe}\n`)
+      }
       out.write(spoolRefusals.map((refusal) => `spool ${refusal}\n`).join(""))
       out.flush()
       feeds.start()

@@ -29,8 +29,11 @@ interface SupervisorHostOps {
   readonly defaultServices: () => ServicesAdapter
   /** The actions adapter of a workspace that names none. */
   readonly defaultActions: () => ActionsAdapter
-  /** The notifications adapter of a workspace that names none, given the state directory. */
-  readonly defaultNotifications: (stateDirectory: string) => NotificationsAdapter
+  /**
+   * The notifications adapter of a workspace that names none, given the state
+   * directory, and the URL a person subscribes to.
+   */
+  readonly defaultNotifications: (stateDirectory: string) => DefaultNotifications
   readonly isPidAlive: (pid: number) => boolean
   /** Runs `run` once after `ms`; the result cancels it. The twin's clock moves only when a test moves it. */
   readonly after: (ms: number, run: () => void) => () => void
@@ -40,6 +43,11 @@ interface SupervisorHostOps {
   readonly oneShot: (argv: readonly string[], worktree: string) => Promise<ExecResult>
   /** The person's login shell, which the Terminal tab opens in a pane of its own. */
   readonly loginShell: string
+}
+
+export interface DefaultNotifications {
+  readonly adapter: NotificationsAdapter
+  readonly subscribe: string
 }
 
 // An editor's save is several events (write, rename, chmod); one call after they stop covers them.
@@ -92,7 +100,10 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
     defaultTerminal: () => rex(),
     defaultServices: () => pitchfork(),
     defaultActions: () => mise(),
-    defaultNotifications: (stateDirectory) => ntfy({ topic: ntfyTopic(stateDirectory) }),
+    defaultNotifications: (stateDirectory) => {
+      const topic = ntfyTopic(stateDirectory)
+      return { adapter: ntfy({ topic }), subscribe: `https://ntfy.sh/${topic}` }
+    },
     isPidAlive,
     after: (ms, run) => {
       const timer = setTimeout(run, ms)
