@@ -22,7 +22,7 @@ import { findWorkspaceModule, loadWorkspace, reloadWorkspace } from "./Config.js
 import { controls, type Controls } from "./Controls.js"
 import { dispatcher, type Dispatcher } from "./Dispatch.js"
 import { driverPanes, drivers } from "./Drivers.js"
-import { gateOf } from "./Gate.js"
+import { gateOf, isGatePath } from "./Gate.js"
 import { acquireLock, stateDirectory } from "./Lock.js"
 import { feedRunner } from "./Feeds.js"
 import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
@@ -386,6 +386,7 @@ export const runWorkspaceCommand = (
 
       const handler: UiHandler = async (request, afterResponse, peer, identity) => {
         const path = new URL(request.url).pathname
+        if (isGatePath(path)) return gatePage(request, afterResponse, peer)
         if (path === TRPC || path.startsWith(`${TRPC}/`)) {
           return fetchRequestHandler({
             endpoint: TRPC,
