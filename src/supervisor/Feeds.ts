@@ -74,7 +74,8 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
   let saved = keptJson(inbox)
   let feeds = deps.feeds
   const failing = new Map<string, string>()
-  const polling = new Set<string>()
+  // By feed, not name: a reload's new feed polls while the old one's poll runs out.
+  const polling = new Set<Feed>()
   const polled = new Set<string>()
 
   const setInbox = (next: Inbox): void => {
@@ -108,10 +109,12 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
 
   const poll = async (name: string, feed: Feed): Promise<void> => {
     // A slow poll is not stacked on itself.
-    if (polling.has(name)) return
-    polling.add(name)
+    if (polling.has(feed)) return
+    polling.add(feed)
     try {
       const outcome = await runPoll(feed, await contextOf(name, feed))
+      // A reload changed or removed the feed meanwhile: its result is stale.
+      if (feeds.get(name) !== feed) return
       polled.add(name)
       if ("failure" in outcome) {
         if (failing.get(name) !== outcome.failure)
@@ -124,8 +127,8 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
       failing.delete(name)
       await deps.polled?.()
     } finally {
-      deps.afterPoll?.(name)
-      polling.delete(name)
+      if (feeds.get(name) === feed) deps.afterPoll?.(name)
+      polling.delete(feed)
     }
   }
 

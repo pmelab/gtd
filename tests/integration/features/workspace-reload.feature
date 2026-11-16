@@ -89,6 +89,49 @@ Feature: gtd workspace reloads gtd.workspace.ts
       | feed   | key | title     | state    |
       | issues | 1   | Add login | proposed |
 
+  Scenario: a poll that a reload overtakes files nothing, and the new feed polls at once
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"] })
+
+      export const board = feed({
+        project: "portal",
+        every: "5m",
+        mode: "queue",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "issue", "list"])).stdout),
+      })
+      """
+    And the command "gh issue list" prints:
+      """
+      [{ "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0 }]
+      """
+    And the command "gh issue list --label ready" prints:
+      """
+      [{ "key": "8", "title": "Add search", "action": "start:feature", "priority": 0 }]
+      """
+    And the command "gh issue list" holds its answer
+    When I start gtd workspace
+    And the workspace file "gtd.workspace.ts" changes to:
+      """
+      import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"] })
+
+      export const board = feed({
+        project: "portal",
+        every: "5m",
+        mode: "propose",
+        poll: async (ctx) =>
+          JSON.parse((await ctx.exec(["gh", "issue", "list", "--label", "ready"])).stdout),
+      })
+      """
+    And the command "gh issue list" gives its answer
+    Then the Inbox lists:
+      | feed  | key | title      | state    |
+      | board | 8   | Add search | proposed |
+
   Scenario: a project setting that names no project shows a banner
     Given a workspace file "gtd.workspace.ts" with:
       """
