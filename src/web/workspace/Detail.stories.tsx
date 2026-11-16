@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { viewport } from "../testing/browserContext.js"
 import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
@@ -197,6 +198,32 @@ export const ShowsWhyRemoveKeepsAWorktree: Story = {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByRole("button", { name: "Remove" }))
     await expect((await canvas.findByTestId("remove-error")).textContent).toBe("its driver runs")
+  },
+}
+
+const MovingRest = (args: React.ComponentProps<typeof Detail>) => {
+  const [worktree, setWorktree] = useState(plan.worktree)
+  return (
+    <>
+      <button onClick={() => setWorktree((w) => ({ ...w, label: "Answer the plan again" }))}>
+        relabel
+      </button>
+      <button onClick={() => setWorktree((w) => ({ ...w, head: "c0ffee" }))}>commit</button>
+      <Detail {...args} entry={{ ...plan, worktree }} />
+    </>
+  )
+}
+
+/** The gate page loads again once the worktree's HEAD moves on, and only then. */
+export const GateFollowsTheRest: Story = {
+  render: (args) => <MovingRest {...args} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const first = canvas.getByTitle("Gate page")
+    await userEvent.click(canvas.getByRole("button", { name: "relabel" }))
+    await expect(canvas.getByTitle("Gate page")).toBe(first)
+    await userEvent.click(canvas.getByRole("button", { name: "commit" }))
+    await expect(canvas.getByTitle("Gate page")).not.toBe(first)
   },
 }
 
