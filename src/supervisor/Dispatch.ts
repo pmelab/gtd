@@ -168,18 +168,27 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     return `${project}: ${used} of ${wip} drives in use (${key})`
   }
 
+  // Why `limits.maxDrives` holds every item now; none when it does not.
+  const maxHolds = (used: number): string | undefined => {
+    const max = deps.settings().limits?.maxDrives
+    return max !== undefined && used >= max
+      ? `${used} of ${max} drives in use (limits.maxDrives)`
+      : undefined
+  }
+
+  const limitedAtAll = (project: string): boolean => {
+    const { limits, projects } = deps.settings()
+    return (
+      limits?.maxDrives !== undefined || (projects?.[project]?.wip ?? limits?.wip) !== undefined
+    )
+  }
+
   // Why the limits hold an item of the project now; none when it may start.
   // The drives are counted at each check: an item dispatched before may have started its driver.
   const limited = async (project: string): Promise<string | undefined> => {
-    const { limits, projects } = deps.settings()
-    const max = limits?.maxDrives
-    if (max === undefined && (projects?.[project]?.wip ?? limits?.wip) === undefined)
-      return undefined
+    if (!limitedAtAll(project)) return undefined
     const inUse = await drives()
-    const used = total(inUse)
-    if (max !== undefined && used >= max)
-      return `${used} of ${max} drives in use (limits.maxDrives)`
-    return wipHolds(project, inUse.get(project)?.size ?? 0)
+    return maxHolds(total(inUse)) ?? wipHolds(project, inUse.get(project)?.size ?? 0)
   }
 
   // Drops each started item whose worktree is gone from a project gtd could list.

@@ -6,35 +6,21 @@ import type { WorktreeView } from "./view.js"
 const INPUT =
   "min-h-11 rounded border border-border bg-surface px-2 text-body text-text placeholder:text-disabled"
 
-/** New worktree on a project: a branch name, then gtd creates the worktree and starts its services. */
-export const NewWorktree = ({ project }: { readonly project: string }) => {
-  const [open, setOpen] = useState(false)
+const NewWorktreeForm = ({
+  project,
+  onCreated,
+  onCancel,
+}: {
+  readonly project: string
+  readonly onCreated: (failure: string | undefined) => void
+  readonly onCancel: () => void
+}) => {
   const [branch, setBranch] = useState("")
-  // The worktree stays when its services do not start: this says why.
-  const [failure, setFailure] = useState<string | undefined>(undefined)
   const utils = workspaceTrpc.useUtils()
   const create = workspaceTrpc.createWorktree.useMutation({
-    onSuccess: (answer) => {
-      setOpen(false)
-      setBranch("")
-      setFailure(answer.failure)
-    },
+    onSuccess: (answer) => onCreated(answer.failure),
     onSettled: () => utils.projects.invalidate(),
   })
-  if (!open) {
-    return (
-      <div className="flex flex-col items-end gap-1">
-        <Button variant="ghost" className="text-small" onClick={() => setOpen(true)}>
-          New worktree
-        </Button>
-        {failure !== undefined && (
-          <span className="text-small text-danger" data-testid="new-worktree-failure">
-            services did not start: {failure}
-          </span>
-        )}
-      </div>
-    )
-  }
   return (
     <form
       className="flex flex-col gap-2 py-2"
@@ -61,11 +47,42 @@ export const NewWorktree = ({ project }: { readonly project: string }) => {
         <Button type="submit" variant="primary" disabled={create.isPending || branch === ""}>
           Create
         </Button>
-        <Button variant="ghost" onClick={() => setOpen(false)}>
+        <Button variant="ghost" onClick={onCancel}>
           Cancel
         </Button>
       </div>
     </form>
+  )
+}
+
+/** New worktree on a project: a branch name, then gtd creates the worktree and starts its services. */
+export const NewWorktree = ({ project }: { readonly project: string }) => {
+  const [open, setOpen] = useState(false)
+  // The worktree stays when its services do not start: this says why.
+  const [failure, setFailure] = useState<string | undefined>(undefined)
+  if (open) {
+    return (
+      <NewWorktreeForm
+        project={project}
+        onCreated={(failed) => {
+          setOpen(false)
+          setFailure(failed)
+        }}
+        onCancel={() => setOpen(false)}
+      />
+    )
+  }
+  return (
+    <div className="flex flex-col items-end gap-1">
+      <Button variant="ghost" className="text-small" onClick={() => setOpen(true)}>
+        New worktree
+      </Button>
+      {failure !== undefined && (
+        <span className="text-small text-danger" data-testid="new-worktree-failure">
+          services did not start: {failure}
+        </span>
+      )}
+    </div>
   )
 }
 

@@ -129,6 +129,10 @@ const notificationsOf = (
   return configured !== undefined ? { adapter: configured } : byDefault()
 }
 
+// The default topic is random: this line is the only way to learn it.
+const subscribeLine = (url: string | undefined): string =>
+  url === undefined ? "" : `notifications: subscribe to ${url}\n`
+
 const asUiError = (error: unknown): UiError =>
   error instanceof UiError
     ? error
@@ -460,10 +464,7 @@ export const runWorkspaceCommand = (
       notify.begin(url, snapshot.projects())
       reactions.begin(noted.withNotes(snapshot.projects()))
       out.write(`${url}\n`)
-      // The default topic is random: this line is the only way to learn it.
-      if (notifications.subscribe !== undefined) {
-        out.write(`notifications: subscribe to ${notifications.subscribe}\n`)
-      }
+      out.write(subscribeLine(notifications.subscribe))
       out.write(spoolRefusals.map((refusal) => `spool ${refusal}\n`).join(""))
       out.flush()
       feeds.start()
