@@ -298,3 +298,55 @@ Feature: queue feeds dispatch their items within the limits
     Then gtd opened these action panes:
       | worktree       | argv              |
       | portal/board/7 | ["start:feature"] |
+
+  Scenario: the waiting items of a feed the config no longer exports do not start
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"] })
+
+      export const bugs = feed({
+        project: "portal",
+        every: "5m",
+        mode: "queue",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "issue", "list", "bugs"])).stdout),
+      })
+
+      export const chores = feed({
+        project: "portal",
+        every: "5m",
+        mode: "queue",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "issue", "list", "chores"])).stdout),
+        canStart: async (item, ctx) => (await ctx.exec(["ready"])).status === 0,
+      })
+      """
+    And the command "gh issue list bugs" prints:
+      """
+      []
+      """
+    And the command "gh issue list chores" prints:
+      """
+      [{ "key": "c1", "title": "Tidy up", "action": "start:feature", "priority": 0 }]
+      """
+    And the command "ready" exits 1
+    When I start gtd workspace
+    And the workspace file "gtd.workspace.ts" changes to:
+      """
+      import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"] })
+
+      export const bugs = feed({
+        project: "portal",
+        every: "5m",
+        mode: "queue",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "issue", "list", "bugs"])).stdout),
+      })
+      """
+    And the clock advances "5m"
+    Then gtd opened these action panes:
+      | worktree | argv |
+    And the Inbox lists:
+      | feed   | key | title   | state  | message                             |
+      | chores | c1  | Tidy up | queued | its feed chores is not in the config |

@@ -41,7 +41,7 @@ export interface FeedRunner {
   readonly inbox: () => Inbox
   /** Changes the inbox; what a person decided is saved. */
   readonly change: (next: (inbox: Inbox) => Inbox) => void
-  /** Runs the item's feed's `canStart`: why it holds the item, `undefined` when it may start. */
+  /** Why the item's feed holds it (its `canStart`, or the feed is gone); `undefined` when it may start. */
   readonly canStart: (item: InboxItem) => Promise<string | undefined>
   /** Every feed has polled once since it was added: a blocker of another feed is in the inbox. */
   readonly ready: () => boolean
@@ -165,8 +165,9 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
     change: (next) => setInbox(next(inbox)),
     canStart: async (item) => {
       const feed = feeds.get(item.feed)
+      if (feed === undefined) return `its feed ${item.feed} is not in the config`
       const filed = inbox.entries.get(idOf(item.feed, item.key))?.item
-      if (feed?.canStart === undefined || filed === undefined) return undefined
+      if (feed.canStart === undefined || filed === undefined) return undefined
       try {
         if (await feed.canStart(filed, await contextOf(item.feed, feed))) return undefined
         return "its feed's canStart holds it"
