@@ -3,6 +3,7 @@ import type { TerminalAdapter, Worktree, WorktreesAdapter } from "../workspace/i
 import { ActionRefusal } from "./Actions.js"
 import type { AuditLog } from "./Audit.js"
 import type { DriverPanes } from "./Drivers.js"
+import type { OpenedPanes } from "./Panes.js"
 
 /** What the Terminal tab shows: how to reach a pane, when the terminal adapter can say. */
 export interface TerminalView {
@@ -14,6 +15,7 @@ export interface TerminalTabDeps {
   readonly worktrees: WorktreesAdapter
   readonly terminal: TerminalAdapter
   readonly panes: DriverPanes
+  readonly opened: Pick<OpenedPanes, "add">
   /** The person's login shell, the command of a shell pane. */
   readonly shell: string
   readonly audit: AuditLog
@@ -53,6 +55,7 @@ export const terminalTab = (deps: TerminalTabDeps): TerminalTab => {
     openShell: async (project, path, origin) => {
       const worktree = await check(project, path)
       const handle = await deps.terminal.run(project, path, [deps.shell], {})
+      deps.opened.add(path, { handle })
       deps.audit.write({
         time: new Date(deps.now()).toISOString(),
         identity: origin.identity ?? "-",

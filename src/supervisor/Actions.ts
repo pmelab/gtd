@@ -9,6 +9,7 @@ import {
   type WorktreesAdapter,
 } from "../workspace/index.js"
 import type { Drivers } from "./Drivers.js"
+import type { OpenedPanes } from "./Panes.js"
 import type { StatusName, WorktreeStatus } from "./Status.js"
 
 /** The last action gtd ran in a worktree, while this supervisor runs. */
@@ -39,6 +40,7 @@ export interface ActionRunsDeps {
   readonly actions: ActionsAdapter
   readonly terminal: TerminalAdapter
   readonly drivers: Drivers
+  readonly panes: Pick<OpenedPanes, "add">
   /** The worktree's status as of now. */
   readonly status: (worktree: string) => Promise<WorktreeStatus>
 }
@@ -60,8 +62,6 @@ export interface ActionRuns {
     ended?: (run: ActionRun) => void,
   ) => Promise<void>
   readonly last: (worktree: string) => ActionRun | undefined
-  /** The handles of the action panes gtd opened in the worktree while it runs. */
-  readonly panes: (worktree: string) => readonly string[]
   /** Stops waiting for the panes of running actions. */
   readonly stop: () => void
 }
@@ -127,7 +127,6 @@ const messageOf = (error: unknown): string =>
 
 export const actionRuns = (deps: ActionRunsDeps): ActionRuns => {
   const runs = new Map<string, ActionRun>()
-  const opened = new Map<string, string[]>()
   const waiting = new Map<string, Set<() => void>>()
   let hints: AsyncIterator<string> | undefined
   let stopped = false
@@ -233,7 +232,10 @@ export const actionRuns = (deps: ActionRunsDeps): ActionRuns => {
           GTD_WORKSPACE_STATUS: statusVariable(status, worktree),
           ...env,
         })
-        opened.set(path, [...(opened.get(path) ?? []), handle])
+        deps.panes.add(path, {
+          handle,
+          action: { id, label: action.label, status: action.status },
+        })
         runs.set(path, { id, label: action.label, exit: null })
         void follow(project, path, action, handle, env, ended)
       } catch (error) {
@@ -242,7 +244,6 @@ export const actionRuns = (deps: ActionRunsDeps): ActionRuns => {
       }
     },
     last: (path) => runs.get(path),
-    panes: (path) => opened.get(path) ?? [],
     stop: () => {
       stopped = true
       for (const set of waiting.values()) for (const wake of set) wake()
