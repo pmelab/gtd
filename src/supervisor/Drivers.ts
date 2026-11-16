@@ -1,7 +1,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import type { TerminalAdapter, WorkspaceSettings } from "../workspace/index.js"
-import type { DriverState } from "./Status.js"
+import { driverRuns, type DriverState } from "./Status.js"
 
 /**
  * The pane handle of each worktree's driver, by worktree path, in the state
@@ -40,7 +40,10 @@ export interface Drivers {
   readonly state: (worktree: string) => Promise<DriverState>
   /** The project's driver command, `undefined` when none is configured. */
   readonly command: (project: string) => readonly string[] | undefined
-  /** Opens a pane running the project's driver command; `false` when none is configured. */
+  /**
+   * Opens a pane running the project's driver command, unless the worktree's
+   * driver runs or is starting; `false` when none is configured.
+   */
   readonly start: (
     project: string,
     worktree: string,
@@ -63,23 +66,38 @@ export const drivers = (
     const { projects, driver } = settings()
     return projects?.[project]?.driver ?? driver
   }
+  const state = async (worktree: string): Promise<DriverState> => {
+    const handle = panes.get(worktree)
+    if (handle === undefined) return { kind: "none" }
+    try {
+      const pane = await terminal.status(handle)
+      return pane === undefined ? { kind: "none" } : { kind: "pane", pane }
+    } catch {
+      return { kind: "unknown" }
+    }
+  }
+  // Two presses that both found no driver share one start.
+  const starting = new Map<string, Promise<boolean>>()
+  const open = async (
+    project: string,
+    worktree: string,
+    env: Readonly<Record<string, string>>,
+  ): Promise<boolean> => {
+    const argv = command(project)
+    if (argv === undefined) return false
+    if (driverRuns(await state(worktree))) return true
+    panes.set(worktree, await terminal.run(project, worktree, argv, env))
+    return true
+  }
   return {
-    state: async (worktree) => {
-      const handle = panes.get(worktree)
-      if (handle === undefined) return { kind: "none" }
-      try {
-        const pane = await terminal.status(handle)
-        return pane === undefined ? { kind: "none" } : { kind: "pane", pane }
-      } catch {
-        return { kind: "unknown" }
-      }
-    },
+    state,
     command,
-    start: async (project, worktree, env = {}) => {
-      const argv = command(project)
-      if (argv === undefined) return false
-      panes.set(worktree, await terminal.run(project, worktree, argv, env))
-      return true
+    start: (project, worktree, env = {}) => {
+      const pending = starting.get(worktree)
+      if (pending !== undefined) return pending
+      const started = open(project, worktree, env).finally(() => starting.delete(worktree))
+      starting.set(worktree, started)
+      return started
     },
     pane: panes.get,
     forget: panes.delete,
