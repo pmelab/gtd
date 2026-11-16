@@ -100,6 +100,13 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
   const set = (item: InboxItem, dispatch: Dispatch | undefined): void =>
     deps.feeds.change((inbox) => setDispatch(inbox, idOf(item.feed, item.key), dispatch))
 
+  // The items a pass is deciding on, by id: each may start before the pass awaits again.
+  const claimed = new Map<string, InboxItem>()
+
+  // Still waiting: a poll or a dismissal may have dropped the item while the pass awaited.
+  const waiting = (item: InboxItem): boolean =>
+    dispatchableItems(deps.feeds.inbox()).some((i) => i.feed === item.feed && i.key === item.key)
+
   const starting = (path: string): boolean =>
     [...deps.feeds.inbox().entries.values()].some(
       (entry) => entry.dispatch?.state === "starting" && entry.dispatch.worktree === path,
@@ -256,10 +263,19 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     if (!following) set(item, { state: "failed", message: "gtd stopped while the item started" })
   }
 
+  // Checked again as the item starts: a pause may have come in while the pass awaited.
+  const claimable = (item: InboxItem): boolean => {
+    if (!waiting(item)) return false
+    const paused = deps.paused?.(item)
+    if (paused !== undefined) set(item, { state: "approved", waits: paused })
+    return paused === undefined
+  }
+
   // Runs the item up to its start action's pane; the action's exit settles it.
   const dispatch = async (item: InboxItem): Promise<void> => {
     const branch = branchOf(item)
     const found = await target(item, branch)
+    if (!claimable(item)) return
     if (found !== undefined && "state" in found) return set(item, found)
     set(item, { state: "starting", ...(found ? { worktree: found.path } : {}) })
     try {
@@ -281,10 +297,18 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
       // Until every feed has polled, a blocker of another feed may be missing.
       if (!deps.feeds.ready()) return
       for (const item of dispatchableItems(deps.feeds.inbox())) {
-        const held =
-          deps.paused?.(item) ?? (await limited(item.project)) ?? (await deps.feeds.canStart(item))
-        if (held === undefined) await dispatch(item)
-        else if (item.message !== held) set(item, { state: "approved", waits: held })
+        const id = idOf(item.feed, item.key)
+        claimed.set(id, item)
+        try {
+          const held =
+            deps.paused?.(item) ??
+            (await limited(item.project)) ??
+            (await deps.feeds.canStart(item))
+          if (held === undefined) await dispatch(item)
+          else if (item.message !== held) set(item, { state: "approved", waits: held })
+        } finally {
+          claimed.delete(id)
+        }
         handled(item)
       }
     })
@@ -321,8 +345,10 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
       const inUse = total(drivesOf(startingIn(), deps.driving()))
       return { inUse, ...(max !== undefined ? { max } : {}) }
     },
+    // A claimed item counts, so `pause --wait` cannot return while it may still start.
     drivesIn: async ({ project, feed }) => {
-      const inUse = await drives()
+      const claims = [...claimed].map(([id, item]) => [item.project, id] as const)
+      const inUse = drivesOf([...startingIn(), ...claims], await running())
       if (project === undefined) return total(inUse)
       const worktrees = [...(inUse.get(project) ?? [])]
       if (feed === undefined) return worktrees.length
@@ -334,7 +360,9 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
               ? [dispatch.worktree]
               : dispatch?.state === "starting"
                 ? [dispatch.worktree ?? id]
-                : [],
+                : claimed.has(id)
+                  ? [id]
+                  : [],
           ),
       )
       return worktrees.filter((worktree) => ofFeed.has(worktree)).length
