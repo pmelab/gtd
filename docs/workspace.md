@@ -270,7 +270,8 @@ matches it, and one reaction gets its changes one at a time, in order.
 - **`exec`**, **`fetch`** and **`log`** are as for feeds; `exec` runs in the
   worktree unless `cwd` is given, and `log` lines start with `reaction <name>:`.
 
-A `run` that throws is printed (`reaction <name> failed: …`); the other
+A `run` that throws is printed (`reaction <name> failed: …`), and a banner on
+the dashboard shows it until a run of that reaction goes through; the other
 reactions and the feeds keep running.
 
 The supervisor keeps the last worktree statuses in its state store. When it

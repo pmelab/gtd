@@ -193,6 +193,46 @@ Feature: gtd workspace runs reactions on worktree status changes
       """
       reaction broken failed: triage service is down
       """
+    And the dashboard shows the banner:
+      """
+      reaction broken failed: triage service is down
+      """
+
+  Scenario: a reaction's failure stays on the dashboard until the reaction runs through
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      import { reaction } from "@pmelab/gtd/workspace"
+
+      export const flaky = reaction({
+        on: {},
+        run: async (change, ctx) => {
+          if (change.to === "needsYou") throw new Error("triage service is down")
+          ctx.log(`${change.branch} is ${change.to}`)
+        },
+      })
+      """
+    When I start gtd workspace
+    And gtd next --json in "portal/plan" prints:
+      """
+      { "kind": "capture", "actor": "human", "idle": false, "label": "Answer the plan" }
+      """
+    And a commit lands on "portal/plan"
+    And 1 second passes
+    Then the dashboard shows the banner:
+      """
+      reaction flaky failed: triage service is down
+      """
+    When gtd next --json in "portal/plan" prints:
+      """
+      { "kind": "stalled", "actor": "agent", "idle": false, "label": "Stalled" }
+      """
+    And a commit lands on "portal/plan"
+    And 1 second passes
+    Then the reactions logged:
+      """
+      reaction flaky: plan is error
+      """
+    And the dashboard shows no banner
 
   Scenario: a reaction retries a crashed driver as the dashboard does
     Given a workspace file "gtd.workspace.ts" with:

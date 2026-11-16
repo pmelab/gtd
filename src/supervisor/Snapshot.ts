@@ -14,7 +14,12 @@ import { driverRuns, isOrphan, worktreeStatus, type DriverState } from "./Status
 
 /** A problem with the workspace itself, shown above every project. */
 export interface Banner {
-  readonly kind: "adapterUnavailable" | "configError" | "unknownProject" | "mainStale"
+  readonly kind:
+    | "adapterUnavailable"
+    | "configError"
+    | "unknownProject"
+    | "mainStale"
+    | "reactionFailed"
   readonly message: string
 }
 

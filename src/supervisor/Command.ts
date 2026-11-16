@@ -376,6 +376,7 @@ export const runWorkspaceCommand = (
             : []),
           ...snapshot.banners(),
           ...clean.banners(),
+          ...reactions.banners(),
         ]
       }
 
