@@ -91,7 +91,6 @@ const meta: Meta<typeof Dashboard> = {
           resume: (input) => {
             pressed.push(["resume", input])
           },
-          terminal: () => ({}),
         }}
       >
         <Story />
@@ -119,34 +118,45 @@ export const OpensOnNow: Story = {
   },
 }
 
-/** On a phone a worktree's detail replaces the list; Close brings the list back. */
-export const DetailCoversTheListOnAPhone: Story = {
-  play: async ({ canvasElement }) => {
-    await viewport(390, 844)
-    const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByRole("button", { name: "Projects" }))
-    await userEvent.click(canvas.getByText("login"))
-    await expect(canvas.getByTestId("detail")).toBeVisible()
-    await expect(canvas.getByRole("navigation", { name: "Views", hidden: true })).not.toBeVisible()
-    await userEvent.click(canvas.getByRole("button", { name: "Close" }))
-    await expect(canvas.queryByTestId("detail")).not.toBeInTheDocument()
-    await expect(canvas.getByRole("navigation", { name: "Views" })).toBeVisible()
-  },
-}
-
-/** On a wide screen the detail is a pane beside the list, which stays in view. */
-export const DetailBesideTheListOnADesktop: Story = {
+/** A worktree's detail is a full screen at every width; Close returns to the view it came from. */
+export const DetailIsAFullScreen: Story = {
   play: async ({ canvasElement }) => {
     await viewport(1280, 800)
     const canvas = within(canvasElement)
     await userEvent.click(await canvas.findByRole("button", { name: "Projects" }))
-    await userEvent.click(canvas.getByText("plan"))
-    const detail = canvas.getByTestId("detail").getBoundingClientRect()
-    const list = canvas.getAllByTestId("project")[0]!.getBoundingClientRect()
-    await expect(canvas.getAllByTestId("project")[0]).toBeVisible()
-    await expect(detail.left).toBeGreaterThanOrEqual(list.right)
-    const row = within(canvas.getAllByTestId("project")[1]!).getByText("plan")
-    await expect(row.closest("button")).toHaveAttribute("aria-current", "true")
+    await userEvent.click(canvas.getByText("login"))
+    await expect(canvas.getByTestId("detail")).toBeVisible()
+    await expect(canvas.queryByTestId("project")).not.toBeInTheDocument()
+    await expect(canvas.queryByRole("navigation", { name: "Views" })).not.toBeInTheDocument()
+    await userEvent.click(canvas.getByRole("button", { name: "Close" }))
+    await waitFor(() => expect(canvas.getAllByTestId("project")).toHaveLength(2))
+  },
+}
+
+/** A project a person collapsed stays collapsed after a worktree's detail opens and closes. */
+export const KeepsProjectTogglesAcrossADetail: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: "Projects" }))
+    const api = () => canvas.getByRole("region", { name: "api" })
+    await expect(within(api()).getAllByTestId("worktree-row").length).toBeGreaterThan(0)
+    await userEvent.click(within(api()).getByRole("button", { name: /api/ }))
+    await expect(within(api()).queryAllByTestId("worktree-row")).toHaveLength(0)
+    await userEvent.click(canvas.getByText("login"))
+    await userEvent.click(await canvas.findByRole("button", { name: "Close" }))
+    await waitFor(() => expect(canvas.getAllByTestId("project")).toHaveLength(2))
+    await expect(within(api()).queryAllByTestId("worktree-row")).toHaveLength(0)
+  },
+}
+
+/** Each screen has its own address, and a switch adds a history entry. */
+export const ViewsHaveAddresses: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    await expect(window.location.search).toBe("?view=inbox")
+    await userEvent.click(canvas.getByRole("button", { name: "Projects" }))
+    await expect(window.location.search).toBe("?view=projects")
   },
 }
 

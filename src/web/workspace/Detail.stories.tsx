@@ -61,44 +61,17 @@ export const OpenInTab: Story = {
   },
 }
 
-/** On a wide screen the tabs sit on top, under the worktree's header. */
-export const TabsOnTopOfASidePane: Story = {
+/** The detail offers Gate and Actions, in that order, and no Terminal. */
+export const OffersGateThenActions: Story = {
   play: async ({ canvasElement }) => {
-    await viewport(1280, 800)
-    const canvas = within(canvasElement)
-    const tabs = canvas.getByRole("navigation", { name: "Worktree" }).getBoundingClientRect()
-    const frame = canvas.getByTitle("Gate page").getBoundingClientRect()
-    await expect(tabs.bottom).toBeLessThanOrEqual(frame.top)
-  },
-}
-
-/** The Terminal tab shows the terminal adapter's attach command, and opens a shell pane on demand. */
-export const TerminalAttachesAndOpensAShell: Story = {
-  decorators: withApi({
-    terminal: () => ({ attach: "tmux attach -t pane-1" }),
-    openShell: record("openShell", { attach: "https://term.example.ts.net/pane-2" }),
-  }),
-  play: async ({ canvasElement }) => {
-    calls.length = 0
-    const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByRole("button", { name: "Terminal" }))
-    await waitFor(() => expect(canvas.getByText("tmux attach -t pane-1")).toBeInTheDocument())
-    await userEvent.click(canvas.getByRole("button", { name: "Open a shell pane" }))
-    const link = await canvas.findByText("Open the shell pane ↗")
-    await expect(link.getAttribute("href")).toBe("https://term.example.ts.net/pane-2")
-    await expect(calls).toEqual([
-      { procedure: "openShell", input: { project: "portal", worktree: "/ws/portal-plan" } },
-    ])
-  },
-}
-
-/** A terminal adapter with no attach, or a worktree with no driver pane, says so. */
-export const TerminalWithoutAttach: Story = {
-  decorators: withApi({ terminal: () => ({}) }),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByRole("button", { name: "Terminal" }))
-    await expect(await canvas.findByTestId("no-attach")).toBeInTheDocument()
+    const tabs = within(canvasElement).getByRole("navigation", {
+      name: "Worktree",
+    })
+    await expect(
+      within(tabs)
+        .getAllByRole("button")
+        .map((b) => b.textContent),
+    ).toEqual(["Gate", "Actions"])
   },
 }
 
@@ -113,8 +86,18 @@ export const ActionsRunWithTheirFields: Story = {
           label: "Revise",
           status: "needsYou",
           fields: [
-            { name: "note", type: "text", required: true, help: "What to change" },
-            { name: "mode", type: "select", required: false, choices: ["fast", "slow"] },
+            {
+              name: "note",
+              type: "text",
+              required: true,
+              help: "What to change",
+            },
+            {
+              name: "mode",
+              type: "select",
+              required: false,
+              choices: ["fast", "slow"],
+            },
             { name: "dry", type: "flag", required: false },
           ],
         },
@@ -162,7 +145,9 @@ export const RemoveAsksToConfirm: Story = {
       calls.push({ procedure: "removeWorktree", input })
       return (input as { confirmed?: boolean }).confirmed === true
         ? { removed: true }
-        : { confirm: ["the tree has uncommitted changes", "the branch is not integrated"] }
+        : {
+            confirm: ["the tree has uncommitted changes", "the branch is not integrated"],
+          }
     },
   }),
   play: async ({ canvasElement, args }) => {
@@ -177,11 +162,19 @@ export const RemoveAsksToConfirm: Story = {
     await expect(calls).toEqual([
       {
         procedure: "removeWorktree",
-        input: { project: "portal", worktree: "/ws/portal-plan", confirmed: false },
+        input: {
+          project: "portal",
+          worktree: "/ws/portal-plan",
+          confirmed: false,
+        },
       },
       {
         procedure: "removeWorktree",
-        input: { project: "portal", worktree: "/ws/portal-plan", confirmed: true },
+        input: {
+          project: "portal",
+          worktree: "/ws/portal-plan",
+          confirmed: true,
+        },
       },
     ])
   },

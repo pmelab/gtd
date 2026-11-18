@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest"
 import {
-  linkedWorktree,
   noteText,
+  parseScreen,
   nowView,
   pressFor,
+  screenUrl,
   statusText,
   worktreeName,
   type ProjectView,
@@ -111,12 +112,27 @@ describe("noteText", () => {
   })
 })
 
-describe("linkedWorktree", () => {
+describe("screens", () => {
   it("reads the worktree a notification links to", () => {
-    expect(linkedWorktree("?worktree=%2Fws%2Fportal.wt%2Flogin")).toBe("/ws/portal.wt/login")
+    expect(parseScreen("?worktree=%2Fws%2Fportal.wt%2Flogin").worktree).toBe("/ws/portal.wt/login")
   })
 
-  it("is undefined on the plain dashboard", () => {
-    expect(linkedWorktree("")).toBeUndefined()
+  it("opens Now on the plain dashboard, Projects and Inbox by view", () => {
+    expect(parseScreen("")).toEqual({ view: "now" })
+    expect(parseScreen("?view=projects").view).toBe("projects")
+    expect(parseScreen("?view=inbox").view).toBe("inbox")
+  })
+
+  it("builds the address a screen is read back from", () => {
+    for (const screen of [
+      { view: "now" },
+      { view: "projects" },
+      { view: "inbox" },
+      { view: "now", worktree: "/ws/a b" },
+      { view: "projects", worktree: "/ws/a" },
+    ] as const) {
+      const url = screenUrl(screen)
+      expect(parseScreen(url.slice(url.indexOf("?") + 1 || url.length))).toEqual(screen)
+    }
   })
 })

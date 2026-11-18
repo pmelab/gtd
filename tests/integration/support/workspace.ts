@@ -125,8 +125,6 @@ export class WorkspaceBench {
   readonly stateHome = mkdtempSync(join(tmpdir(), "gtd-workspace-state-"))
   readonly worktrees = inMemoryWorktrees()
   terminal = inMemoryTerminal()
-  /** The person's login shell. */
-  loginShell = "/bin/sh"
   readonly actions = inMemoryActions()
   /** Panes that an earlier supervisor opened, before the scenario's first one. */
   readonly seeded = new Set<string>()
@@ -235,17 +233,7 @@ export class WorkspaceBench {
 
   /** The handle of the newest driver pane opened in the worktree. */
   async paneOf(ref: string): Promise<string> {
-    return this.newestPane(ref, (pane) => !isActionPane(pane) && !this.isShellPane(pane))
-  }
-
-  /** A pane the Terminal tab opened: it runs the login shell. */
-  isShellPane(pane: InMemoryPane): boolean {
-    return pane.argv.length === 1 && pane.argv[0] === this.loginShell
-  }
-
-  /** The handle of the newest shell pane opened in the worktree. */
-  async shellPaneOf(ref: string): Promise<string> {
-    return this.newestPane(ref, (pane) => this.isShellPane(pane))
+    return this.newestPane(ref, (pane) => !isActionPane(pane))
   }
 
   /** The handle of the newest action pane opened in the worktree. */
@@ -420,7 +408,6 @@ export class WorkspaceBench {
         return () => void watches.delete(changed)
       },
       oneShot: (argv, worktree) => this.oneShot(argv, worktree),
-      loginShell: this.loginShell,
     })
     const tools = Layer.succeed(UserlandTools, {
       exec: async (argv) => {

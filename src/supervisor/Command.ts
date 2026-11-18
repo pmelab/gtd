@@ -48,7 +48,6 @@ import {
 } from "./Socket.js"
 import { worktreeChanges } from "./WorktreeChanges.js"
 import { openedPanes } from "./Panes.js"
-import { terminalTab } from "./Terminal.js"
 import { worktreeStatus } from "./Status.js"
 
 export interface WorkspaceCommand {
@@ -265,15 +264,6 @@ export const runWorkspaceCommand = (
       })
       const projects = () =>
         clean.withStale(noted.withNotes(control.withRefusals(snapshot.projects())))
-      const terminalTabs = terminalTab({
-        worktrees,
-        terminal,
-        panes,
-        opened,
-        shell: host.loginShell,
-        audit,
-        now: clock.now,
-      })
       const feeds = feedRunner({
         feeds: loaded.feeds,
         root,
@@ -432,12 +422,6 @@ export const runWorkspaceCommand = (
                   return dismissed
                 },
               },
-              terminal: terminalTabs.driver,
-              openShell: (project, worktree) =>
-                terminalTabs.openShell(project, worktree, {
-                  ...(identity !== undefined ? { identity } : {}),
-                  endpoint: path,
-                }),
               press: (action, input) =>
                 control.press({
                   action,

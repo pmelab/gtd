@@ -7,7 +7,6 @@ export type ProjectView = Outputs["projects"][number]
 export type WorktreeView = ProjectView["worktrees"][number]
 export type Service = NonNullable<WorktreeView["services"]>[number]
 export type Banner = Outputs["banners"][number]
-export type TerminalView = Outputs["terminal"]
 export type InboxItem = Outputs["inbox"]["items"][number]
 export type FeedView = Outputs["inbox"]["feeds"][number]
 export type DrivesView = Outputs["inbox"]["drives"]
@@ -78,6 +77,33 @@ export const noteText = (w: WorktreeView): string | undefined =>
 export const pressFor = (w: WorktreeView): "proceed" | "retry" | undefined =>
   w.status === "needsYou" ? "proceed" : w.status === "error" ? "retry" : undefined
 
-/** The worktree whose detail a link opens: `/?worktree=<path>`, as notifications link. */
-export const linkedWorktree = (search: string): string | undefined =>
-  new URLSearchParams(search).get("worktree") ?? undefined
+export type View = "now" | "projects" | "inbox"
+
+/** What the address shows: a worktree's detail, or one of the views. */
+export interface Screen {
+  readonly view: View
+  readonly worktree?: string | undefined
+}
+
+/** `?view=` names the view (default Now); `?worktree=<path>` opens a detail over it. */
+export const parseScreen = (search: string): Screen => {
+  const params = new URLSearchParams(search)
+  const worktree = params.get("worktree") ?? undefined
+  const view = params.get("view")
+  return {
+    view: view === "projects" || view === "inbox" ? view : "now",
+    ...(worktree !== undefined ? { worktree } : {}),
+  }
+}
+
+export const screenUrl = ({ view, worktree }: Screen): string => {
+  const params = new URLSearchParams()
+  if (view !== "now") params.set("view", view)
+  if (worktree !== undefined) params.set("worktree", worktree)
+  const query = params.toString()
+  return query === "" ? "/" : `/?${query}`
+}
+
+/** Worktrees of a project that need you or are in error. */
+export const attentionCount = (project: ProjectView): number =>
+  project.worktrees.filter((w) => w.status === "needsYou" || w.status === "error").length

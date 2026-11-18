@@ -1,5 +1,4 @@
-import { useState } from "react"
-import { cn } from "../cn.js"
+import { useEffect, useState } from "react"
 import { Notice } from "../Notice.js"
 import { workspaceTrpc } from "./api.js"
 import { Banners } from "./Banners.js"
@@ -8,9 +7,17 @@ import { Inbox, type PressFailure } from "./Inbox.js"
 import { Now } from "./Now.js"
 import { Projects } from "./Projects.js"
 import { TabBar } from "./TabBar.js"
-import { linkedWorktree, nowView, type Banner, type Entry, type ProjectView } from "./view.js"
-
-type View = "now" | "projects" | "inbox"
+import { useExpanded } from "./useExpanded.js"
+import {
+  nowView,
+  parseScreen,
+  screenUrl,
+  type Banner,
+  type Entry,
+  type ProjectView,
+  type Screen,
+  type View,
+} from "./view.js"
 
 // The supervisor keeps a snapshot; reading it is cheap.
 const REFRESH_MS = 2_000
@@ -46,7 +53,9 @@ const Unread = ({ error }: { readonly error: { readonly message: string } | null
   )
 
 const InboxView = () => {
-  const inbox = workspaceTrpc.inbox.useQuery(undefined, { refetchInterval: REFRESH_MS })
+  const inbox = workspaceTrpc.inbox.useQuery(undefined, {
+    refetchInterval: REFRESH_MS,
+  })
   const utils = workspaceTrpc.useUtils()
   const settled = { onSettled: () => utils.inbox.invalidate() }
   const mutations = {
@@ -86,11 +95,40 @@ const Loaded = ({
   readonly projects: readonly ProjectView[]
   readonly banners: readonly Banner[]
 }) => {
-  const [view, setView] = useState<View>("now")
-  const [selected, setSelected] = useState(() => linkedWorktree(window.location.search))
-  const entry = find(projects, selected)
+  const [screen, setScreen] = useState(() => parseScreen(window.location.search))
+  useEffect(() => {
+    const onPop = () => {
+      setScreen(parseScreen(window.location.search))
+    }
+    window.addEventListener("popstate", onPop)
+    return () => {
+      window.removeEventListener("popstate", onPop)
+    }
+  }, [])
+  // Each in-page step is a history entry; `inPage` tells close there is one to go back to.
+  const go = (next: Screen) => {
+    window.history.pushState({ inPage: true }, "", screenUrl(next))
+    setScreen(next)
+  }
+  const [expanded, toggle] = useExpanded(projects)
+  const { view } = screen
+  const entry = find(projects, screen.worktree)
+  const vanished = screen.worktree !== undefined && entry === undefined
+  useEffect(() => {
+    if (!vanished) return
+    window.history.replaceState(null, "", screenUrl({ view }))
+    setScreen({ view })
+  }, [vanished, view])
   const open = (e: Entry) => {
-    setSelected(e.worktree.path)
+    go({ view, worktree: e.worktree.path })
+  }
+  const close = () => {
+    if ((window.history.state as { inPage?: boolean } | null)?.inPage === true) {
+      window.history.back()
+    } else {
+      window.history.replaceState(null, "", screenUrl({ view: "now" }))
+      setScreen({ view: "now" })
+    }
   }
   const attention = nowView(projects).attention.length
   const views: readonly (readonly [View, string])[] = [
@@ -98,50 +136,43 @@ const Loaded = ({
     ["projects", "Projects"],
     ["inbox", "Inbox"],
   ]
+  if (entry !== undefined) {
+    return <Detail key={entry.worktree.path} entry={entry} onClose={close} />
+  }
   return (
-    <div className="flex min-h-dvh bg-page text-text">
-      <div
-        className={cn(
-          "flex w-full flex-col md:max-w-[480px] md:shrink-0",
-          entry !== undefined && "hidden md:flex",
+    <div className="flex min-h-dvh flex-col bg-page text-text">
+      <main className="flex flex-1 flex-col gap-4 p-4 pb-24">
+        <Banners banners={banners} />
+        {view === "now" && <Now projects={projects} onOpen={open} />}
+        {view === "projects" && (
+          <Projects projects={projects} expanded={expanded} onToggle={toggle} onOpen={open} />
         )}
-      >
-        <main className="flex flex-1 flex-col gap-4 p-4 pb-24 md:pb-4">
-          <Banners banners={banners} />
-          {view === "now" && <Now projects={projects} onOpen={open} />}
-          {view === "projects" && (
-            <Projects projects={projects} selected={selected} onOpen={open} />
-          )}
-          {view === "inbox" && <InboxView />}
-        </main>
-        <TabBar
-          label="Views"
-          tabs={views}
-          current={view}
-          onSelect={setView}
-          className="fixed bottom-0 w-full border-t md:sticky md:max-w-[480px]"
-        />
-      </div>
-      {entry !== undefined && (
-        <Detail
-          key={entry.worktree.path}
-          entry={entry}
-          onClose={() => {
-            setSelected(undefined)
-          }}
-        />
-      )}
+        {view === "inbox" && <InboxView />}
+      </main>
+      <TabBar
+        label="Views"
+        tabs={views}
+        current={view}
+        onSelect={(next) => {
+          go({ view: next })
+        }}
+        className="fixed bottom-0 w-full border-t"
+      />
     </div>
   )
 }
 
 /**
- * The workspace dashboard: Now, Projects and Inbox, with the detail of a
- * worktree over the list on a phone and beside it on a wide screen.
+ * The workspace dashboard: Now, Projects and Inbox, each a full
+ * screen, and a worktree's detail as a screen of its own.
  */
 export const Dashboard = () => {
-  const projects = workspaceTrpc.projects.useQuery(undefined, { refetchInterval: REFRESH_MS })
-  const banners = workspaceTrpc.banners.useQuery(undefined, { refetchInterval: REFRESH_MS })
+  const projects = workspaceTrpc.projects.useQuery(undefined, {
+    refetchInterval: REFRESH_MS,
+  })
+  const banners = workspaceTrpc.banners.useQuery(undefined, {
+    refetchInterval: REFRESH_MS,
+  })
   if (projects.error !== null) {
     return (
       <Notice tone="error" data-testid="dashboard-error">

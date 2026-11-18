@@ -6,15 +6,13 @@ import { NoteLine } from "./NoteLine.js"
 import { PressButton, Refused } from "./Press.js"
 import { ServiceChips } from "./ServiceChips.js"
 import { TabBar } from "./TabBar.js"
-import { TerminalTab } from "./TerminalTab.js"
 import { RemoveButton } from "./WorktreeChanges.js"
 import { detailText, STATUS_COLOR, statusText, worktreeName, type Entry } from "./view.js"
 
-type Tab = "gate" | "terminal" | "actions"
+type Tab = "gate" | "actions"
 
 const TABS: readonly (readonly [Tab, string])[] = [
   ["gate", "Gate"],
-  ["terminal", "Terminal"],
   ["actions", "Actions"],
 ]
 
@@ -44,9 +42,8 @@ const Gate = ({ gate, head }: { readonly gate: string; readonly head: string }) 
 )
 
 /**
- * A worktree's detail: the gate page first, Terminal and Actions as tabs. On
- * a phone it covers the screen with its tab bar at the bottom; on a wide
- * screen it is a pane beside the list, tabs on top.
+ * A worktree's detail: the gate page first, Actions second. It covers the
+ * screen at every width, its tab bar at the bottom.
  */
 export const Detail = ({
   entry,
@@ -59,7 +56,7 @@ export const Detail = ({
   const { project, worktree } = entry
   return (
     <section
-      className="fixed inset-0 z-10 flex flex-col bg-page md:static md:z-auto md:min-h-dvh md:flex-1 md:border-l md:border-divider"
+      className="fixed inset-0 z-10 flex flex-col bg-page"
       aria-label={`${project.name} / ${worktreeName(worktree)}`}
       data-testid="detail"
     >
@@ -82,18 +79,11 @@ export const Detail = ({
         <PressButton worktree={worktree} />
         <RemoveButton project={project.id} worktree={worktree} onRemoved={onClose} />
       </header>
-      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto md:order-2">
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
         {tab === "gate" && <Gate gate={worktree.gate} head={worktree.head} />}
-        {tab === "terminal" && <TerminalTab project={project.id} worktree={worktree} />}
         {tab === "actions" && <ActionPicker project={project.id} worktree={worktree} />}
       </div>
-      <TabBar
-        label="Worktree"
-        tabs={TABS}
-        current={tab}
-        onSelect={setTab}
-        className="border-t md:order-1 md:border-t-0 md:border-b"
-      />
+      <TabBar label="Worktree" tabs={TABS} current={tab} onSelect={setTab} className="border-t" />
     </section>
   )
 }
