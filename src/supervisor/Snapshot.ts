@@ -44,6 +44,8 @@ export interface Snapshot {
   readonly driving: () => ReadonlyMap<string, readonly string[]>
   /** Runs `gtd next` in the worktree at once, in turn with its project's other rechecks. */
   readonly recheckWorktree: (path: string) => void
+  /** Finds a worktree no recheck listed yet and reads only that one; false when no project lists it. */
+  readonly discover: (path: string) => Promise<boolean>
   /** Reads one worktree's driver pane again, without `gtd next`. */
   readonly refreshDriver: (path: string) => Promise<void>
   /** Lists the project again at once, and runs `gtd next` where HEAD moved or the worktree is new. */
@@ -108,6 +110,9 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
   const kept = new Map<string, Kept>()
   let projectsFailure: AdapterFailure | undefined
   const running = new Map<string, Promise<void>>()
+  // Worktrees `discover` added: a recheck that listed before them keeps them.
+  const added = new Map<string, Map<string, { w: Worktree; at: number }>>()
+  let tick = 0
   const wanted = new Map<string, Want>()
   const debounced = new Set<string>()
   const timers = new Set<() => void>()
@@ -204,6 +209,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
 
   const recheckProject = async (id: string, want: Want): Promise<void> => {
     const before = kept.get(id)
+    const started = ++tick
     let listed: Worktree[]
     try {
       listed = [...(await deps.worktrees.list(id))].sort(byPath)
@@ -228,7 +234,48 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
       }),
     )
     stale.forEach((w, i) => seen.set(w.path, fresh[i]!))
+    const extra = added.get(id)
+    if (extra !== undefined) {
+      const current = kept.get(id)
+      for (const [path, { w, at }] of extra) {
+        if (started > at || listed.some((l) => l.path === path)) extra.delete(path)
+        else if (current?.seen.has(path)) {
+          listed.push(w)
+          seen.set(path, current.seen.get(path)!)
+        }
+      }
+      listed.sort(byPath)
+    }
     if (!closed) kept.set(id, { worktrees: listed, seen })
+  }
+
+  const listOf = async (id: string): Promise<readonly Worktree[]> =>
+    deps.worktrees.list(id).catch(() => [])
+
+  /** Reads only the new worktree and keeps it, also through a recheck that listed before it. */
+  const adopt = async (id: string, w: Worktree): Promise<boolean> => {
+    if (kept.get(id)?.seen.has(w.path)) return true
+    const seen = await look(id, w.path, false)
+    const now = kept.get(id)
+    if (closed || now === undefined) return false
+    if (!now.worktrees.some((k) => k.path === w.path)) {
+      kept.set(id, {
+        ...now,
+        worktrees: [...now.worktrees, w].sort(byPath),
+        seen: new Map(now.seen).set(w.path, seen),
+      })
+    }
+    added.set(id, (added.get(id) ?? new Map()).set(w.path, { w, at: ++tick }))
+    deps.changed?.()
+    return true
+  }
+
+  const discover = async (path: string): Promise<boolean> => {
+    for (const id of kept.keys()) {
+      const w = (await listOf(id)).find((l) => l.path === path)
+      if (w !== undefined) return adopt(id, w)
+    }
+    return false
   }
 
   // One recheck per project at a time: what is asked meanwhile runs once after it.
@@ -368,6 +415,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
         ]),
       ),
     refreshDriver,
+    discover,
     recheckWorktree: (path) => {
       const project = [...kept].find(([, p]) => p.worktrees.some((w) => w.path === path))
       if (project !== undefined) void request(project[0], false, path)

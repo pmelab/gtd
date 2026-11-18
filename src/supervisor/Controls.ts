@@ -30,6 +30,8 @@ export interface ControlDeps {
   readonly drivers: Drivers
   /** The worktree statuses as the dashboard shows them. */
   readonly projects: () => readonly ProjectView[]
+  /** Reads a worktree the snapshot does not know yet; false when none exists. */
+  readonly discover: (path: string) => Promise<boolean>
   readonly oneShot: (argv: readonly string[], worktree: string) => Promise<ExecResult>
   readonly after: (ms: number, run: () => void) => () => void
   /** Reads the worktree's driver pane again once the driver changed. */
@@ -138,7 +140,10 @@ export const controls = (deps: ControlDeps): Controls => {
 
   return {
     press: async (press) => {
-      const found = locate(deps.projects(), press.worktree)
+      let found = locate(deps.projects(), press.worktree)
+      if (found === undefined && (await deps.discover(press.worktree))) {
+        found = locate(deps.projects(), press.worktree)
+      }
       if (found === undefined) {
         return { outcome: "unknown", message: `no worktree at ${press.worktree}` }
       }
