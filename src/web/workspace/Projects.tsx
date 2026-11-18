@@ -4,6 +4,7 @@ import { Refused } from "./Press.js"
 import { ServiceChips } from "./ServiceChips.js"
 import { NewWorktree } from "./WorktreeChanges.js"
 import {
+  attentionCount,
   detailText,
   STATUS_COLOR,
   statusText,
@@ -15,11 +16,9 @@ import {
 
 const Row = ({
   worktree,
-  selected,
   onOpen,
 }: {
   readonly worktree: WorktreeView
-  readonly selected: boolean
   readonly onOpen: () => void
 }) => (
   <li
@@ -29,12 +28,7 @@ const Row = ({
     )}
     data-testid="worktree-row"
   >
-    <button
-      type="button"
-      className={cn("flex min-h-11 items-baseline gap-3 text-left", selected && "text-link")}
-      aria-current={selected}
-      onClick={onOpen}
-    >
+    <button type="button" className="flex min-h-11 items-baseline gap-3 text-left" onClick={onOpen}>
       <span className={cn("w-24 shrink-0 text-small", STATUS_COLOR[worktree.status])}>
         {statusText(worktree)}
       </span>
@@ -50,46 +44,95 @@ const Row = ({
   </li>
 )
 
-/** The Projects view: every worktree, grouped by project. */
-export const Projects = ({
-  projects,
-  selected,
+// fallow-ignore-next-line complexity
+const Group = ({
+  project,
+  expanded,
+  onToggle,
   onOpen,
 }: {
-  readonly projects: readonly ProjectView[]
-  readonly selected: string | undefined
+  readonly project: ProjectView
+  readonly expanded: boolean
+  readonly onToggle: (expanded: boolean) => void
   readonly onOpen: (entry: Entry) => void
-}) => (
-  <div className="flex flex-col gap-5">
-    {projects.map((project) => (
-      <section key={project.id} className="flex flex-col" data-testid="project">
-        <div className="flex items-center justify-between gap-2">
+}) => {
+  const attention = attentionCount(project)
+  return (
+    <section
+      className="flex flex-col gap-1 rounded-lg border border-divider p-3"
+      aria-label={project.name}
+      data-testid="project"
+    >
+      <div className="flex items-center justify-between gap-2">
+        <button
+          type="button"
+          className="flex min-h-11 items-center gap-2 text-left"
+          aria-expanded={expanded}
+          onClick={() => {
+            onToggle(!expanded)
+          }}
+        >
+          <span aria-hidden="true">{expanded ? "▾" : "▸"}</span>
           <h2 className="font-medium">{project.name}</h2>
-          <NewWorktree project={project.id} />
-        </div>
-        {project.mainStale !== undefined && (
-          <p className="text-small text-danger" data-testid="main-stale">
-            main checkout stale: {project.mainStale}
-          </p>
-        )}
-        {project.failure !== undefined && (
-          <p className="text-small text-danger">
-            {project.failure.adapter} unavailable: {project.failure.message}
-          </p>
-        )}
+          {!expanded && attention > 0 && (
+            <span className="text-small text-warning" data-testid="project-attention">
+              {attention} need you
+            </span>
+          )}
+        </button>
+        <NewWorktree project={project.id} />
+      </div>
+      {project.mainStale !== undefined && (
+        <p className="text-small text-danger" data-testid="main-stale">
+          main checkout stale: {project.mainStale}
+        </p>
+      )}
+      {project.failure !== undefined && (
+        <p className="text-small text-danger">
+          {project.failure.adapter} unavailable: {project.failure.message}
+        </p>
+      )}
+      {expanded && (
         <ul>
           {project.worktrees.map((worktree) => (
             <Row
               key={worktree.path}
               worktree={worktree}
-              selected={selected === worktree.path}
               onOpen={() => {
                 onOpen({ project, worktree })
               }}
             />
           ))}
         </ul>
-      </section>
+      )}
+    </section>
+  )
+}
+
+/** The Projects view: every worktree, grouped by project. */
+export const Projects = ({
+  projects,
+  expanded,
+  onToggle,
+  onOpen,
+}: {
+  readonly projects: readonly ProjectView[]
+  /** Expand state by project id, from `useExpanded`; kept by the caller so it outlives this view. */
+  readonly expanded: Readonly<Record<string, boolean>>
+  readonly onToggle: (project: string, expanded: boolean) => void
+  readonly onOpen: (entry: Entry) => void
+}) => (
+  <div className="flex flex-col gap-5">
+    {projects.map((project) => (
+      <Group
+        key={project.id}
+        project={project}
+        expanded={expanded[project.id] === true}
+        onToggle={(expanded) => {
+          onToggle(project.id, expanded)
+        }}
+        onOpen={onOpen}
+      />
     ))}
   </div>
 )

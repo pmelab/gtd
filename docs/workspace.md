@@ -55,16 +55,19 @@ The dashboard has three views:
 
 Banners above each view show problems with the workspace itself.
 
-A tap on a worktree opens its detail. On a phone the detail covers the screen,
-with its tabs at the bottom. On a wide screen it is a pane beside the list. The
-detail has three tabs:
+Now, Projects and Inbox are each a full screen, switched by the view bar, and
+each has its own address: `?view=projects`, `?view=inbox`, none for Now. In
+Projects every project is a group with a header that collapses and expands its
+worktrees. A project starts expanded only when one of its worktrees needs you or
+is in error; the collapsed header counts those worktrees. A reload resets this.
+
+A tap on a worktree opens its detail as a screen of its own, at `?worktree=` its
+path (the link a notification carries). Close returns to the view it was opened
+from, or to Now when it was opened from a link. The detail has two tabs, at the
+bottom:
 
 - **Gate**, first: the worktree's [gate page](#gate-pages), with a link that
   opens it in a tab of its own.
-- **Terminal**: how to reach the driver's pane, as the terminal adapter's
-  `attach` gives it (a command to copy, or a URL to open), and a button that
-  opens a separate pane with your login shell (`$SHELL` of the supervisor) in
-  the worktree. With no `attach`, the tab can only open the shell pane.
 - **Actions**: the actions offered in the worktree status now, with their fields
   (see [`actions`](#actions)). Run starts the chosen one in a pane of its own.
 
@@ -651,14 +654,12 @@ checkouts. A project added after the supervisor started is found by the next
   pane is gone. `record` is the root OSC 7501 record (`state`, `kind`, `title`,
   `msg`). `exit` is `{ code }` once `argv` has ended (`128 + n` for signal `n`),
   else `null`.
-- **`close(handle)`**, and optionally **`attach(handle)`** (a command or a URL
-  that shows the pane to a person, for the dashboard's Terminal tab) and
-  **`watch()`** (hints, each a handle whose status may have changed).
+- **`close(handle)`**, and optionally **`watch()`** (hints, each a handle whose
+  status may have changed).
 
 `rex({ server, shell })` opens one Rex session per project id and one window per
 pane. `server` is a Rex server address as `rex -S` takes it; `shell` is the
-login shell (Rex's default when absent). It has `watch()` but no `attach`, so
-its Terminal tab can only open the shell pane.
+login shell (Rex's default when absent). It has `watch()`.
 
 ### `services`
 
@@ -737,9 +738,9 @@ default ntfy topic and what gtd knows of started and failed items; the next
 polls file every waiting item again.
 
 These state changes add one JSON line: Proceed, Retry, Dismiss, New worktree,
-Remove, a new shell pane, Start and Retry of an item, Note, Pause and Resume,
-and each auto-clean removal. A run of an action adds none. The lines go to
-`audit.log` in that directory, with `time`, `identity` (the tailnet login, `-`
-when unknown), `endpoint`, `project`, `worktree`, `action` and `outcome`. It
-never holds the values of fields. When the log reaches 1 MiB, it moves to
-`audit.log.1`, replacing the older one.
+Remove, Start and Retry of an item, Note, Pause and Resume, and each auto-clean
+removal. A run of an action adds none. The lines go to `audit.log` in that
+directory, with `time`, `identity` (the tailnet login, `-` when unknown),
+`endpoint`, `project`, `worktree`, `action` and `outcome`. It never holds the
+values of fields. When the log reaches 1 MiB, it moves to `audit.log.1`,
+replacing the older one.

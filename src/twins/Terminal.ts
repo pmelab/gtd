@@ -40,13 +40,10 @@ export interface InMemoryTerminalOptions {
   readonly loginEnv?: Readonly<Record<string, string>>
   /** The program `argv` names; a command it does not know runs until `exit`. */
   readonly programs?: (argv: readonly string[]) => InMemoryProgram | undefined
-  /** What `attach` answers for a pane; without it the twin has no `attach`. */
-  readonly attach?: (handle: string) => string
 }
 
 /** The terminal adapter's twin: panes as records that a test drives. */
 export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemoryTerminal => {
-  const { attach } = options
   const panes = new Map<string, InMemoryPane>()
   const closed = new Set<string>()
   let opened = 0
@@ -120,9 +117,6 @@ export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemor
       closed.add(handle)
       hint(handle)
     },
-    ...(attach === undefined
-      ? {}
-      : { attach: async (handle: string) => attach(paneOf(handle).handle) }),
     // Hand-written so that `return()` ends a stream whose `next()` still waits.
     watch: () => ({
       [Symbol.asyncIterator]: () => {

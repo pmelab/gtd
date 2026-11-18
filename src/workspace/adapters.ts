@@ -159,8 +159,6 @@ export interface TerminalAdapter {
   /** `undefined` when the pane is gone: closed, or lost with its terminal. */
   readonly status: (handle: string) => Promise<PaneStatus | undefined>
   readonly close: (handle: string) => Promise<void>
-  /** A command or URL that shows the pane to a person. */
-  readonly attach?: (handle: string) => Promise<string>
   /** Hints, each a pane handle, that a pane's status may have changed. */
   readonly watch?: () => AsyncIterable<string>
 }

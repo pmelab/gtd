@@ -1,8 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { outage, workspace } from "./dashboard.fixture.js"
 import { Projects } from "./Projects.js"
+import { useExpanded } from "./useExpanded.js"
+import type { ProjectView } from "./view.js"
 
 const calls: { procedure: string; input: unknown }[] = []
 
@@ -14,9 +17,41 @@ const withApi = (resolvers: Record<string, (input: unknown) => unknown>) => [
   ),
 ]
 
+const StatefulProjects = (args: React.ComponentProps<typeof Projects>) => {
+  const [expanded, toggle] = useExpanded(args.projects)
+  return <Projects {...args} expanded={expanded} onToggle={toggle} />
+}
+
+/** Swaps in `next` as a refresh would when the Refresh button is pressed. */
+const Refreshing = ({
+  next,
+  ...args
+}: React.ComponentProps<typeof Projects> & { readonly next: readonly ProjectView[] }) => {
+  const [projects, setProjects] = useState(args.projects)
+  return (
+    <>
+      <button
+        type="button"
+        onClick={() => {
+          setProjects(next)
+        }}
+      >
+        Refresh
+      </button>
+      <StatefulProjects {...args} projects={projects} />
+    </>
+  )
+}
+
+const noAttention = (project: ProjectView): ProjectView => ({
+  ...project,
+  worktrees: project.worktrees.filter((w) => w.status === "idle"),
+})
+
 const meta: Meta<typeof Projects> = {
   component: Projects,
-  args: { projects: workspace, selected: undefined, onOpen: fn() },
+  args: { projects: workspace, onOpen: fn() },
+  render: (args) => <StatefulProjects {...args} />,
   decorators: withApi({}),
 }
 
@@ -80,6 +115,9 @@ export const GreysAWorktreeWhoseAdapterIsDown: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByText("worktrees unavailable: wt list failed")).toBeInTheDocument()
+    for (const header of canvas.getAllByRole("button", { expanded: false })) {
+      await userEvent.click(header)
+    }
     await expect(canvas.getByText("worktrees unavailable")).toBeInTheDocument()
     await expect(canvas.getByTestId("services-unavailable").textContent).toBe(
       "services unavailable: the pitchfork supervisor is not running",
@@ -93,7 +131,9 @@ export const OpensTheTappedWorktree: Story = {
   play: async ({ canvasElement, args }) => {
     await userEvent.click(within(canvasElement).getByText("plan"))
     await expect(args.onOpen).toHaveBeenCalledWith(
-      expect.objectContaining({ worktree: expect.objectContaining({ branch: "plan" }) }),
+      expect.objectContaining({
+        worktree: expect.objectContaining({ branch: "plan" }),
+      }),
     )
   },
 }
@@ -131,7 +171,10 @@ export const CreatesANewWorktree: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "Create" }))
     await waitFor(() =>
       expect(calls).toEqual([
-        { procedure: "createWorktree", input: { project: "portal", branch: "signup" } },
+        {
+          procedure: "createWorktree",
+          input: { project: "portal", branch: "signup" },
+        },
       ]),
     )
     await waitFor(() =>
@@ -161,7 +204,10 @@ export const ShowsWhyANewWorktreeIsRefused: Story = {
 /** A new worktree whose services do not start stays, and says why. */
 export const SaysWhyTheNewWorktreesServicesDidNotStart: Story = {
   decorators: withApi({
-    createWorktree: () => ({ path: "/ws/portal-signup", failure: "web: exit code 3" }),
+    createWorktree: () => ({
+      path: "/ws/portal-signup",
+      failure: "web: exit code 3",
+    }),
   }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -171,5 +217,56 @@ export const SaysWhyTheNewWorktreesServicesDidNotStart: Story = {
     await expect((await canvas.findByTestId("new-worktree-failure")).textContent).toBe(
       "services did not start: web: exit code 3",
     )
+  },
+}
+
+/** A project with nothing needing you starts collapsed: its worktrees hide, its name and New worktree stay; Expand shows them. */
+export const StartsCollapsedWithoutAttention: Story = {
+  args: {
+    projects: workspace.map((p) =>
+      p.id === "api" ? { ...p, worktrees: p.worktrees.filter((w) => w.status === "idle") } : p,
+    ),
+  },
+  play: async ({ canvasElement }) => {
+    const group = within(canvasElement).getByRole("region", { name: "api" })
+    await expect(within(group).queryAllByTestId("worktree-row")).toHaveLength(0)
+    await expect(within(group).getByRole("button", { name: "New worktree" })).toBeVisible()
+    await userEvent.click(within(group).getByRole("button", { name: /api/ }))
+    await expect(within(group).getAllByTestId("worktree-row")).toHaveLength(1)
+  },
+}
+
+/** A collapsed project's header counts the worktrees that need you or are in error. */
+export const CollapsedHeaderCountsAttention: Story = {
+  play: async ({ canvasElement }) => {
+    const group = within(canvasElement).getByRole("region", { name: "Portal" })
+    await userEvent.click(within(group).getByRole("button", { name: /Portal/ }))
+    await expect(within(group).getByTestId("project-attention").textContent).toBe("1 need you")
+  },
+}
+
+/** A refresh that brings a gate to an untouched collapsed project leaves it collapsed. */
+export const StaysCollapsedWhenAGateArrives: Story = {
+  args: { projects: workspace.map(noAttention) },
+  render: (args) => <Refreshing {...args} next={workspace} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const portal = () => canvas.getByRole("region", { name: "Portal" })
+    await expect(within(portal()).queryAllByTestId("worktree-row")).toHaveLength(0)
+    await userEvent.click(canvas.getByRole("button", { name: "Refresh" }))
+    await expect(within(portal()).getByTestId("project-attention").textContent).toBe("1 need you")
+    await expect(within(portal()).queryAllByTestId("worktree-row")).toHaveLength(0)
+  },
+}
+
+/** A refresh that clears the last gate of an untouched expanded project leaves it expanded. */
+export const StaysExpandedWhenTheLastGateClears: Story = {
+  render: (args) => <Refreshing {...args} next={workspace.map(noAttention)} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const portal = () => canvas.getByRole("region", { name: "Portal" })
+    await expect(within(portal()).getAllByTestId("worktree-row").length).toBeGreaterThan(0)
+    await userEvent.click(canvas.getByRole("button", { name: "Refresh" }))
+    await expect(within(portal()).getAllByTestId("worktree-row").length).toBeGreaterThan(0)
   },
 }
