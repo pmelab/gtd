@@ -52,7 +52,10 @@ const boxEdit = (
   if (match === null) return undefined
   const character = (match[1] ?? "").length + 1
   return {
-    range: { start: { line, character }, end: { line, character: character + 1 } },
+    range: {
+      start: { line, character },
+      end: { line, character: character + 1 },
+    },
     newText: checked ? "x" : " ",
   }
 }
@@ -68,7 +71,10 @@ const customEdit = (
   if (match === null) return undefined
   const body = text.trim().split(/\r?\n/).join(`${eol}      `)
   return {
-    range: { start: { line, character: 0 }, end: { line, character: (lines[line] ?? "").length } },
+    range: {
+      start: { line, character: 0 },
+      end: { line, character: (lines[line] ?? "").length },
+    },
     newText: `${match[1]}[${checked ? "x" : " "}] ${CUSTOM_ANSWER_EMOJI}${body === "" ? "" : ` ${body}`}`,
   }
 }
@@ -145,7 +151,10 @@ const appendEdit = (content: string, text: string): SteeringEdit => {
   return {
     range: {
       start: { line: 0, character: 0 },
-      end: { line: lines.length - 1, character: (lines[lines.length - 1] ?? "").length },
+      end: {
+        line: lines.length - 1,
+        character: (lines[lines.length - 1] ?? "").length,
+      },
     },
     newText,
   }
@@ -163,7 +172,10 @@ const applyParagraph = (
   return { ok: true, edits: [appendEdit(content, opts.text)] }
 }
 
-const NOT_FOUND: SteeringAnnotateResult = { ok: false, reason: "anchor-not-found" }
+const NOT_FOUND: SteeringAnnotateResult = {
+  ok: false,
+  reason: "anchor-not-found",
+}
 
 /** Every hunk of a review checklist at once. */
 const setAllHunks = (content: string, index: number, checked: boolean): SteeringAnnotateResult => {
@@ -222,7 +234,10 @@ const annotate: SteeringFormat["annotate"] = (content, anchor, text) => {
     ok: true,
     edits: [
       { range: { start: end, end }, newText: `[^${name}]` },
-      { range: { start: tail, end: tail }, newText: `${lead}[^${name}]: ${body}${eol}` },
+      {
+        range: { start: tail, end: tail },
+        newText: `${lead}[^${name}]: ${body}${eol}`,
+      },
     ],
   }
 }
@@ -285,15 +300,33 @@ const inputNode = (
             title: widget.custom.text,
             status: "custom",
             checked: widget.custom.checked,
-            anchor: { kind: "option", questionIndex: index, index: widget.options.length },
+            anchor: {
+              kind: "option",
+              questionIndex: index,
+              index: widget.options.length,
+            },
           },
         ]
   return { ...base, children: [...options, ...custom] }
 }
 
+const BASE_MARKER_RE = /^<!--\s*base:\s*([0-9a-fA-F]{4,64})\s*-->\s*$/
+
 const view: SteeringFormat["view"] = (content) => {
   const { widgets } = parseWidgets(content)
-  const blocks = blockNodesOf(content, parseMarkdown(content))
+  const lines = content.split(/\r?\n/)
+  const all = blockNodesOf(content, parseMarkdown(content))
+  const markerLines = new Set(
+    all.flatMap((b) =>
+      b.anchor.kind === "paragraph" && BASE_MARKER_RE.test(lines[b.anchor.line]!.trim())
+        ? [b.anchor.line]
+        : [],
+    ),
+  )
+  const base = [...markerLines].map((i) => BASE_MARKER_RE.exec(lines[i]!.trim())![1]!)[0]
+  const blocks = all.filter(
+    (b) => !(b.anchor.kind === "paragraph" && markerLines.has(b.anchor.line)),
+  )
   const unanswered = new Set(
     answerFindings({ widgets, annotations: [], findings: [] }).map((f) => f.line),
   )
@@ -311,7 +344,7 @@ const view: SteeringFormat["view"] = (content) => {
     index += 1
     return [node]
   })
-  return { nodes }
+  return { ...(base === undefined ? {} : { base: base.slice(0, 7) }), nodes }
 }
 
 const lineRange = (lines: readonly string[], line: number) => ({
@@ -383,7 +416,10 @@ const annotationAction = (content: string, line: number): SteeringAction[] => {
   const block = blockNodeAt(parseMarkdown(content), line)
   if (block?.position === undefined || block.type === "footnoteDefinition") return []
   const blockEnd = toLspPosition(block.position.end).line
-  const at = { line: blockEnd + 2, character: `[^${nextFootnoteName(content)}]:`.length }
+  const at = {
+    line: blockEnd + 2,
+    character: `[^${nextFootnoteName(content)}]:`.length,
+  }
   const end = { line, character: (content.split(/\r?\n/)[line] ?? "").length }
   return [
     {
@@ -411,7 +447,10 @@ const documentLinks: SteeringFormat["documentLinks"] = (content) => {
             {
               range: {
                 start: { line: hunk.line, character },
-                end: { line: hunk.line, character: character + hunk.pointer.length },
+                end: {
+                  line: hunk.line,
+                  character: character + hunk.pointer.length,
+                },
               },
               path: hunk.path.replace(/^\.\//, ""),
               line: hunk.start - 1,

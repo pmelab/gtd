@@ -73,7 +73,10 @@ const TWO_HUNK_WHOLE_FILE_DIFF: DiffResult = {
   },
 }
 
-const REFUSED_DIFF: DiffResult = { kind: "refused", detail: "gtd base refused (exit 1)" }
+const REFUSED_DIFF: DiffResult = {
+  kind: "refused",
+  detail: "gtd base refused (exit 1)",
+}
 
 const BINARY_DIFF: DiffResult = { kind: "binary" }
 

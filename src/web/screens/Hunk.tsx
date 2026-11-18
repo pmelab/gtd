@@ -136,7 +136,7 @@ const flattenHunks = (hunks: readonly Hunk[]): readonly DiffRow[] =>
 
 /** The diff area's own six-way branch (loading / binary / no-changes / refused / whole-file-fallback-with-banner / a single resolved hunk) — split out so `Hunk` itself stays a plain layout shell around it. */
 // fallow-ignore-next-line complexity
-export const DiffBody = ({ diff }: { readonly diff: DiffResult | undefined }) => {
+const DiffBody = ({ diff }: { readonly diff: DiffResult | undefined }) => {
   if (diff === undefined) {
     return (
       <Notice tone="info" data-testid="hunk-diff-loading">

@@ -1,5 +1,35 @@
-import { useState, type ReactNode } from "react"
+import { createContext, useContext, useState, type ReactNode } from "react"
 import type { InlineNode } from "../../steering/index.js"
+
+/** `./path#a` or `./path#a-b`: a hunk pointer that opens in the by-hunk view. */
+export const HUNK_HREF_RE = /^\.\/(.+)#(\d+)(?:-(\d+))?$/
+
+/** Set by the document screen: opens the by-hunk view at the tapped link. */
+export const HunkOpenContext = createContext<((target: HTMLElement) => void) | undefined>(undefined)
+
+const Link = ({ href, children }: { readonly href: string; readonly children: ReactNode }) => {
+  const open = useContext(HunkOpenContext)
+  if (open !== undefined && HUNK_HREF_RE.test(href)) {
+    return (
+      <a
+        href={href}
+        data-hunk={href}
+        className="text-link underline"
+        onClick={(e) => {
+          e.preventDefault()
+          open(e.currentTarget)
+        }}
+      >
+        {children}
+      </a>
+    )
+  }
+  return (
+    <a href={href} target="_blank" rel="noreferrer" className="text-link underline">
+      {children}
+    </a>
+  )
+}
 
 /**
  * One projected `image`'s own rendering — its own component (not a case
@@ -58,9 +88,9 @@ const INLINE_RENDERERS: {
     </code>
   ),
   link: (node, key) => (
-    <a key={key} href={node.href} target="_blank" rel="noreferrer" className="text-link underline">
+    <Link key={key} href={node.href}>
       <InlineRun nodes={node.children} />
-    </a>
+    </Link>
   ),
   image: (node, key) => <ProseImage key={key} src={node.src} alt={node.alt} />,
 }
