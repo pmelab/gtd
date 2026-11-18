@@ -256,6 +256,7 @@ export const runWorkspaceCommand = (
         worktrees,
         drivers: driverRuns,
         projects: () => noted.withNotes(snapshot.projects()),
+        discover: snapshot.discover,
         oneShot: host.oneShot,
         after: host.after,
         refreshDriver: snapshot.refreshDriver,

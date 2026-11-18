@@ -86,6 +86,75 @@ Feature: Proceed and Retry from the command line
       | worktree | argv |
 
   @inmem
+  Scenario Outline: <action> finds a worktree created after the last recheck
+    Given the worktrees adapter has no watch
+    And the worktrees adapter reports these worktrees:
+      | project | branch |
+      | portal  | main   |
+    When I start gtd workspace
+    And the worktrees adapter adds the worktree "portal/fresh"
+    And gtd next --json in "portal/fresh" prints:
+      """
+      <next>
+      """
+    And a driver that an earlier supervisor started runs in "portal/fresh"
+    And I run "gtd workspace <action> portal.wt/fresh <HEAD of portal/fresh>" in the workspace
+    Then the command exits 0
+    And the driver one-shots ran:
+      | worktree      | argv                  |
+      | portal/fresh  | drive <action> <HEAD> |
+    And the audit log reads:
+      | identity | endpoint | project | worktree | action   | outcome  |
+      | -        | cli      | portal  | fresh    | <action> | accepted |
+
+    Examples:
+      | action  | next                                                                              |
+      | proceed | { "kind": "capture", "actor": "human", "idle": false, "label": "Answer the plan" } |
+      | retry   | { "kind": "stalled", "actor": "agent", "idle": false, "label": "Stalled" }         |
+
+  @inmem
+  Scenario: a worktree found by a press is listed at once
+    Given the worktrees adapter has no watch
+    And the worktrees adapter reports these worktrees:
+      | project | branch |
+      | portal  | main   |
+    When I start gtd workspace
+    And the worktrees adapter adds the worktree "portal/fresh"
+    And gtd next --json in "portal/fresh" prints:
+      """
+      { "kind": "capture", "actor": "human", "idle": false, "label": "Answer the plan" }
+      """
+    And a driver that an earlier supervisor started runs in "portal/fresh"
+    And I run "gtd workspace proceed portal.wt/fresh <HEAD of portal/fresh>" in the workspace
+    Then the command exits 0
+    And the Projects view lists:
+      | project | worktree | status   | label           |
+      | portal  | main     | idle     | Idle            |
+      | portal  | fresh    | needsYou | Answer the plan |
+
+  @inmem
+  Scenario: a worktree found by a press stays listed through a recheck that listed before it
+    Given the worktrees adapter reports these worktrees:
+      | project | branch |
+      | portal  | main   |
+    When I start gtd workspace
+    And gtd next in "portal/main" holds its answer
+    And a commit lands on "portal/main"
+    And 1 second passes
+    And the worktrees adapter adds the worktree "portal/fresh"
+    And gtd next --json in "portal/fresh" prints:
+      """
+      { "kind": "capture", "actor": "human", "idle": false, "label": "Answer the plan" }
+      """
+    And a driver that an earlier supervisor started runs in "portal/fresh"
+    And I run "gtd workspace proceed portal.wt/fresh <HEAD of portal/fresh>" in the workspace
+    And gtd next in "portal/main" gives its answer
+    Then the Projects view lists:
+      | project | worktree | status   | label           |
+      | portal  | main     | idle     | Idle            |
+      | portal  | fresh    | needsYou | Answer the plan |
+
+  @inmem
   Scenario: a path that is no worktree exits 1
     Given the worktrees adapter reports these worktrees:
       | project | branch |
