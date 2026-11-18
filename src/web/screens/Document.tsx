@@ -1,5 +1,11 @@
-import { useState } from "react"
-import type { SteeringAnchor, SteeringView, SteeringViewNode } from "../../steering/index.js"
+import { useEffect, useRef, useState } from "react"
+import type {
+  BlockListItem,
+  InlineNode,
+  SteeringAnchor,
+  SteeringView,
+  SteeringViewNode,
+} from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
@@ -7,7 +13,8 @@ import { messageForReadRefusal, SaveIndicator, useSaveIndicatorProps } from "../
 import { readRefusalFrom, trpc } from "../api.js"
 import type { CasTokens } from "../staleRetry.js"
 import { cellKey, useWriteStore, WriteStoreProvider } from "../writeStore.js"
-import { DiffBody } from "./Hunk.js"
+import { Hunk } from "./Hunk.js"
+import { HUNK_HREF_RE, HunkOpenContext } from "./InlineRun.js"
 import { ProseBlocks } from "./ProseBlock.js"
 
 type TokenGuardedWrite = (tokens: CasTokens) => Promise<unknown>
@@ -44,9 +51,10 @@ interface WidgetActions {
   readonly textOf: (node: SteeringViewNode) => string
   readonly set: (node: SteeringViewNode, value: BoxValue) => void
   readonly openNote: (anchor: SteeringAnchor) => void
+  readonly openHunk: (target: HTMLElement) => void
 }
 
-const HunkDiff = ({ node }: { readonly node: SteeringViewNode }) => {
+const useHunkDiff = (node: SteeringViewNode) => {
   const query = trpc.diff.useQuery(
     {
       path: node.path ?? "",
@@ -55,8 +63,109 @@ const HunkDiff = ({ node }: { readonly node: SteeringViewNode }) => {
     },
     { enabled: node.path !== undefined },
   )
-  return <DiffBody diff={query.data} />
+  return query.data
 }
+
+/** One by-hunk page: a checklist item (tickable) or a prose link (diff only). */
+type Page = SteeringViewNode
+
+const hunkHref = (n: InlineNode): string[] =>
+  n.kind === "link" && HUNK_HREF_RE.test(n.href) ? [n.href] : []
+
+const childrenOf = (n: InlineNode): readonly InlineNode[] => ("children" in n ? n.children : [])
+
+const inlineLinks = (inline: readonly InlineNode[]): string[] =>
+  inline.flatMap((n) => [...hunkHref(n), ...inlineLinks(childrenOf(n))])
+
+const itemLinks = (items: readonly BlockListItem[]): string[] =>
+  items.flatMap((i) => [...inlineLinks(i.inline ?? []), ...itemLinks(i.items ?? [])])
+
+const pageOfHref = (href: string, anchor: SteeringAnchor): Page => {
+  const m = HUNK_HREF_RE.exec(href)!
+  return {
+    title: href,
+    path: m[1]!,
+    line: Number(m[2]),
+    ...(m[3] !== undefined ? { endLine: Number(m[3]) } : {}),
+    anchor,
+  } as Page
+}
+
+/** Every hunk link of the document in file order: prose links and 🔍 items. */
+// fallow-ignore-next-line complexity
+const proseLinks = (node: SteeringViewNode): string[] => [
+  ...inlineLinks(node.block?.inline ?? []),
+  ...itemLinks(node.block?.items ?? []),
+]
+
+const pagesOf = (nodes: readonly SteeringViewNode[]): readonly Page[] =>
+  nodes.flatMap((node): readonly Page[] =>
+    node.status === "review-checklist"
+      ? (node.children ?? [])
+      : proseLinks(node).map((href) => pageOfHref(href, node.anchor)),
+  )
+
+const HunkSlider = ({
+  pages,
+  start,
+  actions,
+  onClose,
+}: {
+  readonly pages: readonly Page[]
+  readonly start: number
+  readonly actions: WidgetActions
+  readonly onClose: () => void
+}) => {
+  const [at, setIndex] = useState(start)
+  const index = Math.min(at, pages.length - 1)
+  const node = pages[index]!
+  const diff = useHunkDiff(node)
+  const go = (i: number): void => setIndex(Math.max(0, Math.min(pages.length - 1, i)))
+  return (
+    <div data-testid="hunk-slider" className="flex h-full min-h-0 flex-1 flex-col overflow-auto">
+      <div className="flex items-center justify-between border-b border-border p-2">
+        <Button variant="ghost" data-testid="hunk-back" onClick={onClose}>
+          Back to the document
+        </Button>
+        <span data-testid="hunk-position" className="text-small text-muted">
+          {index + 1} / {pages.length}
+        </span>
+      </div>
+      <Hunk
+        node={node}
+        diff={diff}
+        index={index}
+        total={pages.length}
+        checked={actions.checkedOf(node)}
+        hasNote={node.note !== undefined}
+        {...(node.note !== undefined ? { note: node.note } : {})}
+        onToggle={(checked) => actions.set(node, { checked })}
+        onApprove={() => (index + 1 < pages.length ? go(index + 1) : onClose())}
+        onOpenNote={() => actions.openNote(node.anchor)}
+      />
+      <div className="flex justify-between gap-2 p-3">
+        <Button
+          variant="secondary"
+          data-testid="hunk-prev"
+          disabled={index === 0}
+          onClick={() => go(index - 1)}
+        >
+          Previous
+        </Button>
+        <Button
+          variant="secondary"
+          data-testid="hunk-next"
+          disabled={index + 1 >= pages.length}
+          onClick={() => go(index + 1)}
+        >
+          Next
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+const SAVE_DELAY_MS = 800
 
 const CustomAnswer = ({
   node,
@@ -68,12 +177,36 @@ const CustomAnswer = ({
   readonly actions: WidgetActions
 }) => {
   const [text, setText] = useState(actions.textOf(node))
+  const [typedTick, setTypedTick] = useState<boolean | undefined>(undefined)
+  const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const latest = useRef({ text, node, actions })
+  latest.current = { text, node, actions }
+  const save = (value: string): void => {
+    clearTimeout(timer.current)
+    timer.current = undefined
+    latest.current.actions.set(latest.current.node, {
+      checked: value !== "",
+      text: value,
+    })
+  }
+  const flush = (value: string): void => {
+    save(value)
+    setTypedTick(undefined)
+  }
+  // Leaving the screen before the delay ends still saves the typed text.
+  useEffect(
+    () => () => {
+      if (timer.current !== undefined) save(latest.current.text)
+    },
+    [],
+  )
   return (
-    <li className="flex items-center gap-2 py-1" data-testid="widget-custom">
+    <li className="flex items-start gap-2 py-1" data-testid="widget-custom">
       <input
         type={type}
         aria-label="Your own answer"
-        checked={actions.checkedOf(node)}
+        className="mt-2"
+        checked={typedTick ?? actions.checkedOf(node)}
         onChange={(e) => actions.set(node, { checked: e.target.checked, text })}
       />
       <input
@@ -81,15 +214,17 @@ const CustomAnswer = ({
         className="min-w-0 flex-1 rounded border border-border px-2 py-1"
         placeholder="Your own answer"
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => {
+          const next = e.target.value
+          setText(next)
+          setTypedTick(next !== "")
+          clearTimeout(timer.current)
+          timer.current = setTimeout(() => flush(next), SAVE_DELAY_MS)
+        }}
+        onBlur={() => {
+          if (timer.current !== undefined) flush(text)
+        }}
       />
-      <Button
-        variant="secondary"
-        data-testid="widget-custom-save"
-        onClick={() => actions.set(node, { checked: true, text })}
-      >
-        Save
-      </Button>
     </li>
   )
 }
@@ -131,10 +266,14 @@ const HunkRow = ({
       />
       <span className="break-all font-mono text-small">{node.title}</span>
     </label>
-    <details className="mt-1">
-      <summary className="cursor-pointer text-small text-muted">Show the change</summary>
-      <HunkDiff node={node} />
-    </details>
+    <button
+      type="button"
+      data-hunk={node.title}
+      className="mt-1 cursor-pointer text-small text-link underline"
+      onClick={(e) => actions.openHunk(e.currentTarget)}
+    >
+      Show the change
+    </button>
   </li>
 )
 
@@ -262,6 +401,8 @@ export const DocumentView = ({
   busy,
 }: DocumentViewProps) => {
   const [noteAnchor, setNoteAnchor] = useState<SteeringAnchor | undefined>(undefined)
+  const [slide, setSlide] = useState<number | undefined>(undefined)
+  const scroll = useRef<HTMLDivElement>(null)
   const overlay = useWriteStore((s) => s.overlay)
   const save = useWriteStore((s) => s.save)
 
@@ -298,6 +439,9 @@ export const DocumentView = ({
     }
   }
 
+  const pages = pagesOf(view.nodes)
+  // A refetch can drop every page while the slider is open: fall back to the document.
+  if (slide !== undefined && pages.length === 0) setSlide(undefined)
   const actions: WidgetActions = {
     // A later tick of a sibling radio unticks this one: the newest radio write wins.
     checkedOf: (node) => valueOf(node)?.checked ?? node.checked === true,
@@ -307,6 +451,18 @@ export const DocumentView = ({
       if (value.checked === true) clearSiblings(node)
     },
     openNote: setNoteAnchor,
+    openHunk: (target) => {
+      const key = target.dataset.hunk
+      const same = Array.from(scroll.current?.querySelectorAll("[data-hunk]") ?? []).filter(
+        (el) => (el as HTMLElement).dataset.hunk === key,
+      )
+      const nth = same.indexOf(target)
+      const at = pages.reduce<number[]>(
+        (hits, p, i) => (p.title === key ? [...hits, i] : hits),
+        [],
+      )[nth]
+      if (at !== undefined) setSlide(at)
+    },
   }
 
   const saveNote = (anchor: SteeringAnchor, text: string): void => {
@@ -328,31 +484,55 @@ export const DocumentView = ({
 
   const runDone = (): void => {
     if (onDone === undefined) return
-    save({ cell: cellKey(filePath, undefined, "done"), optimistic: true, mutate: onDone }).catch(
-      () => {},
-    )
+    save({
+      cell: cellKey(filePath, undefined, "done"),
+      optimistic: true,
+      mutate: onDone,
+    }).catch(() => {})
   }
 
   return (
     <>
       <div data-testid="document-screen" className="flex h-full min-h-0 flex-1 flex-col">
-        <div data-testid="document-scroll" className="min-h-0 flex-1 overflow-auto">
-          {view.nodes.length === 0 ? (
-            <EmptyDocumentCapture onSave={saveEmpty} />
-          ) : (
-            runsOf(view.nodes).map((run, i) =>
-              isWidget(run[0]!) ? (
-                <WidgetCard key={i} node={run[0]!} actions={actions} />
-              ) : (
-                <ProseBlocks
-                  key={i}
-                  nodes={run}
-                  noteOverrides={{}}
-                  onOpenNote={(node) => setNoteAnchor(node.anchor)}
-                />
-              ),
-            )
-          )}
+        {view.base !== undefined && (
+          <header
+            data-testid="document-base"
+            className="shrink-0 border-b border-border p-3 text-small"
+          >
+            Review base: <code>{view.base}</code>
+          </header>
+        )}
+        {slide !== undefined && pages.length > 0 && (
+          <HunkSlider
+            pages={pages}
+            start={slide}
+            actions={actions}
+            onClose={() => setSlide(undefined)}
+          />
+        )}
+        <div
+          ref={scroll}
+          data-testid="document-scroll"
+          className={`min-h-0 flex-1 overflow-auto ${slide !== undefined ? "hidden" : ""}`}
+        >
+          <HunkOpenContext.Provider value={actions.openHunk}>
+            {view.nodes.length === 0 ? (
+              <EmptyDocumentCapture onSave={saveEmpty} />
+            ) : (
+              runsOf(view.nodes).map((run, i) =>
+                isWidget(run[0]!) ? (
+                  <WidgetCard key={i} node={run[0]!} actions={actions} />
+                ) : (
+                  <ProseBlocks
+                    key={i}
+                    nodes={run}
+                    noteOverrides={{}}
+                    onOpenNote={(node) => setNoteAnchor(node.anchor)}
+                  />
+                ),
+              )
+            )}
+          </HunkOpenContext.Provider>
         </div>
         {onDone !== undefined && (
           <div
@@ -399,7 +579,12 @@ const useDocumentMutations = (filePath: string) => {
     (anchor: SteeringAnchor, text: string) =>
     (cas: CasTokens): Promise<unknown> =>
       writeNote.mutateAsync({ filePath, ...cas, anchor, text })
-  return { onSet, onSaveNote, onDone: () => done.mutateAsync({}), isDone: done.isSuccess }
+  return {
+    onSet,
+    onSaveNote,
+    onDone: () => done.mutateAsync({}),
+    isDone: done.isSuccess,
+  }
 }
 
 const DocumentInner = ({
@@ -443,7 +628,10 @@ export const Document = ({ filePath }: { readonly filePath: string }) => {
   const query = trpc.readSteeringFile.useQuery({ filePath })
   const refetchTokens = async (): Promise<CasTokens> => {
     const fresh = await utils.readSteeringFile.fetch({ filePath })
-    return { expectedHeadSha: fresh.headSha, expectedContentHash: fresh.contentHash }
+    return {
+      expectedHeadSha: fresh.headSha,
+      expectedContentHash: fresh.contentHash,
+    }
   }
   return (
     <WriteStoreProvider tokens={query.data} refetchTokens={refetchTokens}>

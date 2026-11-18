@@ -171,6 +171,8 @@ export interface SteeringViewNode {
 /** A steering file's whole projection for the phone. */
 export interface SteeringView {
   readonly header?: string
+  /** The short sha of a `<!-- base: <sha> -->` marker, shown in the page header instead of in the flow. */
+  readonly base?: string
   readonly nodes: readonly SteeringViewNode[]
 }
 

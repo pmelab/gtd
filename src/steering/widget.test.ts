@@ -58,7 +58,11 @@ describe("widgetFormat.view", () => {
       answered: true,
       anchor: { kind: "question", index: 0 },
       children: [
-        { title: "Redis", checked: true, anchor: { kind: "option", questionIndex: 0, index: 0 } },
+        {
+          title: "Redis",
+          checked: true,
+          anchor: { kind: "option", questionIndex: 0, index: 0 },
+        },
         { title: "Memory", checked: false },
         {
           title: "",
@@ -75,10 +79,38 @@ describe("widgetFormat.view", () => {
     expect(chunk).toMatchObject({
       answered: false,
       children: [
-        { title: "./src/a.ts#3-5 — the limiter", path: "src/a.ts", line: 3, endLine: 5 },
+        {
+          title: "./src/a.ts#3-5 — the limiter",
+          path: "src/a.ts",
+          line: 3,
+          endLine: 5,
+        },
         { title: "./src/b.ts#9", path: "src/b.ts", line: 9 },
       ],
     })
+  })
+})
+
+describe("widgetFormat.view base marker", () => {
+  const SHA = "e9503c1a2b3c4d5e"
+  it("reads the base, shortened to 7 characters, and hides the marker", () => {
+    const v = widgetFormat.view(`<!-- base: ${SHA} -->\n\nHello\n`)
+    expect(v.base).toBe("e9503c1")
+    expect(JSON.stringify(v.nodes)).not.toContain("base:")
+  })
+  it("has no base without a marker", () => {
+    expect(widgetFormat.view("Hello\n").base).toBeUndefined()
+  })
+  it("ignores a too-short or non-hex sha", () => {
+    expect(widgetFormat.view("<!-- base: abc -->\n").base).toBeUndefined()
+    expect(widgetFormat.view("<!-- base: zzzzzzzz -->\n").base).toBeUndefined()
+  })
+  it("takes the first of two markers", () => {
+    const v = widgetFormat.view(`<!-- base: ${SHA} -->\n\n<!-- base: 1234567890 -->\n`)
+    expect(v.base).toBe("e9503c1")
+  })
+  it("ignores a marker inside a code fence", () => {
+    expect(widgetFormat.view(`\`\`\`\n<!-- base: ${SHA} -->\n\`\`\`\n`).base).toBeUndefined()
   })
 })
 
@@ -132,7 +164,9 @@ describe("widgetFormat.annotate", () => {
     const annotated = applySteeringEdits(doc, result.edits)
     expect(annotated).toContain("Context.[^fn1]\n")
     expect(annotated.endsWith("- [ ] Yes\n\n[^fn1]: Why?\n")).toBe(true)
-    expect(widgetFormat.view(annotated).nodes[2]).toMatchObject({ answered: true })
+    expect(widgetFormat.view(annotated).nodes[2]).toMatchObject({
+      answered: true,
+    })
   })
 
   it("puts a widget's note on the widget", () => {
@@ -140,7 +174,9 @@ describe("widgetFormat.annotate", () => {
     if (!result.ok) throw new Error(result.reason)
     const annotated = applySteeringEdits(doc, result.edits)
     expect(annotated).toContain("## ☑️ Which?[^fn1]\n")
-    expect(widgetFormat.view(annotated).nodes[3]).toMatchObject({ note: "Neither." })
+    expect(widgetFormat.view(annotated).nodes[3]).toMatchObject({
+      note: "Neither.",
+    })
   })
 })
 
@@ -148,7 +184,10 @@ describe("widgetFormat for the editor", () => {
   it("offers to pick an option, tick a hunk, and annotate", () => {
     const titles = (line: number) =>
       widgetFormat
-        .actions(doc, { start: { line, character: 0 }, end: { line, character: 0 } })
+        .actions(doc, {
+          start: { line, character: 0 },
+          end: { line, character: 0 },
+        })
         .map((a) => a.title)
     expect(titles(9)).toEqual(["gtd: pick this option", "gtd: add an annotation"])
     expect(titles(8)).toEqual(["gtd: add an annotation"])
@@ -160,12 +199,18 @@ describe("widgetFormat for the editor", () => {
   it("links each hunk pointer to its file", () => {
     expect(widgetFormat.documentLinks?.(doc)).toEqual([
       {
-        range: { start: { line: 19, character: 6 }, end: { line: 19, character: 20 } },
+        range: {
+          start: { line: 19, character: 6 },
+          end: { line: 19, character: 20 },
+        },
         path: "src/a.ts",
         line: 2,
       },
       {
-        range: { start: { line: 20, character: 6 }, end: { line: 20, character: 18 } },
+        range: {
+          start: { line: 20, character: 6 },
+          end: { line: 20, character: 18 },
+        },
         path: "src/b.ts",
         line: 8,
       },
