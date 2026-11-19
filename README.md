@@ -1,3 +1,8 @@
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/gtd-wordmark-dark.svg">
+  <img alt="gtd" src="docs/assets/gtd-wordmark-light.svg" width="160">
+</picture>
+
 # gi[t]hings.**done**
 
 🤓: „Fix all the tests."  
