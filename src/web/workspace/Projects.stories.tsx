@@ -33,6 +33,7 @@ const Refreshing = ({
     <>
       <button
         type="button"
+        style={{ minWidth: 44, minHeight: 44 }}
         onClick={() => {
           setProjects(next)
         }}

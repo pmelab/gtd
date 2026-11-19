@@ -139,7 +139,7 @@ const Leavable = ({ filePath }: { readonly filePath: string }) => {
   const [shown, setShown] = useState(true)
   return (
     <>
-      <button type="button" onClick={() => setShown(false)}>
+      <button type="button" style={{ minWidth: 44, minHeight: 44 }} onClick={() => setShown(false)}>
         Leave
       </button>
       {shown && <Document filePath={filePath} />}
@@ -210,7 +210,11 @@ const Refetched = ({ before, after }: { readonly before: string; readonly after:
   const [content, setContent] = useState(before)
   return (
     <>
-      <button type="button" onClick={() => setContent(after)}>
+      <button
+        type="button"
+        style={{ minWidth: 44, minHeight: 44 }}
+        onClick={() => setContent(after)}
+      >
         Refetch
       </button>
       <DocumentView filePath=".gtd/REVIEW.md" isLoading={false} view={widgetFormat.view(content)} />

@@ -29,7 +29,7 @@ const Chip = ({ service }: { readonly service: Service }) => {
     <a
       className={cn(
         chip,
-        "hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+        "min-h-11 hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
       )}
       href={service.url}
       target="_blank"

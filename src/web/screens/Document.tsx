@@ -687,9 +687,11 @@ export const DocumentView = ({
   if (view === undefined) {
     if (isLoading) return <DocumentSkeleton label="Loading the file…" />
     return (
-      <Notice tone="error" className="mx-4 my-6 lg:mx-auto lg:max-w-2xl">
-        {readErrorMessage(readError)}
-      </Notice>
+      <div className="px-4 py-6">
+        <Notice tone="error" className="mx-auto max-w-2xl">
+          {readErrorMessage(readError)}
+        </Notice>
+      </div>
     )
   }
 
