@@ -5,8 +5,8 @@ Feature: gtd workspace keeps worktree statuses current
   adapter's watch hints that a project may have changed; the supervisor waits
   a moment for more hints, then rechecks that project: it lists the project
   again and runs `gtd next` in each worktree whose HEAD moved. A project has
-  one recheck at a time. Every 30 seconds a rescan runs `gtd next` in every
-  worktree, which catches an uncommitted edit. An adapter without a watch is
+  one recheck at a time. A worktree whose HEAD, branch, dirty flag and
+  `.gtd/` are unchanged keeps its last `gtd next` result. An adapter without a watch is
   read every `pollEvery`. When a watch stream ends, the supervisor watches
   again and reads a full snapshot. Scenarios run on a clock the test moves.
 
@@ -54,17 +54,42 @@ Feature: gtd workspace keeps worktree statuses current
     Then gtd next has run 3 times in "portal/plan"
     And gtd next never ran twice at once in "portal/plan"
 
-  Scenario: the rescan every 30 seconds finds an uncommitted edit
+  Scenario: an unchanged worktree is not read again
+    When I start gtd workspace
+    And a commit lands on "api/main"
+    And 1 second passes
+    Then gtd next has run 1 time in "portal/plan"
+    And gtd next has run 2 times in "api/main"
+
+  Scenario: a changed .gtd directory rechecks only that worktree within a second
     When I start gtd workspace
     And gtd next --json in "portal/plan" prints:
       """
-      { "kind": "capture", "actor": "human", "idle": false, "label": "Answer the edited plan" }
+      { "kind": "capture", "actor": "human", "idle": false, "label": "Answer the review" }
       """
-    And 29 seconds pass
-    Then the Projects view shows "portal/plan" as "needsYou" with "Answer the plan"
-    When 1 second passes
-    Then the Projects view shows "portal/plan" as "needsYou" with "Answer the edited plan"
-    And gtd next has run 2 times in "api/main"
+    And the .gtd files of "portal/plan" change
+    And 1 second passes
+    Then the Projects view shows "portal/plan" as "needsYou" with "Answer the review"
+    And gtd next has run 2 times in "portal/plan"
+    And gtd next has run 1 time in "portal/main"
+
+  Scenario: a failed gtd next is run again at the next recheck
+    Given gtd next in "portal/plan" fails with:
+      """
+      killed
+      """
+    When I start gtd workspace
+    And a commit lands on "portal/main"
+    And 1 second passes
+    Then gtd next has run 2 times in "portal/plan"
+
+  Scenario: a stopped supervisor logs its gtd next runs no more
+    When I start gtd workspace
+    And 60 seconds pass
+    Then the supervisors printed "runs in the last minute" 1 time
+    When I stop gtd workspace
+    And 60 seconds pass
+    Then the supervisors printed "runs in the last minute" 1 time
 
   Scenario: an adapter without a watch is read every pollEvery
     Given a workspace file "gtd.workspace.ts" with:

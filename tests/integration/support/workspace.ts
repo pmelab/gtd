@@ -348,6 +348,9 @@ export class WorkspaceBench {
     return { status: refusal === undefined ? 0 : 1, stdout: "", stderr: refusal ?? "" }
   }
 
+  /** What each worktree's `.gtd/` and index hold, as the supervisor reads them. */
+  readonly prints = new Map<string, string>()
+
   private nextIn(path: string): SpawnOutcome {
     return this.answers.get(path) ?? { status: 0, stdout: IDLE_NEXT, stderr: "" }
   }
@@ -408,6 +411,7 @@ export class WorkspaceBench {
         return () => void watches.delete(changed)
       },
       oneShot: (argv, worktree) => this.oneShot(argv, worktree),
+      fingerprint: async (path) => this.prints.get(path) ?? "",
     })
     const tools = Layer.succeed(UserlandTools, {
       exec: async (argv) => {
@@ -498,12 +502,12 @@ export class WorkspaceBench {
     return this.runs.at(-1)?.output() ?? ""
   }
 
-  /** What the supervisors that were stopped printed. */
-  private stoppedOutput = ""
+  /** The supervisors that were stopped: a write after the stop still shows. */
+  private readonly stopped: Run[] = []
 
   /** What every supervisor of the scenario printed, in order. */
   get allOutput(): string {
-    return this.stoppedOutput + this.runs.map((run) => run.output()).join("")
+    return [...this.stopped, ...this.runs].map((run) => run.output()).join("")
   }
 
   /** The URL the first supervisor printed. */
@@ -515,7 +519,7 @@ export class WorkspaceBench {
     const runs = this.runs.splice(0)
     for (const run of runs) run.abort.abort()
     await Promise.all(runs.map((run) => run.done))
-    this.stoppedOutput += runs.map((run) => run.output()).join("")
+    this.stopped.push(...runs)
     this.handler = undefined
   }
 

@@ -51,6 +51,8 @@ export interface ScanDeps {
   /** The config as last loaded: a reload changes it. */
   readonly settings: () => WorkspaceSettings
   readonly drivers: Drivers
+  /** Names, sizes and mtimes of the worktree's `.gtd/`, its index and its partner branch tip, read in-process. */
+  readonly fingerprint?: (worktree: string) => Promise<string>
 }
 
 /** A plain object: an `AdapterError`'s message would not survive JSON. */
