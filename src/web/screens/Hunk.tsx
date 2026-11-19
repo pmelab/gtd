@@ -197,7 +197,7 @@ const ApproveRow = ({
   <label
     data-testid="hunk-approve-row"
     className={`flex min-h-11 items-center gap-3 rounded border px-3 py-2 transition-[background-color,border-color] duration-150 ease-out ${
-      checked ? "border-accent bg-surface" : "border-border bg-transparent"
+      checked ? "border-accent bg-accent text-on-accent" : "border-border bg-transparent"
     }`}
   >
     <input

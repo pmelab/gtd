@@ -39,9 +39,9 @@ const BlockList = ({
 /** A `heading` block's own rendering — its own component so `BlockBody`'s switch stays a plain dispatch, with every field's fallback living next to the field it defaults. */
 /** Size follows depth: every heading rendering at one size makes a document's own sections indistinguishable from its subsections, which is the whole reason the depth survived into `block`. */
 const HEADING_CLASSES: Record<"h2" | "h3" | "h4", string> = {
-  h2: "text-large text-heading-a",
-  h3: "text-body text-heading-b",
-  h4: "text-small tracking-wide text-heading-c uppercase",
+  h2: "text-large font-bold",
+  h3: "text-body font-semibold",
+  h4: "text-small font-medium tracking-wide uppercase",
 }
 
 const HeadingBlock = ({ node }: { readonly node: SteeringViewNode }) => {
@@ -62,9 +62,8 @@ const ListBlock = ({ node }: { readonly node: SteeringViewNode }) => (
 
 /** A `code` block's own rendering — see `HeadingBlock`'s doc comment for why this is split out. */
 const CodeBlock = ({ node }: { readonly node: SteeringViewNode }) => (
-  // `bg-surface`, never `bg-muted`: `muted` is a light TEXT colour in this
-  // dark palette, so it painted a near-white slab under near-white text.
-  <pre className="mx-3 my-2 overflow-x-auto rounded bg-surface p-3 text-small text-code">
+  // Own `code-bg` colour, never `bg-muted`: `muted` is a TEXT colour.
+  <pre className="mx-3 my-2 overflow-x-auto rounded bg-code-bg p-3 text-small text-code">
     <code>{node.block?.text ?? ""}</code>
   </pre>
 )
@@ -196,7 +195,7 @@ const ProseBlock = ({
           : {})}
         className={`relative ${
           notable
-            ? "touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-accent"
+            ? "touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
             : ""
         }`}
       >

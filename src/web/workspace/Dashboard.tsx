@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useState, useSyncExternalStore } from "react"
 import { Notice } from "../Notice.js"
 import { workspaceTrpc } from "./api.js"
 import { Banners } from "./Banners.js"
@@ -18,6 +18,21 @@ import {
   type Screen,
   type View,
 } from "./view.js"
+
+const DESKTOP = "(min-width: 1024px)"
+
+/** From Tailwind's `lg` up there is room for a list and a detail side by side. */
+const useDesktop = (): boolean =>
+  useSyncExternalStore(
+    (notify) => {
+      const query = window.matchMedia(DESKTOP)
+      query.addEventListener("change", notify)
+      return () => {
+        query.removeEventListener("change", notify)
+      }
+    },
+    () => window.matchMedia(DESKTOP).matches,
+  )
 
 // The supervisor keeps a snapshot; reading it is cheap.
 const REFRESH_MS = 2_000
@@ -130,34 +145,72 @@ const Loaded = ({
       setScreen({ view: "now" })
     }
   }
+  const desktop = useDesktop()
   const attention = nowView(projects).attention.length
   const views: readonly (readonly [View, string])[] = [
     ["now", attention > 0 ? `Now (${attention})` : "Now"],
     ["projects", "Projects"],
     ["inbox", "Inbox"],
   ]
-  if (entry !== undefined) {
-    return <Detail key={entry.worktree.path} entry={entry} onClose={close} />
+  const onSelect = (next: View) => {
+    go({ view: next })
   }
+  // One tree for both widths, so crossing 1024 px keeps Detail (and its tab) mounted.
+  const split = desktop && view !== "inbox"
+  const detailOnly = !desktop && entry !== undefined
+  const list = (
+    <>
+      <Banners banners={banners} />
+      {view === "now" && <Now projects={projects} onOpen={open} />}
+      {view === "projects" && (
+        <Projects projects={projects} expanded={expanded} onToggle={toggle} onOpen={open} />
+      )}
+      {view === "inbox" && <InboxView />}
+    </>
+  )
   return (
-    <div className="flex min-h-dvh flex-col bg-page text-text">
-      <main className="flex flex-1 flex-col gap-4 p-4 pb-24">
-        <Banners banners={banners} />
-        {view === "now" && <Now projects={projects} onOpen={open} />}
-        {view === "projects" && (
-          <Projects projects={projects} expanded={expanded} onToggle={toggle} onOpen={open} />
+    <div
+      className={
+        desktop ? "flex h-dvh bg-page text-text" : "flex min-h-dvh flex-col bg-page text-text"
+      }
+    >
+      {!detailOnly && (
+        <TabBar
+          vertical={desktop}
+          label="Views"
+          tabs={views}
+          current={view}
+          onSelect={onSelect}
+          className={
+            desktop ? "w-48 shrink-0 gap-1 border-r p-2" : "fixed bottom-0 w-full border-t"
+          }
+        />
+      )}
+      <main className="flex min-w-0 flex-1">
+        {!detailOnly && (
+          <div
+            className={
+              desktop
+                ? `flex min-w-0 flex-col gap-4 overflow-y-auto p-4 ${split ? "w-96 shrink-0 border-r border-divider" : "flex-1"}`
+                : "flex min-w-0 flex-1 flex-col gap-4 p-4 pb-24"
+            }
+          >
+            {list}
+          </div>
         )}
-        {view === "inbox" && <InboxView />}
+        {entry !== undefined ? (
+          <Detail key={entry.worktree.path} entry={entry} onClose={close} embedded={desktop} />
+        ) : (
+          split && (
+            <p
+              className="flex min-w-0 flex-1 items-center justify-center p-4 text-muted"
+              data-testid="detail-placeholder"
+            >
+              Select a worktree to see its detail.
+            </p>
+          )
+        )}
       </main>
-      <TabBar
-        label="Views"
-        tabs={views}
-        current={view}
-        onSelect={(next) => {
-          go({ view: next })
-        }}
-        className="fixed bottom-0 w-full border-t"
-      />
     </div>
   )
 }

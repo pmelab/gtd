@@ -7,6 +7,7 @@ import {
   attentionCount,
   detailText,
   STATUS_COLOR,
+  STATUS_ICON,
   statusText,
   worktreeName,
   type Entry,
@@ -29,7 +30,13 @@ const Row = ({
     data-testid="worktree-row"
   >
     <button type="button" className="flex min-h-11 items-baseline gap-3 text-left" onClick={onOpen}>
-      <span className={cn("w-24 shrink-0 text-small", STATUS_COLOR[worktree.status])}>
+      <span
+        data-icon={STATUS_ICON[worktree.status]}
+        className={cn(
+          "w-28 shrink-0 text-small before:mr-1 before:content-[attr(data-icon)]",
+          STATUS_COLOR[worktree.status],
+        )}
+      >
         {statusText(worktree)}
       </span>
       <span className="font-medium">{worktreeName(worktree)}</span>

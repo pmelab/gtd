@@ -18,11 +18,13 @@ export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElemen
  * unnecessary.
  */
 const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary: "bg-accent text-page active:bg-accent-pressed disabled:bg-disabled disabled:text-muted",
+  primary:
+    "bg-accent text-on-accent border border-border active:bg-accent-pressed disabled:border-dashed disabled:bg-disabled disabled:text-on-accent",
   secondary:
-    "bg-surface text-text border border-border active:bg-border disabled:bg-surface disabled:text-disabled",
-  ghost: "bg-transparent text-text active:bg-surface disabled:text-disabled",
-  danger: "bg-transparent text-danger active:bg-surface disabled:text-disabled",
+    "bg-surface text-text border border-border active:bg-accent active:text-on-accent disabled:border-dashed disabled:bg-surface disabled:text-disabled",
+  ghost: "bg-transparent text-text active:bg-accent active:text-on-accent disabled:text-disabled",
+  danger:
+    "bg-transparent text-danger border border-border active:bg-accent active:text-on-accent disabled:border-dashed disabled:text-disabled",
 }
 
 /**
@@ -37,14 +39,17 @@ const VARIANT_CLASSES: Record<ButtonVariant, string> = {
 const BASE_CLASSES = [
   "min-h-11 min-w-11 rounded px-3 py-2 text-body font-medium",
   "transition-[scale] duration-150 ease-out active:scale-96",
-  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-accent",
+  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring",
   "disabled:pointer-events-none",
 ].join(" ")
 
-export const Button = ({ variant = "secondary", className, ...props }: ButtonProps) => (
+export const Button = ({ variant = "secondary", className, children, ...props }: ButtonProps) => (
   <button
     type="button"
     className={cn(BASE_CLASSES, VARIANT_CLASSES[variant], className)}
     {...props}
-  />
+  >
+    {variant === "danger" && <span aria-hidden="true">⚠ </span>}
+    {children}
+  </button>
 )

@@ -59,6 +59,7 @@ export const OpenInTab: Story = {
     const link = within(canvasElement).getByTestId("open-gate")
     await expect(link.getAttribute("href")).toBe(plan.worktree.gate)
     await expect(link.getAttribute("target")).toBe("_blank")
+    await expect(getComputedStyle(link).textDecorationLine).toBe("underline")
   },
 }
 

@@ -52,6 +52,14 @@ const STATUS_TEXT: Readonly<Record<StatusName, string>> = {
   idle: "idle",
 }
 
+/** A mark beside the status word, so status never rests on colour alone. */
+export const STATUS_ICON: Readonly<Record<StatusName, string>> = {
+  needsYou: "▲",
+  working: "⟳",
+  error: "✖",
+  idle: "–",
+}
+
 export const STATUS_COLOR: Readonly<Record<StatusName, string>> = {
   needsYou: "text-warning",
   working: "text-link",

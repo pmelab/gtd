@@ -205,7 +205,7 @@ export const HunkTickRowMeetsThe44pxFloor: StoryObj<typeof TickableHunk> = {
 
 /**
  * The `ghost` variant's pressed state lives entirely behind a real CSS
- * `:active` pseudo-class (`Button.tsx`'s `active:bg-surface`) — Chromium only
+ * `:active` pseudo-class (`Button.tsx`'s `active:bg-accent`) — Chromium only
  * ever applies `:active` to a trusted, OS-level mouse press, so a
  * script-dispatched `mousedown` (the only kind reachable from this test
  * runner) never triggers it, and there is no reliable way to assert the
@@ -222,7 +222,7 @@ export const NoteAffordanceUsesTheGhostVariantAtRest: StoryObj<typeof TickableHu
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const button = canvas.getByTestId("hunk-note-affordance") as HTMLButtonElement
-    await expect(button.className).toMatch(/\bactive:bg-surface\b/)
+    await expect(button.className).toMatch(/\bactive:bg-accent\b/)
     await expect(getComputedStyle(button).backgroundColor).toBe("rgba(0, 0, 0, 0)")
   },
 }
@@ -881,14 +881,8 @@ export const RangeClampedAtAHunksFirstLineShowsFewerThanThreeContextLinesAbove: 
 }
 
 /**
- * T4's "both light and dark themes" bullet: this client ships exactly one
- * theme (`styles.css`'s own `@theme` block is labelled "Dark-only palette"
- * at its top, and nothing in `src/web` reads `prefers-color-scheme` or a
- * `data-theme` attribute) — so this is that one theme's own dimmed-band
- * story, standing in for both until a second theme exists to actually
- * switch between. What it proves regardless of theme count: a dimmed row's
- * TEXT renders at reduced opacity while an in-range row's does not, and
- * neither row's own background changes.
+ * A dimmed row's TEXT renders at reduced opacity while an in-range row's
+ * does not, and neither row's own background changes.
  */
 export const DimmedContextBandRendersInTheShippedTheme: Story = {
   args: {

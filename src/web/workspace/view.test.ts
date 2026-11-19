@@ -5,6 +5,7 @@ import {
   nowView,
   pressFor,
   screenUrl,
+  STATUS_ICON,
   statusText,
   worktreeName,
   type ProjectView,
@@ -68,6 +69,14 @@ describe("pressFor", () => {
     expect(pressFor(worktree("a", { status: "error" }))).toBe("retry")
     expect(pressFor(worktree("a", { status: "working" }))).toBeUndefined()
     expect(pressFor(worktree("a", { status: "idle" }))).toBeUndefined()
+  })
+})
+
+describe("STATUS_ICON", () => {
+  it("gives every status its own non-empty mark", () => {
+    const icons = Object.values(STATUS_ICON)
+    expect(icons.every((icon) => icon.length > 0)).toBe(true)
+    expect(new Set(icons).size).toBe(icons.length)
   })
 })
 
