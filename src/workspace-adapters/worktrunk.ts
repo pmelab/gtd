@@ -320,6 +320,40 @@ export const worktrunk = (options: WorktrunkOptions): WorktreesAdapter => {
         throw failure("create", "wt switch printed no JSON", created.stdout)
       }
     },
+    switch: async (id, branch) => {
+      const project = await projectOf(id, "switch")
+      const switched = await run("wt", [
+        "-C",
+        project.path,
+        "switch",
+        branch,
+        "--yes",
+        "--no-cd",
+        "--format=json",
+      ])
+      if (switched.status !== 0) {
+        throw failure("switch", `wt switch ${branch} failed`, switched.stderr.trim())
+      }
+      try {
+        return (JSON.parse(switched.stdout) as { path: string }).path
+      } catch {
+        throw failure("switch", "wt switch printed no JSON", switched.stdout)
+      }
+    },
+    unpushed: async (id, branch) => {
+      const project = await projectOf(id, "unpushed")
+      const ref = `refs/heads/${branch}`
+      const exists = await run("git", ["rev-parse", "--verify", "--quiet", ref], project.path)
+      if (exists.status !== 0) return undefined
+      // The main checkout's HEAD is the default branch: its commits are not the branch's own.
+      const count = await run(
+        "git",
+        ["rev-list", "--count", ref, "--not", "HEAD", "--remotes"],
+        project.path,
+      )
+      if (count.status !== 0) throw failure("unpushed", `git rev-list failed for ${branch}`)
+      return Number(count.stdout.trim()) > 0
+    },
     remove: async (id, path, { force }) => {
       const project = await projectOf(id, "remove")
       const removed = await run("wt", [

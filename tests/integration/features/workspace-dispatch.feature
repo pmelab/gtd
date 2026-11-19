@@ -152,7 +152,7 @@ Feature: Start and Retry dispatch an inbox item
     And the action in "portal/board/7" exits 2
     Then the Inbox lists:
       | feed  | key | title      | state  | message                   |
-      | board | 7   | Add signup | failed | start:feature exited 2    |
+      | board | 7   | Add signup | failed | start:feature exited 2 (worktree {root}/portal.wt/board/7) |
     And gtd opened these driver panes:
       | worktree | argv |
     Given the command "gh issue list" prints:
@@ -174,6 +174,151 @@ Feature: Start and Retry dispatch an inbox item
     Then gtd opened these driver panes:
       | worktree       | argv  |
       | portal/board/7 | drive |
+
+  Scenario: Retry reuses the worktree of a failed item, though its start action moved it to another branch
+    Given the command "gh issue list" prints:
+      """
+      [{ "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0 }]
+      """
+    When I start gtd workspace
+    And I start "board/7" in the Inbox
+    And the worktree "portal/board/7" moves to the branch "pr-12"
+    And the action in "portal/pr-12" exits 2
+    And I retry "board/7" in the Inbox
+    Then gtd made these adapter calls:
+      | call             | worktree       |
+      | worktrees.create | portal/board/7 |
+      | services.up      | portal/board/7 |
+      | services.up      | portal/pr-12   |
+    And gtd opened these action panes:
+      | worktree     | argv              |
+      | portal/pr-12 | ["start:feature"] |
+      | portal/pr-12 | ["start:feature"] |
+
+  Scenario: Retry that waits for a limit runs the start action in the moved worktree
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"], limits: { wip: 1 } })
+
+      export const board = feed({
+        project: "portal",
+        every: "5m",
+        mode: "propose",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "issue", "list"])).stdout),
+      })
+      """
+    And the command "gh issue list" prints:
+      """
+      [
+        { "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0 },
+        { "key": "8", "title": "Add footer", "action": "start:feature", "priority": 0 }
+      ]
+      """
+    When I start gtd workspace
+    And I start "board/7" in the Inbox
+    And the worktree "portal/board/7" moves to the branch "pr-12"
+    And the action in "portal/pr-12" exits 2
+    And I start "board/8" in the Inbox
+    And I retry "board/7" in the Inbox
+    And the action in "portal/board/8" exits 2
+    And the clock advances "5m"
+    Then gtd opened these action panes:
+      | worktree       | argv              |
+      | portal/pr-12   | ["start:feature"] |
+      | portal/board/8 | ["start:feature"] |
+      | portal/pr-12   | ["start:feature"] |
+
+  Scenario: Retry creates a new worktree when the adapter has no unpushed
+    Given the worktrees adapter has no unpushed
+    And the command "gh issue list" prints:
+      """
+      [{ "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0 }]
+      """
+    When I start gtd workspace
+    And I start "board/7" in the Inbox
+    And the worktree "portal/board/7" moves to the branch "pr-12"
+    And the action in "portal/pr-12" exits 2
+    And I retry "board/7" in the Inbox
+    Then gtd made these adapter calls:
+      | call             | worktree       |
+      | worktrees.create | portal/board/7 |
+      | services.up      | portal/board/7 |
+      | worktrees.create | portal/board/7 |
+      | services.up      | portal/board/7 |
+
+  Scenario: Retry after a restart reuses the worktree the failed dispatch used
+    Given the command "gh issue list" prints:
+      """
+      [{ "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0 }]
+      """
+    When I start gtd workspace
+    And I start "board/7" in the Inbox
+    And the worktree "portal/board/7" moves to the branch "pr-12"
+    And the action in "portal/pr-12" exits 2
+    And I stop gtd workspace
+    And I start gtd workspace
+    And I retry "board/7" in the Inbox
+    Then gtd made these adapter calls:
+      | call             | worktree       |
+      | worktrees.create | portal/board/7 |
+      | services.up      | portal/board/7 |
+      | services.up      | portal/pr-12   |
+
+  Scenario: Retry creates a worktree on the leftover branch
+    Given the command "gh issue list" prints:
+      """
+      [{ "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0 }]
+      """
+    When I start gtd workspace
+    And I start "board/7" in the Inbox
+    And the action in "portal/board/7" exits 2
+    And the worktree "portal/board/7" is gone but its branch stays
+    And I retry "board/7" in the Inbox
+    Then gtd made these adapter calls:
+      | call             | worktree       |
+      | worktrees.create | portal/board/7 |
+      | services.up      | portal/board/7 |
+      | worktrees.switch | portal/board/7 |
+      | services.up      | portal/board/7 |
+
+  Scenario Outline: Retry refuses a leftover worktree that holds work
+    Given the command "gh issue list" prints:
+      """
+      [{ "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0 }]
+      """
+    When I start gtd workspace
+    And I start "board/7" in the Inbox
+    And the action in "portal/board/7" exits 2
+    And <work>
+    And I retry "board/7" in the Inbox
+    Then the Inbox lists:
+      | feed  | key | title      | state  | message   |
+      | board | 7   | Add signup | failed | <message> |
+    And gtd opened these action panes:
+      | worktree       | argv              |
+      | portal/board/7 | ["start:feature"] |
+
+    Examples:
+      | work                                                   | message                                                                                               |
+      | the tree of "portal/board/7" has uncommitted changes   | Retry refused, {root}/portal.wt/board/7 is not free: the tree has uncommitted changes |
+      | "portal/board/7" has a commit that is on no remote     | Retry refused, {root}/portal.wt/board/7 is not free: it has commits outside the remotes |
+
+  Scenario: Retry refuses a leftover branch that holds commits
+    Given the command "gh issue list" prints:
+      """
+      [{ "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0 }]
+      """
+    When I start gtd workspace
+    And I start "board/7" in the Inbox
+    And the action in "portal/board/7" exits 2
+    And "portal/board/7" has a commit that is on no remote
+    And the worktree "portal/board/7" is gone but its branch stays
+    And I retry "board/7" in the Inbox
+    Then the Inbox lists:
+      | feed  | key | title      | state  | message                                                               |
+      | board | 7   | Add signup | failed | Retry refused, branch board/7 is not free: it has commits outside the remotes |
 
   Scenario: a restarted supervisor follows the start action the last one left running
     Given the command "gh issue list" prints:
@@ -215,7 +360,7 @@ Feature: Start and Retry dispatch an inbox item
     And I start gtd workspace
     Then the Inbox lists:
       | feed  | key | title      | state  | message                            |
-      | board | 7   | Add signup | failed | gtd stopped while the item started |
+      | board | 7   | Add signup | failed | gtd stopped while the item started (worktree {root}/portal.wt/board/7) |
 
   Scenario: a start action gtd cannot run fails the item
     Given the command "gh issue list" prints:
@@ -226,7 +371,7 @@ Feature: Start and Retry dispatch an inbox item
     And I start "board/7" in the Inbox
     Then the Inbox lists:
       | feed  | key | title      | state  | message                                        |
-      | board | 7   | Add signup | failed | start:bugfix is not offered while the worktree is idle |
+      | board | 7   | Add signup | failed | start:bugfix is not offered while the worktree is idle (worktree {root}/portal.wt/board/7) |
 
   Scenario: a failed item can be dismissed
     Given the command "gh issue list" prints:
