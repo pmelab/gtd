@@ -1,10 +1,10 @@
-import { useState } from "react"
+import { Plus, Trash2, TriangleAlert } from "lucide-react"
+import { useId, useState } from "react"
 import { Button } from "../Button.js"
+import { Input } from "../ui/input.js"
+import { Label } from "../ui/label.js"
 import { workspaceTrpc } from "./api.js"
 import type { WorktreeView } from "./view.js"
-
-const INPUT =
-  "min-h-11 rounded border border-border bg-surface px-2 text-body text-text placeholder:text-disabled"
 
 const NewWorktreeForm = ({
   project,
@@ -16,6 +16,7 @@ const NewWorktreeForm = ({
   readonly onCancel: () => void
 }) => {
   const [branch, setBranch] = useState("")
+  const id = useId()
   const utils = workspaceTrpc.useUtils()
   const create = workspaceTrpc.createWorktree.useMutation({
     onSuccess: (answer) => onCreated(answer.failure),
@@ -23,23 +24,18 @@ const NewWorktreeForm = ({
   })
   return (
     <form
-      className="flex flex-col gap-2 py-2"
+      className="flex w-full flex-col gap-2 px-3 py-2"
       onSubmit={(e) => {
         e.preventDefault()
         create.mutate({ project, branch })
       }}
     >
-      <label className="flex flex-col gap-1">
-        <span className="text-small text-muted">Branch</span>
-        <input
-          className={INPUT}
-          value={branch}
-          autoFocus
-          onChange={(e) => setBranch(e.target.value)}
-        />
-      </label>
+      <Label htmlFor={id} className="font-medium">
+        Branch
+      </Label>
+      <Input id={id} value={branch} autoFocus onChange={(e) => setBranch(e.target.value)} />
       {create.error !== null && (
-        <span className="text-small text-danger" data-testid="new-worktree-error">
+        <span className="text-sm text-destructive" data-testid="new-worktree-error">
           {create.error.message}
         </span>
       )}
@@ -74,11 +70,12 @@ export const NewWorktree = ({ project }: { readonly project: string }) => {
   }
   return (
     <div className="flex flex-col items-end gap-1">
-      <Button variant="ghost" className="text-small" onClick={() => setOpen(true)}>
+      <Button variant="ghost" size="sm" onClick={() => setOpen(true)}>
+        <Plus aria-hidden="true" />
         New worktree
       </Button>
       {failure !== undefined && (
-        <span className="text-small text-danger" data-testid="new-worktree-failure">
+        <span className="text-sm text-destructive" data-testid="new-worktree-failure">
           services did not start: {failure}
         </span>
       )}
@@ -86,10 +83,14 @@ export const NewWorktree = ({ project }: { readonly project: string }) => {
   )
 }
 
+const DESTRUCTIVE =
+  "border-transparent bg-destructive text-destructive-foreground hover:bg-destructive/90 active:bg-destructive/90 hover:text-destructive-foreground"
+
 /**
  * Remove: gtd first answers what would be lost (uncommitted changes, a branch
  * not integrated); a second press confirms it.
  */
+// fallow-ignore-next-line complexity
 export const RemoveButton = ({
   project,
   worktree,
@@ -100,6 +101,7 @@ export const RemoveButton = ({
   readonly onRemoved: () => void
 }) => {
   const [confirm, setConfirm] = useState<readonly string[] | undefined>(undefined)
+  const heading = useId()
   const utils = workspaceTrpc.useUtils()
   const remove = workspaceTrpc.removeWorktree.useMutation({
     onSuccess: (answer) => {
@@ -112,7 +114,23 @@ export const RemoveButton = ({
   const send = (confirmed: boolean): void =>
     remove.mutate({ project, worktree: worktree.path, confirmed })
   return (
-    <div className="flex flex-col gap-1">
+    <section
+      className="flex flex-col gap-3 rounded-lg border border-destructive/40 bg-card p-4"
+      aria-labelledby={heading}
+      data-testid="danger-zone"
+    >
+      <div className="flex flex-col gap-1">
+        <h3 id={heading} className="flex items-center gap-2 text-sm font-semibold">
+          {confirm !== undefined && (
+            <TriangleAlert aria-hidden="true" className="size-4 text-destructive" />
+          )}
+          {confirm === undefined ? "Remove worktree" : "Remove anyway?"}
+        </h3>
+        <p className="max-w-prose text-sm text-muted-foreground">
+          Stops its services, closes the terminal panes gtd opened in it, then deletes the worktree
+          and its branch.
+        </p>
+      </div>
       {confirm === undefined ? (
         <Button
           variant="danger"
@@ -120,15 +138,27 @@ export const RemoveButton = ({
           disabled={remove.isPending}
           onClick={() => send(false)}
         >
+          <Trash2 aria-hidden="true" />
           Remove
         </Button>
       ) : (
         <>
-          <p className="text-small text-danger" data-testid="remove-confirm">
-            Remove anyway? This loses: {confirm.join(", ")}
-          </p>
-          <div className="flex gap-2">
-            <Button variant="danger" disabled={remove.isPending} onClick={() => send(true)}>
+          <div className="text-sm" role="alert" data-testid="remove-confirm">
+            <p className="font-medium">This loses:</p>
+            <ul className="list-disc pl-5 text-foreground">
+              {confirm.map((loss) => (
+                <li key={loss}>{loss}</li>
+              ))}
+            </ul>
+          </div>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="danger"
+              className={DESTRUCTIVE}
+              disabled={remove.isPending}
+              onClick={() => send(true)}
+            >
+              <Trash2 aria-hidden="true" />
               Remove anyway
             </Button>
             <Button variant="ghost" onClick={() => setConfirm(undefined)}>
@@ -138,10 +168,10 @@ export const RemoveButton = ({
         </>
       )}
       {remove.error !== null && (
-        <span className="text-small text-danger" data-testid="remove-error">
+        <span className="text-sm text-destructive" data-testid="remove-error">
           {remove.error.message}
         </span>
       )}
-    </div>
+    </section>
   )
 }

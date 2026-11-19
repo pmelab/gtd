@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import { token } from "../testing/palette.js"
 import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { fullWorkspace, outage, workspace } from "./dashboard.fixture.js"
 import { Projects } from "./Projects.js"
@@ -64,6 +65,9 @@ const rowTexts = (canvasElement: HTMLElement): string[] =>
     .getAllByTestId("worktree-row")
     .map((row) => [...row.querySelector("button")!.children].map((c) => c.textContent).join(" "))
 
+const statusOf = (row: HTMLElement): string | null | undefined =>
+  row.querySelector("[data-status]")?.textContent
+
 /** Every worktree, grouped by project, with its status, what it waits for and why. */
 export const ListsEveryWorktreeGroupedByProject: Story = {
   play: async ({ canvasElement }) => {
@@ -73,12 +77,12 @@ export const ListsEveryWorktreeGroupedByProject: Story = {
       "Portal",
     ])
     await expect(rowTexts(canvasElement)).toEqual([
-      "idle main Idle",
-      "error (crashed) broken Driver crashed — the driver exited with 1",
-      "working build Building",
-      "idle main Idle",
-      "needs you (question) plan Answer the plan",
-      "idle login Idle",
+      "main idle",
+      "broken error (crashed) Driver crashed — the driver exited with 1",
+      "build working Building",
+      "main idle",
+      "plan needs you (question) Answer the plan",
+      "login idle",
     ])
   },
 }
@@ -88,10 +92,15 @@ export const ShowsServiceChips: Story = {
   play: async ({ canvasElement }) => {
     const chips = within(canvasElement).getAllByTestId("service-chip")
     await expect(chips.map((c) => c.textContent)).toEqual([
-      "web (running)",
-      "web (stopped)",
-      "jobs (error: exit code 3)",
+      "web running",
+      "web stopped",
+      "jobs error: exit code 3",
     ])
+    const dots = chips.map((c) => getComputedStyle(c.firstElementChild!).backgroundColor)
+    await expect(dots).toEqual([token("success"), token("muted-foreground"), token("destructive")])
+    for (const chip of chips) {
+      await expect(chip.getBoundingClientRect().height).toBeGreaterThanOrEqual(24)
+    }
     await expect(chips.map((c) => c.getAttribute("href"))).toEqual([
       "https://web.portal.example.ts.net",
       "https://web.login.portal.example.ts.net",
@@ -103,9 +112,37 @@ export const ShowsServiceChips: Story = {
 /** The driver's refusal stays on the worktree while HEAD is the refused commit. */
 export const ShowsTheRefusal: Story = {
   play: async ({ canvasElement }) => {
-    await expect(within(canvasElement).getByTestId("refusal").textContent).toBe(
-      "refused: busy: still answering the last question",
+    const refusal = within(canvasElement).getByTestId("refusal")
+    await expect(within(refusal).getByTestId("refusal-reason").textContent).toBe(
+      "busy: still answering the last question",
     )
+    await expect(refusal.textContent).toContain("Last press refused.")
+  },
+}
+
+/** The worktree whose detail is open beside the list keeps a filled row, not only a focus ring. */
+export const FillsTheSelectedRow: Story = {
+  args: { selected: "/ws/portal-plan" },
+  play: async ({ canvasElement }) => {
+    const rows = within(canvasElement).getAllByTestId("worktree-row")
+    const plan = rows.find((r) => r.textContent.includes("plan"))!
+    await expect(plan.querySelector("button")).toHaveAttribute("aria-current", "true")
+    await expect(getComputedStyle(plan).backgroundColor).toBe(token("accent"))
+    const login = rows.find((r) => r.textContent.includes("login"))!
+    await expect(getComputedStyle(login).backgroundColor).toBe("rgba(0, 0, 0, 0)")
+  },
+}
+
+/** Keyboard focus rings the whole row, the same box the selection fills, not only its title. */
+export const RingsTheWholeFocusedRow: Story = {
+  args: { selected: "/ws/portal-plan" },
+  play: async ({ canvasElement }) => {
+    const rows = within(canvasElement).getAllByTestId("worktree-row")
+    const plan = rows.find((r) => r.textContent.includes("plan"))!
+    await expect(getComputedStyle(plan).boxShadow).toBe("none")
+    plan.querySelector("button")!.focus()
+    await expect(getComputedStyle(plan).boxShadow).toContain("inset")
+    await expect(getComputedStyle(plan.querySelector("button")!).outlineStyle).toBe("none")
   },
 }
 
@@ -282,7 +319,7 @@ export const EveryStatusAcrossProjects: Story = {
     await expect(within(empty).queryAllByTestId("worktree-row")).toHaveLength(0)
     for (const name of ["shop", "blog"]) {
       const rows = within(canvas.getByRole("region", { name })).getAllByTestId("worktree-row")
-      await expect(rows.map((r) => r.querySelector("button")!.children[0]!.textContent)).toEqual([
+      await expect(rows.map(statusOf)).toEqual([
         "idle",
         "idle",
         "needs you",

@@ -37,3 +37,22 @@ export const inlineStyles = (template, css) =>
     STYLE_TAG_PATTERN,
     () => `<style>\n${css.replaceAll("</style>", "<\\/style>")}\n</style>`,
   )
+
+/** An app icon link in the template, `href="./icons/<file>"`. The client is one page with no asset route, so each icon ships inline as a data URI. */
+const ICON_HREF_PATTERN = /href="\.\/icons\/([\w.-]+)"/g
+
+/** The icon files `template` links, in order. */
+export const iconNames = (template) => [...template.matchAll(ICON_HREF_PATTERN)].map((m) => m[1])
+
+const ICON_TYPES = { svg: "image/svg+xml", png: "image/png" }
+
+/** Replaces every icon link with a data URI; `icons` maps a file name to its base64 content. */
+export const inlineIcons = (template, icons) =>
+  template.replace(ICON_HREF_PATTERN, (_, name) => {
+    const data = icons[name]
+    const type = ICON_TYPES[name.split(".").pop()]
+    if (data === undefined || type === undefined) {
+      throw new Error(`src/web/index.html links icons/${name}, which is not an inlinable icon`)
+    }
+    return `href="data:${type};base64,${data}"`
+  })

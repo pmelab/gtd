@@ -1,55 +1,55 @@
+import { cva, type VariantProps } from "class-variance-authority"
+import { Slot } from "radix-ui"
 import { cn } from "./cn.js"
 
-export type ButtonVariant = "primary" | "secondary" | "ghost" | "danger"
-
-export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> {
-  readonly variant?: ButtonVariant
-}
-
-/**
- * One control system for every button in `src/web/` (package 02 Task 6) —
- * always `min-h-11 min-w-11` (Tailwind's 4px scale makes that exactly the
- * 44px thumb floor, no literal to retype), with real `active:`/`disabled:`/
- * `focus-visible:` pseudo-class utilities standing in for the hand-rolled
- * default/pressed/disabled states call sites used to fake with inline
- * styles. Tailwind's own preflight reset already strips native button chrome
- * (background/border/font), so nothing here re-erases it — a call site that
- * still does that by hand is the one thing this component exists to make
- * unnecessary.
+/*
+ * 44px tall below 1024px (the phone thumb floor), 36px from the desktop
+ * split up. The press scales on a transition, not a keyframe, so it stays
+ * interruptible; the pressed colour lands on the first frame.
  */
-const VARIANT_CLASSES: Record<ButtonVariant, string> = {
-  primary:
-    "bg-accent text-on-accent border border-border active:bg-accent-pressed disabled:border-dashed disabled:bg-disabled disabled:text-on-accent",
-  secondary:
-    "bg-surface text-text border border-border active:bg-accent active:text-on-accent disabled:border-dashed disabled:bg-surface disabled:text-disabled",
-  ghost: "bg-transparent text-text active:bg-accent active:text-on-accent disabled:text-disabled",
-  danger:
-    "bg-transparent text-danger border border-border active:bg-accent active:text-on-accent disabled:border-dashed disabled:text-disabled",
-}
-
-/**
- * `active:scale-96` with a 150ms transition, not a keyframe: a press is a
- * high-frequency interaction, so its feedback has to be interruptible (a
- * transition is, an animation is not) and short enough to never be waited
- * on. The scale is always exactly 0.96 — below ~0.95 a press reads as a
- * bounce rather than a depress. Only `scale` transitions: the pressed COLOUR
- * has to land on the first frame (it is the state cue motion may never be
- * the only carrier of), and it is what the press-state stories sample.
- */
-const BASE_CLASSES = [
-  "min-h-11 min-w-11 rounded px-3 py-2 text-body font-medium",
-  "transition-[scale] duration-150 ease-out active:scale-96",
-  "focus-visible:outline focus-visible:outline-2 focus-visible:outline-ring",
-  "disabled:pointer-events-none",
-].join(" ")
-
-export const Button = ({ variant = "secondary", className, children, ...props }: ButtonProps) => (
-  <button
-    type="button"
-    className={cn(BASE_CLASSES, VARIANT_CLASSES[variant], className)}
-    {...props}
-  >
-    {variant === "danger" && <span aria-hidden="true">⚠ </span>}
-    {children}
-  </button>
+const buttonVariants = cva(
+  [
+    "inline-flex shrink-0 items-center justify-center gap-2 rounded-md text-sm font-medium whitespace-nowrap select-none",
+    "transition-[scale] duration-150 ease-out active:scale-96",
+    "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
+    "disabled:pointer-events-none disabled:opacity-50",
+    "[&_svg]:pointer-events-none [&_svg]:size-4 [&_svg]:shrink-0",
+  ].join(" "),
+  {
+    variants: {
+      variant: {
+        primary:
+          "bg-primary text-primary-foreground hover:bg-primary-pressed/80 active:bg-primary-pressed",
+        secondary:
+          "border border-border bg-card text-foreground shadow-[0_1px_2px_rgb(21_26_29/0.05)] hover:bg-accent active:bg-accent",
+        ghost: "bg-transparent text-foreground hover:bg-accent active:bg-accent",
+        danger:
+          "border border-destructive/50 bg-card text-destructive hover:bg-destructive hover:text-destructive-foreground active:bg-destructive active:text-destructive-foreground",
+        link: "h-auto min-h-0 px-0 text-foreground underline underline-offset-4 decoration-muted-foreground hover:decoration-foreground active:scale-100",
+      },
+      size: {
+        default: "min-h-11 min-w-11 px-4 lg:min-h-9 lg:min-w-9 lg:px-3",
+        sm: "min-h-11 min-w-11 px-3 text-xs lg:min-h-8 lg:min-w-8",
+        icon: "size-11 lg:size-9",
+      },
+    },
+    defaultVariants: { variant: "secondary", size: "default" },
+  },
 )
+
+export interface ButtonProps
+  extends React.ButtonHTMLAttributes<HTMLButtonElement>, VariantProps<typeof buttonVariants> {
+  readonly asChild?: boolean
+}
+
+export const Button = ({ variant, size, asChild = false, className, ...props }: ButtonProps) => {
+  const Comp = asChild ? Slot.Root : "button"
+  return (
+    <Comp
+      data-slot="button"
+      {...(asChild ? {} : { type: "button" as const })}
+      className={cn(buttonVariants({ variant, size }), className)}
+      {...props}
+    />
+  )
+}

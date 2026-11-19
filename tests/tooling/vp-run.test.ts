@@ -69,6 +69,10 @@ describe("vite.config.ts run tasks", () => {
       "@trpc/react-query",
       "tailwind-merge",
       "zustand",
+      "radix-ui",
+      "class-variance-authority",
+      "clsx",
+      "lucide-react",
     ]) {
       expect(pkg.dependencies, `"${name}" must not be a runtime dependency`).not.toHaveProperty(
         name,

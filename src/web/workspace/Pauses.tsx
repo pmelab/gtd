@@ -1,74 +1,58 @@
+import { Pause, Play } from "lucide-react"
 import { Button } from "../Button.js"
+import { cn } from "../cn.js"
 import type { FeedView, PauseScope } from "./view.js"
 
+export type OnPause = (scope: PauseScope, pause: boolean) => void
+
 const same = (a: PauseScope, b: PauseScope): boolean => a.project === b.project && a.feed === b.feed
+
+export const isPaused = (paused: readonly PauseScope[], scope: PauseScope): boolean =>
+  paused.some((p) => same(p, scope))
 
 const nameOf = ({ project, feed }: PauseScope): string =>
   feed !== undefined ? `feed ${feed}` : (project ?? "workspace")
 
-const indentOf = ({ project, feed }: PauseScope): string =>
-  feed !== undefined ? "pl-6" : project !== undefined ? "pl-3" : ""
+/** The projects that have feeds, in order, each with its feeds. */
+export const feedsByProject = (feeds: readonly FeedView[]): [string, string[]][] =>
+  [...new Set(feeds.map((f) => f.project))]
+    .sort()
+    .map((project) => [project, feeds.filter((f) => f.project === project).map((f) => f.feed)])
 
-// The workspace, then each project with its feeds.
-const scopesOf = (feeds: readonly FeedView[]): PauseScope[] => {
-  const projects = [...new Set(feeds.map((f) => f.project))].sort()
-  return [
-    {},
-    ...projects.flatMap((project) => [
-      { project },
-      ...feeds.filter((f) => f.project === project).map((f) => ({ project, feed: f.feed })),
-    ]),
-  ]
-}
-
-const ScopeRow = ({
+/** Whether the workspace, a project or a feed dispatches, and the press that flips it. */
+export const PauseControl = ({
   scope,
   paused,
   onPause,
+  className,
+  nameClassName,
 }: {
   readonly scope: PauseScope
   readonly paused: boolean
-  readonly onPause: (scope: PauseScope, pause: boolean) => void
+  readonly onPause: OnPause
+  readonly className?: string
+  readonly nameClassName?: string
 }) => (
-  <li
-    className={`flex items-center justify-between gap-2 text-small ${indentOf(scope)}`}
+  <div
+    className={cn("flex min-w-0 items-center justify-between gap-2", className)}
     data-testid="pause-scope"
   >
-    <span>
-      {nameOf(scope)}
-      <span className={paused ? "text-warning" : "text-muted"}>
+    <p className="min-w-0 text-sm">
+      <span className={cn("font-medium", nameClassName)}>{nameOf(scope)}</span>
+      <span className={paused ? "font-medium text-warning" : "text-muted-foreground"}>
         {paused ? " · paused" : " · dispatching"}
       </span>
-    </span>
+    </p>
     <Button
-      variant="secondary"
+      variant="ghost"
+      size="sm"
+      className="shrink-0"
       onClick={() => {
         onPause(scope, !paused)
       }}
     >
+      {paused ? <Play aria-hidden="true" /> : <Pause aria-hidden="true" />}
       {paused ? "Resume" : "Pause"}
     </Button>
-  </li>
-)
-
-/** Pause and resume dispatch in the workspace, a project, or a feed. */
-export const Pauses = ({
-  feeds,
-  paused,
-  onPause,
-}: {
-  readonly feeds: readonly FeedView[]
-  readonly paused: readonly PauseScope[]
-  readonly onPause: (scope: PauseScope, pause: boolean) => void
-}) => (
-  <ul className="flex flex-col gap-1" aria-label="Dispatch">
-    {scopesOf(feeds).map((scope) => (
-      <ScopeRow
-        key={`${scope.project ?? ""}/${scope.feed ?? ""}`}
-        scope={scope}
-        paused={paused.some((p) => same(p, scope))}
-        onPause={onPause}
-      />
-    ))}
-  </ul>
+  </div>
 )

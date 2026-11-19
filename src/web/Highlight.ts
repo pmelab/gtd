@@ -12,6 +12,15 @@ export interface Token {
   readonly className?: string
 }
 
+/** A token class's colour, shared by diffs and fenced code blocks. */
+export const TOKEN_COLOR: Readonly<Record<string, string>> = {
+  com: "text-syntax-com",
+  str: "text-syntax-str",
+  kw: "text-syntax-kw",
+  num: "text-syntax-num",
+  typ: "text-syntax-typ",
+}
+
 export type LineKind = "add" | "del" | "context" | "header" | "marker"
 
 /**
@@ -80,4 +89,46 @@ export const highlightDiffLine = (
   const kind = lineKind(line)
   if (kind === "header" || kind === "marker") return { kind, tokens: [{ text: line }] }
   return { kind, tokens: tokenize(line.slice(1)) }
+}
+
+/** A body line's position in the old and new file; a side is absent where the line does not exist (`+` has no old number, `-` no new one, header and marker neither). */
+export interface LineNumbers {
+  readonly old?: number
+  readonly new?: number
+}
+
+const HUNK_START = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
+
+/** Numbers every body line of a whole (unsliced) hunk from its `@@` header. */
+export const numberHunkLines = (header: string, lines: readonly string[]): LineNumbers[] => {
+  const match = HUNK_START.exec(header)
+  if (match === null) return lines.map(() => ({}))
+  let oldLine = Number(match[1])
+  let newLine = Number(match[2])
+  return lines.map((line): LineNumbers => {
+    const kind = lineKind(line)
+    if (kind === "add") return { new: newLine++ }
+    if (kind === "del") return { old: oldLine++ }
+    if (kind === "context") return { old: oldLine++, new: newLine++ }
+    return {}
+  })
+}
+
+/**
+ * A range slice keeps the whole hunk's header, so its numbers come from
+ * finding the slice inside the whole hunk's body (a slice is always a
+ * contiguous run of it). No numbers when the slice is not found there.
+ */
+export const numberSlicedLines = (
+  header: string,
+  wholeLines: readonly string[],
+  slice: readonly string[],
+): LineNumbers[] => {
+  const numbers = numberHunkLines(header, wholeLines)
+  for (let start = 0; start + slice.length <= wholeLines.length; start++) {
+    if (slice.every((line, i) => wholeLines[start + i] === line)) {
+      return numbers.slice(start, start + slice.length)
+    }
+  }
+  return slice.map(() => ({}))
 }

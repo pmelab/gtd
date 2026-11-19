@@ -1,17 +1,22 @@
+import { MessageSquarePlus, MessageSquareText } from "lucide-react"
+import { cn } from "../cn.js"
+import { TOKEN_COLOR, tokenize } from "../Highlight.js"
 import type { ReactElement } from "react"
 import type { BlockListItem, SteeringViewNode } from "../../steering/index.js"
 import { Inline } from "./InlineRun.js"
 
-/** The heading tag a `block.heading`'s own `depth` renders as — three buckets covering all six markdown levels, never a literal `h1`..`h6` (this screen's own `h2` already labels "Open Questions"/"Already answered"). */
-const headingTagFor = (depth: number): "h2" | "h3" | "h4" => {
-  if (depth <= 2) return "h2"
-  if (depth === 3) return "h3"
-  return "h4"
-}
+/** The page header holds the `h1`, so a markdown `#` is an `h2`. */
+const headingTagFor = (depth: number): "h2" | "h3" | "h4" | "h5" =>
+  depth <= 1 ? "h2" : depth === 2 ? "h3" : depth === 3 ? "h4" : "h5"
 
 /** A checkbox in static content: shown, never an input — only a widget's boxes are answers. */
 const TaskBox = ({ item }: { readonly item: BlockListItem }) => (
-  <input type="checkbox" checked={item.checked === true} readOnly className="mr-2 align-middle" />
+  <input
+    type="checkbox"
+    checked={item.checked === true}
+    readOnly
+    className="mr-2 size-4 align-[-0.15em] accent-foreground"
+  />
 )
 
 /** One `list` block's own items, recursively — a nested `items` array renders as a nested `ul`/`ol` inside its parent's `li`. */
@@ -24,9 +29,11 @@ const BlockList = ({
 }) => {
   const ListTag = ordered ? "ol" : "ul"
   return (
-    <ListTag className={`m-0 list-outside pl-5 ${ordered ? "list-decimal" : "list-disc"}`}>
+    <ListTag
+      className={`m-0 list-outside space-y-1 pl-5 marker:text-muted-foreground ${ordered ? "list-decimal" : "list-disc"}`}
+    >
       {items.map((item, index) => (
-        <li key={index}>
+        <li key={index} className="pl-1 [&>ol]:mt-1 [&>ul]:mt-1">
           {item.checked !== undefined && <TaskBox item={item} />}
           <Inline inline={item.inline} fallback={item.text} />
           {item.items !== undefined && <BlockList items={item.items} ordered={ordered} />}
@@ -36,81 +43,71 @@ const BlockList = ({
   )
 }
 
-/** A `heading` block's own rendering — its own component so `BlockBody`'s switch stays a plain dispatch, with every field's fallback living next to the field it defaults. */
-/** Size follows depth: every heading rendering at one size makes a document's own sections indistinguishable from its subsections, which is the whole reason the depth survived into `block`. */
-const HEADING_CLASSES: Record<"h2" | "h3" | "h4", string> = {
-  h2: "text-large font-bold",
-  h3: "text-body font-semibold",
-  h4: "text-small font-medium tracking-wide uppercase",
+const HEADING_CLASSES: Record<"h2" | "h3" | "h4" | "h5", string> = {
+  h2: "text-2xl",
+  h3: "text-xl",
+  h4: "text-lg",
+  h5: "text-base",
 }
 
 const HeadingBlock = ({ node }: { readonly node: SteeringViewNode }) => {
   const HeadingTag = headingTagFor(node.block?.depth ?? 2)
   return (
-    <HeadingTag className={`m-0 px-3 pt-4 pb-1 font-semibold ${HEADING_CLASSES[HeadingTag]}`}>
+    <HeadingTag
+      className={`m-0 py-1 leading-tight font-semibold tracking-tight ${HEADING_CLASSES[HeadingTag]}`}
+    >
       <Inline inline={node.block?.inline} fallback={node.title} />
     </HeadingTag>
   )
 }
 
-/** A `list` block's own rendering — see `HeadingBlock`'s doc comment for why this is split out. */
 const ListBlock = ({ node }: { readonly node: SteeringViewNode }) => (
-  <div className="px-3 py-2 marker:text-link">
+  <div className="py-1">
     <BlockList items={node.block?.items ?? []} ordered={node.block?.ordered === true} />
   </div>
 )
 
-/** A `code` block's own rendering — see `HeadingBlock`'s doc comment for why this is split out. */
-const CodeBlock = ({ node }: { readonly node: SteeringViewNode }) => (
-  // Own `code-bg` colour, never `bg-muted`: `muted` is a TEXT colour.
-  <pre className="mx-3 my-2 overflow-x-auto rounded bg-code-bg p-3 text-small text-code">
-    <code>{node.block?.text ?? ""}</code>
-  </pre>
-)
+/** Info strings that name no code: shown as written, without token colours. */
+const PLAIN = new Set(["text", "txt", "plain", "plaintext", "md", "markdown", "diff", "log"])
 
-/** A `blockquote` block's own rendering — see `HeadingBlock`'s doc comment for why this is split out. */
+const CodeBlock = ({ node }: { readonly node: SteeringViewNode }) => {
+  const text = node.block?.text ?? ""
+  const language = node.block?.language?.toLowerCase()
+  const plain = language !== undefined && PLAIN.has(language)
+  return (
+    <pre
+      data-language={language}
+      className="scrollbar-thin m-0 overflow-x-auto rounded-md border border-border bg-code-bg p-3 font-mono text-sm leading-relaxed text-foreground"
+    >
+      <code>
+        {plain
+          ? text
+          : tokenize(text).map((token, i) => (
+              <span
+                key={i}
+                className={token.className !== undefined ? TOKEN_COLOR[token.className] : undefined}
+              >
+                {token.text}
+              </span>
+            ))}
+      </code>
+    </pre>
+  )
+}
+
 const BlockquoteBlock = ({ node }: { readonly node: SteeringViewNode }) => (
-  <blockquote className="m-0 border-l-4 border-quote px-3 py-2 text-muted italic">
+  <blockquote className="m-0 rounded-md border border-border bg-muted px-4 py-3 text-muted-foreground">
     <Inline inline={node.block?.inline} fallback={node.block?.text ?? node.title} />
   </blockquote>
 )
 
-/**
- * The mark a block carries when a note is attached to it. Overlaid on the
- * block rather than placed in flow: it must be findable while SKIMMING a
- * long document — the note's own text sits below the block and is only
- * readable once you are already there. `aria-hidden` because the block's own
- * accessible name already says it has one ("Edit this block's note"), so
- * announcing it twice tells a screen-reader user nothing new.
- */
-const NoteBadge = ({ index }: { readonly index: number }) => (
-  <span
-    data-testid={`note-badge-${index}`}
-    aria-hidden="true"
-    className="pointer-events-none absolute top-1 right-1 text-warning"
-  >
-    <svg
-      viewBox="0 0 24 24"
-      className="size-4"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-    </svg>
-  </span>
-)
-
-/** The plain `p` fallback — `block` absent, or a `kind` this doesn't (yet) render structure for — exactly the fallback Task 4 requires so a client that ignores `block` still renders `title`. */
+/** The fallback when `block` is absent or of a kind without its own renderer: `title` still shows. */
 const ParagraphBlock = ({ node }: { readonly node: SteeringViewNode }) => (
-  <p className="m-0 px-3 py-2">
+  <p className="m-0 py-1 leading-relaxed">
     <Inline inline={node.block?.inline} fallback={node.title} />
   </p>
 )
 
-/** One renderer per `block.kind` this switches on — a lookup table, not a `switch`, so `BlockBody` itself stays a single dispatch with no per-case branch of its own. */
 const BLOCK_RENDERERS: Record<
   string,
   (props: { readonly node: SteeringViewNode }) => ReactElement
@@ -121,7 +118,6 @@ const BLOCK_RENDERERS: Record<
   blockquote: BlockquoteBlock,
 }
 
-/** The structural element `block` renders as — see `BLOCK_RENDERERS`/`ParagraphBlock` for the per-kind renderers and the fallback. */
 const BlockBody = ({ node }: { readonly node: SteeringViewNode }) => {
   const Renderer = BLOCK_RENDERERS[node.block?.kind ?? ""] ?? ParagraphBlock
   return <Renderer node={node} />
@@ -160,13 +156,13 @@ const ProseBlock = ({
   const isCode = node.block?.kind === "code"
   const notable = !isCode && readOnly !== true
   return (
-    <div>
+    <div className={node.block?.kind === "heading" ? "mt-8 mb-1 first:mt-0" : "mt-2 first:mt-0"}>
       {/*
        * The note gesture is a DOUBLE TAP on the block itself — there is no
        * per-block control at all, because any control repeated once per
        * paragraph competes with the document it annotates. What that costs
        * is discoverability and a keyboard path, so both are bought back
-       * here rather than left out: `ProseBlocks` states the gesture once at
+       * here rather than left out: the document states the gesture once at
        * the top, and the block is a real focusable `button`-roled target
        * that Enter/Space opens, which is also what a screen reader
        * announces. `touch-manipulation` is load-bearing on a phone: without
@@ -193,51 +189,73 @@ const ProseBlock = ({
               },
             }
           : {})}
-        className={`relative ${
-          notable
-            ? "touch-manipulation focus-visible:outline focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
-            : ""
-        }`}
+        className={cn(
+          "relative -mx-2 rounded-md px-2",
+          notable &&
+            "touch-manipulation transition-colors focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring pointer-fine:hover:bg-accent/60",
+          !isCode && hasNote && "bg-muted py-1 pointer-fine:hover:bg-accent",
+        )}
       >
-        {!isCode && hasNote && <NoteBadge index={index} />}
         <BlockBody node={node} />
-        {!isCode && noteText !== undefined && noteText.length > 0 && (
-          <div data-testid={`paragraph-note-${index}`} className="px-3 pb-2 text-small text-muted">
-            {noteText}
-          </div>
+        {!isCode && hasNote && (
+          <p
+            data-testid={`paragraph-note-${index}`}
+            className="m-0 mt-1 mb-1 flex gap-2 border-t border-border pt-2 text-sm text-foreground"
+          >
+            <MessageSquareText
+              aria-hidden="true"
+              data-testid={`note-badge-${index}`}
+              className="mt-0.5 size-4 shrink-0 text-warning"
+            />
+            <span className="min-w-0">{noteText}</span>
+          </p>
         )}
       </div>
     </div>
   )
 }
 
-/** Prose-only rendering: one `ProseBlock` per `view.nodes` entry (each carrying a real, server-computed `paragraph` anchor — `OpenQuestions.ts#blockNodesOf`). A block already carrying a note (`node.note`, or a locally-saved override) shows it inline and offers editing via the same seam, never a second note — unless `readOnly` (see `ProseBlock`'s own doc comment), which never renders the seam at all. */
+/** A block already carrying a note shows it inline and edits it through the same seam, never a second note. */
 export const ProseBlocks = ({
   nodes,
   noteOverrides,
   onOpenNote,
   readOnly,
+  hideFirst = false,
 }: {
   readonly nodes: readonly SteeringViewNode[]
   readonly noteOverrides: Readonly<Record<number, string>>
   readonly onOpenNote: (node: SteeringViewNode) => void
   readonly readOnly?: boolean
+  /** Skips the first block but keeps every other block's index. */
+  readonly hideFirst?: boolean
 }) => (
   <div data-testid="prose-paragraphs">
-    {readOnly !== true && (
-      <p data-testid="note-gesture-hint" className="m-0 px-3 py-2 text-small text-muted">
-        Double-tap any block to note something about it.
-      </p>
+    {nodes.map((node, index) =>
+      hideFirst && index === 0 ? null : (
+        <ProseBlock
+          key={node.anchor.kind === "paragraph" ? node.anchor.line : index}
+          node={node}
+          index={index}
+          noteOverrides={noteOverrides}
+          onOpenNote={onOpenNote}
+          {...(readOnly !== undefined ? { readOnly } : {})}
+        />
+      ),
     )}
-    {nodes.map((node, index) => (
-      <ProseBlock
-        key={node.anchor.kind === "paragraph" ? node.anchor.line : index}
-        node={node}
-        index={index}
-        noteOverrides={noteOverrides}
-        onOpenNote={onOpenNote}
-        {...(readOnly !== undefined ? { readOnly } : {})}
-      />
-    ))}
   </div>
+)
+
+/** Shown once per page: the note gesture has no visible control of its own. */
+export const NoteGestureHint = () => (
+  <p
+    data-testid="note-gesture-hint"
+    className="m-0 mb-4 flex items-center gap-2 text-sm text-muted-foreground"
+  >
+    <MessageSquarePlus aria-hidden="true" className="size-4 shrink-0" />
+    <span className="hidden pointer-coarse:inline">Double-tap any block to add a note.</span>
+    <span className="hidden pointer-fine:inline">
+      Double-click any block, or focus it and press Enter, to add a note.
+    </span>
+  </p>
 )

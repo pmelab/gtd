@@ -91,6 +91,44 @@ describe("widgetFormat.view", () => {
   })
 })
 
+describe("widgetFormat.view inline markdown", () => {
+  const doc = [
+    "# Findings",
+    "",
+    "## 🔘 F1: the `bucket` key",
+    "",
+    "**High** · [src/limit.ts#12](./src/limit.ts#12)",
+    "",
+    "Hash it first.",
+    "",
+    "- [ ] Fix it with `sha256`",
+    "- [ ] Accept",
+    "",
+  ].join("\n")
+  const select = widgetFormat.view(doc).nodes.find((n) => n.status === "single-select")!
+
+  it("gives a widget's title and its options' labels their inline structure", () => {
+    expect(select.titleInline).toEqual([
+      { kind: "text", value: "F1: the " },
+      { kind: "code", value: "bucket" },
+      { kind: "text", value: " key" },
+    ])
+    expect(select.children?.[0]?.titleInline).toContainEqual({ kind: "code", value: "sha256" })
+  })
+
+  it("renders a widget's description as prose blocks anchored at their own lines", () => {
+    expect(select.body?.map((b) => b.anchor)).toEqual([
+      { kind: "paragraph", line: 4 },
+      { kind: "paragraph", line: 6 },
+    ])
+    expect(select.body?.[0]?.block?.inline).toContainEqual({
+      kind: "link",
+      href: "./src/limit.ts#12",
+      children: [{ kind: "text", value: "src/limit.ts#12" }],
+    })
+  })
+})
+
 describe("widgetFormat.view base marker", () => {
   const SHA = "e9503c1a2b3c4d5e"
   it("reads the base, shortened to 7 characters, and hides the marker", () => {

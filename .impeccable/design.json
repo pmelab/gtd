@@ -1,0 +1,829 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-19T10:26:02+00:00",
+  "title": "Design System: gtd",
+  "extensions": {
+    "colorMeta": {
+      "background": {
+        "role": "neutral",
+        "displayName": "Warm Paper",
+        "canonical": "oklch(96.6% 0.004 106.5)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#242423",
+          "#40403e",
+          "#5e5e5b",
+          "#80807e",
+          "#a5a5a2",
+          "#cacac9",
+          "#eeeeed"
+        ]
+      },
+      "foreground": {
+        "role": "neutral",
+        "displayName": "Charcoal Ink",
+        "canonical": "oklch(21.4% 0.010 234.2)",
+        "tonalRamp": [
+          "#090b0d",
+          "#212527",
+          "#3c4043",
+          "#595e62",
+          "#7b8185",
+          "#a0a5a9",
+          "#c7cbce",
+          "#ebeff1"
+        ]
+      },
+      "card": {
+        "role": "neutral",
+        "displayName": "Card White",
+        "canonical": "oklch(98.4% 0.004 106.5)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#242423",
+          "#40403e",
+          "#5e5e5b",
+          "#80807e",
+          "#a5a5a2",
+          "#cacac9",
+          "#eeeeed"
+        ]
+      },
+      "primary": {
+        "role": "primary",
+        "displayName": "Signal Yellow",
+        "canonical": "oklch(84.9% 0.166 84.7)",
+        "tonalRamp": [
+          "#1a0500",
+          "#3a1c00",
+          "#5e3600",
+          "#845200",
+          "#aa7600",
+          "#ca9d33",
+          "#eac578",
+          "#ffebb0"
+        ]
+      },
+      "primary-foreground": {
+        "role": "neutral",
+        "displayName": "Charcoal on Yellow",
+        "canonical": "oklch(21.4% 0.010 234.2)",
+        "tonalRamp": [
+          "#090b0d",
+          "#212527",
+          "#3c4043",
+          "#595e62",
+          "#7b8185",
+          "#a0a5a9",
+          "#c7cbce",
+          "#ebeff1"
+        ]
+      },
+      "primary-pressed": {
+        "role": "primary",
+        "displayName": "Pressed Yellow",
+        "canonical": "oklch(77.0% 0.159 81.9)",
+        "tonalRamp": [
+          "#1a0500",
+          "#3b1b00",
+          "#5f3500",
+          "#855100",
+          "#ac7400",
+          "#cb9c3c",
+          "#ebc47d",
+          "#ffeab3"
+        ]
+      },
+      "accent": {
+        "role": "neutral",
+        "displayName": "Stone Wash",
+        "canonical": "oklch(93.0% 0.005 106.5)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#242422",
+          "#40403d",
+          "#5e5e5b",
+          "#80807d",
+          "#a5a5a2",
+          "#cbcbc8",
+          "#eeeeed"
+        ]
+      },
+      "muted": {
+        "role": "neutral",
+        "displayName": "Stone Wash Muted",
+        "canonical": "oklch(93.9% 0.005 106.5)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#242422",
+          "#40403d",
+          "#5e5e5b",
+          "#80807d",
+          "#a5a5a2",
+          "#cbcbc8",
+          "#eeeeed"
+        ]
+      },
+      "muted-foreground": {
+        "role": "neutral",
+        "displayName": "Slate Muted",
+        "canonical": "oklch(48.5% 0.013 243.8)",
+        "tonalRamp": [
+          "#090b0e",
+          "#212528",
+          "#3b4045",
+          "#585e64",
+          "#7a8187",
+          "#9fa5ab",
+          "#c6cbd0",
+          "#ebeff2"
+        ]
+      },
+      "border": {
+        "role": "neutral",
+        "displayName": "Hairline Grey",
+        "canonical": "oklch(89.6% 0.005 117.9)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#242422",
+          "#3f403e",
+          "#5d5e5b",
+          "#80817d",
+          "#a4a5a2",
+          "#cacbc8",
+          "#eeefed"
+        ]
+      },
+      "input": {
+        "role": "neutral",
+        "displayName": "Field Grey",
+        "canonical": "oklch(62.3% 0.009 236.7)",
+        "tonalRamp": [
+          "#090b0d",
+          "#212427",
+          "#3c4043",
+          "#595e62",
+          "#7c8185",
+          "#a0a5a9",
+          "#c7cbce",
+          "#eceff1"
+        ]
+      },
+      "ring": {
+        "role": "neutral",
+        "displayName": "Focus Ink",
+        "canonical": "oklch(21.4% 0.010 234.2)",
+        "tonalRamp": [
+          "#090b0d",
+          "#212527",
+          "#3c4043",
+          "#595e62",
+          "#7b8185",
+          "#a0a5a9",
+          "#c7cbce",
+          "#ebeff1"
+        ]
+      },
+      "disabled": {
+        "role": "neutral",
+        "displayName": "Disabled Grey",
+        "canonical": "oklch(66.0% 0.009 236.6)",
+        "tonalRamp": [
+          "#090b0d",
+          "#212426",
+          "#3c4043",
+          "#595e62",
+          "#7c8185",
+          "#a1a5a9",
+          "#c7cbce",
+          "#eceff1"
+        ]
+      },
+      "destructive": {
+        "role": "error",
+        "displayName": "Error Red",
+        "canonical": "oklch(53.7% 0.190 21.0)",
+        "tonalRamp": [
+          "#270000",
+          "#4f0007",
+          "#7b031a",
+          "#aa1e2f",
+          "#d64750",
+          "#f47a7b",
+          "#ffaaa9",
+          "#ffd6d3"
+        ]
+      },
+      "destructive-foreground": {
+        "role": "neutral",
+        "displayName": "Ink on Red",
+        "canonical": "oklch(98.4% 0.004 106.5)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#242423",
+          "#40403e",
+          "#5e5e5b",
+          "#80807e",
+          "#a5a5a2",
+          "#cacac9",
+          "#eeeeed"
+        ]
+      },
+      "warning": {
+        "role": "warning",
+        "displayName": "Caution Amber",
+        "canonical": "oklch(50.8% 0.108 73.3)",
+        "tonalRamp": [
+          "#180600",
+          "#371d00",
+          "#5a3700",
+          "#7f5309",
+          "#a47634",
+          "#c59d68",
+          "#e6c49a",
+          "#ffeac8"
+        ]
+      },
+      "success": {
+        "role": "success",
+        "displayName": "Running Green",
+        "canonical": "oklch(48.4% 0.106 156.3)",
+        "tonalRamp": [
+          "#001103",
+          "#002d16",
+          "#0e4c2d",
+          "#246d46",
+          "#499267",
+          "#79b48f",
+          "#a8d8b9",
+          "#d3fae0"
+        ]
+      },
+      "diff-add": {
+        "role": "diff",
+        "displayName": "Diff Add",
+        "canonical": "oklch(92.8% 0.042 152.8)",
+        "tonalRamp": [
+          "#050e07",
+          "#1a281e",
+          "#334537",
+          "#4d6453",
+          "#6f8775",
+          "#96ab9b",
+          "#bed0c2",
+          "#e5f3e8"
+        ]
+      },
+      "diff-del": {
+        "role": "diff",
+        "displayName": "Diff Delete",
+        "canonical": "oklch(90.1% 0.041 10.3)",
+        "tonalRamp": [
+          "#120809",
+          "#2f1f21",
+          "#4f393c",
+          "#715559",
+          "#95777b",
+          "#b89da0",
+          "#dbc4c6",
+          "#fbe9eb"
+        ]
+      },
+      "code": {
+        "role": "code",
+        "displayName": "Inline Code Ink",
+        "canonical": "oklch(38.1% 0.098 51.7)",
+        "tonalRamp": [
+          "#1a0400",
+          "#3b1a03",
+          "#5f3315",
+          "#854e2a",
+          "#ac704b",
+          "#cc9778",
+          "#ecc0a6",
+          "#ffe6d2"
+        ]
+      },
+      "background-dark": {
+        "role": "neutral",
+        "displayName": "Warm Paper (dark)",
+        "canonical": "oklch(21.4% 0.010 234.2)",
+        "tonalRamp": [
+          "#090b0d",
+          "#212527",
+          "#3c4043",
+          "#595e62",
+          "#7b8185",
+          "#a0a5a9",
+          "#c7cbce",
+          "#ebeff1"
+        ]
+      },
+      "foreground-dark": {
+        "role": "neutral",
+        "displayName": "Charcoal Ink (dark)",
+        "canonical": "oklch(98.4% 0.004 106.5)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#242423",
+          "#40403e",
+          "#5e5e5b",
+          "#80807e",
+          "#a5a5a2",
+          "#cacac9",
+          "#eeeeed"
+        ]
+      },
+      "card-dark": {
+        "role": "neutral",
+        "displayName": "Card White (dark)",
+        "canonical": "oklch(24.3% 0.012 237.2)",
+        "tonalRamp": [
+          "#090c0d",
+          "#212527",
+          "#3b4144",
+          "#585f63",
+          "#7a8186",
+          "#9fa6aa",
+          "#c6cbcf",
+          "#ebeff2"
+        ]
+      },
+      "primary-pressed-dark": {
+        "role": "primary",
+        "displayName": "Pressed Yellow (dark)",
+        "canonical": "oklch(74.6% 0.148 83.6)",
+        "tonalRamp": [
+          "#190600",
+          "#391d00",
+          "#5c3700",
+          "#815400",
+          "#a77700",
+          "#c79e46",
+          "#e8c683",
+          "#ffebb7"
+        ]
+      },
+      "accent-dark": {
+        "role": "neutral",
+        "displayName": "Stone Wash (dark)",
+        "canonical": "oklch(29.2% 0.013 239.0)",
+        "tonalRamp": [
+          "#090c0e",
+          "#202528",
+          "#3b4145",
+          "#585f64",
+          "#7a8187",
+          "#9fa6ab",
+          "#c6cbcf",
+          "#ebeff2"
+        ]
+      },
+      "muted-dark": {
+        "role": "neutral",
+        "displayName": "Stone Wash Muted (dark)",
+        "canonical": "oklch(27.2% 0.012 232.9)",
+        "tonalRamp": [
+          "#090c0d",
+          "#202527",
+          "#3b4144",
+          "#585f63",
+          "#7a8286",
+          "#9fa6aa",
+          "#c6cbcf",
+          "#ebeff2"
+        ]
+      },
+      "muted-foreground-dark": {
+        "role": "neutral",
+        "displayName": "Slate Muted (dark)",
+        "canonical": "oklch(72.8% 0.009 236.6)",
+        "tonalRamp": [
+          "#090b0d",
+          "#222426",
+          "#3c4043",
+          "#595e62",
+          "#7c8185",
+          "#a1a5a8",
+          "#c7cbce",
+          "#eceff1"
+        ]
+      },
+      "border-dark": {
+        "role": "neutral",
+        "displayName": "Hairline Grey (dark)",
+        "canonical": "oklch(32.0% 0.014 235.3)",
+        "tonalRamp": [
+          "#080c0e",
+          "#202528",
+          "#3a4145",
+          "#575f64",
+          "#798287",
+          "#9ea6ab",
+          "#c5ccd0",
+          "#eaeff2"
+        ]
+      },
+      "input-dark": {
+        "role": "neutral",
+        "displayName": "Field Grey (dark)",
+        "canonical": "oklch(52.9% 0.014 236.8)",
+        "tonalRamp": [
+          "#080c0e",
+          "#202528",
+          "#3a4145",
+          "#575f64",
+          "#798287",
+          "#9ea6ab",
+          "#c5cbd0",
+          "#eaeff3"
+        ]
+      },
+      "ring-dark": {
+        "role": "neutral",
+        "displayName": "Focus Ink (dark)",
+        "canonical": "oklch(98.4% 0.004 106.5)",
+        "tonalRamp": [
+          "#0b0b0a",
+          "#242423",
+          "#40403e",
+          "#5e5e5b",
+          "#80807e",
+          "#a5a5a2",
+          "#cacac9",
+          "#eeeeed"
+        ]
+      },
+      "disabled-dark": {
+        "role": "neutral",
+        "displayName": "Disabled Grey (dark)",
+        "canonical": "oklch(56.1% 0.012 235.0)",
+        "tonalRamp": [
+          "#090c0d",
+          "#202527",
+          "#3b4144",
+          "#585f63",
+          "#7a8186",
+          "#9fa6aa",
+          "#c6cbcf",
+          "#ebeff2"
+        ]
+      },
+      "destructive-dark": {
+        "role": "error",
+        "displayName": "Error Red (dark)",
+        "canonical": "oklch(71.3% 0.181 20.9)",
+        "tonalRamp": [
+          "#260000",
+          "#4d0009",
+          "#790c1d",
+          "#a62532",
+          "#d24c53",
+          "#f07d7e",
+          "#ffacaa",
+          "#ffd7d5"
+        ]
+      },
+      "destructive-foreground-dark": {
+        "role": "neutral",
+        "displayName": "Ink on Red (dark)",
+        "canonical": "oklch(21.4% 0.010 234.2)",
+        "tonalRamp": [
+          "#090b0d",
+          "#212527",
+          "#3c4043",
+          "#595e62",
+          "#7b8185",
+          "#a0a5a9",
+          "#c7cbce",
+          "#ebeff1"
+        ]
+      },
+      "warning-dark": {
+        "role": "warning",
+        "displayName": "Caution Amber (dark)",
+        "canonical": "oklch(84.9% 0.166 84.7)",
+        "tonalRamp": [
+          "#1a0500",
+          "#3a1c00",
+          "#5e3600",
+          "#845200",
+          "#aa7600",
+          "#ca9d33",
+          "#eac578",
+          "#ffebb0"
+        ]
+      },
+      "success-dark": {
+        "role": "success",
+        "displayName": "Running Green (dark)",
+        "canonical": "oklch(73.5% 0.136 159.3)",
+        "tonalRamp": [
+          "#001202",
+          "#002f14",
+          "#004f2b",
+          "#007243",
+          "#209764",
+          "#64b98d",
+          "#99dcb7",
+          "#c9fddf"
+        ]
+      },
+      "diff-add-dark": {
+        "role": "diff",
+        "displayName": "Diff Add (dark)",
+        "canonical": "oklch(31.7% 0.057 161.8)",
+        "tonalRamp": [
+          "#020f08",
+          "#13291f",
+          "#294739",
+          "#426755",
+          "#638b76",
+          "#8cae9c",
+          "#b7d2c3",
+          "#dff5e9"
+        ]
+      },
+      "diff-del-dark": {
+        "role": "diff",
+        "displayName": "Diff Delete (dark)",
+        "canonical": "oklch(28.9% 0.095 14.3)",
+        "tonalRamp": [
+          "#1b0306",
+          "#3c161b",
+          "#602e34",
+          "#87484e",
+          "#af6970",
+          "#cf9296",
+          "#efbbbe",
+          "#ffe2e5"
+        ]
+      },
+      "code-dark": {
+        "role": "code",
+        "displayName": "Inline Code Ink (dark)",
+        "canonical": "oklch(78.9% 0.143 56.2)",
+        "tonalRamp": [
+          "#1f0100",
+          "#421300",
+          "#692b00",
+          "#934500",
+          "#bb681e",
+          "#da915c",
+          "#f9bc91",
+          "#ffe3c1"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Prose second-level headings on gate documents."
+      },
+      "title-large": {
+        "displayName": "Title Large",
+        "purpose": "Worktree title in the detail pane; gate document title."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "App bar and column header view title; sheet titles."
+      },
+      "title-card": {
+        "displayName": "Card Title",
+        "purpose": "Project / worktree line; project muted at 400."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Page default; reason sentences and gate prose."
+      },
+      "body-small": {
+        "displayName": "Body Small",
+        "purpose": "Descriptions, list rows, alerts."
+      },
+      "label": {
+        "displayName": "Label",
+        "purpose": "Buttons and tabs."
+      },
+      "label-small": {
+        "displayName": "Label Small",
+        "purpose": "Badges, counts, tab-bar labels, sidebar headings."
+      },
+      "code": {
+        "displayName": "Code",
+        "purpose": "Diffs and code blocks."
+      }
+    },
+    "shadows": [
+      {
+        "name": "card-rest",
+        "value": "0 1px 2px rgb(21 26 29 / 0.05)",
+        "purpose": "Cards and secondary buttons at rest."
+      },
+      {
+        "name": "tab-active",
+        "value": "0 1px 2px rgb(21 26 29 / 0.08)",
+        "purpose": "Selected tab trigger on its track."
+      },
+      {
+        "name": "popover",
+        "value": "0 4px 16px rgb(21 26 29 / 0.12)",
+        "purpose": "Floating refusal toast."
+      },
+      {
+        "name": "sheet",
+        "value": "0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1)",
+        "purpose": "Note and answer sheet, over a 50% black scrim with 2px blur."
+      }
+    ],
+    "motion": [
+      {
+        "name": "press",
+        "value": "scale 150ms ease-out (to 0.96)",
+        "purpose": "Button press; a transition so it stays interruptible."
+      },
+      {
+        "name": "ease-enter",
+        "value": "cubic-bezier(0.2, 0, 0, 1)",
+        "purpose": "Sheet and dialog entrances."
+      },
+      {
+        "name": "sheet-in",
+        "value": "220ms",
+        "purpose": "Phone bottom sheet slides up."
+      },
+      {
+        "name": "dialog-in",
+        "value": "180ms",
+        "purpose": "Desktop dialog fades and scales from 0.96."
+      },
+      {
+        "name": "exit",
+        "value": "140-160ms ease-out",
+        "purpose": "Sheet, dialog and scrim exits."
+      },
+      {
+        "name": "deck-item-in",
+        "value": "opacity from 0.2",
+        "purpose": "Swapped list item; opacity only, never a slide."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "0.01ms",
+        "purpose": "All transitions and animations under prefers-reduced-motion."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "phone",
+        "value": "390px"
+      },
+      {
+        "name": "lg",
+        "value": "1024px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one yellow action on a card: Proceed, Save.",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><polygon points=\"6 3 20 12 6 21 6 3\"/></svg>Proceed</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 16px;border:0;border-radius:6px;background:var(--color-primary,#ffc328);color:var(--color-primary-foreground,#151a1d);font:500 14px/1 system-ui,sans-serif;transition:scale .15s ease-out}.ds-btn-primary:hover{background:color-mix(in srgb,var(--color-primary-pressed,#e6a800) 80%,transparent)}.ds-btn-primary:active{background:var(--color-primary-pressed,#e6a800);scale:.96}.ds-btn-primary:focus-visible{outline:2px solid var(--color-ring,#151a1d);outline-offset:2px}"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Default button: Retry, Open, New worktree.",
+      "html": "<button class=\"ds-btn-secondary\"><svg width=\"16\" height=\"16\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" stroke-linecap=\"round\" stroke-linejoin=\"round\"><path d=\"M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8\"/><path d=\"M3 3v5h5\"/></svg>Retry</button>",
+      "css": ".ds-btn-secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:44px;padding:0 16px;border:1px solid var(--color-border,#dcddd9);border-radius:6px;background:var(--color-card,#fafaf7);color:var(--color-foreground,#151a1d);box-shadow:0 1px 2px rgb(21 26 29 / 0.05);font:500 14px/1 system-ui,sans-serif;transition:scale .15s ease-out}.ds-btn-secondary:hover,.ds-btn-secondary:active{background:var(--color-accent,#e8e8e4)}.ds-btn-secondary:active{scale:.96}.ds-btn-secondary:focus-visible{outline:2px solid var(--color-ring,#151a1d);outline-offset:2px}"
+    },
+    {
+      "name": "Danger Button",
+      "kind": "button",
+      "refersTo": "button-danger",
+      "description": "Destructive actions only.",
+      "html": "<button class=\"ds-btn-danger\">Discard</button>",
+      "css": ".ds-btn-danger{display:inline-flex;align-items:center;min-height:44px;padding:0 16px;border:1px solid color-mix(in srgb,var(--color-destructive,#c4283a) 50%,transparent);border-radius:6px;background:var(--color-card,#fafaf7);color:var(--color-destructive,#c4283a);font:500 14px/1 system-ui,sans-serif;transition:scale .15s ease-out}.ds-btn-danger:hover,.ds-btn-danger:active{background:var(--color-destructive,#c4283a);color:var(--color-destructive-foreground,#fafaf7)}.ds-btn-danger:active{scale:.96}.ds-btn-danger:focus-visible{outline:2px solid var(--color-ring,#151a1d);outline-offset:2px}"
+    },
+    {
+      "name": "Status Badges",
+      "kind": "chip",
+      "refersTo": "badge-needs-you",
+      "description": "Worktree status: icon, word and colour together.",
+      "html": "<span class=\"ds-badge ds-badge-needs\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><line x1=\"12\" x2=\"12\" y1=\"8\" y2=\"12\"/><line x1=\"12\" x2=\"12.01\" y1=\"16\" y2=\"16\"/></svg>needs you (question)</span> <span class=\"ds-badge ds-badge-error\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m15 9-6 6\"/><path d=\"m9 9 6 6\"/></svg>error (crashed)</span> <span class=\"ds-badge ds-badge-idle\">idle</span>",
+      "css": ".ds-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 6px;border:1px solid transparent;border-radius:6px;font:500 12px/16px system-ui,sans-serif;font-variant-numeric:tabular-nums;white-space:nowrap}.ds-badge-needs{background:var(--color-primary,#ffc328);color:var(--color-primary-foreground,#151a1d)}.ds-badge-error{background:var(--color-destructive,#c4283a);color:var(--color-destructive-foreground,#fafaf7)}.ds-badge-idle{background:var(--color-muted,#ebebe7);color:var(--color-muted-foreground,#596066)}"
+    },
+    {
+      "name": "Worktree Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "One worktree that needs you: title line, badge, reason, one action.",
+      "html": "<article class=\"ds-card\"><div class=\"ds-card-head\"><h2><span class=\"ds-muted\">Portal / </span><b>plan</b></h2><span class=\"ds-badge-y\">needs you</span></div><p>Answer the plan</p><button class=\"ds-card-btn\">Proceed</button></article>",
+      "css": ".ds-card{display:flex;flex-direction:column;gap:12px;padding:16px;border:1px solid var(--color-border,#dcddd9);border-radius:8px;background:var(--color-card,#fafaf7);color:var(--color-foreground,#151a1d);box-shadow:0 1px 2px rgb(21 26 29 / 0.05);font:400 14px/1.43 system-ui,sans-serif;max-width:358px}.ds-card-head{display:flex;justify-content:space-between;gap:12px}.ds-card h2{margin:0;font-size:16px;font-weight:400}.ds-card b{font-weight:600}.ds-card p{margin:0}.ds-muted{color:var(--color-muted-foreground,#596066)}.ds-badge-y{padding:2px 6px;border-radius:6px;background:var(--color-primary,#ffc328);color:#151a1d;font:500 12px/16px system-ui}.ds-card-btn{min-height:44px;border:0;border-radius:6px;background:var(--color-primary,#ffc328);color:#151a1d;font:500 14px system-ui}"
+    },
+    {
+      "name": "Segmented Tabs",
+      "kind": "nav",
+      "refersTo": "tabs-list",
+      "description": "Detail pane Gate / Actions switch.",
+      "html": "<div class=\"ds-tabs\"><button class=\"ds-tab\" aria-selected=\"true\">Gate</button><button class=\"ds-tab\">Actions</button></div>",
+      "css": ".ds-tabs{display:inline-flex;padding:4px;border-radius:8px;background:var(--color-muted,#ebebe7)}.ds-tab{min-height:44px;padding:0 12px;border:0;border-radius:6px;background:transparent;color:var(--color-muted-foreground,#596066);font:500 14px system-ui,sans-serif;transition:color .15s}.ds-tab:hover{color:var(--color-foreground,#151a1d)}.ds-tab[aria-selected=true]{background:var(--color-card,#fafaf7);color:var(--color-foreground,#151a1d);box-shadow:0 1px 2px rgb(21 26 29 / .08)}.ds-tab:focus-visible{outline:2px solid var(--color-ring,#151a1d)}"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Single-line field; 16px text avoids iOS zoom.",
+      "html": "<input class=\"ds-input\" placeholder=\"Worktree name\">",
+      "css": ".ds-input{width:100%;height:44px;padding:0 12px;border:1px solid var(--color-input,#82888c);border-radius:6px;background:var(--color-card,#fafaf7);color:var(--color-foreground,#151a1d);font:400 16px system-ui,sans-serif;outline:none;transition:border-color .15s}.ds-input::placeholder{color:var(--color-muted-foreground,#596066)}.ds-input:focus-visible{border-color:var(--color-foreground,#151a1d);outline:2px solid var(--color-ring,#151a1d);outline-offset:1px}"
+    },
+    {
+      "name": "Error Notice",
+      "kind": "custom",
+      "refersTo": "card",
+      "description": "Says what broke; red tint, icon, foreground text.",
+      "html": "<div class=\"ds-alert\" role=\"alert\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"12\" cy=\"12\" r=\"10\"/><path d=\"m15 9-6 6\"/><path d=\"m9 9 6 6\"/></svg><div><b>Workspace settings not reloaded</b><p>workspace.x: unknown key</p></div></div>",
+      "css": ".ds-alert{display:grid;grid-template-columns:20px 1fr;gap:4px 12px;padding:12px 16px;border:1px solid color-mix(in srgb,var(--color-destructive,#c4283a) 40%,transparent);border-radius:8px;background:color-mix(in srgb,var(--color-destructive,#c4283a) 8%,transparent);color:var(--color-foreground,#151a1d);font:400 14px/1.43 system-ui,sans-serif}.ds-alert svg{color:var(--color-destructive,#c4283a)}.ds-alert b{font-weight:500}.ds-alert p{margin:0;color:var(--color-muted-foreground,#596066)}"
+    },
+    {
+      "name": "Bottom Tab Bar",
+      "kind": "nav",
+      "refersTo": "tabs-trigger-active",
+      "description": "Phone navigation with icon, label and count.",
+      "html": "<nav class=\"ds-tabbar\"><button aria-current=\"true\"><span class=\"ds-pill\"><svg width=\"20\" height=\"20\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\" style=\"margin-top:4px\"><path d=\"M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z\"/></svg><i>2</i></span>Now</button><button><span class=\"ds-pill\"></span>Projects</button><button><span class=\"ds-pill\"><i class=\"m\">2</i></span>Inbox</button></nav>",
+      "css": ".ds-tabbar{display:flex;border-top:1px solid var(--color-border,#dcddd9);background:var(--color-card,#fafaf7);max-width:390px}.ds-tabbar button{flex:1;min-height:56px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;border:0;background:none;color:var(--color-muted-foreground,#596066);font:400 12px system-ui}.ds-tabbar button[aria-current=true]{color:var(--color-foreground,#151a1d);font-weight:600}.ds-pill{position:relative;width:56px;height:28px;border-radius:999px}[aria-current=true] .ds-pill{background:var(--color-accent,#e8e8e4)}.ds-pill i{position:absolute;top:-4px;left:32px;min-width:20px;height:20px;border-radius:999px;background:var(--color-primary,#ffc328);color:#151a1d;font:600 12px/20px system-ui;font-style:normal}.ds-pill i.m{background:var(--color-muted,#ebebe7);color:var(--color-muted-foreground,#596066)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Quiet Control Room",
+    "overview": "A shadcn-style product UI played straight, at the craft bar of Linear and Vercel\ndashboards, in gtd's own four-colour base: charcoal, yellow, warm white and a\nmuted grey. The ground is a pale warm grey; content sits on near-white cards\nwith one hairline border and a barely-there shadow. Almost everything is\nneutral, so the one yellow thing on a screen is the thing to do.\n\nDensity is moderate: one card per worktree, one reason sentence, one action.\nStatus is always a badge with an icon and a word, never a glyph or colour alone.\nThe system replaces an earlier look of hairline-boxed screens where every word\nhad the same weight; hierarchy now comes from size, weight and the\nmuted/foreground split.",
+    "keyCharacteristics": [
+      "Neutral warm-grey surfaces; yellow and red are reserved signals.",
+      "Cards (8px) hold content; controls (6px) act on it.",
+      "System sans, three weights, tabular numbers for counts.",
+      "Lucide line icons at 16px, stroke 2.",
+      "Phone first with a 44px touch floor; a three-column split from 1024px.",
+      "Light and dark follow the OS; every UI token has a dark value."
+    ],
+    "rules": [
+      {
+        "name": "The One Yellow Rule",
+        "body": "Yellow means \"act here\" and nothing else: the primary",
+        "section": "colors"
+      },
+      {
+        "name": "The Red Is Broken Rule",
+        "body": "Red appears only when something failed: an error",
+        "section": "colors"
+      },
+      {
+        "name": "The Never Colour Alone Rule",
+        "body": "Every status carries an icon and a word next to",
+        "section": "colors"
+      },
+      {
+        "name": "The Title Line Rule",
+        "body": "A worktree is named \"Project / worktree\" on one line:",
+        "section": "typography"
+      },
+      {
+        "name": "The 16px Field Rule",
+        "body": "Every text field renders at 16px or larger so iOS does",
+        "section": "typography"
+      },
+      {
+        "name": "The Thumb Floor Rule",
+        "body": "Below 1024px every control is at least 44 by 44px.",
+        "section": "layout"
+      },
+      {
+        "name": "The One Soft Shadow Rule",
+        "body": "Surfaces at rest get at most the 1px card shadow.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "**Do** give each card at most one yellow action; make every other action",
+      "**Do** pair every status colour with a Lucide icon and a word.",
+      "**Do** keep controls at 44px below 1024px.",
+      "**Do** write errors as what broke plus a Retry.",
+      "**Do** define every new colour for both light and dark and check it against",
+      "**Do** use tabular numbers for every count."
+    ],
+    "donts": [
+      "**Don't** use yellow for warnings, info, headings, links or decoration.",
+      "**Don't** use red for anything but failure.",
+      "**Don't** put a separate label, eyebrow or uppercase kicker above a title.",
+      "**Don't** box every line in its own hairline; group content on cards and let",
+      "**Don't** use Unicode glyphs or emoji as icons.",
+      "**Don't** animate a control with a keyframe or slide content under a reaching"
+    ]
+  }
+}

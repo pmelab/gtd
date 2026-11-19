@@ -1,3 +1,4 @@
+import { Check, CircleAlert, LoaderCircle, X } from "lucide-react"
 import { useSyncExternalStore } from "react"
 import type { ReadRefusalInfo } from "./api.js"
 import { Button } from "./Button.js"
@@ -48,7 +49,6 @@ export const messageForReadRefusal = (refusal: ReadRefusalInfo): string => {
   }
 }
 
-/** `usePrefersReducedMotion`'s own live media-query subscription — a spinner and a settled dot are otherwise the ONLY two shapes distinguishing `saving` from `saved`, so losing motion can't just freeze the spinner's current frame; it has to switch to a differently-styled static dot. */
 const REDUCED_MOTION_QUERY = "(prefers-reduced-motion: reduce)"
 
 const usePrefersReducedMotion = (): boolean =>
@@ -95,62 +95,27 @@ export const useSaveIndicatorProps = (): SaveIndicatorProps => {
   }
 }
 
-/** The visible, collapsed dot/spinner shared by `saving`/`saved`/`failed` — sized and shaped identically so only colour (and, for `saving`, motion) carries the state. */
-const Dot = ({
-  state,
-  reducedMotion,
-}: {
-  readonly state: SaveStatus
-  readonly reducedMotion: boolean
-}) => {
-  if (state === "saving" && !reducedMotion) {
-    return (
-      <span
-        aria-hidden="true"
-        data-testid="save-indicator-dot"
-        data-state="saving"
-        className="size-4 animate-spin rounded-full border-2 border-ring border-t-transparent"
-      />
-    )
-  }
-  // `saving` under reduced motion is a FILLED dot like `saved`'s own, so it
-  // needs a second cue besides colour to stay distinguishable — an outline
-  // ring `saved` never carries.
-  const reducedSavingRing =
-    state === "saving" ? "outline outline-2 outline-offset-2 outline-muted" : ""
-  return (
-    <span
-      aria-hidden="true"
-      data-testid="save-indicator-dot"
-      data-state={state}
-      className={cn("size-4 rounded-full bg-accent", reducedSavingRing)}
-    />
-  )
-}
-
-/** The failed marker's own accessible name — says what tapping it does, since "looks tappable" (the requirement) still needs a screen reader to know it's more than decoration. */
+/** A failed marker says what tapping it does: "looks tappable" still needs a name for a screen reader. */
 const failedMarkerLabel = (failedCount: number): string =>
   failedCount > 1
     ? `${failedCount} writes failed — tap to see details`
     : "A write failed — tap to see details"
 
-/** The expanded message's own count suffix — an accepted loss: only the LATEST refusal's wording is ever readable, so a burst's earlier, possibly more actionable sentence is lost; every refused cell still keeps its own dot, so no failure is invisible, only its wording. */
+/** Only the LATEST refusal's wording is readable; every refused cell still keeps its own mark, so no failure is invisible, only its wording. */
 const countSuffix = (otherFailedCount: number): string =>
   otherFailedCount > 0
     ? ` …and ${otherFailedCount} other write${otherFailedCount === 1 ? "" : "s"} didn't land.`
     : ""
 
+/** Bottom-centre, clear of the Done bar, positioned against `App.tsx`'s `relative` column so showing it shifts nothing. */
+const TOAST =
+  "absolute bottom-20 left-1/2 z-20 -translate-x-1/2 rounded-lg border bg-popover text-popover-foreground shadow-[0_4px_16px_rgb(21_26_29/0.12)]"
+
 /**
- * The one refusal/save-status surface — every return branch below carries
- * its own `absolute right-3 bottom-3 z-10`, positioned against `App.tsx`'s
- * column, which only supplies the `relative` ancestor those classes anchor
- * to — so showing or hiding it, expanded or collapsed, shifts nothing else
- * on screen. `role="status" aria-live="polite"` announces it the moment it
- * changes. Renders nothing at all when there is neither a refusal, a failed
- * cell, nor a save in flight/just-settled. Keeps exactly two controls: tap
- * the collapsed marker to re-expand, and `Dismiss` — there is no `Try
- * again`, since the store already rolled the write back by the time this
- * ever shows.
+ * The one refusal/save-status surface. `role="status" aria-live="polite"`
+ * announces it the moment it changes. Renders nothing when there is neither
+ * a refusal, a failed cell, nor a save in flight/just settled. There is no
+ * `Try again`: the store already rolled the write back by the time it shows.
  */
 // fallow-ignore-next-line complexity
 export const SaveIndicator = ({
@@ -164,12 +129,6 @@ export const SaveIndicator = ({
 }: SaveIndicatorProps) => {
   const reducedMotion = usePrefersReducedMotion()
   const isFailed = failedCount > 0
-  const hiddenLabel =
-    !isFailed && saveStatus === "saving"
-      ? "Saving…"
-      : !isFailed && saveStatus === "saved"
-        ? "Saved"
-        : undefined
 
   if (!isFailed && saveStatus === "idle") return null
 
@@ -180,62 +139,71 @@ export const SaveIndicator = ({
         data-testid="save-indicator"
         role="status"
         aria-live="polite"
-        className="absolute right-3 bottom-3 z-10 max-w-[calc(100%-1.5rem)] rounded border border-danger bg-surface p-3 text-body text-text"
+        className={cn(TOAST, "w-[min(28rem,calc(100%-2rem))] border-destructive/40 p-3 text-sm")}
       >
-        <div data-testid="save-indicator-expanded">
-          <span data-testid="save-indicator-message">{message}</span>
-          <div className="mt-2 flex justify-end gap-2">
-            <Button variant="ghost" data-testid="save-indicator-dismiss" onClick={onDismiss}>
-              Dismiss
-            </Button>
-          </div>
+        <div data-testid="save-indicator-expanded" className="flex items-start gap-3">
+          <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-destructive" />
+          <span data-testid="save-indicator-message" className="min-w-0 flex-1 leading-relaxed">
+            {message}
+          </span>
+          <Button
+            variant="ghost"
+            size="icon"
+            aria-label="Dismiss"
+            data-testid="save-indicator-dismiss"
+            className="-my-1.5 -mr-1.5 lg:size-8"
+            onClick={onDismiss}
+          >
+            <X aria-hidden="true" />
+          </Button>
         </div>
       </div>
     )
   }
 
   // A failed cell ALWAYS outranks a concurrent `saving`/`saved` when
-  // collapsed — a refusal is reported nowhere else, where a success is also
+  // collapsed: a refusal is reported nowhere else, where a success is also
   // reported by the value staying put.
   if (isFailed) {
     return (
-      <div
-        data-testid="save-indicator"
-        role="status"
-        aria-live="polite"
-        className="absolute right-3 bottom-3 z-10"
-      >
+      <div data-testid="save-indicator" role="status" aria-live="polite" className={TOAST}>
         <Button
           variant="ghost"
+          size="sm"
           data-testid="save-indicator-marker"
           aria-label={failedMarkerLabel(failedCount)}
           onClick={onReExpand}
-          className="grid place-items-center rounded-full p-0"
+          className="rounded-lg text-destructive"
         >
-          <span
-            aria-hidden="true"
-            data-testid="save-indicator-dot"
-            data-state="failed"
-            className="size-4 rounded-full bg-danger"
-          />
+          <CircleAlert aria-hidden="true" data-testid="save-indicator-dot" data-state="failed" />
+          <span className="tabular-nums">
+            {failedCount > 1 ? `${failedCount} writes failed` : "Not saved"}
+          </span>
         </Button>
       </div>
     )
   }
 
+  const saving = saveStatus === "saving"
+  const Icon = saving ? LoaderCircle : Check
   return (
     <div
       data-testid="save-indicator"
       role="status"
       aria-live="polite"
-      className="absolute right-3 bottom-3 z-10"
+      className={cn(TOAST, "flex h-8 items-center gap-1.5 px-3 text-xs font-medium")}
     >
-      <Dot state={saveStatus} reducedMotion={reducedMotion} />
-      {hiddenLabel !== undefined && (
-        <span data-testid="save-indicator-label" className="sr-only">
-          {hiddenLabel}
-        </span>
-      )}
+      <Icon
+        aria-hidden="true"
+        data-testid="save-indicator-dot"
+        data-state={saveStatus}
+        className={cn(
+          "size-3.5",
+          saving ? "text-muted-foreground" : "text-success",
+          saving && !reducedMotion && "animate-spin",
+        )}
+      />
+      <span data-testid="save-indicator-label">{saving ? "Saving…" : "Saved"}</span>
     </div>
   )
 }

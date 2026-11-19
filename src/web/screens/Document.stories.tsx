@@ -2,11 +2,13 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fireEvent, waitFor, within } from "storybook/test"
 import { widgetFormat } from "../../steering/index.js"
+import { viewport } from "../testing/browserContext.js"
 import { TrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { Document, DocumentView } from "./Document.js"
 
 const meta: Meta<typeof DocumentView> = {
   component: DocumentView,
+  parameters: { layout: "fullscreen" },
   // A hunk's diff is fetched on demand.
   decorators: [
     (Story) => (
@@ -191,14 +193,16 @@ export const AReviewShowsTheBaseAndStepsThroughHunks: Story = {
     await expect(canvas.queryByText(/<!-- base/)).toBeNull()
     await fireEvent.click(canvas.getByText("the limiter"))
     await expect(canvas.getByTestId("hunk-position")).toHaveTextContent("1 / 3")
+    await expect(canvas.getByTestId("hunk-position")).toHaveClass("sr-only")
     await expect(canvas.queryByTestId("hunk-tick")).toBeNull()
     await fireEvent.click(canvas.getByTestId("hunk-next"))
     await expect(canvas.getByTestId("hunk-position")).toHaveTextContent("2 / 3")
     await fireEvent.click(canvas.getByTestId("hunk-tick"))
     await expect(canvas.getByTestId("hunk-position")).toHaveTextContent("3 / 3")
     await fireEvent.click(canvas.getByTestId("hunk-back"))
-    await expect(canvas.getAllByTestId("widget-hunk")[0]!.querySelector("input")).toBeChecked()
-    await expect(canvas.getAllByTestId("widget-hunk")[1]!.querySelector("input")).not.toBeChecked()
+    const hunks = canvas.getAllByTestId("widget-hunk")
+    await expect(within(hunks[0]!).getByRole("checkbox")).toBeChecked()
+    await expect(within(hunks[1]!).getByRole("checkbox")).not.toBeChecked()
   },
 }
 
@@ -250,9 +254,12 @@ const REQUIREMENTS = [
   "",
 ].join("\n")
 
+const CONTEXT = { repo: "portal", branch: "rate-limit", label: "answering the requirements" }
+
 export const ARequirementsPageShowsQuestionsCriteriaAndImpact: Story = {
   args: {
     filePath: ".gtd/REQUIREMENTS.md",
+    context: CONTEXT,
     isLoading: false,
     view: widgetFormat.view(REQUIREMENTS),
   },
@@ -265,6 +272,60 @@ export const ARequirementsPageShowsQuestionsCriteriaAndImpact: Story = {
     await expect(canvas.getByText("Acceptance Criteria")).toBeInTheDocument()
     await expect(canvas.getByText(/AC-1: A client over the limit/)).toBeInTheDocument()
     await expect(canvas.getByText("Impact")).toBeInTheDocument()
+    const header = within(canvas.getByTestId("gate-header"))
+    await expect(header.getByRole("heading", { level: 1 })).toHaveTextContent("Requirements")
+    await expect(
+      within(canvas.getByTestId("document-scroll")).queryByRole("heading", {
+        name: "Requirements",
+      }),
+    ).toBeNull()
+    await expect(header.getByTestId("gate-context")).toHaveTextContent(
+      "portal / rate-limit · answering the requirements",
+    )
+    await expect(
+      within(selects[0]!).getByRole("heading", { name: "Where is the counter stored?" }),
+    ).toBeInTheDocument()
+  },
+}
+
+/** Every answer row, note control and hunk link is a thumb-sized target on a phone. */
+export const AnswerRowsAreThumbSizedOnAPhone: Story = {
+  args: {
+    filePath: ".gtd/PLAN.md",
+    isLoading: false,
+    view: widgetFormat.view(PLAN),
+  },
+  play: async ({ canvasElement }) => {
+    await viewport(390, 844)
+    const canvas = within(canvasElement)
+    const select = canvas.getByTestId("widget-single-select")
+    const targets = [
+      within(select).getByText("Redis").closest("label")!,
+      within(canvas.getByTestId("widget-custom")).getByRole("radio").closest("label")!,
+      within(select).getByTestId("widget-note-open"),
+      within(canvas.getByTestId("widget-review-checklist")).getByText("Show the change"),
+    ]
+    for (const target of targets) {
+      await expect(target.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
+    }
+    await expect(
+      within(select).getByTestId("widget-note-open").getBoundingClientRect().height,
+    ).toBeLessThan(60)
+    await expect(canvasElement.ownerDocument.documentElement.scrollWidth).toBeLessThanOrEqual(390)
+  },
+}
+
+/** The note gesture is explained once per page, however many prose runs the widgets split it into. */
+export const TheNoteGestureIsExplainedOncePerPage: Story = {
+  args: {
+    filePath: ".gtd/PLAN.md",
+    isLoading: false,
+    view: widgetFormat.view(PLAN + "\n## After\n\nA closing paragraph.\n"),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getAllByTestId("prose-paragraphs").length).toBeGreaterThan(1)
+    await expect(canvas.getAllByTestId("note-gesture-hint")).toHaveLength(1)
   },
 }
 
@@ -304,6 +365,7 @@ const REVIEW_WITH_NOTES = [
 export const AReviewPageShowsWalkthroughHunkLinksBaseAndNotes: Story = {
   args: {
     filePath: ".gtd/REVIEW.md",
+    context: { ...CONTEXT, label: "reviewing the change" },
     isLoading: false,
     view: widgetFormat.view(REVIEW_WITH_NOTES),
   },
@@ -313,6 +375,7 @@ export const AReviewPageShowsWalkthroughHunkLinksBaseAndNotes: Story = {
     await expect(canvas.getByText(/Start with/)).toBeInTheDocument()
     await expect(canvas.getByText("the limiter")).toBeInTheDocument()
     await expect(canvas.getAllByTestId("widget-hunk")).toHaveLength(1)
+    await expect(canvas.getByTestId("widget-reviewed-count")).toHaveTextContent("0 of 1 reviewed")
     await expect(canvas.getByTestId("widget-single-select")).toBeInTheDocument()
     await fireEvent.click(canvas.getByText("the limiter"))
     await expect(canvas.getByTestId("hunk-slider")).toBeInTheDocument()
@@ -322,6 +385,7 @@ export const AReviewPageShowsWalkthroughHunkLinksBaseAndNotes: Story = {
 export const ASquashMessagePageShowsTheProposedMessage: Story = {
   args: {
     filePath: ".gtd/SQUASH_MESSAGE.md",
+    context: { ...CONTEXT, label: "approving the message" },
     isLoading: false,
     view: widgetFormat.view("feat: limit requests per client\n\nCloses #12.\n"),
   },
@@ -329,5 +393,28 @@ export const ASquashMessagePageShowsTheProposedMessage: Story = {
     const canvas = within(canvasElement)
     await expect(canvas.getByText(/feat: limit requests per client/)).toBeInTheDocument()
     await expect(canvas.getByText(/Closes #12/)).toBeInTheDocument()
+    const message = canvas.getByTestId("commit-message")
+    await expect(message).toHaveTextContent("Proposed commit message")
+    await expect(within(message).getByText(/feat: limit requests/)).toBeInTheDocument()
+    await expect(
+      getComputedStyle(message.querySelector("[data-slot=card-content]")!).fontFamily,
+    ).toMatch(/mono/i)
+    await expect(canvas.getByRole("heading", { level: 1 })).toHaveTextContent("Squash message")
+  },
+}
+
+export const WhileTheFileLoadsTheShapeOfThePageShows: Story = {
+  args: { filePath: ".gtd/PLAN.md", isLoading: true, view: undefined },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvasElement.querySelector("[data-slot=skeleton]")).not.toBeNull()
+    await expect(canvas.getByText("Loading the file…")).toHaveClass("sr-only")
+  },
+}
+
+export const AFileThatCannotBeReadSaysWhatToDo: Story = {
+  args: { filePath: ".gtd/PLAN.md", isLoading: false, view: undefined },
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).getByRole("alert")).toHaveTextContent(/reload this page/)
   },
 }

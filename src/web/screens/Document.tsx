@@ -1,3 +1,20 @@
+import { GtdMark } from "../GtdMark.js"
+import {
+  ArrowLeft,
+  Check,
+  ChevronLeft,
+  ChevronRight,
+  CircleAlert,
+  CircleDot,
+  CircleHelp,
+  FileDiff,
+  FileSearch,
+  GitCommitHorizontal,
+  ListChecks,
+  MessageSquarePlus,
+  MessageSquareText,
+  type LucideIcon,
+} from "lucide-react"
 import { useEffect, useRef, useState } from "react"
 import type {
   BlockListItem,
@@ -7,15 +24,23 @@ import type {
   SteeringViewNode,
 } from "../../steering/index.js"
 import { Button } from "../Button.js"
+import { cn } from "../cn.js"
 import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
 import { messageForReadRefusal, SaveIndicator, useSaveIndicatorProps } from "../Refusal.js"
 import { readRefusalFrom, trpc } from "../api.js"
 import type { CasTokens } from "../staleRetry.js"
+import { Badge } from "../ui/badge.js"
+import { Card, CardContent, CardHeader, CardTitle } from "../ui/card.js"
+import { Checkbox } from "../ui/checkbox.js"
+import { Input, Textarea } from "../ui/input.js"
+import { Label } from "../ui/label.js"
+import { RadioGroup, RadioGroupItem } from "../ui/radio-group.js"
+import { Skeleton } from "../ui/skeleton.js"
 import { cellKey, useWriteStore, WriteStoreProvider } from "../writeStore.js"
 import { Hunk } from "./Hunk.js"
-import { HUNK_HREF_RE, HunkOpenContext } from "./InlineRun.js"
-import { ProseBlocks } from "./ProseBlock.js"
+import { HUNK_HREF_RE, HunkOpenContext, Inline } from "./InlineRun.js"
+import { NoteGestureHint, ProseBlocks } from "./ProseBlock.js"
 
 type TokenGuardedWrite = (tokens: CasTokens) => Promise<unknown>
 
@@ -26,25 +51,6 @@ interface BoxValue {
 
 /** Past any document's last line: the server appends a paragraph there. */
 const APPEND_LINE = Number.MAX_SAFE_INTEGER
-
-const EMOJI: Readonly<Record<string, string>> = {
-  "review-checklist": "🔍",
-  "single-select": "🔘",
-  "multi-select": "☑️",
-  boolean: "❔",
-}
-
-const isWidget = (node: SteeringViewNode): boolean =>
-  node.status !== undefined && EMOJI[node.status] !== undefined
-
-/** Consecutive prose blocks render together; each widget renders alone. */
-const runsOf = (nodes: readonly SteeringViewNode[]): (readonly SteeringViewNode[])[] =>
-  nodes.reduce<SteeringViewNode[][]>((runs, node) => {
-    const last = runs[runs.length - 1]
-    if (!isWidget(node) && last !== undefined && !isWidget(last[0]!)) last.push(node)
-    else runs.push([node])
-    return runs
-  }, [])
 
 interface WidgetActions {
   readonly checkedOf: (node: SteeringViewNode) => boolean
@@ -91,19 +97,19 @@ const pageOfHref = (href: string, anchor: SteeringAnchor): Page => {
   } as Page
 }
 
-/** Every hunk link of the document in file order: prose links and 🔍 items. */
+/** Every hunk link of the document in file order: prose links and review checklist items. */
 // fallow-ignore-next-line complexity
 const proseLinks = (node: SteeringViewNode): string[] => [
   ...inlineLinks(node.block?.inline ?? []),
   ...itemLinks(node.block?.items ?? []),
+  ...(node.body ?? []).flatMap(proseLinks),
 ]
 
 const pagesOf = (nodes: readonly SteeringViewNode[]): readonly Page[] =>
-  nodes.flatMap((node): readonly Page[] =>
-    node.status === "review-checklist"
-      ? (node.children ?? [])
-      : proseLinks(node).map((href) => pageOfHref(href, node.anchor)),
-  )
+  nodes.flatMap((node): readonly Page[] => [
+    ...proseLinks(node).map((href) => pageOfHref(href, node.anchor)),
+    ...(node.status === "review-checklist" ? (node.children ?? []) : []),
+  ])
 
 const HunkSlider = ({
   pages,
@@ -122,44 +128,55 @@ const HunkSlider = ({
   const diff = useHunkDiff(node)
   const go = (i: number): void => setIndex(Math.max(0, Math.min(pages.length - 1, i)))
   return (
-    <div data-testid="hunk-slider" className="flex h-full min-h-0 flex-1 flex-col overflow-auto">
-      <div className="flex items-center justify-between border-b border-border p-2">
-        <Button variant="ghost" data-testid="hunk-back" onClick={onClose}>
-          Back to the document
-        </Button>
-        <span data-testid="hunk-position" className="text-small text-muted">
-          {index + 1} / {pages.length}
-        </span>
+    <div
+      data-testid="hunk-slider"
+      className="scrollbar-thin flex h-full min-h-0 flex-1 flex-col overflow-auto"
+    >
+      <div className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur">
+        <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 px-2 py-1 lg:px-4">
+          <Button variant="ghost" data-testid="hunk-back" onClick={onClose}>
+            <ArrowLeft aria-hidden="true" />
+            Back to the document
+          </Button>
+          {/* The hunk's own header shows the count; this one is for screen readers. */}
+          <span data-testid="hunk-position" className="sr-only">
+            {index + 1} / {pages.length}
+          </span>
+        </div>
       </div>
-      <Hunk
-        node={node}
-        diff={diff}
-        index={index}
-        total={pages.length}
-        checked={actions.checkedOf(node)}
-        hasNote={node.note !== undefined}
-        {...(node.note !== undefined ? { note: node.note } : {})}
-        onToggle={(checked) => actions.set(node, { checked })}
-        onApprove={() => (index + 1 < pages.length ? go(index + 1) : onClose())}
-        onOpenNote={() => actions.openNote(node.anchor)}
-      />
-      <div className="flex justify-between gap-2 p-3">
-        <Button
-          variant="secondary"
-          data-testid="hunk-prev"
-          disabled={index === 0}
-          onClick={() => go(index - 1)}
-        >
-          Previous
-        </Button>
-        <Button
-          variant="secondary"
-          data-testid="hunk-next"
-          disabled={index + 1 >= pages.length}
-          onClick={() => go(index + 1)}
-        >
-          Next
-        </Button>
+      <div className="mx-auto w-full max-w-5xl">
+        <Hunk
+          node={node}
+          diff={diff}
+          index={index}
+          total={pages.length}
+          checked={actions.checkedOf(node)}
+          hasNote={node.note !== undefined}
+          {...(node.note !== undefined ? { note: node.note } : {})}
+          onToggle={(checked) => actions.set(node, { checked })}
+          onApprove={() => (index + 1 < pages.length ? go(index + 1) : onClose())}
+          onOpenNote={() => actions.openNote(node.anchor)}
+        />
+        <div className="flex justify-between gap-2 px-4 py-3">
+          <Button
+            variant="secondary"
+            data-testid="hunk-prev"
+            disabled={index === 0}
+            onClick={() => go(index - 1)}
+          >
+            <ChevronLeft aria-hidden="true" />
+            Previous
+          </Button>
+          <Button
+            variant="secondary"
+            data-testid="hunk-next"
+            disabled={index + 1 >= pages.length}
+            onClick={() => go(index + 1)}
+          >
+            Next
+            <ChevronRight aria-hidden="true" />
+          </Button>
+        </div>
       </div>
     </div>
   )
@@ -167,31 +184,60 @@ const HunkSlider = ({
 
 const SAVE_DELAY_MS = 800
 
+/** A full-row label: the whole row is the hit area, at least 44px tall on a phone. */
+const ROW =
+  "-mx-2 flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-accent lg:min-h-9"
+
+/** The tick a widget row carries: a radio inside a single select, a checkbox otherwise. */
+const Tick = ({
+  type,
+  value,
+  checked,
+  onCheckedChange,
+  ...rest
+}: {
+  readonly type: "radio" | "checkbox"
+  readonly value: string
+  readonly checked: boolean
+  readonly onCheckedChange: (checked: boolean) => void
+  readonly "aria-label"?: string
+}) =>
+  type === "radio" ? (
+    <RadioGroupItem value={value} {...rest} />
+  ) : (
+    <Checkbox checked={checked} onCheckedChange={(c) => onCheckedChange(c === true)} {...rest} />
+  )
+
 const CustomAnswer = ({
   node,
   type,
+  value,
   actions,
+  typedTick,
+  onTypedTick,
 }: {
   readonly node: SteeringViewNode
   readonly type: "radio" | "checkbox"
+  readonly value: string
   readonly actions: WidgetActions
+  readonly typedTick: boolean | undefined
+  readonly onTypedTick: (tick: boolean | undefined) => void
 }) => {
   const [text, setText] = useState(actions.textOf(node))
-  const [typedTick, setTypedTick] = useState<boolean | undefined>(undefined)
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   const latest = useRef({ text, node, actions })
   latest.current = { text, node, actions }
-  const save = (value: string): void => {
+  const save = (next: string): void => {
     clearTimeout(timer.current)
     timer.current = undefined
     latest.current.actions.set(latest.current.node, {
-      checked: value !== "",
-      text: value,
+      checked: next !== "",
+      text: next,
     })
   }
-  const flush = (value: string): void => {
-    save(value)
-    setTypedTick(undefined)
+  const flush = (next: string): void => {
+    save(next)
+    onTypedTick(undefined)
   }
   // Leaving the screen before the delay ends still saves the typed text.
   useEffect(
@@ -201,23 +247,24 @@ const CustomAnswer = ({
     [],
   )
   return (
-    <li className="flex items-start gap-2 py-1" data-testid="widget-custom">
-      <input
-        type={type}
-        aria-label="Your own answer"
-        className="mt-2"
-        checked={typedTick ?? actions.checkedOf(node)}
-        onChange={(e) => actions.set(node, { checked: e.target.checked, text })}
-      />
-      <input
-        type="text"
-        className="min-w-0 flex-1 rounded border border-border px-2 py-1"
+    <li className="-ml-3 flex items-center gap-1 lg:-ml-2" data-testid="widget-custom">
+      <label className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-md hover:bg-accent lg:size-9">
+        <Tick
+          type={type}
+          value={value}
+          aria-label="Your own answer"
+          checked={typedTick ?? actions.checkedOf(node)}
+          onCheckedChange={(checked) => actions.set(node, { checked, text })}
+        />
+      </label>
+      <Input
         placeholder="Your own answer"
+        aria-label="Your own answer text"
         value={text}
         onChange={(e) => {
           const next = e.target.value
           setText(next)
-          setTypedTick(next !== "")
+          onTypedTick(next !== "")
           clearTimeout(timer.current)
           timer.current = setTimeout(() => flush(next), SAVE_DELAY_MS)
         }}
@@ -232,20 +279,25 @@ const CustomAnswer = ({
 const OptionRow = ({
   node,
   type,
+  value,
   actions,
 }: {
   readonly node: SteeringViewNode
   readonly type: "radio" | "checkbox"
+  readonly value: string
   readonly actions: WidgetActions
 }) => (
-  <li className="py-1">
-    <label className="flex items-start gap-2">
-      <input
+  <li>
+    <label className={ROW}>
+      <Tick
         type={type}
+        value={value}
         checked={actions.checkedOf(node)}
-        onChange={(e) => actions.set(node, { checked: type === "radio" || e.target.checked })}
+        onCheckedChange={(checked) => actions.set(node, { checked })}
       />
-      <span>{node.title}</span>
+      <span className="min-w-0">
+        <Inline inline={node.titleInline} fallback={node.title} />
+      </span>
     </label>
   </li>
 )
@@ -257,25 +309,67 @@ const HunkRow = ({
   readonly node: SteeringViewNode
   readonly actions: WidgetActions
 }) => (
-  <li className="py-1" data-testid="widget-hunk">
-    <label className="flex items-start gap-2">
-      <input
-        type="checkbox"
+  <li
+    className="flex flex-col items-start border-b border-border py-1 last:border-b-0 lg:flex-row lg:items-center lg:gap-2"
+    data-testid="widget-hunk"
+  >
+    <label className={cn(ROW, "w-full min-w-0 lg:mr-0 lg:flex-1")}>
+      <Checkbox
         checked={actions.checkedOf(node)}
-        onChange={(e) => actions.set(node, { checked: e.target.checked })}
+        onCheckedChange={(checked) => actions.set(node, { checked: checked === true })}
       />
-      <span className="break-all font-mono text-small">{node.title}</span>
+      <span className="min-w-0 font-mono text-sm break-all">{node.title}</span>
     </label>
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="sm"
+      className="-mt-1 ml-6 lg:mt-0 lg:ml-0"
       data-hunk={node.title}
-      className="mt-1 cursor-pointer text-small text-link underline"
       onClick={(e) => actions.openHunk(e.currentTarget)}
     >
+      <FileDiff aria-hidden="true" />
       Show the change
-    </button>
+    </Button>
   </li>
 )
+
+const WIDGET_ICONS: Readonly<Record<string, LucideIcon>> = {
+  "review-checklist": FileSearch,
+  "single-select": CircleDot,
+  "multi-select": ListChecks,
+  boolean: CircleHelp,
+}
+
+const isWidget = (node: SteeringViewNode): boolean =>
+  node.status !== undefined && WIDGET_ICONS[node.status] !== undefined
+
+/** Consecutive prose blocks render together; each widget renders alone. */
+const runsOf = (nodes: readonly SteeringViewNode[]): (readonly SteeringViewNode[])[] =>
+  nodes.reduce<SteeringViewNode[][]>((runs, node) => {
+    const last = runs[runs.length - 1]
+    if (!isWidget(node) && last !== undefined && !isWidget(last[0]!)) last.push(node)
+    else runs.push([node])
+    return runs
+  }, [])
+
+const ReviewedCount = ({
+  node,
+  actions,
+}: {
+  readonly node: SteeringViewNode
+  readonly actions: WidgetActions
+}) => {
+  const hunks = node.children ?? []
+  const done = hunks.filter((h) => actions.checkedOf(h)).length
+  return (
+    <span
+      data-testid="widget-reviewed-count"
+      className="text-sm text-muted-foreground tabular-nums"
+    >
+      {done} of {hunks.length} reviewed
+    </span>
+  )
+}
 
 const WidgetHeader = ({
   node,
@@ -283,53 +377,140 @@ const WidgetHeader = ({
 }: {
   readonly node: SteeringViewNode
   readonly actions: WidgetActions
-}) => (
-  <header className="flex items-start justify-between gap-2">
-    <h2 className="m-0 text-body font-semibold">
-      {EMOJI[node.status ?? ""]} {node.title}
-      {node.answered === false && (
-        <span className="ml-2 text-small font-normal text-muted" data-testid="widget-required">
-          needs an answer
-        </span>
-      )}
-    </h2>
-    <Button
-      variant="ghost"
-      data-testid="widget-note-open"
-      onClick={() => actions.openNote(node.anchor)}
-    >
-      Note
-    </Button>
-  </header>
-)
-
-const WidgetItem = ({
-  kind,
-  node,
-  actions,
-}: {
-  readonly kind: string
-  readonly node: SteeringViewNode
-  readonly actions: WidgetActions
 }) => {
-  const type = kind === "single-select" ? "radio" : "checkbox"
-  if (kind === "review-checklist") return <HunkRow node={node} actions={actions} />
-  if (node.status === "custom") return <CustomAnswer node={node} type={type} actions={actions} />
-  return <OptionRow node={node} type={type} actions={actions} />
+  const Icon = WIDGET_ICONS[node.status ?? ""] ?? CircleHelp
+  return (
+    <header className="flex items-start justify-between gap-2">
+      <div className="flex min-w-0 flex-col gap-1.5 pt-1.5 lg:pt-0.5">
+        <h3 className="m-0 flex items-start gap-2 text-lg leading-snug font-semibold">
+          <Icon aria-hidden="true" className="mt-1 size-4 shrink-0 text-muted-foreground" />
+          <span className="min-w-0">
+            <Inline inline={node.titleInline} fallback={node.title} />
+          </span>
+        </h3>
+        <div className="flex flex-wrap items-center gap-2 pl-6 empty:hidden">
+          {node.answered === false && (
+            <Badge
+              variant="outline"
+              className="border-warning/50 text-warning"
+              data-testid="widget-required"
+            >
+              <CircleAlert aria-hidden="true" />
+              Needs an answer
+            </Badge>
+          )}
+          {node.status === "review-checklist" && <ReviewedCount node={node} actions={actions} />}
+        </div>
+      </div>
+      <Button
+        variant="ghost"
+        className="px-3 text-muted-foreground hover:text-foreground"
+        data-testid="widget-note-open"
+        onClick={() => actions.openNote(node.anchor)}
+      >
+        <MessageSquarePlus aria-hidden="true" />
+        Note
+      </Button>
+    </header>
+  )
 }
 
 const WidgetText = ({ node }: { readonly node: SteeringViewNode }) => (
   <>
-    {node.detail !== undefined && (
-      <p className="my-2 whitespace-pre-wrap text-small">{node.detail}</p>
+    {node.body !== undefined ? (
+      <div className="mt-2 text-sm text-muted-foreground" data-testid="widget-description">
+        <ProseBlocks nodes={node.body} noteOverrides={{}} onOpenNote={() => {}} readOnly />
+      </div>
+    ) : (
+      node.detail !== undefined && (
+        <p className="m-0 mt-2 text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">
+          {node.detail}
+        </p>
+      )
     )}
     {node.note !== undefined && (
-      <p className="my-2 rounded bg-surface p-2 text-small" data-testid="widget-note">
-        {node.note}
+      <p
+        className="m-0 mt-3 flex gap-2 rounded-md bg-muted px-3 py-2 text-sm"
+        data-testid="widget-note"
+      >
+        <MessageSquareText aria-hidden="true" className="mt-0.5 size-4 shrink-0 text-warning" />
+        <span className="min-w-0">{node.note}</span>
       </p>
     )}
   </>
 )
+
+/** The radio group's value: the custom row while its typed tick is on, else the first ticked option. */
+const pickedValue = (
+  children: readonly SteeringViewNode[],
+  checked: (child: SteeringViewNode) => boolean,
+  typedTick: boolean | undefined,
+): string => {
+  const custom = children.findIndex((c) => c.status === "custom")
+  if (typedTick === true && custom >= 0) return String(custom)
+  const picked = children.findIndex((c) =>
+    c.status === "custom" && typedTick === false ? false : checked(c),
+  )
+  return picked >= 0 ? String(picked) : ""
+}
+
+const WidgetOptions = ({
+  node,
+  actions,
+}: {
+  readonly node: SteeringViewNode
+  readonly actions: WidgetActions
+}) => {
+  const [typedTick, setTypedTick] = useState<boolean | undefined>(undefined)
+  const kind = node.status ?? ""
+  const children = node.children ?? []
+  if (kind === "review-checklist") {
+    return (
+      <ul className="m-0 mt-3 flex list-none flex-col p-0">
+        {children.map((child, i) => (
+          <HunkRow key={i} node={child} actions={actions} />
+        ))}
+      </ul>
+    )
+  }
+  const type = kind === "single-select" ? "radio" : "checkbox"
+  const items = children.map((child, i) =>
+    child.status === "custom" ? (
+      <CustomAnswer
+        key={i}
+        node={child}
+        type={type}
+        value={String(i)}
+        actions={actions}
+        typedTick={typedTick}
+        onTypedTick={setTypedTick}
+      />
+    ) : (
+      <OptionRow key={i} node={child} type={type} value={String(i)} actions={actions} />
+    ),
+  )
+  if (type === "checkbox") return <ul className="m-0 mt-3 flex list-none flex-col p-0">{items}</ul>
+  return (
+    <RadioGroup
+      asChild
+      aria-label={node.title}
+      value={pickedValue(children, actions.checkedOf, typedTick)}
+      onValueChange={(v) => {
+        const child = children[Number(v)]
+        if (child === undefined) return
+        actions.set(
+          child,
+          child.status === "custom"
+            ? { checked: true, text: actions.textOf(child) }
+            : { checked: true },
+        )
+      }}
+      className="m-0 mt-3 flex list-none flex-col gap-0 p-0"
+    >
+      <ul>{items}</ul>
+    </RadioGroup>
+  )
+}
 
 const WidgetCard = ({
   node,
@@ -337,43 +518,138 @@ const WidgetCard = ({
 }: {
   readonly node: SteeringViewNode
   readonly actions: WidgetActions
-}) => {
-  const kind = node.status ?? ""
-  return (
-    <section data-testid={`widget-${kind}`} className="border-b border-border p-3">
+}) => (
+  <Card className="my-6">
+    <section data-testid={`widget-${node.status ?? ""}`} className="p-4 lg:p-5">
       <WidgetHeader node={node} actions={actions} />
       <WidgetText node={node} />
-      <ul className="m-0 list-none p-0">
-        {(node.children ?? []).map((child, i) => (
-          <WidgetItem key={i} kind={kind} node={child} actions={actions} />
-        ))}
-      </ul>
+      <WidgetOptions node={node} actions={actions} />
     </section>
-  )
-}
+  </Card>
+)
 
 const EmptyDocumentCapture = ({ onSave }: { readonly onSave: (text: string) => void }) => {
   const [text, setText] = useState("")
   return (
-    <div className="rounded border border-border p-3">
-      <textarea
+    <Card className="flex flex-col gap-3 p-4">
+      <Label htmlFor="document-empty-textarea" className="text-base font-semibold">
+        This file is empty
+      </Label>
+      <p className="m-0 text-sm text-muted-foreground">
+        Write what the agent should know, then save.
+      </p>
+      <Textarea
+        id="document-empty-textarea"
         data-testid="document-empty-textarea"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        className="min-h-32 w-full resize-y"
+        className="min-h-32 resize-y"
       />
-      <div className="mt-2 flex justify-end">
+      <div className="flex justify-end">
         <Button variant="primary" data-testid="document-empty-save" onClick={() => onSave(text)}>
           Save
         </Button>
       </div>
-    </div>
+    </Card>
   )
 }
+
+/** Where the page rests, as `gtd ui`'s step reports it. */
+export interface GateContext {
+  readonly repo: string
+  readonly branch: string
+  readonly label: string
+}
+
+/** `.gtd/SQUASH_MESSAGE.md` → "Squash message": the file's name is the only gate kind the page is told. */
+const gateKind = (filePath: string): string => {
+  const stem = (filePath.split("/").pop() ?? filePath).replace(/\.[^.]*$/, "")
+  const words = stem.replace(/[_-]+/g, " ").trim().toLowerCase()
+  return words.length > 0 ? words[0]!.toUpperCase() + words.slice(1) : filePath
+}
+
+/** A commit message is read as the exact text it will be, not as prose. */
+const isMessageFile = (filePath: string, nodes: readonly SteeringViewNode[]): boolean =>
+  /message\.[^./]*$/i.test(filePath) && !nodes.some(isWidget)
+
+/** A first heading that only says the gate kind again, under the bar that already says it. */
+const repeatsTitle = (node: SteeringViewNode | undefined, kind: string): boolean =>
+  node?.block?.kind === "heading" &&
+  (node.note ?? "") === "" &&
+  node.title.trim().toLowerCase() === kind.toLowerCase()
+
+const COLUMN = "mx-auto w-full max-w-[calc(68ch+2rem)] px-4"
+
+const GateHeader = ({
+  filePath,
+  context,
+  base,
+}: {
+  readonly filePath: string
+  readonly context: GateContext | undefined
+  readonly base: string | undefined
+}) => (
+  <header
+    data-testid="gate-header"
+    className="sticky top-0 z-10 shrink-0 border-b border-border bg-card"
+  >
+    <div className={cn(COLUMN, "flex items-start gap-3 py-3")}>
+      <GtdMark className="mt-0.5 size-9 rounded-lg dark:ring-1 dark:ring-border" />
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <h1 className="m-0 text-xl leading-tight font-semibold tracking-tight">
+          {gateKind(filePath)}
+        </h1>
+        {context !== undefined && (
+          <p data-testid="gate-context" className="m-0 text-sm text-muted-foreground">
+            <span>{context.repo}</span>
+            <span aria-hidden="true"> / </span>
+            <span className="font-medium text-foreground">{context.branch}</span>
+            <span aria-hidden="true"> · </span>
+            <span>{context.label}</span>
+          </p>
+        )}
+        {base !== undefined && (
+          <p
+            data-testid="document-base"
+            className="m-0 flex items-center gap-1.5 text-sm text-muted-foreground"
+          >
+            <GitCommitHorizontal aria-hidden="true" className="size-4 shrink-0" />
+            Review base: <code className="font-mono text-foreground">{base}</code>
+          </p>
+        )}
+      </div>
+    </div>
+  </header>
+)
+
+/** The page's shape while its file loads: header, a few lines, a question. */
+export const DocumentSkeleton = ({ label }: { readonly label: string }) => (
+  <div className="flex flex-col" aria-busy="true">
+    <span className="sr-only">{label}</span>
+    <div className="border-b border-border bg-card">
+      <div className={cn(COLUMN, "flex flex-col gap-2 py-3")}>
+        <Skeleton className="h-6 w-40" />
+        <Skeleton className="h-4 w-56" />
+      </div>
+    </div>
+    <div className={cn(COLUMN, "flex flex-col gap-3 py-6")}>
+      <Skeleton className="h-7 w-2/3" />
+      <Skeleton className="h-4 w-full" />
+      <Skeleton className="h-4 w-11/12" />
+      <Skeleton className="h-4 w-4/5" />
+      <Card className="mt-4 flex flex-col gap-3 p-4">
+        <Skeleton className="h-6 w-1/2" />
+        <Skeleton className="h-9 w-full" />
+        <Skeleton className="h-9 w-full" />
+      </Card>
+    </div>
+  </div>
+)
 
 export interface DocumentViewProps {
   readonly view: SteeringView | undefined
   readonly filePath: string
+  readonly context?: GateContext | undefined
   readonly isLoading: boolean
   readonly readError?: unknown
   readonly onSet?: (anchor: SteeringAnchor, value: BoxValue) => TokenGuardedWrite
@@ -382,10 +658,11 @@ export interface DocumentViewProps {
   readonly busy?: boolean | undefined
 }
 
-const loadingMessage = (isLoading: boolean, readError: unknown): string => {
-  if (isLoading) return "Loading the file…"
+const readErrorMessage = (readError: unknown): string => {
   const refusal = readError !== undefined ? readRefusalFrom(readError) : undefined
-  return refusal !== undefined ? messageForReadRefusal(refusal) : "Could not load the file."
+  return refusal !== undefined
+    ? messageForReadRefusal(refusal)
+    : "Could not load the file. Check that gtd is still running, then reload this page."
 }
 
 /** A steering file as the person sees it: prose to read and note, widgets to answer, in file order. */
@@ -393,6 +670,7 @@ const loadingMessage = (isLoading: boolean, readError: unknown): string => {
 export const DocumentView = ({
   view,
   filePath,
+  context,
   isLoading,
   readError,
   onSet,
@@ -407,8 +685,11 @@ export const DocumentView = ({
   const save = useWriteStore((s) => s.save)
 
   if (view === undefined) {
+    if (isLoading) return <DocumentSkeleton label="Loading the file…" />
     return (
-      <Notice tone={isLoading ? "info" : "error"}>{loadingMessage(isLoading, readError)}</Notice>
+      <Notice tone="error" className="mx-4 my-6 lg:mx-auto lg:max-w-2xl">
+        {readErrorMessage(readError)}
+      </Notice>
     )
   }
 
@@ -491,17 +772,15 @@ export const DocumentView = ({
     }).catch(() => {})
   }
 
+  const openProseNote = (node: SteeringViewNode): void => setNoteAnchor(node.anchor)
+  const message = isMessageFile(filePath, view.nodes)
+  const hasProse = view.nodes.some((n) => !isWidget(n) && n.block?.kind !== "code")
+  const titleRepeated = repeatsTitle(view.nodes[0], gateKind(filePath))
+
   return (
     <>
       <div data-testid="document-screen" className="flex h-full min-h-0 flex-1 flex-col">
-        {view.base !== undefined && (
-          <header
-            data-testid="document-base"
-            className="shrink-0 border-b border-border p-3 text-small"
-          >
-            Review base: <code>{view.base}</code>
-          </header>
-        )}
+        <GateHeader filePath={filePath} context={context} base={view.base} />
         {slide !== undefined && pages.length > 0 && (
           <HunkSlider
             pages={pages}
@@ -513,35 +792,47 @@ export const DocumentView = ({
         <div
           ref={scroll}
           data-testid="document-scroll"
-          className={`min-h-0 flex-1 overflow-auto ${slide !== undefined ? "hidden" : ""}`}
+          className={`scrollbar-thin min-h-0 flex-1 overflow-auto ${slide !== undefined ? "hidden" : ""}`}
         >
-          <HunkOpenContext.Provider value={actions.openHunk}>
-            {view.nodes.length === 0 ? (
-              <EmptyDocumentCapture onSave={saveEmpty} />
-            ) : (
-              runsOf(view.nodes).map((run, i) =>
-                isWidget(run[0]!) ? (
-                  <WidgetCard key={i} node={run[0]!} actions={actions} />
-                ) : (
-                  <ProseBlocks
-                    key={i}
-                    nodes={run}
-                    noteOverrides={{}}
-                    onOpenNote={(node) => setNoteAnchor(node.anchor)}
-                  />
-                ),
-              )
-            )}
-          </HunkOpenContext.Provider>
+          <div className={cn(COLUMN, "py-6 lg:py-8")}>
+            <HunkOpenContext.Provider value={actions.openHunk}>
+              {view.nodes.length > 0 && hasProse && <NoteGestureHint />}
+              {view.nodes.length === 0 ? (
+                <EmptyDocumentCapture onSave={saveEmpty} />
+              ) : message ? (
+                <MessageCard nodes={view.nodes} onOpenNote={openProseNote} />
+              ) : (
+                runsOf(view.nodes).map((run, i) =>
+                  isWidget(run[0]!) ? (
+                    <WidgetCard key={i} node={run[0]!} actions={actions} />
+                  ) : (
+                    <ProseBlocks
+                      key={i}
+                      nodes={run}
+                      hideFirst={i === 0 && titleRepeated}
+                      noteOverrides={{}}
+                      onOpenNote={openProseNote}
+                    />
+                  ),
+                )
+              )}
+            </HunkOpenContext.Provider>
+          </div>
         </div>
         {onDone !== undefined && (
-          <div
-            data-testid="plan-done-row"
-            className="flex shrink-0 items-center justify-end border-t border-border p-3"
-          >
-            <Button variant="primary" data-testid="plan-done" onClick={runDone} disabled={busy}>
-              Done
-            </Button>
+          <div data-testid="plan-done-row" className="shrink-0 border-t border-border bg-card">
+            <div className={cn(COLUMN, "flex items-center justify-end py-3")}>
+              <Button
+                variant="primary"
+                data-testid="plan-done"
+                className="w-full lg:w-auto"
+                onClick={runDone}
+                disabled={busy}
+              >
+                <Check aria-hidden="true" />
+                Done
+              </Button>
+            </div>
           </div>
         )}
       </div>
@@ -559,9 +850,34 @@ export const DocumentView = ({
   )
 }
 
+const MessageCard = ({
+  nodes,
+  onOpenNote,
+}: {
+  readonly nodes: readonly SteeringViewNode[]
+  readonly onOpenNote: (node: SteeringViewNode) => void
+}) => (
+  <Card data-testid="commit-message">
+    <CardHeader>
+      <CardTitle className="flex items-center gap-2 text-sm font-medium text-muted-foreground">
+        <GitCommitHorizontal aria-hidden="true" className="size-4" />
+        Proposed commit message
+      </CardTitle>
+    </CardHeader>
+    <CardContent className="font-mono text-sm leading-relaxed whitespace-pre-wrap [&_h2]:text-sm [&_h3]:text-sm [&_h4]:text-sm">
+      <ProseBlocks nodes={nodes} noteOverrides={{}} onOpenNote={onOpenNote} />
+    </CardContent>
+  </Card>
+)
+
 const HandedBackPanel = () => (
-  <Notice data-testid="handed-back-panel" role="status" aria-live="polite">
-    Handed back — this turn is done.
+  <Notice
+    data-testid="handed-back-panel"
+    role="status"
+    aria-live="polite"
+    className="mx-4 my-6 lg:mx-auto lg:max-w-2xl"
+  >
+    Handed back. This turn is done; you can close this page.
   </Notice>
 )
 
@@ -589,11 +905,13 @@ const useDocumentMutations = (filePath: string) => {
 
 const DocumentInner = ({
   filePath,
+  context,
   data,
   isLoading,
   error,
 }: {
   readonly filePath: string
+  readonly context: GateContext | undefined
   readonly data: { readonly view?: SteeringView } | undefined
   readonly isLoading: boolean
   readonly error: unknown
@@ -610,6 +928,7 @@ const DocumentInner = ({
         <DocumentView
           view={data?.view}
           filePath={filePath}
+          context={context}
           isLoading={isLoading}
           readError={error}
           onSet={onSet}
@@ -623,7 +942,13 @@ const DocumentInner = ({
 }
 
 /** The screen for every widget steering file. */
-export const Document = ({ filePath }: { readonly filePath: string }) => {
+export const Document = ({
+  filePath,
+  context,
+}: {
+  readonly filePath: string
+  readonly context?: GateContext
+}) => {
   const utils = trpc.useUtils()
   const query = trpc.readSteeringFile.useQuery({ filePath })
   const refetchTokens = async (): Promise<CasTokens> => {
@@ -637,6 +962,7 @@ export const Document = ({ filePath }: { readonly filePath: string }) => {
     <WriteStoreProvider tokens={query.data} refetchTokens={refetchTokens}>
       <DocumentInner
         filePath={filePath}
+        context={context}
         data={query.data}
         isLoading={query.isLoading}
         error={query.error}

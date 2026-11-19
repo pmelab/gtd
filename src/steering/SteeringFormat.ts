@@ -107,6 +107,8 @@ export interface BlockListItem {
 export interface SteeringViewNode {
   /** This node's own display name — a widget's title, a checkbox's label. */
   readonly title: string
+  /** `title`'s inline structure, for a widget's title and its options' labels. */
+  readonly titleInline?: readonly InlineNode[]
   /** A widget's description. */
   readonly detail?: string
   /** A widget's kind, or `"custom"` on a select's ✏️ answer. */
@@ -137,7 +139,7 @@ export interface SteeringViewNode {
   /** Where `annotate` attaches a NEW note to this node. */
   readonly anchor: SteeringAnchor
   readonly children?: readonly SteeringViewNode[]
-  /** Blocks rendered with a node, a sibling of `children` so they never render as checkboxes. */
+  /** Blocks rendered with a node, a sibling of `children` so they never render as checkboxes: a widget's description, as prose blocks anchored at their own lines. */
   readonly body?: readonly SteeringViewNode[]
   /**
    * The document structure a prose block carries. NO new anchor kind: whatever

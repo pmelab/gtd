@@ -95,7 +95,9 @@ const TickableHunk = ({
   const [hasNote, setHasNote] = useState(false)
   return (
     <div>
-      <div data-testid="approve-count">{approveCount}</div>
+      <p className="sr-only">
+        Approvals: <span data-testid="approve-count">{approveCount}</span>
+      </p>
       <Hunk
         node={hunkNode({ checked })}
         diff={diff}
@@ -188,7 +190,7 @@ export const NoteAffordanceMeetsThe44pxFloorInItsDefaultState: StoryObj<typeof T
   },
 }
 
-/** Spec feedback: `hunk-tick`'s native `<input type="checkbox">` sits inside a `<label>` sized to the 44px floor — the label (the actual tap target), not the raw input, is what's measured. */
+/** `hunk-tick` sits inside a `<label>` sized to the 44px floor; the label (the actual tap target), not the box, is measured. */
 export const HunkTickRowMeetsThe44pxFloor: StoryObj<typeof TickableHunk> = {
   render: () => <TickableHunk diff={RESOLVED_DIFF} />,
   play: async ({ canvasElement }) => {
@@ -292,7 +294,8 @@ export const DescriptionRendersBetweenTitleAndDiff: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const title = canvas.getByText("src/x.ts#3")
+    const title = canvas.getByTestId("hunk-title")
+    await expect(title).toHaveTextContent("src/x.ts#3")
     const description = canvas.getByTestId("hunk-description")
     const diff = canvas.getByTestId("diff-line-0")
     await expect(description).toHaveTextContent("adds the retry loop")
@@ -738,7 +741,17 @@ export const AHunkKnownToCarryANoteWithoutItsTextStillReadsAsAControl: Story = {
  */
 const TWELVE_LINE_RANGE_IN_A_NEW_FILE: DiffResult = {
   kind: "hunk",
-  diff: { path: "src/big.ts", hunks: [] },
+  diff: {
+    path: "src/big.ts",
+    hunks: [
+      {
+        header: "@@ -0,0 +1,400 @@",
+        newStart: 1,
+        newLines: 400,
+        lines: Array.from({ length: 400 }, (_, i) => `+line${i + 1}`),
+      },
+    ],
+  },
   hunks: [
     {
       header: "@@ -0,0 +1,400 @@",
@@ -900,8 +913,12 @@ export const DimmedContextBandRendersInTheShippedTheme: Story = {
     const canvas = within(canvasElement)
     const dimmedRow = canvas.getByTestId("diff-line-1")
     const inRangeRow = canvas.getByTestId("diff-line-4")
-    const dimmedOpacity = Number(getComputedStyle(dimmedRow.querySelector("span")!).opacity)
-    const inRangeOpacity = Number(getComputedStyle(inRangeRow.querySelector("span")!).opacity)
+    const dimmedOpacity = Number(
+      getComputedStyle(dimmedRow.querySelector("[data-diff-code]")!).opacity,
+    )
+    const inRangeOpacity = Number(
+      getComputedStyle(inRangeRow.querySelector("[data-diff-code]")!).opacity,
+    )
     await expect(dimmedOpacity).toBeLessThan(1)
     await expect(inRangeOpacity).toBe(1)
     // Backgrounds stay identical — both rows are `add` kind (T3: opacity on
@@ -976,7 +993,25 @@ export const A900LineRangeRendersAll900RowsWithNoTruncationMarker: Story = {
  */
 const RANGE_WITH_DELETIONS_INSIDE_AND_IN_THE_PAD_BAND: DiffResult = {
   kind: "hunk",
-  diff: { path: "src/x.ts", hunks: [] },
+  diff: {
+    path: "src/x.ts",
+    hunks: [
+      {
+        header: "@@ -1,21 +1,20 @@",
+        newStart: 1,
+        newLines: 20,
+        lines: Array.from({ length: 20 }, (_, i) => ` line${i + 1}`).flatMap((line, i) =>
+          i === 6
+            ? ["-delAbove", line]
+            : i === 10
+              ? ["-delInside", line]
+              : i === 13
+                ? ["-delBelow", line]
+                : [line],
+        ),
+      },
+    ],
+  },
   hunks: [
     {
       header: "@@ -1,21 +1,20 @@",
@@ -1058,5 +1093,69 @@ export const DeletionsInsideTheRangeAndInThePadBandAreFlaggedCorrectly: Story = 
     for (const i of [11, 12]) {
       await expect(canvas.getByTestId(`diff-line-${i}`)).toHaveAttribute("data-dimmed", "true")
     }
+  },
+}
+
+const gutterOf = (row: HTMLElement) => ({
+  old: row.querySelector('[data-gutter="old"]')?.textContent,
+  new: row.querySelector('[data-gutter="new"]')?.textContent,
+  sign: row.querySelector('[data-gutter="sign"]')?.textContent,
+})
+
+/** A diff reads without colour: each row carries its old and new line numbers and a +/− sign. */
+export const TheGutterShowsLineNumbersAndASignSoTheDiffReadsWithoutColour: Story = {
+  args: {
+    node: hunkNode(),
+    diff: RESOLVED_DIFF,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(gutterOf(canvas.getByTestId("diff-line-0"))).toEqual({
+      old: "",
+      new: "",
+      sign: "",
+    })
+    await expect(gutterOf(canvas.getByTestId("diff-line-1"))).toEqual({
+      old: "1",
+      new: "1",
+      sign: "",
+    })
+    await expect(gutterOf(canvas.getByTestId("diff-line-2"))).toEqual({
+      old: "2",
+      new: "",
+      sign: "−",
+    })
+    await expect(gutterOf(canvas.getByTestId("diff-line-3"))).toEqual({
+      old: "",
+      new: "2",
+      sign: "+",
+    })
+  },
+}
+
+/** A range slice keeps the whole hunk's header, so its numbers come from where it sits in the whole hunk. */
+export const ARangeSliceIsNumberedFromItsPlaceInTheWholeHunk: Story = {
+  args: {
+    node: hunkNode({ title: "src/big.ts#190-201", line: 190, endLine: 201 }),
+    diff: TWELVE_LINE_RANGE_IN_A_NEW_FILE,
+    index: 0,
+    total: 1,
+    checked: false,
+    hasNote: false,
+    onToggle: () => {},
+    onApprove: () => {},
+    onOpenNote: () => {},
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(gutterOf(canvas.getByTestId("diff-line-1")).new).toBe("187")
+    await expect(gutterOf(canvas.getByTestId("diff-line-18")).new).toBe("204")
   },
 }

@@ -69,14 +69,21 @@ export const NoOnDonePropRendersNoDoneButton: Story = {
   },
 }
 
-/** The done action's own trigger: "Save & Done" fires `onDone` with the SAME anchor/text `onSave` would get — never a second, disjoint save. */
+/** The done action's own trigger: "Save & done" fires `onDone` with the SAME anchor/text `onSave` would get — never a second, disjoint save. */
 export const SaveAndDoneFiresOnDoneWithTheCurrentText: Story = {
-  args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn(), onDone: fn() },
+  args: {
+    anchor: paragraphAnchor,
+    onSave: fn(),
+    onDismiss: fn(),
+    onDone: fn(),
+  },
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
     await settled(canvasElement)
     const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
-    await fireEvent.change(textarea, { target: { value: "final note before handing back" } })
+    await fireEvent.change(textarea, {
+      target: { value: "final note before handing back" },
+    })
     await fireEvent.click(canvas.getByTestId("note-sheet-done"))
     await expect(args.onDone).toHaveBeenCalledWith(
       paragraphAnchor,
@@ -87,7 +94,7 @@ export const SaveAndDoneFiresOnDoneWithTheCurrentText: Story = {
 }
 
 /**
- * Package 03 Task 2's own deliberate call: `busy` disables "Save & Done"
+ * Package 03 Task 2's own deliberate call: `busy` disables "Save & done"
  * rather than unmounting it — a vanishing control would move the dismiss/
  * save buttons under the user's thumb mid-interaction. `onDone` being wired
  * at all is a SEPARATE decision from `busy` (see `NoOnDonePropRendersNoDoneButton`
@@ -95,7 +102,13 @@ export const SaveAndDoneFiresOnDoneWithTheCurrentText: Story = {
  * only toggles `busy`.
  */
 export const SaveAndDoneIsDisabledNotUnmountedWhileAWriteIsPending: Story = {
-  args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn(), onDone: fn(), busy: true },
+  args: {
+    anchor: paragraphAnchor,
+    onSave: fn(),
+    onDismiss: fn(),
+    onDone: fn(),
+    busy: true,
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await settled(canvasElement)
@@ -135,7 +148,12 @@ export const SaveAndDoneReEnablesOnceBusyClears: Story = {
       onDone={args.onDone as (anchor: SteeringAnchor, text: string) => void}
     />
   ),
-  args: { anchor: paragraphAnchor, onSave: fn(), onDismiss: fn(), onDone: fn() },
+  args: {
+    anchor: paragraphAnchor,
+    onSave: fn(),
+    onDismiss: fn(),
+    onDone: fn(),
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await settled(canvasElement)
@@ -251,7 +269,9 @@ export const TypingIntoTheNoteBodyFiresNoWriteEverNotAfterAnyElapsedTimeNorOnBlu
     await settled(canvasElement)
     const textarea = canvas.getByTestId("note-sheet-textarea") as HTMLTextAreaElement
     textarea.focus()
-    await fireEvent.change(textarea, { target: { value: "typed but never saved" } })
+    await fireEvent.change(textarea, {
+      target: { value: "typed but never saved" },
+    })
     // A real wait past the OLD 800ms debounce window — proves no timer fires
     // a write, not just that none has fired yet.
     await new Promise((resolve) => setTimeout(resolve, 900))
@@ -379,7 +399,7 @@ export const FooterControlsPressedStatesDifferFromRest: Story = {
     const doneRest = getComputedStyle(done).backgroundColor
     await withRealMousePress(done, async () => {
       await expect(getComputedStyle(done).backgroundColor).not.toBe(doneRest)
-      await expect(getComputedStyle(done).backgroundColor).toBe(token("accent-pressed"))
+      await expect(getComputedStyle(done).backgroundColor).toBe(token("primary-pressed"))
     })
 
     const dismiss = canvas.getByTestId("note-sheet-dismiss")
@@ -435,7 +455,9 @@ export const ModalOverTheDocumentNotATakeover: Story = {
 
     // Dismissal plays the exit first and hands up the dismissal when it
     // finishes — so it arrives a frame or two later, never on the gesture.
-    await fireEvent.keyDown(canvas.getByTestId("note-sheet-overlay"), { key: "Escape" })
+    await fireEvent.keyDown(canvas.getByTestId("note-sheet-overlay"), {
+      key: "Escape",
+    })
     await waitFor(() => expect(args.onDismiss).toHaveBeenCalled())
   },
 }
@@ -474,5 +496,23 @@ export const TheSheetSlidesInAndPlaysItsExitBeforeDismissing: Story = {
     await expect(panel.getAnimations()).toHaveLength(1)
     await expect(args.onDismiss).not.toHaveBeenCalled()
     await waitFor(() => expect(args.onDismiss).toHaveBeenCalled())
+  },
+}
+
+/** From 1024px the sheet is a centred dialog rather than a full-width bottom sheet. */
+export const OnDesktopTheSheetIsACentredDialog: Story = {
+  args: { anchor: hunkAnchor, onSave: fn(), onDismiss: fn(), onDone: fn() },
+  play: async ({ canvasElement }) => {
+    await viewport(1440, 900)
+    const canvas = within(canvasElement)
+    await settled(canvasElement)
+    const panel = canvas.getByTestId("note-sheet").getBoundingClientRect()
+    await expect(panel.width).toBeLessThanOrEqual(512)
+    await expect(
+      Math.abs(panel.left + panel.width / 2 - window.innerWidth / 2),
+    ).toBeLessThanOrEqual(1)
+    await expect(
+      Math.abs(panel.top + panel.height / 2 - window.innerHeight / 2),
+    ).toBeLessThanOrEqual(1)
   },
 }

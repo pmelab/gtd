@@ -18,9 +18,14 @@ const record =
     return answer
   }
 
+const actions = () => ({
+  status: "needsYou",
+  actions: [{ id: "any:shell", label: "Open a shell", status: "any", fields: [] }],
+})
+
 const withApi = (resolvers: Record<string, (input: unknown) => unknown>) => [
   (Story: () => React.JSX.Element) => (
-    <WorkspaceTrpcTestProvider resolvers={{ projects: () => workspace, ...resolvers }}>
+    <WorkspaceTrpcTestProvider resolvers={{ projects: () => workspace, actions, ...resolvers }}>
       <Story />
     </WorkspaceTrpcTestProvider>
   ),
@@ -36,7 +41,7 @@ export default meta
 
 type Story = StoryObj<typeof Detail>
 
-/** On a phone the detail covers the screen, the gate page first, with its tab bar at the bottom. */
+/** On a phone the detail covers the screen, the gate page first, its tabs at the top under the header. */
 export const GateFirstFullScreenOnAPhone: Story = {
   play: async ({ canvasElement }) => {
     await viewport(390, 844)
@@ -45,33 +50,98 @@ export const GateFirstFullScreenOnAPhone: Story = {
     await expect(frame.getAttribute("src")).toBe(plan.worktree.gate)
     const detail = canvas.getByTestId("detail").getBoundingClientRect()
     await expect(detail.width).toBe(window.innerWidth)
-    const tabs = canvas.getByRole("navigation", { name: "Worktree" }).getBoundingClientRect()
-    await expect(tabs.bottom).toBe(window.innerHeight)
-    await expect(canvas.getByRole("button", { name: "Gate" }).getAttribute("aria-current")).toBe(
+    const tabs = canvas.getByRole("tablist", { name: "Worktree" }).getBoundingClientRect()
+    await expect(tabs.top).toBeGreaterThan(
+      canvas.getByRole("heading").getBoundingClientRect().bottom,
+    )
+    await expect(tabs.bottom).toBeLessThanOrEqual(frame.getBoundingClientRect().top)
+    await expect(canvas.getByRole("tab", { name: "Gate" }).getAttribute("aria-selected")).toBe(
       "true",
     )
+  },
+}
+
+/** The header carries the weight: "Portal / plan" larger than body text, a status badge, then why. */
+export const HeaderShowsWhereAndWhy: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const title = canvas.getByRole("heading")
+    await expect(title.textContent).toBe("Portal/plan")
+    await expect(parseFloat(getComputedStyle(title).fontSize)).toBeGreaterThan(
+      parseFloat(getComputedStyle(canvas.getByTestId("detail-reason")).fontSize),
+    )
+    await expect(canvasElement.querySelector("[data-status]")?.textContent).toBe(
+      "needs you (question)",
+    )
+    await expect(canvas.getByTestId("detail-reason").textContent).toBe("Answer the plan")
+  },
+}
+
+/** The gate's Proceed is the one yellow button; Run in Actions stays secondary while the gate waits. */
+export const OneYellowActionAtAGate: Story = {
+  decorators: withApi({
+    actions: () => ({
+      status: "needsYou",
+      actions: [{ id: "any:shell", label: "Open a shell", status: "any", fields: [] }],
+    }),
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const proceed = canvas.getByRole("button", { name: "Proceed" })
+    await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
+    const run = await canvas.findByRole("button", { name: "Run" })
+    await expect(getComputedStyle(run).backgroundColor).not.toBe(
+      getComputedStyle(proceed).backgroundColor,
+    )
+  },
+}
+
+/** Without a gate, Run is the screen's primary action. */
+export const RunIsPrimaryWithoutAGate: Story = {
+  args: { entry: { project: portal, worktree: portal.worktrees[2]! } },
+  decorators: withApi({
+    actions: () => ({
+      status: "idle",
+      actions: [{ id: "any:shell", label: "Open a shell", status: "any", fields: [] }],
+    }),
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
+    const run = await canvas.findByRole("button", { name: "Run" })
+    await expect(run.className).toContain("bg-primary")
+  },
+}
+
+/** The frame is labelled in words, never by its raw URL. */
+export const GateLabelIsReadable: Story = {
+  play: async ({ canvasElement }) => {
+    const gate = within(canvasElement).getByTestId("gate-tab")
+    await expect(gate).toHaveTextContent("Gate page")
+    await expect(gate).not.toHaveTextContent("data:text/html")
   },
 }
 
 /** The embedded gate links to the full gate page in a tab of its own. */
 export const OpenInTab: Story = {
   play: async ({ canvasElement }) => {
-    const link = within(canvasElement).getByTestId("open-gate")
+    const canvas = within(canvasElement)
+    const link = canvas.getByRole("link", { name: "Open in new tab" })
+    await expect(link).toBe(canvas.getByTestId("open-gate"))
     await expect(link.getAttribute("href")).toBe(plan.worktree.gate)
     await expect(link.getAttribute("target")).toBe("_blank")
-    await expect(getComputedStyle(link).textDecorationLine).toBe("underline")
+    await viewport(390, 844)
+    await expect(link.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
   },
 }
 
 /** The detail offers Gate and Actions, in that order, and no Terminal. */
 export const OffersGateThenActions: Story = {
   play: async ({ canvasElement }) => {
-    const tabs = within(canvasElement).getByRole("navigation", {
-      name: "Worktree",
-    })
+    const tabs = within(canvasElement).getByRole("tablist", { name: "Worktree" })
     await expect(
       within(tabs)
-        .getAllByRole("button")
+        .getAllByRole("tab")
         .map((b) => b.textContent),
     ).toEqual(["Gate", "Actions"])
   },
@@ -111,8 +181,8 @@ export const ActionsRunWithTheirFields: Story = {
   play: async ({ canvasElement }) => {
     calls.length = 0
     const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByRole("button", { name: "Actions" }))
-    await userEvent.type(await canvas.findByRole("textbox"), "shorter")
+    await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
+    await userEvent.type(await canvas.findByRole("textbox", { name: "note" }), "shorter")
     await userEvent.selectOptions(canvas.getByRole("combobox", { name: "mode" }), "slow")
     await userEvent.click(canvas.getByRole("checkbox", { name: "dry" }))
     await userEvent.click(canvas.getByRole("button", { name: "Run" }))
@@ -155,11 +225,19 @@ export const RemoveAsksToConfirm: Story = {
   play: async ({ canvasElement, args }) => {
     calls.length = 0
     const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByRole("button", { name: "Remove" }))
-    await expect((await canvas.findByTestId("remove-confirm")).textContent).toBe(
-      "Remove anyway? This loses: the tree has uncommitted changes, the branch is not integrated",
-    )
-    await userEvent.click(canvas.getByRole("button", { name: "Remove anyway" }))
+    await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
+    const remove = canvas.getByRole("button", { name: "Remove" })
+    const restBackground = getComputedStyle(remove).backgroundColor
+    await userEvent.click(remove)
+    const losses = within(await canvas.findByTestId("remove-confirm")).getAllByRole("listitem")
+    await expect(losses.map((l) => l.textContent)).toEqual([
+      "the tree has uncommitted changes",
+      "the branch is not integrated",
+    ])
+    await expect(canvas.getByTestId("danger-zone")).toHaveTextContent("deletes the worktree")
+    const anyway = canvas.getByRole("button", { name: "Remove anyway" })
+    await expect(getComputedStyle(anyway).backgroundColor).not.toBe(restBackground)
+    await userEvent.click(anyway)
     await waitFor(() => expect(args.onClose).toHaveBeenCalled())
     await expect(calls).toEqual([
       {
@@ -191,6 +269,7 @@ export const ShowsWhyRemoveKeepsAWorktree: Story = {
   }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
     await userEvent.click(canvas.getByRole("button", { name: "Remove" }))
     await expect((await canvas.findByTestId("remove-error")).textContent).toBe("its driver runs")
   },
@@ -222,66 +301,88 @@ export const GateFollowsTheRest: Story = {
   },
 }
 
+/** Remove sits in Actions, below Run, never beside the press. */
+export const RemoveSitsInActions: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument()
+    await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
+    await expect(canvas.getByRole("button", { name: "Remove" })).toBeVisible()
+  },
+}
+
 /** The main checkout has no Remove. */
 export const NoRemoveOnTheMainCheckout: Story = {
   args: { entry: { project: portal, worktree: portal.worktrees[0]! } },
   play: async ({ canvasElement }) => {
-    await expect(
-      within(canvasElement).queryByRole("button", { name: "Remove" }),
-    ).not.toBeInTheDocument()
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
+    await canvas.findByTestId("actions-tab")
+    await expect(canvas.queryByRole("button", { name: "Remove" })).not.toBeInTheDocument()
   },
 }
 
 const shop = fullWorkspace[0]!
 
 const detailShows =
-  (key: string, status: string, message?: string): NonNullable<Story["play"]> =>
+  (key: string, status: string, reason: string, message?: string): NonNullable<Story["play"]> =>
   async ({ canvasElement }) => {
-    const detail = within(canvasElement).getByTestId("detail")
-    await expect(detail).toHaveTextContent(status)
+    const canvas = within(canvasElement)
+    const detail = canvas.getByTestId("detail")
+    await expect(detail.querySelector("[data-status]")?.textContent).toBe(status)
+    if (reason === "") await expect(canvas.queryByTestId("detail-reason")).toBeNull()
+    else await expect(canvas.getByTestId("detail-reason")).toHaveTextContent(reason)
     if (message) await expect(detail).toHaveTextContent(message)
-    await expect(detail).toHaveTextContent(statusWorktrees[key]!.branch!)
+    await expect(canvas.getByRole("heading")).toHaveTextContent(statusWorktrees[key]!.branch!)
   }
 
-const detailOf = (key: string, status: string, message?: string): Story => {
+const detailOf = (key: string, status: string, reason: string, message?: string): Story => {
   const entry: Entry = { project: shop, worktree: statusWorktrees[key]! }
-  return { args: { entry, onClose: fn() }, play: detailShows(key, status, message) }
+  return { args: { entry, onClose: fn() }, play: detailShows(key, status, reason, message) }
 }
 
-export const DetailIdle: Story = detailOf("idle", "idle: Idle")
-export const DetailIdleWithNote: Story = detailOf("idleNote", "idle: Idle", "merged into main")
-export const DetailAtAGateWithNoDriver: Story = detailOf("gate", "needs you: Answer the plan")
+// "Idle" under the "idle" badge would say it twice: no reason line.
+export const DetailIdle: Story = detailOf("idle", "idle", "")
+export const DetailIdleWithNote: Story = detailOf("idleNote", "idle", "", "merged into main")
+export const DetailAtAGateWithNoDriver: Story = detailOf("gate", "needs you", "Answer the plan")
 export const DetailNeedsYouPermission: Story = detailOf(
   "permission",
-  "needs you (permission): Allow the edit",
+  "needs you (permission)",
+  "Allow the edit",
 )
 export const DetailNeedsYouQuestion: Story = detailOf(
   "question",
-  "needs you (question): Pick a store",
+  "needs you (question)",
+  "Pick a store",
 )
 export const DetailNeedsYouNoDriverRuns: Story = detailOf(
   "noDriver",
-  "needs you: Build the change",
+  "needs you",
+  "Build the change",
   "no driver runs",
 )
-export const DetailWorking: Story = detailOf("working", "working: Building")
+export const DetailWorking: Story = detailOf("working", "working", "Building")
 export const DetailErrorStalled: Story = detailOf(
   "stalled",
-  "error (stalled): Stalled",
+  "error (stalled)",
+  "Stalled",
   "the process cannot go on",
 )
 export const DetailErrorCrashed: Story = detailOf(
   "crashed",
-  "error (crashed): Driver crashed",
+  "error (crashed)",
+  "Driver crashed",
   "the driver exited with 1",
 )
 export const DetailErrorDriver: Story = detailOf(
   "driver",
-  "error (driver): Driver failed",
+  "error (driver)",
+  "Driver failed",
   "the model refused",
 )
 export const DetailErrorNote: Story = detailOf(
   "note",
-  "error (note): Note failed",
+  "error (note)",
+  "Note failed",
   "gh: not logged in",
 )

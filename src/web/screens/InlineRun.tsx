@@ -1,3 +1,4 @@
+import { FileDiff } from "lucide-react"
 import { createContext, useContext, useState, type ReactNode } from "react"
 import type { InlineNode } from "../../steering/index.js"
 
@@ -7,6 +8,9 @@ export const HUNK_HREF_RE = /^\.\/(.+)#(\d+)(?:-(\d+))?$/
 /** Set by the document screen: opens the by-hunk view at the tapped link. */
 export const HunkOpenContext = createContext<((target: HTMLElement) => void) | undefined>(undefined)
 
+const LINK =
+  "text-link underline decoration-muted-foreground underline-offset-4 hover:decoration-foreground focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
+
 const Link = ({ href, children }: { readonly href: string; readonly children: ReactNode }) => {
   const open = useContext(HunkOpenContext)
   if (open !== undefined && HUNK_HREF_RE.test(href)) {
@@ -14,18 +18,19 @@ const Link = ({ href, children }: { readonly href: string; readonly children: Re
       <a
         href={href}
         data-hunk={href}
-        className="text-link underline"
+        className={LINK}
         onClick={(e) => {
           e.preventDefault()
           open(e.currentTarget)
         }}
       >
         {children}
+        <FileDiff aria-hidden="true" className="ml-0.5 inline size-3.5 align-[-0.125em]" />
       </a>
     )
   }
   return (
-    <a href={href} target="_blank" rel="noreferrer" className="text-link underline">
+    <a href={href} target="_blank" rel="noreferrer" className={LINK}>
       {children}
     </a>
   )
@@ -83,7 +88,7 @@ const INLINE_RENDERERS: {
     </s>
   ),
   code: (node, key) => (
-    <code key={key} className="text-code">
+    <code key={key} className="rounded-sm bg-muted px-1 py-0.5 font-mono text-[0.875em]">
       {node.value}
     </code>
   ),
