@@ -63,6 +63,15 @@ const inbox = {
   ],
 }
 
+/** The inbox items with these titles, wherever their feed groups them. */
+const itemsTitled = async (
+  canvas: ReturnType<typeof within>,
+  ...titles: string[]
+): Promise<HTMLElement[]> => {
+  const items = await canvas.findAllByTestId("inbox-item")
+  return titles.map((title) => items.find((i: HTMLElement) => i.textContent.includes(title))!)
+}
+
 const meta: Meta<typeof Dashboard> = {
   component: Dashboard,
   decorators: [
@@ -104,6 +113,14 @@ export default meta
 
 type Story = StoryObj<typeof Dashboard>
 
+/** The bottom tab bar, once the resize to a phone has reached the dashboard. */
+const phoneNav = (canvas: ReturnType<typeof within>) =>
+  waitFor(() => {
+    const nav = canvas.getByRole("navigation", { name: "Views" })
+    if (nav.closest("aside") !== null) throw new Error("still the desktop sidebar")
+    return nav
+  })
+
 /** The dashboard opens on Now, counts what needs you, and shows the workspace's banners. */
 export const OpensOnNow: Story = {
   play: async ({ canvasElement }) => {
@@ -113,7 +130,9 @@ export const OpensOnNow: Story = {
       "true",
     )
     await expect(canvas.getAllByTestId("now-card")).toHaveLength(2)
-    await expect(canvas.getByTestId("banner").textContent).toBe(
+    await expect(await canvas.findByRole("button", { name: "Inbox (2)" })).toBeInTheDocument()
+    await expect(canvas.getByTestId("banner")).toHaveTextContent("Workspace settings not reloaded")
+    await expect(canvas.getByTestId("banner-detail").textContent).toBe(
       "gtd.workspace.ts not reloaded: workspace.x: unknown key",
     )
   },
@@ -124,7 +143,7 @@ export const DetailIsAFullScreen: Story = {
   play: async ({ canvasElement }) => {
     await viewport(360, 800)
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByRole("button", { name: "Projects" }))
+    await userEvent.click(within(await phoneNav(canvas)).getByRole("button", { name: "Projects" }))
     await userEvent.click(canvas.getByText("login"))
     await expect(canvas.getByTestId("detail")).toBeVisible()
     await expect(canvas.queryByTestId("project")).not.toBeInTheDocument()
@@ -205,7 +224,7 @@ export const KeepsProjectTogglesAcrossADetail: Story = {
 export const ViewsHaveAddresses: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    await userEvent.click(await canvas.findByRole("button", { name: /^Inbox/ }))
     await expect(window.location.search).toBe("?view=inbox")
     await userEvent.click(canvas.getByRole("button", { name: "Projects" }))
     await expect(window.location.search).toBe("?view=projects")
@@ -217,15 +236,17 @@ export const InboxPressesAnItem: Story = {
   play: async ({ canvasElement }) => {
     pressed.length = 0
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
-    const [proposed, failed] = await canvas.findAllByTestId("inbox-item")
-    await expect(proposed!.textContent).toContain("proposed · boardReady · portal")
+    await userEvent.click(await canvas.findByRole("button", { name: /^Inbox/ }))
+    const [proposed, failed] = await itemsTitled(canvas, "Add login", "Fix logout")
+    await expect(within(proposed!).getByTestId("inbox-state").textContent).toBe("proposed")
+    await expect(proposed!.closest("section")).toHaveAccessibleName("portal")
+    await expect(within(failed!).getByTestId("inbox-reason").textContent).toBe("Start failed")
     await expect(within(failed!).getByTestId("inbox-message").textContent).toBe(
       "start:work exited 1",
     )
-    await expect(canvas.getByTestId("feed-failing").textContent).toBe(
-      "feed reviews failing: gh: not logged in",
-    )
+    const feedFailing = canvas.getByTestId("feed-failing")
+    await expect(feedFailing.textContent).toBe("gh: not logged in")
+    await expect(feedFailing.parentElement).toHaveTextContent("Feed check failed")
     await userEvent.click(within(proposed!).getByRole("button", { name: "Start" }))
     await userEvent.click(within(failed!).getByRole("button", { name: "Retry" }))
     await userEvent.click(within(failed!).getByRole("button", { name: "Dismiss" }))
@@ -243,9 +264,12 @@ export const InboxPressesAnItem: Story = {
 export const InboxSaysWhyAnItemWaits: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    await userEvent.click(await canvas.findByRole("button", { name: /^Inbox/ }))
     await expect((await canvas.findByTestId("drives")).textContent).toBe("2 of 2 drives in use")
-    const queued = canvas.getAllByTestId("inbox-item")[2]
+    const [queued] = await itemsTitled(canvas, "Review #7")
+    await expect(within(queued!).getByTestId("inbox-reason").textContent).toBe(
+      "2 of 2 drives in use — the workspace limit",
+    )
     await expect(within(queued!).getByTestId("inbox-message").textContent).toBe(
       "2 of 2 drives in use (limits.maxDrives)",
     )
@@ -257,7 +281,7 @@ export const InboxSaysWhyAnItemWaits: Story = {
 export const InboxTitleLinkIsUnderlined: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    await userEvent.click(await canvas.findByRole("button", { name: /^Inbox/ }))
     const link = await canvas.findByRole("link", { name: "Review #7" })
     await expect(getComputedStyle(link).textDecorationLine).toBe("underline")
   },
@@ -282,6 +306,9 @@ export const UnreachableSupervisor: Story = {
   play: async ({ canvasElement }) => {
     const notice = await within(canvasElement).findByTestId("dashboard-error")
     await expect(notice.textContent).toBe("Could not reach the supervisor: connection refused")
+    await expect(within(canvasElement).getByRole("alert").textContent).toContain(
+      "Check that gtd workspace is running, then reload.",
+    )
   },
 }
 
@@ -304,7 +331,7 @@ export const InboxThatCannotBeRead: Story = {
   ],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    await userEvent.click(await canvas.findByRole("button", { name: /^Inbox/ }))
     await expect((await canvas.findByTestId("inbox-error")).textContent).toBe(
       "Could not read the inbox: the supervisor is restarting",
     )
@@ -334,8 +361,8 @@ export const InboxShowsFailedPresses: Story = {
   ],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
-    const [proposed, failed] = await canvas.findAllByTestId("inbox-item")
+    await userEvent.click(await canvas.findByRole("button", { name: /^Inbox/ }))
+    const [proposed, failed] = await itemsTitled(canvas, "Add login", "Fix logout")
     await userEvent.click(within(proposed!).getByRole("button", { name: "Start" }))
     await expect((await within(proposed!).findByTestId("press-error")).textContent).toBe(
       "no proposed item boardReady/1",
@@ -354,7 +381,7 @@ export const InboxPausesDispatch: Story = {
   play: async ({ canvasElement }) => {
     pressed.length = 0
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    await userEvent.click(await canvas.findByRole("button", { name: /^Inbox/ }))
     const scopes = await canvas.findAllByTestId("pause-scope")
     await expect(scopes.map((scope) => scope.firstChild?.textContent)).toEqual([
       "workspace · dispatching",
@@ -386,14 +413,60 @@ export const InboxListsEveryItemState: Story = {
   ],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    await userEvent.click(await canvas.findByRole("button", { name: /^Inbox/ }))
     const items = await canvas.findAllByTestId("inbox-item")
     await expect(items).toHaveLength(6)
-    for (const state of ["proposed", "queued", "blocked", "starting", "started", "failed"]) {
-      await expect(canvas.getByText(new RegExp(`^${state} ·`))).toBeInTheDocument()
-    }
+    await expect(items.map((i) => within(i).getByTestId("inbox-state").textContent)).toEqual([
+      "blocked",
+      "starting",
+      "started",
+      "failed",
+      "proposed",
+      "queued",
+    ])
     for (const project of ["shop", "blog", "docs"]) {
-      await expect(canvas.getAllByText(new RegExp(`· ${project}$`)).length).toBeGreaterThan(0)
+      await expect(canvas.getByRole("region", { name: project })).toBeInTheDocument()
     }
+  },
+}
+
+/** On a phone the views sit in a bottom bar as wide as the screen, under a top bar naming the view. */
+export const PhoneHasATopBarAndBottomTabs: Story = {
+  play: async ({ canvasElement }) => {
+    await viewport(390, 844)
+    const canvas = within(canvasElement)
+    const nav = await phoneNav(canvas)
+    await userEvent.click(within(nav).getByRole("button", { name: /^Now/ }))
+    await expect(canvas.getByRole("heading", { level: 1 }).textContent).toBe("Now")
+    const box = nav.getBoundingClientRect()
+    await expect([box.left, box.right, box.bottom]).toEqual([
+      0,
+      document.documentElement.clientWidth,
+      window.innerHeight,
+    ])
+    for (const tab of within(nav).getAllByRole("button")) {
+      await expect(tab.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
+    }
+    await userEvent.click(canvas.getByRole("button", { name: "Projects" }))
+    await expect(canvas.getByRole("heading", { level: 1 }).textContent).toBe("Projects")
+  },
+}
+
+/** The desktop sidebar lists each project with what needs you and what failed; a click opens it in Projects. */
+export const SidebarListsProjects: Story = {
+  play: async ({ canvasElement }) => {
+    await viewport(1440, 900)
+    const canvas = within(canvasElement)
+    const rows = await canvas.findAllByTestId("sidebar-project")
+    await expect(rows.map((r) => r.textContent)).toEqual(["api1 in error", "Portal1 need you"])
+    await expect(within(rows[0]!).getByTestId("sidebar-error")).toHaveClass("tabular-nums")
+    await expect(within(rows[1]!).queryByTestId("sidebar-error")).toBeNull()
+    await userEvent.click(canvas.getByRole("button", { name: "Projects" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Portal" }))
+    await waitFor(() => expect(canvas.queryByText("login")).not.toBeInTheDocument())
+    await userEvent.click(canvas.getByRole("button", { name: /^Now/ }))
+    await userEvent.click(rows[1]!)
+    await expect(window.location.search).toBe("?view=projects")
+    await expect(await canvas.findByText("login")).toBeVisible()
   },
 }

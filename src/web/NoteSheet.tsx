@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import type { SteeringAnchor } from "../steering/index.js"
 import { Button } from "./Button.js"
+import { Textarea } from "./ui/input.js"
 
 const ANCHOR_TITLE: Record<SteeringAnchor["kind"], string> = {
   chunk: "Note on this chunk",
@@ -24,12 +25,12 @@ export interface NoteSheetProps {
    * specific anchor, same as `writeNote`, so THIS sheet (the one place an
    * anchor/text pair is already in hand right before a save) is where a
    * screen wires it up. Absent in a pure-data story/screen that has no
-   * loop-lifecycle wiring; the "Save & Done" button then doesn't render at
+   * loop-lifecycle wiring; the "Save & done" button then doesn't render at
    * all, never a disabled one.
    */
   readonly onDone?: (anchor: SteeringAnchor, text: string) => void
   /**
-   * While true, "Save & Done" renders DISABLED rather than unmounted — a
+   * While true, "Save & done" renders DISABLED rather than unmounted — a
    * control that vanishes mid-interaction
    * moves the sheet's other controls under the user's thumb. Only decides
    * disabled vs enabled; `onDone` absent is the separate, pre-existing
@@ -90,17 +91,16 @@ const useSheetMount = (textareaRef: React.RefObject<HTMLTextAreaElement | null>)
   }, [textareaRef])
 }
 
-/** Enter and exit are one-shot keyframes (see `styles.css`), so the pair is picked here rather than inline — a ternary per animated element is what tips this component over its complexity budget. */
+/** Phone slides a sheet up from the bottom; from 1024px it is a centred dialog that fades and scales in. */
 const SCRIM_ANIMATION = {
   in: "animate-[scrim-in_160ms_ease-out]",
   out: "animate-[scrim-out_160ms_ease-out_forwards]",
 }
 const PANEL_ANIMATION = {
-  in: "animate-[sheet-in_220ms_cubic-bezier(0.2,0,0,1)]",
-  out: "animate-[sheet-out_160ms_ease-out_forwards]",
+  in: "animate-[sheet-in_220ms_cubic-bezier(0.2,0,0,1)] lg:animate-[dialog-in_180ms_cubic-bezier(0.2,0,0,1)]",
+  out: "animate-[sheet-out_160ms_ease-out_forwards] lg:animate-[dialog-out_140ms_ease-out_forwards]",
 }
 
-/** The panel's content above the footer — the handle a bottom sheet is read by, the title, and the field. */
 const SheetBody = ({
   title,
   label,
@@ -115,19 +115,21 @@ const SheetBody = ({
   readonly textareaRef: React.RefObject<HTMLTextAreaElement | null>
 }) => (
   <>
-    {/* The handle is what says "this slid up over the document and can go
-        away again", rather than "the screen changed". */}
-    <div aria-hidden="true" className="mx-auto mt-2 h-1 w-9 rounded-full bg-divider" />
-    <h2 className="p-3 pb-0 text-body font-semibold">{title}</h2>
-    <label htmlFor="note-sheet-textarea" className="block px-3 text-small text-muted">
+    <div
+      aria-hidden="true"
+      className="mx-auto mt-3 h-1.5 w-10 shrink-0 rounded-full bg-muted lg:hidden"
+    />
+    <h2 className="px-4 pt-4 text-lg font-semibold lg:px-6 lg:pt-6">{title}</h2>
+    <label
+      htmlFor="note-sheet-textarea"
+      className="block px-4 pt-1 text-sm text-muted-foreground lg:px-6"
+    >
       {label}
     </label>
-    {/* The gutter is the WRAPPER's padding, never the field's own margin:
-        `styles.css` gives every textarea `width: 100%`, so a margin on the
-        field adds to a full-width box and pushes it past the panel's right
-        edge. */}
-    <div className="flex min-h-0 flex-1 flex-col px-3 pt-1 pb-3">
-      <textarea
+    {/* The gutter is the wrapper's padding: the field is full width, so a
+        margin on it would push it past the panel's edge. */}
+    <div className="flex min-h-0 flex-1 flex-col px-4 pt-3 pb-4 lg:px-6">
+      <Textarea
         id="note-sheet-textarea"
         ref={textareaRef}
         data-testid="note-sheet-textarea"
@@ -175,7 +177,7 @@ const SheetFooter = ({
    */
   <div
     data-testid="note-sheet-footer"
-    className="flex items-center justify-end gap-2 border-t border-divider bg-page p-3"
+    className="flex items-center justify-end gap-2 border-t border-border px-4 py-3 lg:px-6 lg:py-4"
   >
     <div className="flex gap-2">
       <Button variant="ghost" data-testid="note-sheet-dismiss" onClick={onDismiss}>
@@ -195,7 +197,7 @@ const SheetFooter = ({
           onClick={() => onDone(anchor, text)}
           disabled={busy}
         >
-          Save &amp; Done
+          Save &amp; done
         </Button>
       )}
     </div>
@@ -234,7 +236,7 @@ export const NoteSheet = ({
       aria-modal="true"
       aria-label={copy.title}
       onKeyDown={onKeyDown}
-      className="fixed inset-x-0 top-0 z-50 flex h-dvh flex-col justify-end"
+      className="fixed inset-x-0 top-0 z-50 flex h-dvh flex-col justify-end lg:items-center lg:justify-center lg:p-6"
     >
       {/* A real button, not a click-handling div: dismissing by tapping
           outside is a control, so it is one thing to a screen reader and to
@@ -246,11 +248,11 @@ export const NoteSheet = ({
         data-testid="note-sheet-scrim"
         aria-label="Dismiss the note"
         onClick={dismiss}
-        className={`absolute inset-0 cursor-default bg-page/60 backdrop-blur-sm ${SCRIM_ANIMATION[phase]}`}
+        className={`absolute inset-0 cursor-default bg-black/50 backdrop-blur-[2px] ${SCRIM_ANIMATION[phase]}`}
       />
       <div
         data-testid="note-sheet"
-        className={`relative mx-auto flex max-h-full w-full max-w-[430px] flex-col rounded-t-xl border-t border-divider bg-page font-sans shadow-[0_-8px_32px_rgba(0,0,0,0.5)] ${PANEL_ANIMATION[phase]}`}
+        className={`relative mx-auto flex max-h-full w-full max-w-lg flex-col rounded-t-xl border border-b-0 border-border bg-card text-card-foreground shadow-lg lg:rounded-xl lg:border-b ${PANEL_ANIMATION[phase]}`}
       >
         <SheetBody
           title={copy.title}

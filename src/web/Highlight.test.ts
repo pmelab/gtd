@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest"
-import { highlightDiffLine, lineKind, tokenize, type Token } from "./Highlight.js"
+import {
+  highlightDiffLine,
+  lineKind,
+  numberHunkLines,
+  numberSlicedLines,
+  tokenize,
+  type Token,
+} from "./Highlight.js"
 
 /** Concatenating every emitted token's text must reconstruct the input exactly — the structural proof that the scanner is single-pass: it advances monotonically and consumes every character exactly once, never re-visiting text it already emitted. */
 const reassemble = (tokens: readonly Token[]): string => tokens.map((t) => t.text).join("")
@@ -116,5 +123,31 @@ describe("highlightDiffLine", () => {
     const result = highlightDiffLine(line)
     expect(result.kind).toBe("marker")
     expect(result.tokens).toEqual([{ text: line }])
+  })
+})
+
+describe("numberHunkLines", () => {
+  it("advances the old side on context and deletions, the new side on context and additions", () => {
+    expect(
+      numberHunkLines("@@ -10,3 +20,3 @@ fn()", [" a", "-b", "+c", "\\ No newline at end of file"]),
+    ).toEqual([{ old: 10, new: 20 }, { old: 11 }, { new: 21 }, {}])
+  })
+
+  it("leaves every line unnumbered when the header is not a hunk header", () => {
+    expect(numberHunkLines("not a header", [" a"])).toEqual([{}])
+  })
+})
+
+describe("numberSlicedLines", () => {
+  it("numbers a slice by where it sits in the whole hunk", () => {
+    const whole = [" a", " b", "-c", "+d", " e"]
+    expect(numberSlicedLines("@@ -1,4 +1,4 @@", whole, ["-c", "+d"])).toEqual([
+      { old: 3 },
+      { new: 3 },
+    ])
+  })
+
+  it("leaves a slice unnumbered when the whole hunk does not contain it", () => {
+    expect(numberSlicedLines("@@ -1,1 +1,1 @@", [" a"], ["+z"])).toEqual([{}])
   })
 })

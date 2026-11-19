@@ -67,6 +67,10 @@
     "@trpc/react-query",
     "tailwind-merge",
     "zustand",
+    "radix-ui",
+    "class-variance-authority",
+    "clsx",
+    "lucide-react",
     // Imported by src/gherkin/index.ts, which only the vitest `workflows`
     // project loads — never the bundle (production-never-imports-testkit).
     "quickpickle",
@@ -75,6 +79,11 @@
   ],
   "health": {
     "thresholdOverrides": [
+      {
+        "files": ["src/web/**/*.tsx"],
+        "maxCrap": 80,
+        "reason": "The web client's components are covered by the Storybook play tests (test:web), which run in a browser and report no coverage, so fallow scores every branch as uncovered. Logic belongs in the unit-tested .ts modules beside them."
+      },
       {
         "files": ["claude/hooks/register.tsx"],
         "maxCrap": 210,

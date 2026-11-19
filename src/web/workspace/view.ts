@@ -52,21 +52,6 @@ const STATUS_TEXT: Readonly<Record<StatusName, string>> = {
   idle: "idle",
 }
 
-/** A mark beside the status word, so status never rests on colour alone. */
-export const STATUS_ICON: Readonly<Record<StatusName, string>> = {
-  needsYou: "▲",
-  working: "⟳",
-  error: "✖",
-  idle: "–",
-}
-
-export const STATUS_COLOR: Readonly<Record<StatusName, string>> = {
-  needsYou: "text-warning",
-  working: "text-link",
-  error: "text-danger",
-  idle: "text-muted",
-}
-
 /** The status in words: `needs you (question)`, `error (crashed)`. */
 export const statusText = (w: WorktreeView): string => {
   const kind = w.errorKind ?? w.kind
@@ -76,6 +61,12 @@ export const statusText = (w: WorktreeView): string => {
 /** What the worktree waits for, and why: its label, then its message. */
 export const detailText = (w: WorktreeView): string =>
   [w.label, w.message].filter((s) => s !== undefined && s !== "").join(" — ")
+
+/** The detail, unless it only repeats the status ("Idle" beside "idle"): empty then. */
+export const reasonText = (w: WorktreeView): string => {
+  const detail = detailText(w)
+  return detail.toLowerCase() === statusText(w) ? "" : detail
+}
 
 /** The worktree's note, when the status message does not already say it. */
 export const noteText = (w: WorktreeView): string | undefined =>
@@ -112,6 +103,24 @@ export const screenUrl = ({ view, worktree }: Screen): string => {
   return query === "" ? "/" : `/?${query}`
 }
 
+/** Inbox items that wait for a decision: Start on a proposed one, Retry on a failed one. */
+export const decisionCount = (items: readonly InboxItem[]): number =>
+  items.filter((item) => item.state === "proposed" || item.state === "failed").length
+
 /** Worktrees of a project that need you or are in error. */
 export const attentionCount = (project: ProjectView): number =>
   project.worktrees.filter((w) => w.status === "needsYou" || w.status === "error").length
+
+/** How many of a project's worktrees need you, and how many are in error. */
+export const projectCounts = (project: ProjectView): { needsYou: number; error: number } => ({
+  needsYou: project.worktrees.filter((w) => w.status === "needsYou").length,
+  error: project.worktrees.filter((w) => w.status === "error").length,
+})
+
+/** Why a queued item waits, in words, when the reason is a drive limit; the raw reason names the setting. */
+export const waitText = (message: string): string | undefined => {
+  const max = /^(\d+ of \d+ drives in use) \(limits\.maxDrives\)$/.exec(message)
+  if (max !== null) return `${max[1]} — the workspace limit`
+  const wip = /^.+: (\d+ of \d+ drives in use) \((?:projects\..+\.wip|limits\.wip)\)$/.exec(message)
+  return wip === null ? undefined : `${wip[1]} — the project limit`
+}

@@ -77,5 +77,7 @@ export const withRealMousePress = async (
       button: "left",
       clickCount: 1,
     })
+    // Park the pointer, or the next story's control under it renders hovered.
+    await session.send("Input.dispatchMouseEvent", { type: "mouseMoved", x: 0, y: 0 })
   }
 }

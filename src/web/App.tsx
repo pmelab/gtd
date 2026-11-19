@@ -1,19 +1,35 @@
+import { RotateCw } from "lucide-react"
+import type { ReactNode } from "react"
 import type { StepRead } from "../ui/index.js"
+import { Button } from "./Button.js"
 import { Notice } from "./Notice.js"
-import { Document } from "./screens/Document.js"
+import { Document, DocumentSkeleton } from "./screens/Document.js"
 import { trpc } from "./api.js"
 
 /** The one shape a screen can open: a clean read resting on a steering file. */
 const openable = (step: StepRead | undefined): step is StepRead & { status: "ok"; file: string } =>
   step?.status === "ok" && step.file !== undefined
 
+const Reload = () => (
+  <Button variant="secondary" className="mt-3" onClick={() => window.location.reload()}>
+    <RotateCw aria-hidden="true" />
+    Reload
+  </Button>
+)
+
+const StatePage = ({ children }: { readonly children: ReactNode }) => (
+  <main className="min-h-dvh bg-background px-4 py-8">{children}</main>
+)
+
+const NOTICE = "mx-auto max-w-2xl"
+
 /**
- * The whole phone's navigation: `gtd ui` serves exactly one worktree resting
- * on exactly one step, so there is no list to go back to — the document
- * screen opens the step's steering file, and `done` hands the turn back.
+ * `gtd ui` serves exactly one worktree resting on exactly one step, so there
+ * is no list to go back to: the document screen opens the step's steering
+ * file, and `done` hands the turn back.
  *
- * Never returns `null`: a blank screen on a phone over a tailnet explains
- * nothing, so every branch below renders something.
+ * Never renders nothing: a blank screen on a phone over a tailnet explains
+ * nothing.
  */
 // fallow-ignore-next-line complexity
 export const App = () => {
@@ -22,51 +38,69 @@ export const App = () => {
 
   if (query.isLoading) {
     return (
-      <Notice data-testid="app-loading" aria-busy="true">
-        Loading…
-      </Notice>
+      <div data-testid="app-loading" aria-busy="true" className="min-h-dvh bg-background">
+        <DocumentSkeleton label="Loading the gate page…" />
+      </div>
     )
   }
 
-  if (query.isError) {
+  if (query.isError || step === undefined) {
+    const detail = query.isError ? query.error.message : "no step was reported."
     return (
-      <Notice tone="error" data-testid="app-query-error">
-        Could not reach the server: {query.error.message}
-      </Notice>
-    )
-  }
-
-  if (step === undefined) {
-    return (
-      <Notice tone="error" data-testid="app-query-error">
-        Could not reach the server: no step was reported.
-      </Notice>
+      <StatePage>
+        <Notice tone="error" data-testid="app-query-error" className={NOTICE}>
+          <p className="m-0">Could not reach the server: {detail}</p>
+          <p className="m-0 mt-1 text-muted-foreground">
+            Check that gtd is still running on your computer, then reload this page.
+          </p>
+          <Reload />
+        </Notice>
+      </StatePage>
     )
   }
 
   if (step.status === "broken") {
     return (
-      <Notice tone="error" data-testid="app-broken">
-        {step.detail}
-      </Notice>
+      <StatePage>
+        <Notice tone="error" data-testid="app-broken" className={NOTICE}>
+          <p className="m-0">
+            {step.repo} / {step.branch} cannot be read: {step.detail}
+          </p>
+          <p className="m-0 mt-1 text-muted-foreground">
+            Fix the worktree on your computer, then reload this page.
+          </p>
+          <Reload />
+        </Notice>
+      </StatePage>
     )
   }
 
   if (step.status === "moved-on") {
-    return <Notice data-testid="app-moved-on">This turn is over — the server is exiting.</Notice>
+    return (
+      <StatePage>
+        <Notice data-testid="app-moved-on" className={NOTICE}>
+          This turn is over and the server is exiting. You can close this page.
+        </Notice>
+      </StatePage>
+    )
   }
 
   if (!openable(step)) {
     return (
-      <Notice tone="error" data-testid="app-unrenderable">
-        {`"${step.label}" has nothing this screen can render.`}
-      </Notice>
+      <StatePage>
+        <Notice tone="error" data-testid="app-unrenderable" className={NOTICE}>
+          {`"${step.label}" has nothing this page can show. Continue on your computer.`}
+        </Notice>
+      </StatePage>
     )
   }
 
   return (
-    <div className="relative mx-auto flex h-dvh max-w-[430px] flex-col">
-      <Document filePath={step.file} />
+    <div className="relative flex h-dvh flex-col bg-background">
+      <Document
+        filePath={step.file}
+        context={{ repo: step.repo, branch: step.branch, label: step.label }}
+      />
     </div>
   )
 }

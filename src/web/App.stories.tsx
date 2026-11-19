@@ -18,6 +18,7 @@ const okStep = (over: Record<string, unknown>) => ({
 
 const meta: Meta<typeof App> = {
   component: App,
+  parameters: { layout: "fullscreen" },
 }
 
 export default meta
@@ -51,6 +52,9 @@ export const Default: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByTestId("document-screen")).toBeInTheDocument())
+    await expect(canvas.getByTestId("gate-context")).toHaveTextContent(
+      "gtd / main · reviewing a PR",
+    )
   },
 }
 
@@ -90,6 +94,8 @@ export const QueryErrorShowsTheUnderlyingMessage: Story = {
     await waitFor(() =>
       expect(canvas.getByTestId("app-query-error")).toHaveTextContent("connection refused"),
     )
+    await expect(canvas.getByTestId("app-query-error")).toHaveTextContent(/reload this page/)
+    await expect(canvas.getByRole("button", { name: "Reload" })).toBeInTheDocument()
   },
 }
 
@@ -103,6 +109,7 @@ export const BrokenStepShowsItsDetail: Story = {
             status: "broken",
             path: "/repos/gtd",
             repo: "gtd",
+            branch: "main",
             detail: "not a git repository",
           }),
         }}
@@ -163,6 +170,7 @@ export const StepQueryInFlightShowsALoadingSkeleton: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByTestId("app-loading")).toBeInTheDocument()
+    await expect(canvasElement.querySelector("[data-slot=skeleton]")).not.toBeNull()
     await expect(canvasElement.textContent?.length).toBeGreaterThan(0)
     await waitFor(() => expect(canvas.getByTestId("document-screen")).toBeInTheDocument())
   },

@@ -1,33 +1,40 @@
 @import "tailwindcss";
 
 /*
- * Four UI colours only — charcoal #151A1D, yellow #FFC328, white #FAFAF7,
- * muted #C9CBCD — in a light theme (@theme) and a dark theme (the media block
- * below). Code and diff blocks alone are exempt and carry their own sets.
- * `tokens.test.ts` parses both blocks and asserts WCAG AA on every pair.
+ * Base palette: charcoal #151A1D, yellow #FFC328, white #FAFAF7, muted
+ * #C9CBCD. UI tokens are those four or tints derived from them, plus status
+ * hues (destructive, warning, success) that `tokens.test.ts` pins to AA.
+ * Token names follow shadcn/ui. Light is `@theme`; the media block below
+ * overrides every UI token for dark.
  */
 @theme {
-  --color-page: #fafaf7;
-  --color-surface: #fafaf7;
-  --color-divider: #c9cbcd;
-  --color-border: #151a1d;
-  --color-text: #151a1d;
-  --color-muted: #151a1d;
-  --color-accent: #ffc328;
-  --color-accent-pressed: #c9cbcd;
-  --color-on-accent: #151a1d;
+  --color-background: #f4f4f1;
+  --color-foreground: #151a1d;
+  --color-card: #fafaf7;
+  --color-card-foreground: #151a1d;
+  --color-popover: #fafaf7;
+  --color-popover-foreground: #151a1d;
+  --color-primary: #ffc328;
+  --color-primary-foreground: #151a1d;
+  --color-primary-pressed: #e6a800;
+  --color-secondary: #e8e8e4;
+  --color-secondary-foreground: #151a1d;
+  --color-muted: #ebebe7;
+  --color-muted-foreground: #596066;
+  --color-accent: #e8e8e4;
+  --color-accent-foreground: #151a1d;
+  --color-destructive: #c4283a;
+  --color-destructive-foreground: #fafaf7;
+  --color-warning: #8a5a00;
+  --color-success: #1a7045;
+  --color-border: #dcddd9;
+  --color-input: #82888c;
   --color-ring: #151a1d;
   --color-link: #151a1d;
-  --color-disabled: #c9cbcd;
-  --color-warning: #151a1d;
-  --color-danger: #151a1d;
-  --color-success: #151a1d;
-  --color-heading-a: #151a1d;
-  --color-heading-b: #151a1d;
-  --color-heading-c: #151a1d;
-  --color-quote: #151a1d;
+  --color-disabled: #8d9397;
+  --color-quote: #596066;
 
-  /* Code and diff set (exempt from the four colours). */
+  /* Code and diff set. */
   --color-code-bg: #fafaf7;
   --color-code: #6a3000;
   --color-diff-add: #d3f0da;
@@ -38,12 +45,18 @@
   --color-syntax-typ: #004f38;
   --color-syntax-com: #3a4146;
 
-  --text-body: 16px;
+  --font-sans:
+    -apple-system, BlinkMacSystemFont, "Segoe UI Variable", "Segoe UI", Roboto, "Helvetica Neue",
+    sans-serif;
+  --font-mono:
+    ui-monospace, "SF Mono", "Cascadia Code", "JetBrains Mono", Menlo, Consolas, monospace;
+
+  --text-small: 13px;
+  --text-small--line-height: 1.4;
+  --text-body: 15px;
   --text-body--line-height: 1.5;
   --text-large: 20px;
   --text-large--line-height: 1.3;
-  --text-small: 13px;
-  --text-small--line-height: 1.3;
 }
 
 :root {
@@ -52,25 +65,31 @@
 
 @media (prefers-color-scheme: dark) {
   :root {
-    --color-page: #151a1d;
-    --color-surface: #151a1d;
-    --color-divider: #c9cbcd;
-    --color-border: #c9cbcd;
-    --color-text: #fafaf7;
-    --color-muted: #c9cbcd;
-    --color-accent: #ffc328;
-    --color-accent-pressed: #c9cbcd;
-    --color-on-accent: #151a1d;
-    --color-ring: #ffc328;
-    --color-link: #ffc328;
-    --color-disabled: #c9cbcd;
+    --color-background: #151a1d;
+    --color-foreground: #fafaf7;
+    --color-card: #1b2125;
+    --color-card-foreground: #fafaf7;
+    --color-popover: #1b2125;
+    --color-popover-foreground: #fafaf7;
+    --color-primary: #ffc328;
+    --color-primary-foreground: #151a1d;
+    --color-primary-pressed: #d9a31a;
+    --color-secondary: #262d32;
+    --color-secondary-foreground: #fafaf7;
+    --color-muted: #21282c;
+    --color-muted-foreground: #a2a8ac;
+    --color-accent: #262d32;
+    --color-accent-foreground: #fafaf7;
+    --color-destructive: #ff6b70;
+    --color-destructive-foreground: #151a1d;
     --color-warning: #ffc328;
-    --color-danger: #fafaf7;
-    --color-success: #fafaf7;
-    --color-heading-a: #fafaf7;
-    --color-heading-b: #fafaf7;
-    --color-heading-c: #fafaf7;
-    --color-quote: #c9cbcd;
+    --color-success: #4cc38a;
+    --color-border: #2c3439;
+    --color-input: #646d73;
+    --color-ring: #fafaf7;
+    --color-link: #fafaf7;
+    --color-disabled: #6e767b;
+    --color-quote: #a2a8ac;
 
     --color-code-bg: #151a1d;
     --color-code: #ffa057;
@@ -115,53 +134,36 @@
 
 body {
   margin: 0;
-  background: var(--color-page);
-  color: var(--color-text);
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--text-body--line-height);
+  -webkit-font-smoothing: antialiased;
+  -webkit-tap-highlight-color: transparent;
   /* Paths, URLs and identifiers have no break opportunity and would widen
-     the page on a phone. `anywhere`, not `break-word`: only `anywhere` also
-     shrinks min-content, so flex items and buttons can narrow too. Diff and
-     code blocks are `white-space: pre` and keep scrolling instead. */
+     the page on a phone. `anywhere` also shrinks min-content, so flex items
+     can narrow. Diff and code blocks are `white-space: pre` and scroll. */
   overflow-wrap: anywhere;
 }
 
-/*
- * Native form controls, styled once: every checkbox and radio in this client
- * is a phone tap target, and at the browser default (~13px) the box is a
- * fraction of the 44px label it sits in — visible size and hit size are
- * different things, and only the second one was ever set. `accent-color`
- * paints the checked state in the palette's own accent instead of the UA's
- * blue.
- */
-input[type="checkbox"],
-input[type="radio"] {
-  accent-color: var(--color-ring);
-  width: 1.25rem;
-  height: 1.25rem;
-  margin: 0;
-  flex-shrink: 0;
+/* A control's label never breaks mid-word ("Not / e"). */
+button,
+[role="button"],
+[role="tab"] {
+  overflow-wrap: normal;
 }
 
-/*
- * Every multi-line input here is a note or an answer — one appearance for
- * all of them, set where they can't each forget it (the free-text answer
- * slot did, and rendered as an unbordered transparent box). 16px is the
- * iOS focus-zoom floor, so it is NOT expressed as a token-relative size.
- */
-textarea {
-  width: 100%;
-  border: 1px solid var(--color-border);
-  border-radius: 0.25rem;
-  background: var(--color-surface);
-  color: var(--color-text);
-  padding: 0.5rem;
-  font: inherit;
+::selection {
+  background: color-mix(in srgb, var(--color-primary) 55%, transparent);
+  color: var(--color-foreground);
+}
+
+/* 16px is the iOS focus-zoom floor for every text field. */
+textarea,
+input[type="text"],
+input:not([type]) {
   font-size: 16px;
-}
-
-textarea:focus-visible {
-  outline: 2px solid var(--color-ring);
-  outline-offset: -1px;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -205,6 +207,20 @@ textarea:focus-visible {
   }
 }
 
+@keyframes dialog-in {
+  from {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
+@keyframes dialog-out {
+  to {
+    opacity: 0;
+    transform: scale(0.96);
+  }
+}
+
 /*
  * Opacity ONLY, never a transform: a deck item that slid in would move its
  * own hit targets while a thumb is already reaching for them, and every
@@ -216,7 +232,16 @@ textarea:focus-visible {
   }
 }
 
+@utility scrollbar-thin {
+  scrollbar-color: var(--color-input) transparent;
+  scrollbar-width: thin;
+}
+
 @layer base {
+  html {
+    @apply scrollbar-thin;
+  }
+
   :focus-visible {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;

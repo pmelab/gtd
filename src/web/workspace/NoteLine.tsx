@@ -1,3 +1,4 @@
+import { CircleX, StickyNote } from "lucide-react"
 import { cn } from "../cn.js"
 import { noteText, type WorktreeView } from "./view.js"
 
@@ -5,12 +6,17 @@ import { noteText, type WorktreeView } from "./view.js"
 export const NoteLine = ({ worktree }: { readonly worktree: WorktreeView }) => {
   const text = noteText(worktree)
   if (text === undefined) return null
+  const error = worktree.note?.error === true
+  const Icon = error ? CircleX : StickyNote
   return (
-    <span
-      className={cn("text-small", worktree.note?.error === true ? "text-danger" : "text-muted")}
-      data-testid="note"
+    <p
+      className={cn(
+        "flex items-start gap-2 text-sm",
+        error ? "text-destructive" : "text-muted-foreground",
+      )}
     >
-      {text}
-    </span>
+      <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+      <span data-testid="note">{text}</span>
+    </p>
   )
 }

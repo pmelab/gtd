@@ -21,7 +21,6 @@ const darkOverrides = declarations(
 )
 const dark = { ...light, ...darkOverrides }
 
-const PALETTE = ["#151a1d", "#ffc328", "#fafaf7", "#c9cbcd"]
 const CODE_ONLY = [
   "code-bg",
   "code",
@@ -88,34 +87,42 @@ describe.each([
   ["light", light],
   ["dark", dark],
 ] as const)("%s theme", (_name, tokens) => {
-  it("paints every UI token with one of the four palette colours", () => {
-    for (const [name, value] of Object.entries(tokens)) {
-      if (CODE_ONLY.includes(name)) continue
-      expect(PALETTE, `--color-${name}`).toContain(value)
-    }
+  it("keeps charcoal, yellow and white as foreground, primary and card", () => {
+    expect(tokens.primary).toBe("#ffc328")
+    expect(tokens["primary-foreground"]).toBe("#151a1d")
+    expect([tokens.foreground, tokens.background]).toContain("#151a1d")
+    expect([tokens.foreground, tokens.card]).toContain("#fafaf7")
   })
 
-  it("body text clears 4.5:1 on page and surface", () => {
-    expect(contrastRatio(tokens.text!, tokens.page!)).toBeGreaterThanOrEqual(4.5)
-    expect(contrastRatio(tokens.text!, tokens.surface!)).toBeGreaterThanOrEqual(4.5)
-  })
-
-  it.each(["muted", "link", "warning", "danger", "success"])(
-    "%s text clears 4.5:1 on page and surface",
+  it.each(["foreground", "muted-foreground", "link", "warning", "destructive", "success", "quote"])(
+    "%s text clears 4.5:1 on background, card and muted",
     (name) => {
-      expect(contrastRatio(tokens[name]!, tokens.page!)).toBeGreaterThanOrEqual(4.5)
-      expect(contrastRatio(tokens[name]!, tokens.surface!)).toBeGreaterThanOrEqual(4.5)
+      for (const ground of ["background", "card", "muted"]) {
+        expect(contrastRatio(tokens[name]!, tokens[ground]!), ground).toBeGreaterThanOrEqual(4.5)
+      }
     },
   )
 
-  it("a control boundary and the focus ring clear 3:1 on the page", () => {
-    expect(contrastRatio(tokens.border!, tokens.page!)).toBeGreaterThanOrEqual(3)
-    expect(contrastRatio(tokens.ring!, tokens.page!)).toBeGreaterThanOrEqual(3)
+  it.each([
+    ["primary-foreground", "primary"],
+    ["primary-foreground", "primary-pressed"],
+    ["destructive-foreground", "destructive"],
+    ["secondary-foreground", "secondary"],
+    ["accent-foreground", "accent"],
+  ])("%s clears 4.5:1 on %s", (fg, bg) => {
+    expect(contrastRatio(tokens[fg]!, tokens[bg]!)).toBeGreaterThanOrEqual(4.5)
   })
 
-  it("a primary button's label clears 4.5:1 on its fill", () => {
-    expect(contrastRatio(tokens["on-accent"]!, tokens.accent!)).toBeGreaterThanOrEqual(4.5)
-    expect(contrastRatio(tokens["on-accent"]!, tokens.disabled!)).toBeGreaterThanOrEqual(4.5)
+  it("an input boundary and the focus ring clear 3:1 on background and card", () => {
+    for (const ground of ["background", "card"]) {
+      expect(contrastRatio(tokens.input!, tokens[ground]!), ground).toBeGreaterThanOrEqual(3)
+      expect(contrastRatio(tokens.ring!, tokens[ground]!), ground).toBeGreaterThanOrEqual(3)
+    }
+  })
+
+  it("the error, attention and working colours differ from each other", () => {
+    const status = [tokens.destructive, tokens.primary, tokens.foreground]
+    expect(new Set(status).size).toBe(3)
   })
 
   it("code text clears 4.5:1 on the code background", () => {
@@ -133,13 +140,13 @@ describe.each([
 
   it("body text clears 4.5:1 on both diff fills, and each fill differs from the code background", () => {
     for (const fill of ["diff-add", "diff-del"]) {
-      expect(contrastRatio(tokens.text!, tokens[fill]!), fill).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(tokens.foreground!, tokens[fill]!), fill).toBeGreaterThanOrEqual(4.5)
       expect(contrastRatio(tokens[fill]!, tokens["code-bg"]!), fill).toBeGreaterThan(1.1)
     }
   })
 
   it.each(
-    ["text", ...SYNTAX].flatMap((fg) =>
+    ["foreground", ...SYNTAX].flatMap((fg) =>
       ["code-bg", "diff-add", "diff-del"].map((bg) => [fg, bg] as const),
     ),
   )("%s clears AA on %s once dimmed at the shipped opacity", (fg, bg) => {
@@ -155,8 +162,8 @@ describe("the themes differ", () => {
     expect(Object.keys(darkOverrides)).toEqual(expect.arrayContaining(ui))
   })
 
-  it("light is a white page and dark a charcoal one", () => {
-    expect(light.page).toBe("#fafaf7")
-    expect(dark.page).toBe("#151a1d")
+  it("light is a white card on a pale ground and dark a charcoal ground", () => {
+    expect(light.card).toBe("#fafaf7")
+    expect(dark.background).toBe("#151a1d")
   })
 })

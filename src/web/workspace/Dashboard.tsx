@@ -1,14 +1,17 @@
+import { FolderGit2, Inbox as InboxIcon, PanelRight, Zap } from "lucide-react"
 import { useEffect, useState, useSyncExternalStore } from "react"
 import { Notice } from "../Notice.js"
+import { Skeleton } from "../ui/skeleton.js"
 import { workspaceTrpc } from "./api.js"
 import { Banners } from "./Banners.js"
 import { Detail } from "./Detail.js"
 import { Inbox, type PressFailure } from "./Inbox.js"
 import { Now } from "./Now.js"
 import { Projects } from "./Projects.js"
-import { TabBar } from "./TabBar.js"
+import { ProjectNav, ViewNav, type ViewTab } from "./TabBar.js"
 import { useExpanded } from "./useExpanded.js"
 import {
+  decisionCount,
   nowView,
   parseScreen,
   screenUrl,
@@ -58,19 +61,44 @@ const pressFailuresOf = (
     error !== null && variables !== undefined ? [{ ...variables, message: error.message }] : [],
   )
 
+const NEXT_STEP = "Check that gtd workspace is running, then reload."
+
+/** Placeholder cards while the first read is on its way. */
+const Loading = ({ testId }: { readonly testId?: string }) => (
+  <div className="flex flex-col gap-3" data-testid={testId} aria-busy="true">
+    <span className="sr-only" role="status">
+      Loading…
+    </span>
+    {[0, 1, 2].map((i) => (
+      <div key={i} className="flex flex-col gap-3 rounded-lg border border-border bg-card p-4">
+        <div className="flex items-center justify-between gap-3">
+          <Skeleton className="h-5 w-40" />
+          <Skeleton className="h-5 w-20" />
+        </div>
+        <Skeleton className="h-4 w-3/4" />
+        <Skeleton className="h-9 w-full" />
+      </div>
+    ))}
+  </div>
+)
+
 const Unread = ({ error }: { readonly error: { readonly message: string } | null }) =>
   error === null ? (
-    <p className="text-muted">Loading…</p>
+    <Loading />
   ) : (
-    <Notice tone="error" data-testid="inbox-error">
-      Could not read the inbox: {error.message}
+    <Notice tone="error" className="w-full">
+      <p data-testid="inbox-error">Could not read the inbox: {error.message}</p>
+      <p className="text-muted-foreground">{NEXT_STEP}</p>
     </Notice>
   )
 
-const InboxView = () => {
-  const inbox = workspaceTrpc.inbox.useQuery(undefined, {
+const useInbox = () =>
+  workspaceTrpc.inbox.useQuery(undefined, {
     refetchInterval: REFRESH_MS,
   })
+
+const InboxView = () => {
+  const inbox = useInbox()
   const utils = workspaceTrpc.useUtils()
   const settled = { onSettled: () => utils.inbox.invalidate() }
   const mutations = {
@@ -126,6 +154,12 @@ const Loaded = ({
     setScreen(next)
   }
   const [expanded, toggle] = useExpanded(projects)
+  const [reveal, setReveal] = useState<string>()
+  useEffect(() => {
+    if (reveal === undefined) return
+    document.querySelector(`[data-project-id="${CSS.escape(reveal)}"]`)?.scrollIntoView()
+    setReveal(undefined)
+  }, [reveal])
   const { view } = screen
   const entry = find(projects, screen.worktree)
   const vanished = screen.worktree !== undefined && entry === undefined
@@ -147,73 +181,122 @@ const Loaded = ({
   }
   const desktop = useDesktop()
   const attention = nowView(projects).attention.length
-  const views: readonly (readonly [View, string])[] = [
-    ["now", attention > 0 ? `Now (${attention})` : "Now"],
-    ["projects", "Projects"],
-    ["inbox", "Inbox"],
+  const decisions = decisionCount(useInbox().data?.items ?? [])
+  const tabs: readonly ViewTab<View>[] = [
+    { id: "now", label: "Now", icon: Zap, count: attention, attention: true },
+    { id: "projects", label: "Projects", icon: FolderGit2 },
+    { id: "inbox", label: "Inbox", icon: InboxIcon, count: decisions },
   ]
+  const title = tabs.find((t) => t.id === view)?.label
   const onSelect = (next: View) => {
     go({ view: next })
   }
   // One tree for both widths, so crossing 1024 px keeps Detail (and its tab) mounted.
   const split = desktop && view !== "inbox"
   const detailOnly = !desktop && entry !== undefined
+  const selected = desktop ? entry?.worktree.path : undefined
   const list = (
-    <>
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 lg:mx-0">
       <Banners banners={banners} />
-      {view === "now" && <Now projects={projects} onOpen={open} />}
+      {view === "now" && <Now projects={projects} selected={selected} onOpen={open} />}
       {view === "projects" && (
-        <Projects projects={projects} expanded={expanded} onToggle={toggle} onOpen={open} />
+        <Projects
+          projects={projects}
+          expanded={expanded}
+          selected={selected}
+          onToggle={toggle}
+          onOpen={open}
+        />
       )}
       {view === "inbox" && <InboxView />}
-    </>
+    </div>
+  )
+  const nav = (
+    <ViewNav
+      vertical={desktop}
+      tabs={tabs}
+      current={view}
+      onSelect={onSelect}
+      className={
+        desktop
+          ? "px-3"
+          : "fixed inset-x-0 bottom-0 z-10 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
+      }
+    />
   )
   return (
     <div
       className={
-        desktop ? "flex h-dvh bg-page text-text" : "flex min-h-dvh flex-col bg-page text-text"
+        desktop
+          ? "flex h-dvh bg-background text-foreground"
+          : "flex min-h-dvh flex-col bg-background text-foreground"
       }
     >
-      {!detailOnly && (
-        <TabBar
-          vertical={desktop}
-          label="Views"
-          tabs={views}
-          current={view}
-          onSelect={onSelect}
-          className={
-            desktop ? "w-48 shrink-0 gap-1 border-r p-2" : "fixed bottom-0 w-full border-t"
-          }
-        />
+      {desktop && (
+        <aside className="flex w-70 shrink-0 flex-col gap-2 overflow-y-auto border-r border-border bg-card pb-4">
+          <div className="flex h-14 shrink-0 items-center px-6">
+            <Wordmark />
+          </div>
+          {nav}
+          <ProjectNav
+            projects={projects}
+            onSelect={(project) => {
+              toggle(project, true)
+              if (view !== "projects") go({ view: "projects" })
+              setReveal(project)
+            }}
+          />
+        </aside>
+      )}
+      {!desktop && !detailOnly && (
+        <header className="sticky top-0 z-10 flex min-h-12 items-center justify-between gap-3 border-b border-border bg-background/90 px-4 pt-[env(safe-area-inset-top)] backdrop-blur">
+          <h1 className="text-lg font-semibold">{title}</h1>
+          <Wordmark />
+        </header>
       )}
       <main className="flex min-w-0 flex-1">
         {!detailOnly && (
           <div
             className={
               desktop
-                ? `flex min-w-0 flex-col gap-4 overflow-y-auto p-4 ${split ? "w-96 shrink-0 border-r border-divider" : "flex-1"}`
-                : "flex min-w-0 flex-1 flex-col gap-4 p-4 pb-24"
+                ? `flex min-w-0 flex-col ${split ? "w-[28rem] shrink-0 border-r border-border xl:w-[32rem]" : "flex-1"}`
+                : "flex min-w-0 flex-1 flex-col px-4 pt-4 pb-[calc(5rem+env(safe-area-inset-bottom))]"
             }
           >
-            {list}
+            {desktop ? (
+              <>
+                <header className="flex h-14 shrink-0 items-center border-b border-border px-6">
+                  <h1 className="text-lg font-semibold">{title}</h1>
+                </header>
+                <div className="min-h-0 flex-1 overflow-y-auto p-4 xl:p-6">{list}</div>
+              </>
+            ) : (
+              list
+            )}
           </div>
         )}
         {entry !== undefined ? (
           <Detail key={entry.worktree.path} entry={entry} onClose={close} embedded={desktop} />
         ) : (
           split && (
-            <p
-              className="flex min-w-0 flex-1 items-center justify-center p-4 text-muted"
-              data-testid="detail-placeholder"
-            >
-              Select a worktree to see its detail.
-            </p>
+            <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 p-4 text-muted-foreground">
+              <PanelRight aria-hidden="true" className="size-6" />
+              <p data-testid="detail-placeholder">Select a worktree to see its gate and actions.</p>
+            </div>
           )
         )}
       </main>
+      {!desktop && !detailOnly && nav}
     </div>
   )
 }
+
+const Wordmark = () => (
+  <span className="inline-flex items-center gap-1.5 text-sm font-semibold tracking-tight text-foreground">
+    <span aria-hidden="true" className="size-2.5 rounded-[3px] bg-primary" />
+    gtd
+  </span>
+)
 
 /**
  * The workspace dashboard: Now, Projects and Inbox, each a full
@@ -228,16 +311,21 @@ export const Dashboard = () => {
   })
   if (projects.error !== null) {
     return (
-      <Notice tone="error" data-testid="dashboard-error">
-        Could not reach the supervisor: {projects.error.message}
-      </Notice>
+      <div className="min-h-dvh bg-background p-4">
+        <Notice tone="error">
+          <p data-testid="dashboard-error">
+            Could not reach the supervisor: {projects.error.message}
+          </p>
+          <p className="text-muted-foreground">{NEXT_STEP}</p>
+        </Notice>
+      </div>
     )
   }
   if (projects.data === undefined) {
     return (
-      <Notice data-testid="dashboard-loading" aria-busy="true">
-        Loading…
-      </Notice>
+      <div className="mx-auto min-h-dvh max-w-2xl bg-background p-4">
+        <Loading testId="dashboard-loading" />
+      </div>
     )
   }
   return <Loaded projects={projects.data} banners={banners.data ?? []} />

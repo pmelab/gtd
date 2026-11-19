@@ -1,13 +1,17 @@
 import { describe, expect, it } from "vitest"
 import {
+  decisionCount,
   noteText,
   parseScreen,
   nowView,
   pressFor,
+  projectCounts,
+  reasonText,
   screenUrl,
-  STATUS_ICON,
+  waitText,
   statusText,
   worktreeName,
+  type InboxItem,
   type ProjectView,
   type WorktreeView,
 } from "./view.js"
@@ -72,11 +76,22 @@ describe("pressFor", () => {
   })
 })
 
-describe("STATUS_ICON", () => {
-  it("gives every status its own non-empty mark", () => {
-    const icons = Object.values(STATUS_ICON)
-    expect(icons.every((icon) => icon.length > 0)).toBe(true)
-    expect(new Set(icons).size).toBe(icons.length)
+describe("decisionCount", () => {
+  it("counts the proposed and failed items, which wait for Start or Retry", () => {
+    const item = (state: InboxItem["state"]): InboxItem => ({
+      feed: "f",
+      project: "p",
+      key: state,
+      title: state,
+      action: "start:work",
+      priority: 0,
+      blockedBy: [],
+      data: null,
+      state,
+      firstSeen: "2026-01-01T00:00:00.000Z",
+    })
+    const states = ["proposed", "queued", "blocked", "starting", "started", "failed"] as const
+    expect(decisionCount(states.map(item))).toBe(2)
   })
 })
 
@@ -89,6 +104,37 @@ describe("statusText", () => {
       "error (stalled)",
     )
     expect(statusText(worktree("a", { status: "working" }))).toBe("working")
+  })
+})
+
+describe("reasonText", () => {
+  it("drops a detail that only repeats the status", () => {
+    expect(reasonText(worktree("a", {}))).toBe("")
+    expect(reasonText(worktree("a", { status: "working", label: "Working" }))).toBe("")
+    expect(reasonText(worktree("a", { status: "working", label: "Building" }))).toBe("Building")
+    expect(reasonText(worktree("a", { label: "Idle", message: "merged" }))).toBe("Idle — merged")
+  })
+})
+
+describe("projectCounts", () => {
+  it("counts the worktrees that need you and those in error", () => {
+    expect(projectCounts(projects[0]!)).toEqual({ needsYou: 0, error: 1 })
+    expect(projectCounts(projects[1]!)).toEqual({ needsYou: 1, error: 0 })
+  })
+})
+
+describe("waitText", () => {
+  it("says a drive limit in words, and nothing for any other reason", () => {
+    expect(waitText("2 of 2 drives in use (limits.maxDrives)")).toBe(
+      "2 of 2 drives in use — the workspace limit",
+    )
+    expect(waitText("shop: 1 of 1 drives in use (projects.shop.wip)")).toBe(
+      "1 of 1 drives in use — the project limit",
+    )
+    expect(waitText("shop: 1 of 1 drives in use (limits.wip)")).toBe(
+      "1 of 1 drives in use — the project limit",
+    )
+    expect(waitText("paused")).toBeUndefined()
   })
 })
 

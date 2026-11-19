@@ -3,6 +3,7 @@ import { expect, fn, within } from "storybook/test"
 import { token } from "./testing/palette.js"
 import { Button } from "./Button.js"
 import { withRealMousePress } from "./testing/realMousePress.js"
+import { viewport } from "./testing/browserContext.js"
 
 const meta: Meta<typeof Button> = {
   component: Button,
@@ -12,7 +13,9 @@ export default meta
 
 type Story = StoryObj<typeof Button>
 
+/** The floor holds on a phone; from 1024px up buttons are desktop-sized. */
 const assertMeets44pxFloor = async (element: Element): Promise<void> => {
+  await viewport(390, 844)
   const rect = element.getBoundingClientRect()
   await expect(rect.height).toBeGreaterThanOrEqual(44)
   await expect(rect.width).toBeGreaterThanOrEqual(44)
@@ -23,8 +26,8 @@ export const PrimaryDefault: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const button = canvas.getByText("Primary")
+    await expect(getComputedStyle(button).backgroundColor).toBe(token("primary"))
     await assertMeets44pxFloor(button)
-    await expect(getComputedStyle(button).backgroundColor).toBe(token("accent"))
   },
 }
 
@@ -37,7 +40,7 @@ export const PrimaryPressed: Story = {
     await withRealMousePress(button, async () => {
       const pressedColor = getComputedStyle(button).backgroundColor
       await expect(pressedColor).not.toBe(restColor)
-      await expect(pressedColor).toBe(token("accent-pressed"))
+      await expect(pressedColor).toBe(token("primary-pressed"))
     })
   },
 }
@@ -48,7 +51,7 @@ export const PrimaryDisabled: Story = {
     const canvas = within(canvasElement)
     const button = canvas.getByText("Primary") as HTMLButtonElement
     await expect(button.disabled).toBe(true)
-    await expect(getComputedStyle(button).backgroundColor).toBe(token("disabled"))
+    await expect(getComputedStyle(button).opacity).toBe("0.5")
     button.click()
     await expect(args.onClick).not.toHaveBeenCalled()
   },
@@ -59,8 +62,8 @@ export const SecondaryDefault: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const button = canvas.getByText("Secondary")
+    await expect(getComputedStyle(button).backgroundColor).toBe(token("card"))
     await assertMeets44pxFloor(button)
-    await expect(getComputedStyle(button).backgroundColor).toBe(token("surface"))
   },
 }
 
@@ -94,8 +97,8 @@ export const GhostDefault: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const button = canvas.getByText("Ghost")
-    await assertMeets44pxFloor(button)
     await expect(getComputedStyle(button).backgroundColor).toBe("rgba(0, 0, 0, 0)")
+    await assertMeets44pxFloor(button)
   },
 }
 
@@ -134,7 +137,7 @@ export const DisabledExposesStateToAssistiveTechnologyNotOnlyVisually: Story = {
     await expect(button.matches(":disabled")).toBe(true)
     await expect(button).toBeDisabled()
     // The visual reading, pinned alongside it so neither assertion stands alone.
-    await expect(getComputedStyle(button).backgroundColor).toBe(token("disabled"))
+    await expect(getComputedStyle(button).opacity).toBe("0.5")
   },
 }
 

@@ -1,3 +1,4 @@
+import { type ClassValue, clsx } from "clsx"
 import { extendTailwindMerge } from "tailwind-merge"
 
 /**
@@ -10,33 +11,40 @@ import { extendTailwindMerge } from "tailwind-merge"
  * `text-muted` and `text-small` are unknown class names tailwind-merge would
  * keep alongside the ones they mean to replace.
  */
-export const cn = extendTailwindMerge({
+const merge = extendTailwindMerge({
   extend: {
     classGroups: {
       "font-size": [{ text: ["body", "large", "small"] }],
       "text-color": [
         {
           text: [
-            "page",
-            "surface",
-            "border",
-            "text",
+            "background",
+            "foreground",
+            "card",
+            "card-foreground",
+            "popover",
+            "popover-foreground",
+            "primary",
+            "primary-foreground",
+            "primary-pressed",
+            "secondary",
+            "secondary-foreground",
             "muted",
+            "muted-foreground",
             "accent",
-            "accent-pressed",
-            "disabled",
+            "accent-foreground",
+            "destructive",
+            "destructive-foreground",
             "warning",
-            "danger",
             "success",
-            "link",
-            "code",
-            "quote",
-            "on-accent",
+            "border",
+            "input",
             "ring",
+            "link",
+            "disabled",
+            "quote",
+            "code",
             "code-bg",
-            "heading-a",
-            "heading-b",
-            "heading-c",
             "syntax-kw",
             "syntax-str",
             "syntax-num",
@@ -48,3 +56,5 @@ export const cn = extendTailwindMerge({
     },
   },
 })
+
+export const cn = (...inputs: ClassValue[]): string => merge(clsx(inputs))
