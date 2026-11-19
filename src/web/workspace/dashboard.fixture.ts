@@ -37,6 +37,7 @@ export const workspace: readonly ProjectView[] = [
       }),
       worktree("portal", "plan", {
         status: "needsYou",
+        humanRest: true,
         kind: "question",
         label: "Answer the plan",
         refusal: "busy: still answering the last question",
@@ -83,6 +84,7 @@ const statusCases = (project: string): Record<string, WorktreeView> => ({
   }),
   gate: worktree(project, "gate", {
     status: "needsYou",
+    humanRest: true,
     label: "Answer the plan",
   }),
   permission: worktree(project, "permission", {
