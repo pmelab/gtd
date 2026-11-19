@@ -1,5 +1,10 @@
 import { ExternalLink, X } from "lucide-react"
-import { useState } from "react"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { httpBatchLink } from "@trpc/client"
+import { Component, useState, type ReactNode } from "react"
+import { trpc as gateTrpc } from "../api.js"
+import { App } from "../App.js"
+import { Notice } from "../Notice.js"
 import { Button } from "../Button.js"
 import { cn } from "../cn.js"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs.js"
@@ -14,29 +19,43 @@ import { reasonText, worktreeName, type Entry } from "./view.js"
 
 type Tab = "gate" | "actions"
 
-/** The worktree's gate page, embedded from the URL the API names, with a way out to a full tab. */
+/** A crash in the gate screen stays in the Gate tab. */
+class GateBoundary extends Component<{ readonly children: ReactNode }, { failed: boolean }> {
+  override state = { failed: false }
+  static getDerivedStateFromError(): { failed: boolean } {
+    return { failed: true }
+  }
+  override render(): ReactNode {
+    return this.state.failed ? (
+      <Notice tone="error" data-testid="gate-crashed">
+        The gate page failed to show. Open it in a new tab.
+      </Notice>
+    ) : (
+      this.props.children
+    )
+  }
+}
+
+/** The worktree's gate page, rendered inline against that worktree's own gate API. */
+const InlineGate = ({ gate }: { readonly gate: string }) => {
+  const [queryClient] = useState(() => new QueryClient())
+  const [client] = useState(() =>
+    gateTrpc.createClient({ links: [httpBatchLink({ url: `${gate}/trpc` })] }),
+  )
+  return (
+    <gateTrpc.Provider client={client} queryClient={queryClient}>
+      <QueryClientProvider client={queryClient}>
+        <App inline />
+      </QueryClientProvider>
+    </gateTrpc.Provider>
+  )
+}
+
 const Gate = ({ gate, head }: { readonly gate: string; readonly head: string }) => (
-  <div className="flex min-h-[60dvh] flex-1 flex-col gap-3" data-testid="gate-tab">
-    <div className="flex items-center justify-between gap-3">
-      <span className="text-sm font-medium text-muted-foreground">Gate page</span>
-      <Button asChild size="sm">
-        <a href={gate} target="_blank" rel="noreferrer" data-testid="open-gate">
-          <ExternalLink aria-hidden="true" />
-          Open in new tab
-        </a>
-      </Button>
-    </div>
-    <div className="flex min-h-0 flex-1 overflow-hidden rounded-lg border border-border bg-card">
-      {/* The rest moves only with HEAD: a new commit loads the page again, for the new rest.
-          A colour scheme that differs from the framed page's paints the frame opaque white in
-          dark mode; "normal" keeps a blank or unstyled page transparent over the card. */}
-      <iframe
-        key={head}
-        className="w-full flex-1 border-0 bg-card [color-scheme:normal]"
-        src={gate}
-        title="Gate page"
-      />
-    </div>
+  <div className="flex flex-1 flex-col" data-testid="gate-tab">
+    <GateBoundary key={head}>
+      <InlineGate key={head} gate={gate} />
+    </GateBoundary>
   </div>
 )
 
@@ -79,6 +98,24 @@ export const Detail = ({
             aria-label="Close"
           >
             <X aria-hidden="true" />
+          </Button>
+        </div>
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+          {worktree.gateKind !== undefined && (
+            <span className="text-base font-medium" data-testid="detail-gate-kind">
+              {worktree.gateKind}
+            </span>
+          )}
+          {worktree.gateBase !== undefined && (
+            <span className="text-sm text-muted-foreground" data-testid="detail-gate-base">
+              Review base: <code className="font-mono text-foreground">{worktree.gateBase}</code>
+            </span>
+          )}
+          <Button asChild size="sm">
+            <a href={worktree.gate} target="_blank" rel="noreferrer" data-testid="open-gate">
+              <ExternalLink aria-hidden="true" />
+              Open in new tab
+            </a>
           </Button>
         </div>
         <StatusBadge worktree={worktree} className="self-start" />

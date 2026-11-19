@@ -36,6 +36,19 @@ Feature: gtd workspace serves every worktree's gate page
     And every listed gate page answers 200
     And the gate page of "portal/plan" shows the rest "Answer the plan"
 
+  Scenario: the worktree data names the gate kind and review base
+    Given gtd next --json in "portal/plan" prints:
+      """
+      { "kind": "capture", "actor": "human", "idle": false, "label": "Review", "state": "review", "file": ".gtd/REVIEW.md" }
+      """
+    And the file ".gtd/REVIEW.md" in "portal/plan" reads:
+      """
+      <!-- base: 0123456789abcdef -->
+      # Review
+      """
+    When I start gtd workspace
+    Then the Projects view shows gate kind "Review" and base "0123456" for "portal/plan"
+
   Scenario: a project named trpc has its gate page
     Given the worktrees adapter reports these worktrees:
       | project | branch |
@@ -88,3 +101,29 @@ Feature: gtd workspace serves every worktree's gate page
     And I save the note "Why now?" through the gate page of "portal/plan"
     Then the file ".gtd/PLAN.md" in "portal/plan" contains "Why now?"
     And gtd next has run in "portal/plan" since the note was saved
+
+  Scenario: an agent rest names no gate kind
+    Given gtd next --json in "portal/plan" prints:
+      """
+      { "kind": "capture", "actor": "agent", "idle": false, "label": "Fixing", "state": "build.fixing", "file": "TODO.md" }
+      """
+    When I start gtd workspace
+    Then the Projects view shows no gate kind for "portal/plan"
+
+  Scenario: a review quoting a base marker in a code fence takes the real base
+    Given gtd next --json in "portal/plan" prints:
+      """
+      { "kind": "capture", "actor": "human", "idle": false, "label": "Review", "state": "review", "file": ".gtd/SQUASH_MESSAGE.md" }
+      """
+    And the file ".gtd/SQUASH_MESSAGE.md" in "portal/plan" reads:
+      """
+      # Squash
+
+      ```
+      <!-- base: aaaaaaaaaaaa -->
+      ```
+
+      <!-- base: 0123456789abcdef -->
+      """
+    When I start gtd workspace
+    Then the Projects view shows gate kind "Squash message" and base "0123456" for "portal/plan"

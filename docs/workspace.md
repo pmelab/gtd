@@ -66,8 +66,10 @@ path (the link a notification carries). Close returns to the view it was opened
 from, or to Now when it was opened from a link. The detail has two tabs, at the
 bottom:
 
-- **Gate**, first: the worktree's [gate page](#gate-pages), with a link that
-  opens it in a tab of its own.
+- **Gate**, first: the worktree's [gate page](#gate-pages), shown without its
+  own header and scrolling with the detail. The detail header, on both tabs,
+  names the gate kind and, for a review, the review base, and links to the gate
+  page in a tab of its own.
 - **Actions**: the actions offered in the worktree status now, with their fields
   (see [`actions`](#actions)). Run starts the chosen one in a pane of its own.
 

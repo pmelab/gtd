@@ -412,6 +412,7 @@ export class WorkspaceBench {
       },
       oneShot: (argv, worktree) => this.oneShot(argv, worktree),
       fingerprint: async (path) => this.prints.get(path) ?? "",
+      readFile: async (path) => this.files.get(path),
     })
     const tools = Layer.succeed(UserlandTools, {
       exec: async (argv) => {

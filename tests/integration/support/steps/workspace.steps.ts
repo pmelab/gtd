@@ -218,6 +218,23 @@ Then("the Projects view links these gate pages:", async (world: GtdWorld, table:
   assert.deepStrictEqual(rows, table.hashes())
 })
 
+Then(
+  "the Projects view shows gate kind {string} and base {string} for {string}",
+  async (world: GtdWorld, kind: string, base: string, ref: string) => {
+    const b = bench(world)
+    const path = await b.pathOf(ref)
+    const found = (await b.projects()).flatMap((p) => p.worktrees).find((w) => w.path === path)
+    assert.deepStrictEqual([found?.gateKind, found?.gateBase], [kind, base])
+  },
+)
+
+Then("the Projects view shows no gate kind for {string}", async (world: GtdWorld, ref: string) => {
+  const b = bench(world)
+  const path = await b.pathOf(ref)
+  const found = (await b.projects()).flatMap((p) => p.worktrees).find((w) => w.path === path)
+  assert.deepStrictEqual([found?.gateKind, found?.gateBase], [undefined, undefined])
+})
+
 Then("every listed gate page answers {int}", async (world: GtdWorld, status: number) => {
   const b = bench(world)
   for (const w of (await b.projects()).flatMap((p) => p.worktrees)) {

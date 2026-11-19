@@ -46,8 +46,7 @@ export const GateFirstFullScreenOnAPhone: Story = {
   play: async ({ canvasElement }) => {
     await viewport(390, 844)
     const canvas = within(canvasElement)
-    const frame = canvas.getByTitle("Gate page")
-    await expect(frame.getAttribute("src")).toBe(plan.worktree.gate)
+    const frame = canvas.getByTestId("gate-tab")
     const detail = canvas.getByTestId("detail").getBoundingClientRect()
     await expect(detail.width).toBe(window.innerWidth)
     const tabs = canvas.getByRole("tablist", { name: "Worktree" }).getBoundingClientRect()
@@ -113,12 +112,25 @@ export const RunIsPrimaryWithoutAGate: Story = {
   },
 }
 
-/** The frame is labelled in words, never by its raw URL. */
-export const GateLabelIsReadable: Story = {
-  play: async ({ canvasElement }) => {
-    const gate = within(canvasElement).getByTestId("gate-tab")
-    await expect(gate).toHaveTextContent("Gate page")
-    await expect(gate).not.toHaveTextContent("data:text/html")
+/** The embedded gate talks to the worktree's own gate page API. */
+export const EmbedsTheWorktreesGate: Story = {
+  loaders: [
+    () => {
+      const urls: string[] = []
+      const real = window.fetch
+      window.fetch = (input, init) => {
+        urls.push(String(input instanceof Request ? input.url : input))
+        return real(input, init)
+      }
+      return { urls, restore: () => (window.fetch = real) }
+    },
+  ],
+  play: async ({ loaded }) => {
+    const { urls, restore } = loaded as { urls: string[]; restore: () => void }
+    await waitFor(() =>
+      expect(urls.some((u) => u.startsWith(`${plan.worktree.gate}/trpc`))).toBe(true),
+    )
+    restore()
   },
 }
 
@@ -138,7 +150,9 @@ export const OpenInTab: Story = {
 /** The detail offers Gate and Actions, in that order, and no Terminal. */
 export const OffersGateThenActions: Story = {
   play: async ({ canvasElement }) => {
-    const tabs = within(canvasElement).getByRole("tablist", { name: "Worktree" })
+    const tabs = within(canvasElement).getByRole("tablist", {
+      name: "Worktree",
+    })
     await expect(
       within(tabs)
         .getAllByRole("tab")
@@ -293,11 +307,12 @@ export const GateFollowsTheRest: Story = {
   render: (args) => <MovingRest {...args} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const first = canvas.getByTitle("Gate page")
+    const gate = () => canvas.getByTestId("gate-tab").firstElementChild
+    const first = gate()
     await userEvent.click(canvas.getByRole("button", { name: "relabel" }))
-    await expect(canvas.getByTitle("Gate page")).toBe(first)
+    await expect(gate()).toBe(first)
     await userEvent.click(canvas.getByRole("button", { name: "commit" }))
-    await expect(canvas.getByTitle("Gate page")).not.toBe(first)
+    await expect(gate()).not.toBe(first)
   },
 }
 
@@ -338,7 +353,10 @@ const detailShows =
 
 const detailOf = (key: string, status: string, reason: string, message?: string): Story => {
   const entry: Entry = { project: shop, worktree: statusWorktrees[key]! }
-  return { args: { entry, onClose: fn() }, play: detailShows(key, status, reason, message) }
+  return {
+    args: { entry, onClose: fn() },
+    play: detailShows(key, status, reason, message),
+  }
 }
 
 // "Idle" under the "idle" badge would say it twice: no reason line.

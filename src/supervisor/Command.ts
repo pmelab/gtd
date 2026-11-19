@@ -269,6 +269,7 @@ export const runWorkspaceCommand = (
         configName: basename(file),
         drivers: driverRuns,
         fingerprint: host.fingerprint,
+        readFile: host.readFile,
         services,
         lastAction: actions.last,
         after: host.after,
