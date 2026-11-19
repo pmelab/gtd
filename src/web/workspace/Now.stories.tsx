@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { token } from "../testing/palette.js"
-import { nothingNeedsYou, workspace } from "./dashboard.fixture.js"
+import { fullWorkspace, nothingNeedsYou, workspace } from "./dashboard.fixture.js"
 import { Now } from "./Now.js"
 
 const pressed: unknown[] = []
@@ -101,5 +101,31 @@ export const NothingNeedsYou: Story = {
     await expect(within(canvasElement).getByTestId("now-empty").textContent).toBe(
       "Nothing needs you.",
     )
+  },
+}
+
+export const ListsAttentionFromManyProjects: Story = {
+  args: { projects: fullWorkspace },
+  play: async ({ canvasElement }) => {
+    const cards = within(canvasElement).getAllByTestId("now-card")
+    await expect(cards).toHaveLength(16)
+    await expect(cards.map((c) => c.firstElementChild?.textContent)).toEqual([
+      "needs you",
+      "needs you (permission)",
+      "needs you (question)",
+      "needs you",
+      "error (stalled)",
+      "error (crashed)",
+      "error (driver)",
+      "error (note)",
+      "needs you",
+      "needs you (permission)",
+      "needs you (question)",
+      "needs you",
+      "error (stalled)",
+      "error (crashed)",
+      "error (driver)",
+      "error (note)",
+    ])
   },
 }

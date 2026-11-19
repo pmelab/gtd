@@ -50,3 +50,6 @@ src/ui/client.generated.html
 
 # engine-generated mod typings
 .claude-plugin/types/
+
+# vitest json reporter output
+.vitest

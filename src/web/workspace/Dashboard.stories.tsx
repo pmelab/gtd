@@ -3,7 +3,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 import { viewport } from "../testing/browserContext.js"
 import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { Dashboard } from "./Dashboard.js"
-import { workspace } from "./dashboard.fixture.js"
+import { fullInbox, fullWorkspace, workspace } from "./dashboard.fixture.js"
 
 const pressed: unknown[] = []
 
@@ -309,5 +309,29 @@ export const InboxPausesDispatch: Story = {
         ["pause", { project: "portal", feed: "boardReady" }],
       ]),
     )
+  },
+}
+
+export const InboxListsEveryItemState: Story = {
+  decorators: [
+    (Story) => (
+      <WorkspaceTrpcTestProvider
+        resolvers={{ projects: () => fullWorkspace, banners: () => [], inbox: () => fullInbox }}
+      >
+        <Story />
+      </WorkspaceTrpcTestProvider>
+    ),
+  ],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    const items = await canvas.findAllByTestId("inbox-item")
+    await expect(items).toHaveLength(6)
+    for (const state of ["proposed", "queued", "blocked", "starting", "started", "failed"]) {
+      await expect(canvas.getByText(new RegExp(`^${state} ·`))).toBeInTheDocument()
+    }
+    for (const project of ["shop", "blog", "docs"]) {
+      await expect(canvas.getAllByText(new RegExp(`· ${project}$`)).length).toBeGreaterThan(0)
+    }
   },
 }

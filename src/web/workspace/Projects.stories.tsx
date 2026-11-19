@@ -2,7 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
-import { outage, workspace } from "./dashboard.fixture.js"
+import { fullWorkspace, outage, workspace } from "./dashboard.fixture.js"
 import { Projects } from "./Projects.js"
 import { useExpanded } from "./useExpanded.js"
 import type { ProjectView } from "./view.js"
@@ -268,5 +268,33 @@ export const StaysExpandedWhenTheLastGateClears: Story = {
     await expect(within(portal()).getAllByTestId("worktree-row").length).toBeGreaterThan(0)
     await userEvent.click(canvas.getByRole("button", { name: "Refresh" }))
     await expect(within(portal()).getAllByTestId("worktree-row").length).toBeGreaterThan(0)
+  },
+}
+
+export const EveryStatusAcrossProjects: Story = {
+  args: { projects: fullWorkspace },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getAllByTestId("project")).toHaveLength(4)
+    const docs = canvas.getByRole("region", { name: "docs" })
+    await expect(within(docs).queryAllByTestId("worktree-row")).toHaveLength(0)
+    const empty = canvas.getByRole("region", { name: "empty" })
+    await expect(within(empty).queryAllByTestId("worktree-row")).toHaveLength(0)
+    for (const name of ["shop", "blog"]) {
+      const rows = within(canvas.getByRole("region", { name })).getAllByTestId("worktree-row")
+      await expect(rows.map((r) => r.querySelector("button")!.children[0]!.textContent)).toEqual([
+        "idle",
+        "idle",
+        "needs you",
+        "needs you (permission)",
+        "needs you (question)",
+        "needs you",
+        "working",
+        "error (stalled)",
+        "error (crashed)",
+        "error (driver)",
+        "error (note)",
+      ])
+    }
   },
 }
