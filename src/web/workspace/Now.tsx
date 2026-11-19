@@ -1,4 +1,5 @@
-import { ChevronDown, ChevronRight, CircleCheck, LoaderCircle } from "lucide-react"
+import { ChevronDown, ChevronRight, LoaderCircle } from "lucide-react"
+import { GtdMark } from "../GtdMark.js"
 import { Button } from "../Button.js"
 import { cn } from "../cn.js"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible.js"
@@ -115,7 +116,7 @@ export const Now = ({
     <div className="flex flex-col gap-3">
       {attention.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-12 text-center text-muted-foreground">
-          <CircleCheck aria-hidden="true" className="size-6" />
+          <GtdMark className="size-10 rounded-lg dark:ring-1 dark:ring-border" />
           <p data-testid="now-empty">Nothing needs you.</p>
         </div>
       )}

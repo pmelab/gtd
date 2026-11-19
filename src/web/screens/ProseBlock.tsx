@@ -1,4 +1,6 @@
 import { MessageSquarePlus, MessageSquareText } from "lucide-react"
+import { cn } from "../cn.js"
+import { TOKEN_COLOR, tokenize } from "../Highlight.js"
 import type { ReactElement } from "react"
 import type { BlockListItem, SteeringViewNode } from "../../steering/index.js"
 import { Inline } from "./InlineRun.js"
@@ -65,34 +67,38 @@ const ListBlock = ({ node }: { readonly node: SteeringViewNode }) => (
   </div>
 )
 
-const CodeBlock = ({ node }: { readonly node: SteeringViewNode }) => (
-  <pre className="scrollbar-thin m-0 overflow-x-auto rounded-md border border-border bg-code-bg p-3 font-mono text-sm leading-relaxed text-code">
-    <code>{node.block?.text ?? ""}</code>
-  </pre>
-)
+/** Info strings that name no code: shown as written, without token colours. */
+const PLAIN = new Set(["text", "txt", "plain", "plaintext", "md", "markdown", "diff", "log"])
+
+const CodeBlock = ({ node }: { readonly node: SteeringViewNode }) => {
+  const text = node.block?.text ?? ""
+  const language = node.block?.language?.toLowerCase()
+  const plain = language !== undefined && PLAIN.has(language)
+  return (
+    <pre
+      data-language={language}
+      className="scrollbar-thin m-0 overflow-x-auto rounded-md border border-border bg-code-bg p-3 font-mono text-sm leading-relaxed text-foreground"
+    >
+      <code>
+        {plain
+          ? text
+          : tokenize(text).map((token, i) => (
+              <span
+                key={i}
+                className={token.className !== undefined ? TOKEN_COLOR[token.className] : undefined}
+              >
+                {token.text}
+              </span>
+            ))}
+      </code>
+    </pre>
+  )
+}
 
 const BlockquoteBlock = ({ node }: { readonly node: SteeringViewNode }) => (
   <blockquote className="m-0 rounded-md border border-border bg-muted px-4 py-3 text-muted-foreground">
     <Inline inline={node.block?.inline} fallback={node.block?.text ?? node.title} />
   </blockquote>
-)
-
-/**
- * The mark a block carries when a note is attached to it. Overlaid on the
- * block rather than placed in flow: it must be findable while SKIMMING a
- * long document — the note's own text sits below the block and is only
- * readable once you are already there. `aria-hidden` because the block's own
- * accessible name already says it has one ("Edit this block's note"), so
- * announcing it twice tells a screen-reader user nothing new.
- */
-const NoteBadge = ({ index }: { readonly index: number }) => (
-  <span
-    data-testid={`note-badge-${index}`}
-    aria-hidden="true"
-    className="pointer-events-none absolute top-1.5 right-1.5 text-warning"
-  >
-    <MessageSquareText className="size-4" />
-  </span>
 )
 
 /** The fallback when `block` is absent or of a kind without its own renderer: `title` still shows. */
@@ -183,21 +189,26 @@ const ProseBlock = ({
               },
             }
           : {})}
-        className={`relative -mx-2 rounded-md px-2 ${
-          notable
-            ? "touch-manipulation transition-colors focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring pointer-fine:hover:bg-accent/60"
-            : ""
-        }`}
+        className={cn(
+          "relative -mx-2 rounded-md px-2",
+          notable &&
+            "touch-manipulation transition-colors focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring pointer-fine:hover:bg-accent/60",
+          !isCode && hasNote && "bg-muted py-1 pointer-fine:hover:bg-accent",
+        )}
       >
-        {!isCode && hasNote && <NoteBadge index={index} />}
         <BlockBody node={node} />
-        {!isCode && noteText !== undefined && noteText.length > 0 && (
-          <div
+        {!isCode && hasNote && (
+          <p
             data-testid={`paragraph-note-${index}`}
-            className="mt-1 mb-1 rounded-md bg-muted px-3 py-2 text-sm text-muted-foreground"
+            className="m-0 mt-1 mb-1 flex gap-2 border-t border-border pt-2 text-sm text-foreground"
           >
-            {noteText}
-          </div>
+            <MessageSquareText
+              aria-hidden="true"
+              data-testid={`note-badge-${index}`}
+              className="mt-0.5 size-4 shrink-0 text-warning"
+            />
+            <span className="min-w-0">{noteText}</span>
+          </p>
         )}
       </div>
     </div>

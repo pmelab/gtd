@@ -13,7 +13,7 @@ import { beatDepsOf, gateHandler } from "./Gate.js"
 import { pickBindHost } from "./Bind.js"
 import { guard, type Exposure } from "./Guard.js"
 import { UiError, UiHost, UiShell, UiUsageError, type UiHandler } from "./Ports.js"
-import { inlineScript, inlineStyles } from "./scriptTag.mjs"
+import { iconNames, inlineIcons, inlineScript, inlineStyles } from "./scriptTag.mjs"
 import { parseServeStatus, publishServe, type ServeMapping, unpublishServe } from "./Serve.js"
 import {
   nodeOwnerCache,
@@ -273,6 +273,20 @@ const readDevTemplate = (fs: FileSystem.FileSystem, root: string): Effect.Effect
       ),
     )
 
+const readDevIcons = (
+  fs: FileSystem.FileSystem,
+  root: string,
+  template: string,
+): Effect.Effect<Record<string, string>, UiError> =>
+  Effect.forEach(iconNames(template), (name: string) =>
+    fs.readFile(join(root, "src/web/icons", name)).pipe(
+      Effect.map((bytes) => [name, Buffer.from(bytes).toString("base64")] as const),
+      Effect.mapError(
+        (e) => new UiError(`gtd ui --dev: could not read src/web/icons/${name}: ${e.message}`),
+      ),
+    ),
+  ).pipe(Effect.map((entries) => Object.fromEntries(entries)))
+
 /**
  * Rebuilds the browser bundle via the same pack config `npx vp run build` uses,
  * with the gtd package's OWN directory as cwd — the invoking directory has no
@@ -362,9 +376,16 @@ export const resolveClientHtml = (
             readDevTemplate(fs, root),
             rebuildDevClientScript(runner, fs, root),
             rebuildDevClientCss(runner, fs, root),
-          ]),
+          ]).pipe(
+            Effect.flatMap(([template, script, css]) =>
+              readDevIcons(fs, root, template).pipe(
+                Effect.map((icons) =>
+                  inlineStyles(inlineScript(inlineIcons(template, icons), script), css),
+                ),
+              ),
+            ),
+          ),
         ),
-        Effect.map(([template, script, css]) => inlineStyles(inlineScript(template, script), css)),
       )
     : Effect.succeed(generatedClientHtml)
 

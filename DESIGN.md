@@ -222,6 +222,13 @@ muted/foreground split.
 - Cards (8px) hold content; controls (6px) act on it.
 - System sans, three weights, tabular numbers for counts.
 - Lucide line icons at 16px, stroke 2.
+- Two brand images. The wordmark ("gtd" with a yellow check in the g and a
+  yellow underline) names the app in the sidebar and the phone top bar; its
+  letters take the text colour, its yellow the primary colour. The mark (a
+  charcoal tile with a three-step checklist: done, current, pending) is the
+  favicon, the home-screen icon, the gate header and the "nothing needs you"
+  state; its colours are fixed, with a hairline ring in dark so the tile reads
+  on charcoal.
 - Phone first with a 44px touch floor; a three-column split from 1024px.
 - Light and dark follow the OS; every UI token has a dark value.
 

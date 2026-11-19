@@ -1,4 +1,5 @@
 import { blockNodesOf } from "./Blocks.js"
+import { projectInline, type InlineNode } from "./Inline.js"
 import { eolOf } from "./Eol.js"
 import { footnoteAdditionEdits, footnotePointerAt, nextFootnoteName } from "./Footnotes.js"
 import { blockNodeAt, parseMarkdown, toLspPosition } from "./MarkdownTree.js"
@@ -247,6 +248,28 @@ const noteOf = (content: string, labels: readonly string[]): string | undefined 
   return annotations.length === 0 ? undefined : annotations.map((a) => a.text).join("\n\n")
 }
 
+/** A one-line label's inline structure; anything that does not parse as one paragraph stays plain text. */
+const labelInline = (text: string): readonly InlineNode[] => {
+  const [only, ...rest] = parseMarkdown(text).children
+  return only?.type === "paragraph" && rest.length === 0
+    ? projectInline(only.children)
+    : [{ kind: "text", value: text }]
+}
+
+/** A widget's description as prose blocks, each anchored at its own line in `content`. */
+const descriptionBlocks = (content: string, widget: InputWidget): readonly SteeringViewNode[] => {
+  if (widget.description === "") return []
+  const first = widget.description.split(/\r?\n/)[0] ?? ""
+  const lines = content.split(/\r?\n/)
+  const offset = lines.findIndex((line, i) => i > widget.line && line.trimStart().startsWith(first))
+  if (offset < 0) return []
+  return blockNodesOf(widget.description, parseMarkdown(widget.description)).map((block) =>
+    block.anchor.kind === "paragraph"
+      ? { ...block, anchor: { ...block.anchor, line: block.anchor.line + offset } }
+      : block,
+  )
+}
+
 const inputNode = (
   content: string,
   widget: InputWidget,
@@ -254,12 +277,15 @@ const inputNode = (
   answered: boolean,
 ): SteeringViewNode => {
   const note = noteOf(content, widget.annotations)
+  const body = descriptionBlocks(content, widget)
   const base = {
     title: widget.title,
+    titleInline: labelInline(widget.title),
     status: widget.kind,
     answered,
     anchor: { kind: "question", index } as const,
     ...(widget.description === "" ? {} : { detail: widget.description }),
+    ...(body.length === 0 ? {} : { body }),
     ...(note === undefined ? {} : { note }),
   }
   if (widget.kind === "review-checklist") {
@@ -281,6 +307,7 @@ const inputNode = (
       children: [
         {
           title: widget.label,
+          titleInline: labelInline(widget.label),
           checked: widget.checked,
           anchor: { kind: "option", questionIndex: index, index: 0 },
         },
@@ -289,6 +316,7 @@ const inputNode = (
   }
   const options: SteeringViewNode[] = widget.options.map((option, i) => ({
     title: option.label,
+    titleInline: labelInline(option.label),
     checked: option.checked,
     anchor: { kind: "option", questionIndex: index, index: i },
   }))

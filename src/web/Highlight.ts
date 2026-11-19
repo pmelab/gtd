@@ -12,6 +12,15 @@ export interface Token {
   readonly className?: string
 }
 
+/** A token class's colour, shared by diffs and fenced code blocks. */
+export const TOKEN_COLOR: Readonly<Record<string, string>> = {
+  com: "text-syntax-com",
+  str: "text-syntax-str",
+  kw: "text-syntax-kw",
+  num: "text-syntax-num",
+  typ: "text-syntax-typ",
+}
+
 export type LineKind = "add" | "del" | "context" | "header" | "marker"
 
 /**

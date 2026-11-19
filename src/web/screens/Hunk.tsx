@@ -12,6 +12,7 @@ import { Button } from "../Button.js"
 import { cn } from "../cn.js"
 import {
   highlightDiffLine,
+  TOKEN_COLOR,
   numberHunkLines,
   numberSlicedLines,
   type LineKind,
@@ -67,14 +68,6 @@ const SIGN_COLOR: Readonly<Record<LineKind, string>> = {
 }
 
 /** Each class must clear AA over both diff fills as well as the page; `tokens.test.ts` pins that. */
-const TOKEN_COLOR: Readonly<Record<string, string>> = {
-  com: "text-syntax-com",
-  str: "text-syntax-str",
-  kw: "text-syntax-kw",
-  num: "text-syntax-num",
-  typ: "text-syntax-typ",
-}
-
 /** `dimmed` is opacity on the text only, never a background of its own, so a dimmed row keeps its kind's fill. */
 interface DiffRow {
   readonly line: string

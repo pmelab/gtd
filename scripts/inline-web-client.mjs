@@ -2,6 +2,8 @@ import { readdirSync, readFileSync, writeFileSync } from "node:fs"
 import {
   SCRIPT_TAG_PATTERN,
   STYLE_TAG_PATTERN,
+  iconNames,
+  inlineIcons,
   inlineScript,
   inlineStyles,
 } from "../src/ui/scriptTag.mjs"
@@ -14,7 +16,7 @@ import {
  * exist at all (a missing-file read and an empty-file read are both
  * failures, but distinct ones — see the two throws below).
  */
-export const buildGeneratedHtml = (template, script, cssRaw, distWebAssetNames) => {
+export const buildGeneratedHtml = (template, script, cssRaw, distWebAssetNames, icons = {}) => {
   if (!SCRIPT_TAG_PATTERN.test(template)) {
     throw new Error(
       "scripts/inline-web-client.mjs: src/web/index.html no longer has the expected " +
@@ -43,7 +45,8 @@ export const buildGeneratedHtml = (template, script, cssRaw, distWebAssetNames) 
     throw new Error("scripts/inline-web-client.mjs: dist/web/main.css is empty")
   }
 
-  let html = inlineScript(template, script)
+  let html = inlineIcons(template, icons)
+  html = inlineScript(html, script)
   html = inlineStyles(html, cssRaw)
 
   // Every file tsdown/Tailwind actually emitted under dist/web/ must have
@@ -80,9 +83,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     cssRaw = undefined
   }
   const distWebAssetNames = readdirSync("dist/web")
+  const icons = Object.fromEntries(
+    iconNames(template).map((name) => [
+      name,
+      readFileSync(`src/web/icons/${name}`).toString("base64"),
+    ]),
+  )
 
   writeFileSync(
     "src/ui/client.generated.html",
-    buildGeneratedHtml(template, clientScript, cssRaw, distWebAssetNames),
+    buildGeneratedHtml(template, clientScript, cssRaw, distWebAssetNames, icons),
   )
 }

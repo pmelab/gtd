@@ -53,4 +53,28 @@ describe("buildGeneratedHtml", () => {
       /expected.*link/,
     )
   })
+
+  it("inlines each linked app icon as a data URI", () => {
+    const withIcons = TEMPLATE.replace(
+      "</head>",
+      '<link rel="icon" href="./icons/mark.svg" /><link rel="apple-touch-icon" href="./icons/mark.png" /></head>',
+    )
+    const html = buildGeneratedHtml(withIcons, SCRIPT, CSS, ["main.js", "main.css"], {
+      "mark.svg": "PHN2Zy8+",
+      "mark.png": "iVBORw0=",
+    })
+    expect(html).not.toContain("./icons/")
+    expect(html).toContain('href="data:image/svg+xml;base64,PHN2Zy8+"')
+    expect(html).toContain('href="data:image/png;base64,iVBORw0="')
+  })
+
+  it("throws when the template links an icon it was not given", () => {
+    const withIcon = TEMPLATE.replace(
+      "</head>",
+      '<link rel="icon" href="./icons/missing.svg" /></head>',
+    )
+    expect(() => buildGeneratedHtml(withIcon, SCRIPT, CSS, ["main.js", "main.css"])).toThrow(
+      /icons\/missing\.svg/,
+    )
+  })
 })

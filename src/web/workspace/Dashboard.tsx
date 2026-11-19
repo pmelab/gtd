@@ -1,3 +1,4 @@
+import { GtdWordmark } from "../GtdWordmark.js"
 import { FolderGit2, Inbox as InboxIcon, PanelRight, Zap } from "lucide-react"
 import { useEffect, useState, useSyncExternalStore } from "react"
 import { Notice } from "../Notice.js"
@@ -235,7 +236,7 @@ const Loaded = ({
       {desktop && (
         <aside className="flex w-70 shrink-0 flex-col gap-2 overflow-y-auto border-r border-border bg-card pb-4">
           <div className="flex h-14 shrink-0 items-center px-6">
-            <Wordmark />
+            <GtdWordmark className="h-7" />
           </div>
           {nav}
           <ProjectNav
@@ -251,7 +252,7 @@ const Loaded = ({
       {!desktop && !detailOnly && (
         <header className="sticky top-0 z-10 flex min-h-12 items-center justify-between gap-3 border-b border-border bg-background/90 px-4 pt-[env(safe-area-inset-top)] backdrop-blur">
           <h1 className="text-lg font-semibold">{title}</h1>
-          <Wordmark />
+          <GtdWordmark className="h-5" />
         </header>
       )}
       <main className="flex min-w-0 flex-1">
@@ -290,13 +291,6 @@ const Loaded = ({
     </div>
   )
 }
-
-const Wordmark = () => (
-  <span className="inline-flex items-center gap-1.5 text-sm font-semibold tracking-tight text-foreground">
-    <span aria-hidden="true" className="size-2.5 rounded-[3px] bg-primary" />
-    gtd
-  </span>
-)
 
 /**
  * The workspace dashboard: Now, Projects and Inbox, each a full

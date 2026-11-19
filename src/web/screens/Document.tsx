@@ -1,3 +1,4 @@
+import { GtdMark } from "../GtdMark.js"
 import {
   ArrowLeft,
   Check,
@@ -38,7 +39,7 @@ import { RadioGroup, RadioGroupItem } from "../ui/radio-group.js"
 import { Skeleton } from "../ui/skeleton.js"
 import { cellKey, useWriteStore, WriteStoreProvider } from "../writeStore.js"
 import { Hunk } from "./Hunk.js"
-import { HUNK_HREF_RE, HunkOpenContext } from "./InlineRun.js"
+import { HUNK_HREF_RE, HunkOpenContext, Inline } from "./InlineRun.js"
 import { NoteGestureHint, ProseBlocks } from "./ProseBlock.js"
 
 type TokenGuardedWrite = (tokens: CasTokens) => Promise<unknown>
@@ -101,14 +102,14 @@ const pageOfHref = (href: string, anchor: SteeringAnchor): Page => {
 const proseLinks = (node: SteeringViewNode): string[] => [
   ...inlineLinks(node.block?.inline ?? []),
   ...itemLinks(node.block?.items ?? []),
+  ...(node.body ?? []).flatMap(proseLinks),
 ]
 
 const pagesOf = (nodes: readonly SteeringViewNode[]): readonly Page[] =>
-  nodes.flatMap((node): readonly Page[] =>
-    node.status === "review-checklist"
-      ? (node.children ?? [])
-      : proseLinks(node).map((href) => pageOfHref(href, node.anchor)),
-  )
+  nodes.flatMap((node): readonly Page[] => [
+    ...proseLinks(node).map((href) => pageOfHref(href, node.anchor)),
+    ...(node.status === "review-checklist" ? (node.children ?? []) : []),
+  ])
 
 const HunkSlider = ({
   pages,
@@ -294,7 +295,9 @@ const OptionRow = ({
         checked={actions.checkedOf(node)}
         onCheckedChange={(checked) => actions.set(node, { checked })}
       />
-      <span className="min-w-0">{node.title}</span>
+      <span className="min-w-0">
+        <Inline inline={node.titleInline} fallback={node.title} />
+      </span>
     </label>
   </li>
 )
@@ -381,7 +384,9 @@ const WidgetHeader = ({
       <div className="flex min-w-0 flex-col gap-1.5 pt-1.5 lg:pt-0.5">
         <h3 className="m-0 flex items-start gap-2 text-lg leading-snug font-semibold">
           <Icon aria-hidden="true" className="mt-1 size-4 shrink-0 text-muted-foreground" />
-          <span className="min-w-0">{node.title}</span>
+          <span className="min-w-0">
+            <Inline inline={node.titleInline} fallback={node.title} />
+          </span>
         </h3>
         <div className="flex flex-wrap items-center gap-2 pl-6 empty:hidden">
           {node.answered === false && (
@@ -412,10 +417,16 @@ const WidgetHeader = ({
 
 const WidgetText = ({ node }: { readonly node: SteeringViewNode }) => (
   <>
-    {node.detail !== undefined && (
-      <p className="m-0 mt-2 text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">
-        {node.detail}
-      </p>
+    {node.body !== undefined ? (
+      <div className="mt-2 text-sm text-muted-foreground" data-testid="widget-description">
+        <ProseBlocks nodes={node.body} noteOverrides={{}} onOpenNote={() => {}} readOnly />
+      </div>
+    ) : (
+      node.detail !== undefined && (
+        <p className="m-0 mt-2 text-sm leading-relaxed whitespace-pre-wrap text-muted-foreground">
+          {node.detail}
+        </p>
+      )
     )}
     {node.note !== undefined && (
       <p
@@ -582,28 +593,31 @@ const GateHeader = ({
     data-testid="gate-header"
     className="sticky top-0 z-10 shrink-0 border-b border-border bg-card"
   >
-    <div className={cn(COLUMN, "flex flex-col gap-0.5 py-3")}>
-      <h1 className="m-0 text-xl leading-tight font-semibold tracking-tight">
-        {gateKind(filePath)}
-      </h1>
-      {context !== undefined && (
-        <p data-testid="gate-context" className="m-0 text-sm text-muted-foreground">
-          <span>{context.repo}</span>
-          <span aria-hidden="true"> / </span>
-          <span className="font-medium text-foreground">{context.branch}</span>
-          <span aria-hidden="true"> · </span>
-          <span>{context.label}</span>
-        </p>
-      )}
-      {base !== undefined && (
-        <p
-          data-testid="document-base"
-          className="m-0 flex items-center gap-1.5 text-sm text-muted-foreground"
-        >
-          <GitCommitHorizontal aria-hidden="true" className="size-4 shrink-0" />
-          Review base: <code className="font-mono text-foreground">{base}</code>
-        </p>
-      )}
+    <div className={cn(COLUMN, "flex items-start gap-3 py-3")}>
+      <GtdMark className="mt-0.5 size-9 rounded-lg dark:ring-1 dark:ring-border" />
+      <div className="flex min-w-0 flex-col gap-0.5">
+        <h1 className="m-0 text-xl leading-tight font-semibold tracking-tight">
+          {gateKind(filePath)}
+        </h1>
+        {context !== undefined && (
+          <p data-testid="gate-context" className="m-0 text-sm text-muted-foreground">
+            <span>{context.repo}</span>
+            <span aria-hidden="true"> / </span>
+            <span className="font-medium text-foreground">{context.branch}</span>
+            <span aria-hidden="true"> · </span>
+            <span>{context.label}</span>
+          </p>
+        )}
+        {base !== undefined && (
+          <p
+            data-testid="document-base"
+            className="m-0 flex items-center gap-1.5 text-sm text-muted-foreground"
+          >
+            <GitCommitHorizontal aria-hidden="true" className="size-4 shrink-0" />
+            Review base: <code className="font-mono text-foreground">{base}</code>
+          </p>
+        )}
+      </div>
     </div>
   </header>
 )
