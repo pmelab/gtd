@@ -226,3 +226,108 @@ export const ARefetchThatDropsEveryHunkShowsTheDocumentAgain: Story = {
     await expect(canvas.getByText("All hunks resolved.")).toBeVisible()
   },
 }
+
+const REQUIREMENTS = [
+  "# Requirements",
+  "",
+  "## 🔘 Where is the counter stored?",
+  "",
+  "- [ ] Redis",
+  "- [ ] Memory",
+  "",
+  "## 🔘 Which window?",
+  "",
+  "- [x] One minute",
+  "- [ ] One hour",
+  "",
+  "## Acceptance Criteria",
+  "",
+  "- AC-1: A client over the limit gets a 429.",
+  "",
+  "## Impact",
+  "",
+  "- The limiter lands in the limiter module",
+  "",
+].join("\n")
+
+export const ARequirementsPageShowsQuestionsCriteriaAndImpact: Story = {
+  args: {
+    filePath: ".gtd/REQUIREMENTS.md",
+    isLoading: false,
+    view: widgetFormat.view(REQUIREMENTS),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const selects = canvas.getAllByTestId("widget-single-select")
+    await expect(selects).toHaveLength(2)
+    await expect(within(selects[0]!).getAllByRole("radio")[0]).not.toBeChecked()
+    await expect(within(selects[1]!).getAllByRole("radio")[0]).toBeChecked()
+    await expect(canvas.getByText("Acceptance Criteria")).toBeInTheDocument()
+    await expect(canvas.getByText(/AC-1: A client over the limit/)).toBeInTheDocument()
+    await expect(canvas.getByText("Impact")).toBeInTheDocument()
+  },
+}
+
+export const ADesignGateWithNoOpenQuestionIsAcceptedAsIs: Story = {
+  args: {
+    filePath: ".gtd/DESIGN.md",
+    isLoading: false,
+    view: widgetFormat.view("# Design\n\nThe limiter wraps the router.\n"),
+    onDone: () => Promise.resolve(),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByText("The limiter wraps the router.")).toBeInTheDocument()
+    await expect(canvas.queryByTestId("widget-single-select")).toBeNull()
+    await expect(canvas.getByTestId("plan-done")).toBeEnabled()
+  },
+}
+
+const REVIEW_WITH_NOTES = [
+  "<!-- base: e9503c1abcdef -->",
+  "",
+  "# Review",
+  "",
+  "Start with [the limiter](./src/limit.ts#1-40).",
+  "",
+  "## 🔘 Is the key per client?",
+  "",
+  "- [ ] Yes",
+  "- [ ] No",
+  "",
+  "## 🔍 Middleware",
+  "",
+  "- [ ] ./src/limit.ts#1-40",
+  "",
+].join("\n")
+
+export const AReviewPageShowsWalkthroughHunkLinksBaseAndNotes: Story = {
+  args: {
+    filePath: ".gtd/REVIEW.md",
+    isLoading: false,
+    view: widgetFormat.view(REVIEW_WITH_NOTES),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("document-base")).toHaveTextContent("Review base: e9503c1")
+    await expect(canvas.getByText(/Start with/)).toBeInTheDocument()
+    await expect(canvas.getByText("the limiter")).toBeInTheDocument()
+    await expect(canvas.getAllByTestId("widget-hunk")).toHaveLength(1)
+    await expect(canvas.getByTestId("widget-single-select")).toBeInTheDocument()
+    await fireEvent.click(canvas.getByText("the limiter"))
+    await expect(canvas.getByTestId("hunk-slider")).toBeInTheDocument()
+  },
+}
+
+export const ASquashMessagePageShowsTheProposedMessage: Story = {
+  args: {
+    filePath: ".gtd/SQUASH_MESSAGE.md",
+    isLoading: false,
+    view: widgetFormat.view("feat: limit requests per client\n\nCloses #12.\n"),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByText(/feat: limit requests per client/)).toBeInTheDocument()
+    await expect(canvas.getByText(/Closes #12/)).toBeInTheDocument()
+  },
+}

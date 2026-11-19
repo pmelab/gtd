@@ -3,8 +3,9 @@ import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { viewport } from "../testing/browserContext.js"
 import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
-import { workspace } from "./dashboard.fixture.js"
+import { fullWorkspace, statusWorktrees, workspace } from "./dashboard.fixture.js"
 import { Detail } from "./Detail.js"
+import type { Entry } from "./view.js"
 
 const portal = workspace[1]!
 const plan = { project: portal, worktree: portal.worktrees[1]! }
@@ -229,3 +230,57 @@ export const NoRemoveOnTheMainCheckout: Story = {
     ).not.toBeInTheDocument()
   },
 }
+
+const shop = fullWorkspace[0]!
+
+const detailShows =
+  (key: string, status: string, message?: string): NonNullable<Story["play"]> =>
+  async ({ canvasElement }) => {
+    const detail = within(canvasElement).getByTestId("detail")
+    await expect(detail).toHaveTextContent(status)
+    if (message) await expect(detail).toHaveTextContent(message)
+    await expect(detail).toHaveTextContent(statusWorktrees[key]!.branch!)
+  }
+
+const detailOf = (key: string, status: string, message?: string): Story => {
+  const entry: Entry = { project: shop, worktree: statusWorktrees[key]! }
+  return { args: { entry, onClose: fn() }, play: detailShows(key, status, message) }
+}
+
+export const DetailIdle: Story = detailOf("idle", "idle: Idle")
+export const DetailIdleWithNote: Story = detailOf("idleNote", "idle: Idle", "merged into main")
+export const DetailAtAGateWithNoDriver: Story = detailOf("gate", "needs you: Answer the plan")
+export const DetailNeedsYouPermission: Story = detailOf(
+  "permission",
+  "needs you (permission): Allow the edit",
+)
+export const DetailNeedsYouQuestion: Story = detailOf(
+  "question",
+  "needs you (question): Pick a store",
+)
+export const DetailNeedsYouNoDriverRuns: Story = detailOf(
+  "noDriver",
+  "needs you: Build the change",
+  "no driver runs",
+)
+export const DetailWorking: Story = detailOf("working", "working: Building")
+export const DetailErrorStalled: Story = detailOf(
+  "stalled",
+  "error (stalled): Stalled",
+  "the process cannot go on",
+)
+export const DetailErrorCrashed: Story = detailOf(
+  "crashed",
+  "error (crashed): Driver crashed",
+  "the driver exited with 1",
+)
+export const DetailErrorDriver: Story = detailOf(
+  "driver",
+  "error (driver): Driver failed",
+  "the model refused",
+)
+export const DetailErrorNote: Story = detailOf(
+  "note",
+  "error (note): Note failed",
+  "gh: not logged in",
+)
