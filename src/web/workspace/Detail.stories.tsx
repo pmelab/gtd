@@ -3,6 +3,7 @@ import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { viewport } from "../testing/browserContext.js"
 import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
+import { token } from "../testing/palette.js"
 import { fullWorkspace, statusWorktrees, workspace } from "./dashboard.fixture.js"
 import { Detail } from "./Detail.js"
 import type { Entry } from "./view.js"
@@ -77,21 +78,65 @@ export const HeaderShowsWhereAndWhy: Story = {
   },
 }
 
-/** The gate's Proceed is the one yellow button; Run in Actions stays secondary while the gate waits. */
-export const OneYellowActionAtAGate: Story = {
-  decorators: withApi({
-    actions: () => ({
-      status: "needsYou",
-      actions: [{ id: "any:shell", label: "Open a shell", status: "any", fields: [] }],
-    }),
-  }),
+/** The gate's Proceed is an outline in the warning colour; Run in Actions stays secondary while the gate waits. */
+export const ProceedIsAnOutlineAtAGate: Story = {
+  decorators: withApi({}),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const proceed = canvas.getByRole("button", { name: "Proceed" })
+    const style = getComputedStyle(proceed)
+    await expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0)")
+    await expect(style.color).toBe(token("warning"))
+    await expect(style.borderTopColor).toBe(token("warning"))
     await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
     const run = await canvas.findByRole("button", { name: "Run" })
-    await expect(getComputedStyle(run).backgroundColor).not.toBe(
-      getComputedStyle(proceed).backgroundColor,
+    await expect(getComputedStyle(run).color).not.toBe(style.color)
+    await expect(getComputedStyle(run).borderTopColor).not.toBe(style.borderTopColor)
+  },
+}
+
+/** Retry stays secondary, so it looks different from Proceed. */
+export const RetryStaysSecondary: Story = {
+  args: { entry: { project: workspace[0]!, worktree: workspace[0]!.worktrees[1]! } },
+  play: async ({ canvasElement }) => {
+    const retry = within(canvasElement).getByRole("button", { name: "Retry" })
+    await expect(getComputedStyle(retry).backgroundColor).toBe(token("card"))
+    await expect(getComputedStyle(retry).color).not.toBe(token("warning"))
+  },
+}
+
+/** Proceed sends the HEAD commit the page showed, so a moved HEAD is refused. */
+export const ProceedSendsTheHeadThePageShowed: Story = {
+  decorators: withApi({ proceed: record("proceed", undefined) }),
+  play: async ({ canvasElement }) => {
+    calls.length = 0
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Proceed" }))
+    await waitFor(() =>
+      expect(calls).toEqual([
+        {
+          procedure: "proceed",
+          input: { worktree: "/ws/portal-plan", commit: "plan-head" },
+        },
+      ]),
+    )
+  },
+}
+
+/** A press gtd refuses says why. */
+export const ARefusedPressSaysWhy: Story = {
+  args: { entry: { project: workspace[0]!, worktree: workspace[0]!.worktrees[1]! } },
+  decorators: withApi({
+    retry: () => {
+      throw new Error("HEAD moved since the page loaded; reload and look again")
+    },
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("button", { name: "Retry" }))
+    await waitFor(() =>
+      expect(canvas.getByTestId("press-error").textContent).toBe(
+        "HEAD moved since the page loaded; reload and look again",
+      ),
     )
   },
 }
