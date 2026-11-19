@@ -3,6 +3,7 @@ import { randomBytes } from "node:crypto"
 import { mkdirSync, readFileSync, watch, writeFileSync } from "node:fs"
 import { basename, dirname, join } from "node:path"
 import { Context, Layer } from "effect"
+import { worktreeFingerprint } from "./Snapshot.js"
 import { liveRunInWorktree, type SpawnOutcome } from "../ui/index.js"
 import { mise, ntfy, pitchfork, rex, worktrunk } from "../workspace-adapters/index.js"
 import type {
@@ -41,6 +42,8 @@ interface SupervisorHostOps {
   readonly watchFile: (file: string, changed: () => Promise<void>) => () => void
   /** A driver one-shot (`<driver> proceed <commit>`, …), run with the worktree as cwd. */
   readonly oneShot: (argv: readonly string[], worktree: string) => Promise<ExecResult>
+  /** What `.gtd/` and the index hold, as a string that changes with them. */
+  readonly fingerprint: (worktree: string) => Promise<string>
 }
 
 export interface DefaultNotifications {
@@ -109,6 +112,7 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
     },
     watchFile,
     oneShot: (argv, worktree) => exec(argv, worktree),
+    fingerprint: worktreeFingerprint,
   })
 }
 

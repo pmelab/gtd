@@ -1,3 +1,5 @@
+import { readdir, readFile, stat } from "node:fs/promises"
+import { join, resolve } from "node:path"
 import {
   durationMs,
   type AdapterFailure,
@@ -57,13 +59,13 @@ export interface Snapshot {
 
 // A commit raises many hints; one recheck after a short wait covers them.
 const DEBOUNCE_MS = 500
-// The safety rescan: it finds what no hint reports, such as an uncommitted edit.
-const RESCAN_MS = 30_000
+// The safety net: it finds what no hint reports, such as an uncommitted edit.
+const NET_MS = 600_000
+// Cheap in-process check for `.gtd/` and index changes.
+const FINGERPRINT_MS = 1_000
+const MAX_WAIT_MS = 30_000
 const RECONNECT_MS = 1_000
 const DEFAULT_POLL = "10s"
-// `gtd next` costs a process and a replay each; a few at a time keeps a large
-// workspace from starving the machine.
-const NEXT_CONCURRENCY = 4
 const SERVICES_CONCURRENCY = 4
 
 /** What a worktree's status is made of; a driver changes without a new `gtd next`. */
@@ -75,12 +77,15 @@ interface Seen {
 interface Kept {
   readonly worktrees: readonly Worktree[]
   readonly seen: Map<string, Seen>
+  /** What each worktree's `seen` was read at: equal key, no new `gtd next`. */
+  readonly keys: Map<string, string>
   readonly failure?: AdapterFailure
 }
 
 /** What one project recheck runs `gtd next` for, besides worktrees whose HEAD moved. */
 interface Want {
-  all: boolean
+  /** Paths whose `gtd next` runs whatever the cache holds: the safety net. */
+  readonly force: Set<string>
   /** Starts the driver of each orphan it finds: only the first read does. */
   restart: boolean
   readonly paths: Set<string>
@@ -101,10 +106,83 @@ const limiter = (limit: number) => {
   }
 }
 
-const statusOf = ({ next, driver }: Seen) => worktreeStatus(next, driver)
+const keyOf = (w: Worktree, fp: string): string =>
+  JSON.stringify([w.head, w.branch ?? null, w.dirty ?? null, fp])
 
-const moved = (before: Worktree | undefined, now: Worktree): boolean =>
-  before === undefined || before.head !== now.head || before.branch !== now.branch
+const stamp = async (path: string): Promise<string> => {
+  try {
+    const st = await stat(path)
+    return `${st.size}:${st.mtimeMs}`
+  } catch {
+    return "-"
+  }
+}
+
+const walk = async (dir: string, out: string[]): Promise<void> => {
+  let names: string[]
+  try {
+    names = (await readdir(dir)).sort()
+  } catch {
+    return
+  }
+  for (const name of names) {
+    const path = join(dir, name)
+    out.push(`${path}:${await stamp(path)}`)
+    try {
+      if ((await stat(path)).isDirectory()) await walk(path, out)
+    } catch {
+      // gone meanwhile
+    }
+  }
+}
+
+/** `.gtd/` names, sizes and mtimes, and the worktree's index stamp. */
+export const worktreeFingerprint = async (worktree: string): Promise<string> => {
+  const out: string[] = []
+  await walk(join(worktree, ".gtd"), out)
+  let gitDir = join(worktree, ".git")
+  try {
+    const text = await readFile(gitDir, "utf8")
+    const m = /^gitdir: (.+)$/m.exec(text)
+    if (m !== null) gitDir = resolve(worktree, m[1]!.trim())
+  } catch {
+    // a directory: the main checkout
+  }
+  out.push(`index:${await stamp(join(gitDir, "index"))}`)
+  out.push(...(await partnerTips(gitDir)))
+  return out.join("\n")
+}
+
+const readText = async (path: string): Promise<string | undefined> => {
+  try {
+    return await readFile(path, "utf8")
+  } catch {
+    return undefined
+  }
+}
+
+/** The tip of `ref`, loose or packed; `-` when absent. */
+const tipOf = async (commonDir: string, ref: string): Promise<string> => {
+  const loose = await readText(join(commonDir, ref))
+  if (loose !== undefined) return loose.trim()
+  const packed = (await readText(join(commonDir, "packed-refs"))) ?? ""
+  const line = packed.split("\n").find((l) => l.endsWith(` ${ref}`))
+  return line === undefined ? "-" : line.split(" ")[0]!
+}
+
+/** `gtd next` reads the partner branch's tip: `gtd/<b>` for `<b>` and the reverse. */
+const partnerTips = async (gitDir: string): Promise<string[]> => {
+  const head = (await readText(join(gitDir, "HEAD"))) ?? ""
+  const m = /^ref: refs\/heads\/(.+)$/m.exec(head)
+  if (m === null) return []
+  const current = m[1]!.trim()
+  const common = (await readText(join(gitDir, "commondir")))?.trim()
+  const commonDir = common === undefined ? gitDir : resolve(gitDir, common)
+  const partner = current.startsWith("gtd/") ? current.slice(4) : `gtd/${current}`
+  return [`partner:${partner}:${await tipOf(commonDir, `refs/heads/${partner}`)}`]
+}
+
+const statusOf = ({ next, driver }: Seen) => worktreeStatus(next, driver)
 
 export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
   const kept = new Map<string, Kept>()
@@ -116,7 +194,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
   const wanted = new Map<string, Want>()
   const debounced = new Set<string>()
   const timers = new Set<() => void>()
-  const limited = limiter(NEXT_CONCURRENCY)
+  const fingerprint = deps.fingerprint ?? (async () => "")
   let closed = false
   const streams = new Set<AsyncIterator<unknown>>()
   const lastAction = (path: string): { action?: ActionRun } => {
@@ -217,16 +295,21 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
       kept.set(id, {
         worktrees: [],
         seen: new Map(),
+        keys: new Map(),
         ...before,
         failure: asFailure("list", error),
       })
       return
     }
-    const old = new Map(before?.worktrees.map((w) => [w.path, w]))
+    const prints = await Promise.all(listed.map((w) => fingerprint(w.path)))
+    const keys = new Map(listed.map((w, i) => [w.path, keyOf(w, prints[i]!)] as const))
     const stale = listed.filter(
-      (w) => want.all || want.paths.has(w.path) || moved(old.get(w.path), w),
+      (w) =>
+        want.force.has(w.path) ||
+        before?.seen.get(w.path) === undefined ||
+        before.keys.get(w.path) !== keys.get(w.path),
     )
-    const fresh = await Promise.all(stale.map((w) => limited(() => look(id, w.path, want.restart))))
+    const fresh = await Promise.all(stale.map((w) => look(id, w.path, want.restart)))
     const seen = new Map(
       listed.flatMap((w) => {
         const status = before?.seen.get(w.path)
@@ -234,6 +317,11 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
       }),
     )
     stale.forEach((w, i) => seen.set(w.path, fresh[i]!))
+    // A failed `gtd next` keeps no key, so the next recheck runs it again.
+    stale.forEach((w, i) => {
+      const { next } = fresh[i]!
+      if (next.spawnError !== undefined || next.status !== 0) keys.delete(w.path)
+    })
     const extra = added.get(id)
     if (extra !== undefined) {
       const current = kept.get(id)
@@ -242,11 +330,13 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
         else if (current?.seen.has(path)) {
           listed.push(w)
           seen.set(path, current.seen.get(path)!)
+          const k = current.keys.get(path)
+          if (k !== undefined) keys.set(path, k)
         }
       }
       listed.sort(byPath)
     }
-    if (!closed) kept.set(id, { worktrees: listed, seen })
+    if (!closed) kept.set(id, { worktrees: listed, seen, keys })
   }
 
   const listOf = async (id: string): Promise<readonly Worktree[]> =>
@@ -255,6 +345,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
   /** Reads only the new worktree and keeps it, also through a recheck that listed before it. */
   const adopt = async (id: string, w: Worktree): Promise<boolean> => {
     if (kept.get(id)?.seen.has(w.path)) return true
+    const key = keyOf(w, await fingerprint(w.path))
     const seen = await look(id, w.path, false)
     const now = kept.get(id)
     if (closed || now === undefined) return false
@@ -263,6 +354,10 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
         ...now,
         worktrees: [...now.worktrees, w].sort(byPath),
         seen: new Map(now.seen).set(w.path, seen),
+        keys:
+          seen.next.spawnError !== undefined || seen.next.status !== 0
+            ? new Map(now.keys)
+            : new Map(now.keys).set(w.path, key),
       })
     }
     added.set(id, (added.get(id) ?? new Map()).set(w.path, { w, at: ++tick }))
@@ -287,9 +382,18 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
     }
     running.delete(id)
   }
-  const request = (id: string, all: boolean, path?: string, restart = false): Promise<void> => {
-    const want = wanted.get(id) ?? { all: false, restart: false, paths: new Set<string>() }
-    want.all ||= all
+  const request = (
+    id: string,
+    force: readonly string[],
+    path?: string,
+    restart = false,
+  ): Promise<void> => {
+    const want = wanted.get(id) ?? {
+      force: new Set<string>(),
+      restart: false,
+      paths: new Set<string>(),
+    }
+    for (const f of force) want.force.add(f)
     want.restart ||= restart
     if (path !== undefined) want.paths.add(path)
     wanted.set(id, want)
@@ -300,8 +404,8 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
     return started
   }
 
-  /** Every project again; `all` runs `gtd next` in every worktree, else only where HEAD moved. */
-  const readAll = async (all: boolean, restart = false): Promise<void> => {
+  /** Every project again; `gtd next` runs only where the cache key changed. */
+  const readAll = async (restart = false): Promise<void> => {
     let found
     try {
       found = await deps.worktrees.projects()
@@ -312,7 +416,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
     }
     const ids = new Set(found.map((p) => p.id))
     for (const id of kept.keys()) if (!ids.has(id)) kept.delete(id)
-    await Promise.all([...ids].map((id) => request(id, all, undefined, restart)))
+    await Promise.all([...ids].map((id) => request(id, [], undefined, restart)))
   }
 
   const hinted = (hint: WatchHint): void => {
@@ -323,7 +427,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
     debounced.add(slot)
     later(DEBOUNCE_MS, () => {
       debounced.delete(slot)
-      void (key === undefined ? readAll(false) : request(key, false))
+      void (key === undefined ? readAll() : request(key, []))
     })
   }
 
@@ -352,8 +456,34 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
       }
       if (closed) return
       await sleep(wait)
-      wait = Math.min(wait * 2, RESCAN_MS)
+      wait = Math.min(wait * 2, MAX_WAIT_MS)
     }
+  }
+
+  /** `.gtd/` and index edits: a changed fingerprint rechecks that worktree. */
+  const checkPrints = async (): Promise<void> => {
+    for (const [id, project] of kept) {
+      if (project.failure !== undefined) continue
+      for (const w of project.worktrees) {
+        if (closed) return
+        const key = keyOf(w, await fingerprint(w.path))
+        const known = project.keys.get(w.path)
+        if (known !== undefined && known !== key) void request(id, [], w.path)
+      }
+    }
+  }
+
+  /** Relists every project; forces `gtd next` where no process ended, spread over the interval. */
+  const net = async (): Promise<void> => {
+    await readAll()
+    const live = [...kept].flatMap(([id, p]) =>
+      [...p.seen]
+        .filter(([, { driver }]) => driverRuns(driver))
+        .map(([path]) => [id, path] as const),
+    )
+    live.forEach(([id, path], i) =>
+      later(Math.floor((i * NET_MS) / live.length), () => void request(id, [path])),
+    )
   }
 
   const every = (ms: number, run: () => Promise<void>): void => {
@@ -418,24 +548,25 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
     discover,
     recheckWorktree: (path) => {
       const project = [...kept].find(([, p]) => p.worktrees.some((w) => w.path === path))
-      if (project !== undefined) void request(project[0], false, path)
+      if (project !== undefined) void request(project[0], [path], path)
     },
-    refresh: (project) => request(project, false),
+    refresh: (project) => request(project, []),
     start: async () => {
       const watch = deps.worktrees.watch
       const pollMs = durationMs(deps.settings().pollEvery ?? DEFAULT_POLL)
       if (watch !== undefined) {
-        void follow(watch.bind(deps.worktrees), hinted, () => void readAll(false))
+        void follow(watch.bind(deps.worktrees), hinted, () => void readAll())
       }
       if (deps.drivers.watch !== undefined) {
         void follow(deps.drivers.watch, refreshDrivers, refreshDrivers)
       }
-      await readAll(true, true)
+      await readAll(true)
       await restartOrphans()
       await refreshServices()
       every(pollMs, refreshServices)
-      every(RESCAN_MS, () => readAll(true))
-      if (watch === undefined) every(pollMs, () => readAll(false))
+      every(FINGERPRINT_MS, checkPrints)
+      every(NET_MS, net)
+      if (watch === undefined) every(pollMs, () => readAll())
       if (deps.drivers.watch === undefined) {
         every(pollMs, async () => refreshDrivers())
       }

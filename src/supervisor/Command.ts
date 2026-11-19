@@ -50,6 +50,9 @@ import { worktreeChanges } from "./WorktreeChanges.js"
 import { openedPanes } from "./Panes.js"
 import { worktreeStatus } from "./Status.js"
 
+// `gtd next` costs a process and a replay each: two at a time per workspace.
+const NEXT_CAP = 2
+
 export interface WorkspaceCommand {
   readonly flags: ExposeOptions & { readonly config?: string }
   readonly cwd: string
@@ -172,6 +175,7 @@ export const runWorkspaceCommand = (
       catch: asUiError,
     })
     let closeSnapshot = (): void => {}
+    let stopLogRuns = (): void => {}
     let closeReload = (): void => {}
     let closeSocket = async (): Promise<void> => {}
     yield* Effect.gen(function* () {
@@ -195,6 +199,30 @@ export const runWorkspaceCommand = (
         out.write(line)
         out.flush()
       }
+      // One cap and one counter for every `gtd next` the supervisor starts.
+      let nextActive = 0
+      let nextRuns = 0
+      const nextWaiting: (() => void)[] = []
+      const next: typeof host.next = async (worktree) => {
+        while (nextActive >= NEXT_CAP)
+          await new Promise<void>((resolve) => nextWaiting.push(resolve))
+        nextActive++
+        nextRuns++
+        try {
+          return await host.next(worktree)
+        } finally {
+          nextActive--
+          nextWaiting.shift()?.()
+        }
+      }
+      const logRuns = (): void => {
+        stopLogRuns = host.after(60_000, () => {
+          log(`gtd next: ${nextRuns} runs in the last minute\n`)
+          nextRuns = 0
+          logRuns()
+        })
+      }
+      logRuns()
       const notifications = notificationsOf(settings, () => host.defaultNotifications(directory))
       const notify = notifier({
         adapter: notifications.adapter,
@@ -218,7 +246,7 @@ export const runWorkspaceCommand = (
         status: async (worktree) =>
           noted.withNote(
             worktree,
-            worktreeStatus(await host.next(worktree), await driverRuns.state(worktree)),
+            worktreeStatus(await next(worktree), await driverRuns.state(worktree)),
           ),
       })
       const reactions = reactionRunner({
@@ -236,10 +264,11 @@ export const runWorkspaceCommand = (
       })
       const snapshot = liveSnapshot({
         worktrees,
-        next: host.next,
+        next,
         settings: config,
         configName: basename(file),
         drivers: driverRuns,
+        fingerprint: host.fingerprint,
         services,
         lastAction: actions.last,
         after: host.after,
@@ -284,7 +313,7 @@ export const runWorkspaceCommand = (
         services,
         actions,
         drivers: driverRuns,
-        next: host.next,
+        next,
         projects: snapshot.projects,
         driving: snapshot.driving,
         refresh: snapshot.refresh,
@@ -305,7 +334,7 @@ export const runWorkspaceCommand = (
         services,
         terminal,
         drivers: driverRuns,
-        next: host.next,
+        next,
         panes: opened,
         starting: dispatch.starting,
         refresh: snapshot.refresh,
@@ -469,6 +498,7 @@ export const runWorkspaceCommand = (
       Effect.ensuring(
         Effect.promise(async () => {
           closeReload()
+          stopLogRuns()
           closeSnapshot()
           await closeSocket()
           lock.release()

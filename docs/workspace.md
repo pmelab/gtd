@@ -409,9 +409,14 @@ worktree that waits for an agent or a check with no driver running. It never
 restarts a driver that crashed.
 
 The statuses stay current while the supervisor runs. A commit, a new branch or a
-new worktree shows within a few seconds. An edit that is not committed shows
-within about 30 seconds: every 30 seconds the supervisor runs `gtd next` in
-every worktree again.
+new worktree shows within a few seconds. An edit under a worktree's `.gtd/` and
+a `git add` show within a few seconds. An uncommitted edit elsewhere that makes
+a worktree dirty or clean shows within 10 minutes: every 10 minutes the
+supervisor lists every project again and runs `gtd next` again in worktrees
+whose driver still runs. It runs at most 2 `gtd next` at once and reuses the
+last result of a worktree whose HEAD, branch, dirty state and `.gtd/` did not
+change. Each minute the supervisor log gets the line
+`gtd next: <n> runs in the last minute`, also when n is zero.
 
 When a worktrees adapter read fails, each worktree it covers keeps its last
 known status, greyed and marked "worktrees unavailable", and a banner above the
@@ -642,7 +647,7 @@ against the main checkout's upstream; a main checkout without an upstream is
 left as it is. Its `watch()` watches the git directories of each project (not
 `refs/remotes`, so a fetch is no change) and installs nothing into your
 checkouts. A project added after the supervisor started is found by the next
-30-second read.
+10-minute read.
 
 ### `terminal`
 

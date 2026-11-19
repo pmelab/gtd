@@ -50,6 +50,12 @@ Given("gtd next in {string} fails with:", async (world: GtdWorld, ref: string, s
   b.answer(await b.pathOf(ref), { status: 1, stdout: "", stderr })
 })
 
+When("the .gtd files of {string} change", async (world: GtdWorld, ref: string) => {
+  const b = bench(world)
+  const path = await b.pathOf(ref)
+  b.prints.set(path, `${b.prints.get(path) ?? ""}x`)
+})
+
 When("I start gtd workspace", async (world: GtdWorld) => {
   await bench(world).start()
 })
@@ -57,6 +63,14 @@ When("I start gtd workspace", async (world: GtdWorld) => {
 When("I start gtd workspace with {string}", async (world: GtdWorld, args: string) => {
   await bench(world).start(...args.split(/\s+/))
 })
+
+Then(
+  "the supervisors printed {string} {int} time(s)",
+  (world: GtdWorld, text: string, times: number) => {
+    const output = bench(world).allOutput
+    assert.strictEqual(output.split(text).length - 1, times, output)
+  },
+)
 
 When("I stop gtd workspace", async (world: GtdWorld) => {
   await bench(world).stopAll()
