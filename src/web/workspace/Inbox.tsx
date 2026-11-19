@@ -49,7 +49,7 @@ const Title = ({ item }: { readonly item: InboxItem }) =>
   item.url === undefined ? (
     item.title
   ) : (
-    <a className="text-link" href={item.url} target="_blank" rel="noreferrer">
+    <a className="text-link underline" href={item.url} target="_blank" rel="noreferrer">
       {item.title}
     </a>
   )

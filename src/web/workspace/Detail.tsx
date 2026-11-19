@@ -7,7 +7,14 @@ import { PressButton, Refused } from "./Press.js"
 import { ServiceChips } from "./ServiceChips.js"
 import { TabBar } from "./TabBar.js"
 import { RemoveButton } from "./WorktreeChanges.js"
-import { detailText, STATUS_COLOR, statusText, worktreeName, type Entry } from "./view.js"
+import {
+  detailText,
+  STATUS_COLOR,
+  STATUS_ICON,
+  statusText,
+  worktreeName,
+  type Entry,
+} from "./view.js"
 
 type Tab = "gate" | "actions"
 
@@ -22,7 +29,7 @@ const Gate = ({ gate, head }: { readonly gate: string; readonly head: string }) 
     <div className="flex items-center justify-between gap-2 border-b border-divider px-4 py-2 text-small">
       <span className="min-w-0 text-muted">{gate}</span>
       <a
-        className="shrink-0 text-link"
+        className="shrink-0 text-link underline"
         href={gate}
         target="_blank"
         rel="noreferrer"
@@ -48,15 +55,18 @@ const Gate = ({ gate, head }: { readonly gate: string; readonly head: string }) 
 export const Detail = ({
   entry,
   onClose,
+  embedded = false,
 }: {
   readonly entry: Entry
   readonly onClose: () => void
+  /** Desktop: a pane beside the list instead of a screen over it. */
+  readonly embedded?: boolean
 }) => {
   const [tab, setTab] = useState<Tab>("gate")
   const { project, worktree } = entry
   return (
     <section
-      className="fixed inset-0 z-10 flex flex-col bg-page"
+      className={cn("flex flex-col bg-page", embedded ? "min-h-0 flex-1" : "fixed inset-0 z-10")}
       aria-label={`${project.name} / ${worktreeName(worktree)}`}
       data-testid="detail"
     >
@@ -70,7 +80,13 @@ export const Detail = ({
             ×
           </Button>
         </div>
-        <span className={cn("text-small", STATUS_COLOR[worktree.status])}>
+        <span
+          data-icon={STATUS_ICON[worktree.status]}
+          className={cn(
+            "text-small before:mr-1 before:content-[attr(data-icon)]",
+            STATUS_COLOR[worktree.status],
+          )}
+        >
           {statusText(worktree)}: {detailText(worktree)}
         </span>
         <NoteLine worktree={worktree} />

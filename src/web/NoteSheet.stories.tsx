@@ -372,7 +372,7 @@ export const FooterControlsPressedStatesDifferFromRest: Story = {
     const saveRest = getComputedStyle(save).backgroundColor
     await withRealMousePress(save, async () => {
       await expect(getComputedStyle(save).backgroundColor).not.toBe(saveRest)
-      await expect(getComputedStyle(save).backgroundColor).toBe(token("border"))
+      await expect(getComputedStyle(save).backgroundColor).toBe(token("accent"))
     })
 
     const done = canvas.getByTestId("note-sheet-done")
@@ -386,7 +386,7 @@ export const FooterControlsPressedStatesDifferFromRest: Story = {
     const dismissRest = getComputedStyle(dismiss).backgroundColor
     await withRealMousePress(dismiss, async () => {
       await expect(getComputedStyle(dismiss).backgroundColor).not.toBe(dismissRest)
-      await expect(getComputedStyle(dismiss).backgroundColor).toBe(token("surface"))
+      await expect(getComputedStyle(dismiss).backgroundColor).toBe(token("accent"))
     })
   },
 }

@@ -39,6 +39,7 @@ const inbox = {
       project: "api",
       key: "pr-7",
       title: "Review #7",
+      url: "https://github.com/acme/api/pull/7",
       action: "start:review",
       priority: 0,
       blockedBy: [],
@@ -118,10 +119,10 @@ export const OpensOnNow: Story = {
   },
 }
 
-/** A worktree's detail is a full screen at every width; Close returns to the view it came from. */
+/** On a phone a worktree's detail is a full screen; Close returns to the view it came from. */
 export const DetailIsAFullScreen: Story = {
   play: async ({ canvasElement }) => {
-    await viewport(1280, 800)
+    await viewport(360, 800)
     const canvas = within(canvasElement)
     await userEvent.click(await canvas.findByRole("button", { name: "Projects" }))
     await userEvent.click(canvas.getByText("login"))
@@ -130,6 +131,57 @@ export const DetailIsAFullScreen: Story = {
     await expect(canvas.queryByRole("navigation", { name: "Views" })).not.toBeInTheDocument()
     await userEvent.click(canvas.getByRole("button", { name: "Close" }))
     await waitFor(() => expect(canvas.getAllByTestId("project")).toHaveLength(2))
+  },
+}
+
+/** Crossing 1024 px with a detail open keeps that detail mounted, so its local state survives. */
+export const ResizingKeepsTheOpenDetail: Story = {
+  play: async ({ canvasElement }) => {
+    await viewport(1440, 900)
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: "Projects" }))
+    await userEvent.click(canvas.getByText("login"))
+    const detail = canvas.getByTestId("detail")
+    await viewport(360, 800)
+    await waitFor(() => expect(canvas.queryByTestId("project")).not.toBeInTheDocument())
+    await expect(canvas.getByTestId("detail")).toBe(detail)
+    await viewport(1440, 900)
+    await waitFor(() => expect(canvas.getAllByTestId("project")).toHaveLength(2))
+    await expect(canvas.getByTestId("detail")).toBe(detail)
+  },
+}
+
+/** From 1024 px a side navigation replaces the tabs, and a worktree opens beside its list. */
+export const DesktopSplitsListAndDetail: Story = {
+  play: async ({ canvasElement }) => {
+    await viewport(1440, 900)
+    const canvas = within(canvasElement)
+    const nav = await canvas.findByRole("navigation", { name: "Views" })
+    await expect(getComputedStyle(nav).flexDirection).toBe("column")
+    await userEvent.click(canvas.getByRole("button", { name: "Projects" }))
+    await expect(canvas.getByTestId("detail-placeholder")).toBeVisible()
+    await userEvent.click(canvas.getByText("login"))
+    await expect(canvas.getByTestId("detail")).toBeVisible()
+    await expect(canvas.getAllByTestId("project")).toHaveLength(2)
+    await expect(canvas.queryByTestId("detail-placeholder")).not.toBeInTheDocument()
+    await expect(document.documentElement.scrollWidth <= document.documentElement.clientWidth).toBe(
+      true,
+    )
+  },
+}
+
+/** A worktree's address opens the split with that worktree selected. */
+export const DesktopOpensAWorktreeFromItsAddress: Story = {
+  play: async ({ canvasElement }) => {
+    await viewport(1440, 900)
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: "Projects" }))
+    await userEvent.click(canvas.getByText("login"))
+    await canvas.findByTestId("detail")
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    await expect(window.location.search).toContain("worktree=")
+    await expect(canvas.getByTestId("detail")).toBeVisible()
+    await expect(canvas.getAllByTestId("project")).toHaveLength(2)
   },
 }
 
@@ -198,6 +250,16 @@ export const InboxSaysWhyAnItemWaits: Story = {
       "2 of 2 drives in use (limits.maxDrives)",
     )
     await expect(within(queued!).queryByRole("button")).not.toBeInTheDocument()
+  },
+}
+
+/** An inbox title with a URL is underlined: in the light theme the link colour equals the text colour. */
+export const InboxTitleLinkIsUnderlined: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: "Inbox" }))
+    const link = await canvas.findByRole("link", { name: "Review #7" })
+    await expect(getComputedStyle(link).textDecorationLine).toBe("underline")
   },
 }
 

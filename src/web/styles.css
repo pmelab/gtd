@@ -1,73 +1,87 @@
 @import "tailwindcss";
 
-/**
- * Dark-only palette (Requirement b): one set of tokens, one set of contrast
- * ratios — `src/web/tokens.test.ts` parses this exact block and asserts
- * every pair against WCAG AA. Changing a value here without re-checking that
- * test is the failure mode the test exists to catch.
+/*
+ * Four UI colours only — charcoal #151A1D, yellow #FFC328, white #FAFAF7,
+ * muted #C9CBCD — in a light theme (@theme) and a dark theme (the media block
+ * below). Code and diff blocks alone are exempt and carry their own sets.
+ * `tokens.test.ts` parses both blocks and asserts WCAG AA on every pair.
  */
 @theme {
-  /*
-   * Every colour below is a step of a Radix Colors DARK scale, named in the
-   * trailing `radix:` comment — `src/web/palette.test.ts` reads those
-   * comments and fails if a value stops matching the step it claims, so the
-   * provenance is checked, not asserted in prose. Radix's steps are roles,
-   * not shades: 1-2 are app/page backgrounds, 3-5 component backgrounds,
-   * 6-8 borders, 9-10 solid fills, 11 accessible text, 12 high-contrast
-   * text. Picking by role is what keeps `tokens.test.ts`'s contrast
-   * assertions passing by construction rather than by luck.
-   */
-  --color-page: #111111; /* radix: gray-dark.1 */
-  --color-surface: #222222; /* radix: gray-dark.3 */
-  /* Hairlines BETWEEN rows, never a control's own boundary: a divider only
-     has to be seen, not read, so it sits at the low end of Radix's border
-     range while `border` sits at the high end. */
-  --color-divider: #3a3a3a; /* radix: gray-dark.6 */
-  --color-border: #6e6e6e; /* radix: gray-dark.9 */
-  --color-text: #eeeeee; /* radix: gray-dark.12 */
-  --color-muted: #b4b4b4; /* radix: gray-dark.11 */
-  /* 9 is the solid fill a primary button paints with; 11 is the text
-     colour, which is why a link never uses `accent`. */
-  --color-accent: #0090ff; /* radix: blue-dark.9 */
-  --color-accent-pressed: #3b9eff; /* radix: blue-dark.10 */
-  --color-link: #70b8ff; /* radix: blue-dark.11 */
-  --color-disabled: #606060; /* radix: gray-dark.8 */
-  --color-warning: #ffca16; /* radix: amber-dark.11 */
-  --color-danger: #ff9592; /* radix: red-dark.11 */
-  /* A running service on the dashboard. */
-  --color-success: #1fd8a4; /* radix: jade-dark.11 */
+  --color-page: #fafaf7;
+  --color-surface: #fafaf7;
+  --color-divider: #c9cbcd;
+  --color-border: #151a1d;
+  --color-text: #151a1d;
+  --color-muted: #151a1d;
+  --color-accent: #ffc328;
+  --color-accent-pressed: #c9cbcd;
+  --color-on-accent: #151a1d;
+  --color-ring: #151a1d;
+  --color-link: #151a1d;
+  --color-disabled: #c9cbcd;
+  --color-warning: #151a1d;
+  --color-danger: #151a1d;
+  --color-success: #151a1d;
+  --color-heading-a: #151a1d;
+  --color-heading-b: #151a1d;
+  --color-heading-c: #151a1d;
+  --color-quote: #151a1d;
 
-  /* Diff line backgrounds. Step 4, not 3: step 3 is the resting component
-     background and sits so close to the page that the band reads as hue
-     alone — which a WCAG ratio cannot see and a phone in daylight loses
-     first. Bright syntax tokens still clear AA over both. */
-  --color-diff-add: #113b29; /* radix: green-dark.4 */
-  --color-diff-del: #500f1c; /* radix: red-dark.4 */
+  /* Code and diff set (exempt from the four colours). */
+  --color-code-bg: #fafaf7;
+  --color-code: #6a3000;
+  --color-diff-add: #d3f0da;
+  --color-diff-del: #f8d4d8;
+  --color-syntax-kw: #3d2394;
+  --color-syntax-str: #5e3b00;
+  --color-syntax-num: #004a5e;
+  --color-syntax-typ: #004f38;
+  --color-syntax-com: #3a4146;
 
-  /* Markdown roles. Heading depth carries a hue as well as a size, the way
-     an editor colours structure — a plan is skimmed for its sections far
-     more often than it is read start to finish. */
-  --color-heading-a: #baa7ff; /* radix: violet-dark.11 */
-  --color-heading-b: #4ccce6; /* radix: cyan-dark.11 */
-  --color-heading-c: #1fd8a4; /* radix: jade-dark.11 */
-  --color-code: #ffa057; /* radix: orange-dark.11 */
-  --color-quote: #6e56cf; /* radix: violet-dark.9 */
-
-  /* Syntax tokens (`Highlight.ts`'s five classes). */
-  --color-syntax-kw: #baa7ff; /* radix: violet-dark.11 */
-  --color-syntax-str: #ffca16; /* radix: amber-dark.11 */
-  --color-syntax-num: #4ccce6; /* radix: cyan-dark.11 */
-  --color-syntax-typ: #1fd8a4; /* radix: jade-dark.11 */
-  --color-syntax-com: #b4b4b4; /* radix: gray-dark.11 */
-
-  /* 16px, not 15: iOS Safari zooms the page on focusing any input whose text
-     is under 16px, and this size is shared with the textareas. */
   --text-body: 16px;
   --text-body--line-height: 1.5;
   --text-large: 20px;
   --text-large--line-height: 1.3;
   --text-small: 13px;
   --text-small--line-height: 1.3;
+}
+
+:root {
+  color-scheme: light dark;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-page: #151a1d;
+    --color-surface: #151a1d;
+    --color-divider: #c9cbcd;
+    --color-border: #c9cbcd;
+    --color-text: #fafaf7;
+    --color-muted: #c9cbcd;
+    --color-accent: #ffc328;
+    --color-accent-pressed: #c9cbcd;
+    --color-on-accent: #151a1d;
+    --color-ring: #ffc328;
+    --color-link: #ffc328;
+    --color-disabled: #c9cbcd;
+    --color-warning: #ffc328;
+    --color-danger: #fafaf7;
+    --color-success: #fafaf7;
+    --color-heading-a: #fafaf7;
+    --color-heading-b: #fafaf7;
+    --color-heading-c: #fafaf7;
+    --color-quote: #c9cbcd;
+
+    --color-code-bg: #151a1d;
+    --color-code: #ffa057;
+    --color-diff-add: #113b29;
+    --color-diff-del: #500f1c;
+    --color-syntax-kw: #baa7ff;
+    --color-syntax-str: #ffca16;
+    --color-syntax-num: #4ccce6;
+    --color-syntax-typ: #1fd8a4;
+    --color-syntax-com: #c9cbcd;
+  }
 }
 
 @source "./";
@@ -121,7 +135,7 @@ body {
  */
 input[type="checkbox"],
 input[type="radio"] {
-  accent-color: var(--color-accent);
+  accent-color: var(--color-ring);
   width: 1.25rem;
   height: 1.25rem;
   margin: 0;
@@ -146,7 +160,7 @@ textarea {
 }
 
 textarea:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--color-ring);
   outline-offset: -1px;
 }
 
@@ -199,5 +213,12 @@ textarea:focus-visible {
 @keyframes deck-item-in {
   from {
     opacity: 0.2;
+  }
+}
+
+@layer base {
+  :focus-visible {
+    outline: 2px solid var(--color-ring);
+    outline-offset: 2px;
   }
 }

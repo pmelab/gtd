@@ -5,6 +5,7 @@ import {
   detailText,
   nowView,
   STATUS_COLOR,
+  STATUS_ICON,
   statusText,
   worktreeName,
   type Entry,
@@ -23,8 +24,9 @@ const Card = ({ entry, onOpen }: { readonly entry: Entry; readonly onOpen: () =>
       data-testid="now-card"
     >
       <span
+        data-icon={STATUS_ICON[worktree.status]}
         className={cn(
-          "text-small font-medium uppercase tracking-wide",
+          "before:mr-1 before:content-[attr(data-icon)] text-small font-medium uppercase tracking-wide",
           STATUS_COLOR[worktree.status],
         )}
       >

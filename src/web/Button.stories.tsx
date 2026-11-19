@@ -73,7 +73,7 @@ export const SecondaryPressed: Story = {
     await withRealMousePress(button, async () => {
       const pressedColor = getComputedStyle(button).backgroundColor
       await expect(pressedColor).not.toBe(restColor)
-      await expect(pressedColor).toBe(token("border"))
+      await expect(pressedColor).toBe(token("accent"))
     })
   },
 }
@@ -108,7 +108,7 @@ export const GhostPressed: Story = {
     await withRealMousePress(button, async () => {
       const pressedColor = getComputedStyle(button).backgroundColor
       await expect(pressedColor).not.toBe(restColor)
-      await expect(pressedColor).toBe(token("surface"))
+      await expect(pressedColor).toBe(token("accent"))
     })
   },
 }

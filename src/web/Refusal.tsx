@@ -109,7 +109,7 @@ const Dot = ({
         aria-hidden="true"
         data-testid="save-indicator-dot"
         data-state="saving"
-        className="size-4 animate-spin rounded-full border-2 border-accent border-t-transparent"
+        className="size-4 animate-spin rounded-full border-2 border-ring border-t-transparent"
       />
     )
   }

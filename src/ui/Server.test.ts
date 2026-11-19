@@ -744,12 +744,12 @@ describe("the dark page shell", () => {
     expect(html).toMatch(/body\s*{[^}]*color(?!-scheme)/)
   })
 
-  it("the --dev template read straight from src/web/index.html keeps color-scheme: dark, and styles.css (the source both prod and --dev compile through the same Tailwind CLI) carries the body background/text color", () => {
+  it("the --dev template read straight from src/web/index.html links main.css, and styles.css (the source both prod and --dev compile through the same Tailwind CLI) carries the body background/text color", () => {
     const template = readFileSync(join(import.meta.dirname, "../web/index.html"), "utf8")
-    expect(template).toContain("color-scheme: dark")
     expect(template).toMatch(/<link rel="stylesheet" href="\.\/main\.css" \/>/)
 
     const styles = readFileSync(join(import.meta.dirname, "../web/styles.css"), "utf8")
+    expect(styles).toContain("color-scheme: light dark")
     expect(styles).toMatch(/body\s*{[^}]*background/)
     expect(styles).toMatch(/body\s*{[^}]*color(?!-scheme)/)
   })

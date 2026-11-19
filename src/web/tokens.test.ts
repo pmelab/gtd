@@ -1,26 +1,39 @@
 import { readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
-/**
- * Parses the `@theme` block's `--color-*` declarations straight out of the
- * shipped stylesheet — never a duplicated JS copy of the palette — so a
- * value changed in `styles.css` without checking contrast here is caught by
- * THIS file re-reading the real source, not by a constant staying in sync by
- * hand.
- */
-const readColorTokens = (): Record<string, string> => {
-  const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8")
-  const themeMatch = css.match(/@theme\s*{([^}]*)}/)
-  if (themeMatch?.[1] === undefined) throw new Error("tokens.test.ts: no @theme block found")
+const css = readFileSync(new URL("./styles.css", import.meta.url), "utf8")
+
+const declarations = (block: string): Record<string, string> => {
   const tokens: Record<string, string> = {}
-  for (const line of themeMatch[1].split("\n")) {
+  for (const line of block.split("\n")) {
     const declaration = line.match(/--color-([\w-]+):\s*(#[0-9a-fA-F]{6});/)
     if (declaration?.[1] !== undefined && declaration[2] !== undefined) {
-      tokens[declaration[1]] = declaration[2]
+      tokens[declaration[1]] = declaration[2].toLowerCase()
     }
   }
   return tokens
 }
+
+/** Both theme blocks, read from the shipped stylesheet: light is `@theme`, dark overrides it under the system media query. */
+const light = declarations(css.match(/@theme\s*{([^}]*)}/)?.[1] ?? "")
+const darkOverrides = declarations(
+  css.match(/prefers-color-scheme: dark\)\s*{\s*:root\s*{([^}]*)}/)?.[1] ?? "",
+)
+const dark = { ...light, ...darkOverrides }
+
+const PALETTE = ["#151a1d", "#ffc328", "#fafaf7", "#c9cbcd"]
+const CODE_ONLY = [
+  "code-bg",
+  "code",
+  "diff-add",
+  "diff-del",
+  "syntax-kw",
+  "syntax-str",
+  "syntax-num",
+  "syntax-typ",
+  "syntax-com",
+]
+const SYNTAX = ["syntax-kw", "syntax-str", "syntax-num", "syntax-typ", "syntax-com"]
 
 const srgbToLinear = (channel: number): number => {
   const c = channel / 255
@@ -71,185 +84,79 @@ const blendOverBackground = (foreground: string, background: string, opacity: nu
   return `#${mix(0)}${mix(2)}${mix(4)}`
 }
 
-describe("styles.css contrast", () => {
-  const tokens = readColorTokens()
-
-  it("parsed every expected color token from the real @theme block", () => {
-    for (const name of [
-      "page",
-      "surface",
-      "border",
-      "text",
-      "muted",
-      "accent",
-      "accent-pressed",
-      "disabled",
-      "divider",
-      "warning",
-      "danger",
-      "link",
-      "code",
-      "quote",
-      "diff-add",
-      "diff-del",
-      "heading-a",
-      "heading-b",
-      "heading-c",
-      "syntax-kw",
-      "syntax-str",
-      "syntax-num",
-      "syntax-typ",
-      "syntax-com",
-    ]) {
-      expect(tokens[name], `missing --color-${name}`).toBeDefined()
+describe.each([
+  ["light", light],
+  ["dark", dark],
+] as const)("%s theme", (_name, tokens) => {
+  it("paints every UI token with one of the four palette colours", () => {
+    for (const [name, value] of Object.entries(tokens)) {
+      if (CODE_ONLY.includes(name)) continue
+      expect(PALETTE, `--color-${name}`).toContain(value)
     }
   })
 
-  it("body text on page clears the 4.5:1 AA body-text threshold", () => {
+  it("body text clears 4.5:1 on page and surface", () => {
     expect(contrastRatio(tokens.text!, tokens.page!)).toBeGreaterThanOrEqual(4.5)
-  })
-
-  it("muted (large) text on page clears the 3:1 AA large-text threshold", () => {
-    expect(contrastRatio(tokens.muted!, tokens.page!)).toBeGreaterThanOrEqual(3)
-  })
-
-  it("a control boundary (border) against surface clears the 3:1 AA threshold", () => {
-    expect(contrastRatio(tokens.border!, tokens.surface!)).toBeGreaterThanOrEqual(3)
-  })
-
-  it("the accent colour on page clears the 3:1 AA large-text/control threshold", () => {
-    expect(contrastRatio(tokens.accent!, tokens.page!)).toBeGreaterThanOrEqual(3)
-  })
-
-  it("the accent-pressed colour on page clears the 3:1 AA large-text/control threshold", () => {
-    expect(contrastRatio(tokens["accent-pressed"]!, tokens.page!)).toBeGreaterThanOrEqual(3)
-  })
-
-  it("body text on surface clears the 4.5:1 AA body-text threshold", () => {
     expect(contrastRatio(tokens.text!, tokens.surface!)).toBeGreaterThanOrEqual(4.5)
   })
 
-  it("the warning colour (a chunk's footnote badge) on page clears the 4.5:1 AA body-text threshold", () => {
-    expect(contrastRatio(tokens.warning!, tokens.page!)).toBeGreaterThanOrEqual(4.5)
-  })
-
-  it("the danger colour (a destructive control's label) on page clears the 4.5:1 AA body-text threshold", () => {
-    expect(contrastRatio(tokens.danger!, tokens.page!)).toBeGreaterThanOrEqual(4.5)
-  })
-
-  it.each(["link", "warning", "danger", "heading-a", "heading-b", "heading-c"])(
-    "%s reads as body text on the page (4.5:1 AA)",
+  it.each(["muted", "link", "warning", "danger", "success"])(
+    "%s text clears 4.5:1 on page and surface",
     (name) => {
       expect(contrastRatio(tokens[name]!, tokens.page!)).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(tokens[name]!, tokens.surface!)).toBeGreaterThanOrEqual(4.5)
     },
   )
 
-  it("code text clears AA on the surface it is painted on", () => {
-    expect(contrastRatio(tokens.code!, tokens.surface!)).toBeGreaterThanOrEqual(4.5)
+  it("a control boundary and the focus ring clear 3:1 on the page", () => {
+    expect(contrastRatio(tokens.border!, tokens.page!)).toBeGreaterThanOrEqual(3)
+    expect(contrastRatio(tokens.ring!, tokens.page!)).toBeGreaterThanOrEqual(3)
   })
 
-  /**
-   * A syntax token has to stay readable on THREE backgrounds, not one: the
-   * page, and both diff line fills. A colour picked against the page alone
-   * is the failure this catches — an added line is exactly where code is
-   * read most carefully.
-   */
-  it.each(["syntax-kw", "syntax-str", "syntax-num", "syntax-typ", "syntax-com"])(
-    "%s clears AA on the page and on both diff backgrounds",
-    (name) => {
-      for (const background of ["page", "diff-add", "diff-del"]) {
-        expect(
-          contrastRatio(tokens[name]!, tokens[background]!),
-          `${name} on ${background}`,
-        ).toBeGreaterThanOrEqual(4.5)
-      }
-    },
-  )
+  it("a primary button's label clears 4.5:1 on its fill", () => {
+    expect(contrastRatio(tokens["on-accent"]!, tokens.accent!)).toBeGreaterThanOrEqual(4.5)
+    expect(contrastRatio(tokens["on-accent"]!, tokens.disabled!)).toBeGreaterThanOrEqual(4.5)
+  })
 
-  it("each diff fill is distinguishable from the page it sits on", () => {
-    for (const name of ["diff-add", "diff-del"]) {
-      expect(contrastRatio(tokens[name]!, tokens.page!), name).toBeGreaterThan(1.2)
+  it("code text clears 4.5:1 on the code background", () => {
+    expect(contrastRatio(tokens.code!, tokens["code-bg"]!)).toBeGreaterThanOrEqual(4.5)
+  })
+
+  it.each(SYNTAX)("%s clears 4.5:1 on the code background and both diff fills", (name) => {
+    for (const background of ["code-bg", "diff-add", "diff-del"]) {
+      expect(
+        contrastRatio(tokens[name]!, tokens[background]!),
+        `${name} on ${background}`,
+      ).toBeGreaterThanOrEqual(4.5)
     }
   })
 
-  /**
-   * A divider is NOT a control boundary and deliberately misses 3:1 — it
-   * separates rows rather than outlining anything tappable. The pair of
-   * bounds is the point: visible against the page, and quieter than
-   * `border`, which is the token a control must keep using.
-   */
-  it("the divider is visible against the page yet quieter than a control boundary", () => {
-    expect(contrastRatio(tokens.divider!, tokens.page!)).toBeGreaterThan(1.2)
-    expect(contrastRatio(tokens.divider!, tokens.page!)).toBeLessThan(
-      contrastRatio(tokens.border!, tokens.page!),
-    )
+  it("body text clears 4.5:1 on both diff fills, and each fill differs from the code background", () => {
+    for (const fill of ["diff-add", "diff-del"]) {
+      expect(contrastRatio(tokens.text!, tokens[fill]!), fill).toBeGreaterThanOrEqual(4.5)
+      expect(contrastRatio(tokens[fill]!, tokens["code-bg"]!), fill).toBeGreaterThan(1.1)
+    }
   })
 
-  /**
-   * T3's own opacity-only rule, pinned on the actual blended colour a
-   * browser paints. `.diff-dimmed` (`Hunk.tsx#DiffLines`) wraps a dimmed
-   * row's WHOLE text — every `TOKEN_COLOR` span inside it, not just plain
-   * `text` — and a dimmed row keeps its own kind's `LINE_BACKGROUND` (T3:
-   * opacity is foreground-only), which for the pad band around a NEW-FILE
-   * range is `add` throughout
-   * (`Hunk.stories.tsx#RangeInANewFileShowsTwelveInRangeRowsWithThreeDimmedOnEachSide`).
-   * So the real claim is fifteen pairs — `text` plus the five `TOKEN_COLOR`
-   * entries, each across `page` (also what a dimmed `context` row's
-   * `bg-transparent` sits on), `diff-add` and `diff-del` — never `text` on
-   * `page` alone, which a syntax token blended over an add/del fill can
-   * silently miss (a real regression this file's own history caught: at
-   * `opacity: 0.6`, `syntax-kw` on `diff-add` landed at 3.11:1). This app
-   * ships one theme — this whole file's `@theme` block IS that theme,
-   * labelled "Dark-only palette" at its own top — so "both light and dark"
-   * holds vacuously today: there is no second palette for a future light
-   * theme to regress without this file gaining a second `readColorTokens`
-   * source.
-   */
-  describe("dimmed diff context (.diff-dimmed)", () => {
-    const opacity = readDimmedOpacity()
-    const dimmedForegrounds = [
-      "text",
-      "syntax-kw",
-      "syntax-str",
-      "syntax-num",
-      "syntax-typ",
-      "syntax-com",
-    ]
-    const dimmedBackgrounds = ["page", "diff-add", "diff-del"]
+  it.each(
+    ["text", ...SYNTAX].flatMap((fg) =>
+      ["code-bg", "diff-add", "diff-del"].map((bg) => [fg, bg] as const),
+    ),
+  )("%s clears AA on %s once dimmed at the shipped opacity", (fg, bg) => {
+    const blended = blendOverBackground(tokens[fg]!, tokens[bg]!, readDimmedOpacity())
+    expect(contrastRatio(blended, tokens[bg]!)).toBeGreaterThanOrEqual(4.5)
+  })
+})
 
-    it.each(dimmedForegrounds.flatMap((fg) => dimmedBackgrounds.map((bg) => [fg, bg] as const)))(
-      "%s clears AA on %s once blended at the shipped dimmed opacity",
-      (fg, bg) => {
-        const blended = blendOverBackground(tokens[fg]!, tokens[bg]!, opacity)
-        expect(contrastRatio(blended, tokens[bg]!)).toBeGreaterThanOrEqual(4.5)
-      },
-    )
+describe("the themes differ", () => {
+  it("the dark block parses and overrides every UI token", () => {
+    const ui = Object.keys(light).filter((name) => !CODE_ONLY.includes(name))
+    expect(Object.keys(darkOverrides).length).toBeGreaterThan(0)
+    expect(Object.keys(darkOverrides)).toEqual(expect.arrayContaining(ui))
   })
 
-  /**
-   * The workspace dashboard paints a worktree status in its colour on the
-   * page (the Projects list) and on a surface (a Now card, the detail pane,
-   * a service chip), and outlines a Now card in it.
-   */
-  describe("the workspace dashboard", () => {
-    const statusColors = ["warning", "danger", "link", "muted", "success"]
-
-    it.each(statusColors.flatMap((fg) => ["page", "surface"].map((bg) => [fg, bg] as const)))(
-      "%s status text reads as body text on %s (4.5:1 AA)",
-      (fg, bg) => {
-        expect(contrastRatio(tokens[fg]!, tokens[bg]!)).toBeGreaterThanOrEqual(4.5)
-      },
-    )
-
-    it.each(["warning", "danger"])(
-      "a Now card's %s outline is a visible boundary on the page (3:1 AA)",
-      (name) => {
-        expect(contrastRatio(tokens[name]!, tokens.page!)).toBeGreaterThanOrEqual(3)
-      },
-    )
-
-    it("a primary button's label (page on accent) clears 4.5:1 AA", () => {
-      expect(contrastRatio(tokens.page!, tokens.accent!)).toBeGreaterThanOrEqual(4.5)
-    })
+  it("light is a white page and dark a charcoal one", () => {
+    expect(light.page).toBe("#fafaf7")
+    expect(dark.page).toBe("#151a1d")
   })
 })

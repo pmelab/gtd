@@ -18,7 +18,7 @@ export interface NoticeProps extends React.HTMLAttributes<HTMLDivElement> {
  */
 const TONE_CLASSES: Record<NoticeTone, string> = {
   info: "bg-surface text-text",
-  error: "bg-surface text-text border border-accent",
+  error: "bg-surface text-text border border-border",
 }
 
 export const Notice = ({ tone = "info", className, children, ...props }: NoticeProps) => (
