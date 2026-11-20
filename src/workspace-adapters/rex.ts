@@ -162,6 +162,38 @@ const paneEvents = (events: ChildProcessByStdio<null, Readable, null>): AsyncIte
   }
 }
 
+// Inside a Rex pane REX_SESSION scopes every bare block target to that
+// session; handles must resolve across sessions.
+const scopeFreeEnv = (): NodeJS.ProcessEnv => {
+  const { REX_SESSION: _s, REX_BLOCK: _b, ...env } = process.env
+  return env
+}
+
+interface RexClient {
+  readonly client_id: string
+  readonly info?: { readonly kind?: string }
+  readonly connected_at?: string
+  readonly session_ids?: readonly string[]
+}
+
+// App clients attached to the caller's session, else the latest-connected app.
+const clientsToSwitch = (
+  clients: readonly RexClient[],
+  caller: string | undefined,
+): RexClient[] => {
+  const apps = clients.filter((c) => c.info?.kind === "app")
+  const at = (c: RexClient): number => Date.parse(c.connected_at ?? "")
+  const attached = (caller === undefined ? [] : apps.filter((c) => c.session_ids?.includes(caller)))
+    .slice()
+    .sort((x, y) => at(x) - at(y))
+  if (attached.length > 0) return attached
+  const latest = apps.reduce<RexClient | undefined>(
+    (a, b) => (a === undefined || at(b) > at(a) ? b : a),
+    undefined,
+  )
+  return latest === undefined ? [] : [latest]
+}
+
 export const rex = (options: RexOptions = {}): TerminalAdapter => {
   const bin = options.bin ?? "rex"
   const global = (autostart: boolean): string[] => [
@@ -173,7 +205,7 @@ export const rex = (options: RexOptions = {}): TerminalAdapter => {
       execFile(
         bin,
         [...global(autostart), ...args],
-        { encoding: "utf8", timeout: 30_000, maxBuffer: 16 * 1024 * 1024 },
+        { encoding: "utf8", timeout: 30_000, maxBuffer: 16 * 1024 * 1024, env: scopeFreeEnv() },
         (error, stdout, stderr) => {
           const code = error === null ? 0 : typeof error.code === "number" ? error.code : -1
           resolve({ code, stdout, stderr: stderr || (error?.message ?? "") })
@@ -259,6 +291,34 @@ export const rex = (options: RexOptions = {}): TerminalAdapter => {
       if (outcome.code !== 0 && !isGone(outcome)) fail("close", outcome)
     },
     focus: async (handle) => {
+      const caller = process.env.REX_SESSION
+      const found = json<{
+        session_id?: unknown
+        block?: { window_id?: string }
+      }>("focus", await call(["block", "inspect", handle, "--json"]))
+      // The client switch is best-effort: a failure must not stop `rex focus`.
+      if (typeof found.session_id === "string" && found.session_id !== "") {
+        try {
+          const listed = json<{ clients?: readonly RexClient[] }>(
+            "focus",
+            await call(["client", "ls", "--all", "--json"]),
+          )
+          for (const client of clientsToSwitch(listed.clients ?? [], caller)) {
+            await call([
+              "do",
+              "-C",
+              client.client_id,
+              "session.select",
+              `session_id=${found.session_id}`,
+              ...(found.block?.window_id === undefined
+                ? []
+                : [`window_id=${found.block.window_id}`]),
+            ])
+          }
+        } catch {
+          // fall through to `rex focus`
+        }
+      }
       const outcome = await call(["focus", handle])
       if (outcome.code !== 0) fail("focus", outcome)
     },

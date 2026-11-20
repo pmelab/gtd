@@ -699,7 +699,10 @@ checkouts. A project added after the supervisor started is found by the next
 
 `rex({ server, shell })` opens one Rex session per project id and one window per
 pane. `server` is a Rex server address as `rex -S` takes it; `shell` is the
-login shell (Rex's default when absent). It has `focus()` and `watch()`.
+login shell (Rex's default when absent). It has `focus()` and `watch()`. `focus`
+also switches Rex app clients to the pane's session: inside Rex, those attached
+to your session (the latest-connected app client if none is); outside Rex, the
+latest-connected app client.
 
 ### `services`
 
