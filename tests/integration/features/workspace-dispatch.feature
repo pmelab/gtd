@@ -230,6 +230,50 @@ Feature: Start and Retry dispatch an inbox item
       | portal/board/8 | ["start:feature"] |
       | portal/pr-12   | ["start:feature"] |
 
+  Scenario: a reload that removes the feed turns a waiting Retry back into a failed item that only Dismiss takes
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"], limits: { wip: 1 } })
+
+      export const board = feed({
+        project: "portal",
+        every: "5m",
+        mode: "propose",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "issue", "list"])).stdout),
+      })
+      """
+    And the command "gh issue list" prints:
+      """
+      [
+        { "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0 },
+        { "key": "8", "title": "Add footer", "action": "start:feature", "priority": 0 }
+      ]
+      """
+    When I start gtd workspace
+    And I start "board/7" in the Inbox
+    And the action in "portal/board/7" exits 2
+    And I start "board/8" in the Inbox
+    And I retry "board/7" in the Inbox
+    And the workspace file "gtd.workspace.ts" changes to:
+      """
+      export const workspace = {}
+      """
+    Then the Inbox lists:
+      | feed  | key | title      | state    |
+      | board | 7   | Add signup | failed   |
+      | board | 8   | Add footer | starting |
+    When I retry "board/7" in the Inbox, which answers 404
+    Then the Inbox lists:
+      | feed  | key | title      | state    |
+      | board | 7   | Add signup | failed   |
+      | board | 8   | Add footer | starting |
+    When I dismiss "board/7" in the Inbox
+    Then the Inbox lists:
+      | feed  | key | title      | state    |
+      | board | 8   | Add footer | starting |
+
   Scenario: Retry creates a new worktree when the adapter has no unpushed
     Given the worktrees adapter has no unpushed
     And the command "gh issue list" prints:
@@ -372,6 +416,79 @@ Feature: Start and Retry dispatch an inbox item
     Then the Inbox lists:
       | feed  | key | title      | state  | message                                        |
       | board | 7   | Add signup | failed | start:bugfix is not offered while the worktree is idle (worktree {root}/portal.wt/board/7) |
+
+  Scenario: a reload that removes the feed keeps its starting and failed items
+    Given the command "gh issue list" prints:
+      """
+      [{ "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0 }, { "key": "8", "title": "Fix footer", "action": "start:feature", "priority": 0 }]
+      """
+    When I start gtd workspace
+    And I start "board/8" in the Inbox
+    And the action in "portal/board/8" exits 2
+    And I start "board/7" in the Inbox
+    And the workspace file "gtd.workspace.ts" changes to:
+      """
+      export const workspace = {}
+      """
+    Then the Inbox lists:
+      | feed  | key | title      | state    | message                                                    |
+      | board | 7   | Add signup | starting |                                                            |
+      | board | 8   | Fix footer | failed   | start:feature exited 2 (worktree {root}/portal.wt/board/8) |
+
+  Scenario: a restart drops the waiting items and dismissals of a feed the file no longer exports
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"] })
+
+      export const board = feed({
+        project: "portal",
+        every: "5m",
+        mode: "propose",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "issue", "list"])).stdout),
+        canStart: async (item, ctx) => (await ctx.exec(["ready"])).status === 0,
+      })
+      """
+    And the command "gh issue list" prints:
+      """
+      [{ "key": "7", "title": "Add signup", "action": "start:feature", "priority": 0 }, { "key": "8", "title": "Fix footer", "action": "start:feature", "priority": 0 }]
+      """
+    And the command "ready" exits 1
+    When I start gtd workspace
+    And I dismiss "board/7" in the Inbox
+    And I start "board/8" in the Inbox
+    Then the Inbox lists:
+      | feed  | key | title      | state  |
+      | board | 8   | Fix footer | queued |
+    When I stop gtd workspace
+    And the workspace file "gtd.workspace.ts" changes to:
+      """
+      export const workspace = {}
+      """
+    And I start gtd workspace
+    Then the Inbox lists:
+      | feed | key | title | state |
+    When I stop gtd workspace
+    And the workspace file "gtd.workspace.ts" changes to:
+      """
+      import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"] })
+
+      export const board = feed({
+        project: "portal",
+        every: "5m",
+        mode: "propose",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "issue", "list"])).stdout),
+        canStart: async (item, ctx) => (await ctx.exec(["ready"])).status === 0,
+      })
+      """
+    And I start gtd workspace
+    Then the Inbox lists:
+      | feed  | key | title      | state    |
+      | board | 7   | Add signup | proposed |
+      | board | 8   | Fix footer | proposed |
 
   Scenario: a failed item can be dismissed
     Given the command "gh issue list" prints:

@@ -72,6 +72,9 @@ export const emptyInbox = (
 const dispatched = (entry: Entry): boolean =>
   entry.dispatch !== undefined && entry.dispatch.state !== "approved"
 
+const retryOf = (entry: Entry): { readonly worktree?: string } | undefined =>
+  entry.dispatch?.state === "approved" ? entry.dispatch.retry : undefined
+
 /**
  * The inbox after one successful poll of `source`: new keys are added, known
  * ones updated, and the feed's waiting items it no longer returns dropped. A
@@ -105,6 +108,34 @@ export const applyPoll = (
     entries.set(id, { ...source, item, order, firstSeen, ...(dispatch ? { dispatch } : {}) })
   })
   return { entries, dismissed }
+}
+
+/**
+ * The inbox without the waiting items and dismissals of feeds not in `names`;
+ * starting, started and failed items stay. A Retry that has not started turns
+ * failed again, so Dismiss still takes it.
+ */
+export const dropGoneFeeds = (inbox: Inbox, names: ReadonlySet<string>): Inbox => {
+  const prefixes = [...names].map((name) => idOf(name, ""))
+  const gone = (id: string): boolean => !prefixes.some((prefix) => id.startsWith(prefix))
+  const kept = (entry: Entry): Entry => {
+    const retry = retryOf(entry)
+    if (retry === undefined) return entry
+    const { worktree } = retry
+    const message = `its feed ${entry.feed} is not in the config`
+    return {
+      ...entry,
+      dispatch: { state: "failed", message, ...(worktree !== undefined ? { worktree } : {}) },
+    }
+  }
+  return {
+    entries: new Map(
+      [...inbox.entries]
+        .filter(([id, entry]) => !gone(id) || dispatched(entry) || retryOf(entry) !== undefined)
+        .map(([id, entry]) => [id, gone(id) ? kept(entry) : entry]),
+    ),
+    dismissed: new Set([...inbox.dismissed].filter((id) => !gone(id))),
+  }
 }
 
 /** Hides a proposed or failed item until its feed stops returning it; `undefined` when there is none. */

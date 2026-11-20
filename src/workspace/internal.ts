@@ -3,6 +3,7 @@ export { isFeed, runPoll, type PollOutcome } from "./feed.js"
 export { isReaction, runReaction } from "./reaction.js"
 export {
   applyPoll,
+  dropGoneFeeds,
   dispatchableItems,
   dismiss,
   emptyInbox,

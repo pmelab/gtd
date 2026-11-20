@@ -299,7 +299,7 @@ Feature: queue feeds dispatch their items within the limits
       | worktree       | argv              |
       | portal/board/7 | ["start:feature"] |
 
-  Scenario: the waiting items of a feed the config no longer exports do not start
+  Scenario: the waiting items of a feed the config no longer exports leave the Inbox
     Given a workspace file "gtd.workspace.ts" with:
       """
       import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
@@ -348,5 +348,4 @@ Feature: queue feeds dispatch their items within the limits
     Then gtd opened these action panes:
       | worktree | argv |
     And the Inbox lists:
-      | feed   | key | title   | state  | message                             |
-      | chores | c1  | Tidy up | queued | its feed chores is not in the config |
+      | feed | key | title | state |

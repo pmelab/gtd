@@ -260,6 +260,30 @@ export const InboxPressesAnItem: Story = {
   },
 }
 
+/** A failed item of a feed that left the config offers Dismiss, not Retry. */
+export const InboxOffersNoRetryOfARemovedFeed: Story = {
+  decorators: [
+    (Story) => (
+      <WorkspaceTrpcTestProvider
+        resolvers={{
+          projects: () => workspace,
+          banners: () => [],
+          inbox: () => ({ ...inbox, feeds: inbox.feeds.filter((f) => f.feed !== "boardReady") }),
+        }}
+      >
+        <Story />
+      </WorkspaceTrpcTestProvider>
+    ),
+  ],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: /^Inbox/ }))
+    const [failed] = await itemsTitled(canvas, "Fix logout")
+    await expect(within(failed!).getByRole("button", { name: "Dismiss" })).toBeInTheDocument()
+    await expect(within(failed!).queryByRole("button", { name: "Retry" })).not.toBeInTheDocument()
+  },
+}
+
 /** The Inbox shows the drives in use out of maxDrives, and why a queued item waits. */
 export const InboxSaysWhyAnItemWaits: Story = {
   play: async ({ canvasElement }) => {
