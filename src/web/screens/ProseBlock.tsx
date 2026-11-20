@@ -192,7 +192,7 @@ const ProseBlock = ({
         className={cn(
           "relative -mx-2 rounded-md px-2",
           notable &&
-            "touch-manipulation transition-colors focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring pointer-fine:hover:bg-accent/60",
+            "min-h-11 touch-manipulation transition-colors focus-visible:outline-2 focus-visible:outline-offset-0 focus-visible:outline-ring pointer-fine:hover:bg-accent/60",
           !isCode && hasNote && "bg-muted py-1 pointer-fine:hover:bg-accent",
         )}
       >

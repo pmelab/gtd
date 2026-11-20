@@ -23,6 +23,10 @@ export interface WorktreeView extends WorktreeStatus {
   readonly servicesFailure?: AdapterFailure
   /** The path of the worktree's gate page. */
   readonly gate: string
+  /** The gate kind, from the steering file's name: "Review", "Requirements". */
+  readonly gateKind?: string
+  /** A review gate's base, as a short sha. */
+  readonly gateBase?: string
   /** Why gtd or the driver refused the last Proceed or Retry at this HEAD. */
   readonly refusal?: string
   /** The adapter read that failed: the status is the last one known, shown greyed. */
@@ -53,6 +57,8 @@ export interface ScanDeps {
   readonly drivers: Drivers
   /** Names, sizes and mtimes of the worktree's `.gtd/`, its index and its partner branch tip, read in-process. */
   readonly fingerprint?: (worktree: string) => Promise<string>
+  /** A file's text, or `undefined` when it cannot be read. */
+  readonly readFile?: (path: string) => Promise<string | undefined>
 }
 
 /** A plain object: an `AdapterError`'s message would not survive JSON. */

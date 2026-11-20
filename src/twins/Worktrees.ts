@@ -14,6 +14,8 @@ interface Branch {
   /** Commits made on this branch since it was created. */
   readonly own: string[]
   dirty: boolean
+  /** The branch exists, its worktree is gone. */
+  bare?: boolean
 }
 
 interface ProjectState {
@@ -36,6 +38,12 @@ export interface InMemoryWorktrees {
   readonly dirty: (project: string, branch: string, dirty: boolean) => void
   /** A hint on every open watch stream. Each change above gives one, as a real tool's watch would. */
   readonly hint: (project?: string) => void
+  /** The worktree on `branch` is on `to` from now on, as a start action may leave it. */
+  readonly rename: (project: string, branch: string, to: string) => void
+  /** The worktree of `branch` is gone, the branch stays. */
+  readonly leave: (project: string, branch: string) => void
+  /** The commits made on `branch` are on a remote. */
+  readonly push: (project: string, branch: string) => void
   /** Ends every open watch stream. */
   readonly endWatch: () => void
   /** How many times the adapter has been watched. */
@@ -62,6 +70,7 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
   // By `<project>/<branch>`.
   const integration = new Map<string, boolean | undefined>()
   const streams = new Set<Stream>()
+  const pushed = new Set<string>()
   let subscriptions = 0
   let commits = 0
   const nextCommit = (): string => (++commits).toString(16).padStart(40, "0")
@@ -137,7 +146,11 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
   const failure = (op: string, message: string): AdapterError =>
     new AdapterError({ adapter: "worktrees", op, message })
   const addBranch = (id: string, project: ProjectState, branch: string, path?: string): string => {
-    const at = path ?? `${project.path}.wt/${branch}`
+    // A worktree that moved to another branch keeps its path: the default one may be taken.
+    const taken = new Set([...project.branches.values()].map((b) => b.path))
+    let at = path ?? `${project.path}.wt/${branch}`
+    for (let n = 2; path === undefined && taken.has(at); n++)
+      at = `${project.path}.wt/${branch}-${n}`
     const base = branchOf(project, project.defaultBranch)
     project.branches.set(branch, { path: at, head: base.head, own: [], dirty: false })
     hint(id)
@@ -157,7 +170,22 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
       const message = failing.get(id)
       if (message !== undefined)
         throw new AdapterError({ adapter: "worktrees", op: "list", message })
-      return [...project.branches].map(([name, branch]) => worktreeOf(id, project, name, branch))
+      return [...project.branches]
+        .filter(([, branch]) => branch.bare !== true)
+        .map(([name, branch]) => worktreeOf(id, project, name, branch))
+    },
+    switch: async (id, branch) => {
+      const project = projectOf(id, "switch")
+      const found = project.branches.get(branch)
+      if (found === undefined) throw failure("switch", `no branch named ${branch}`)
+      if (found.bare !== true) throw failure("switch", `${branch} has a worktree`)
+      delete found.bare
+      hint(id)
+      return found.path
+    },
+    unpushed: async (id, branch) => {
+      const found = projectOf(id, "unpushed").branches.get(branch)
+      return found === undefined ? undefined : found.own.some((c) => !pushed.has(c))
     },
     create: async (id, branch) => {
       const project = projectOf(id, "create")
@@ -217,6 +245,20 @@ export const inMemoryWorktrees = (): InMemoryWorktrees => {
       branchOf(projectOf(id, "dirty"), name).dirty = dirty
     },
     hint,
+    rename: (id, name, to) => {
+      const project = projectOf(id, "rename")
+      const branch = branchOf(project, name)
+      project.branches.delete(name)
+      project.branches.set(to, branch)
+      hint(id)
+    },
+    leave: (id, name) => {
+      branchOf(projectOf(id, "leave"), name).bare = true
+      hint(id)
+    },
+    push: (id, name) => {
+      for (const commit of branchOf(projectOf(id, "push"), name).own) pushed.add(commit)
+    },
     endWatch: () => {
       for (const stream of streams) end(stream)
     },
@@ -249,6 +291,8 @@ export const inMemoryWorktreesHarness: WorktreesHarness = {
       commit: async (branch) => twin.commit("demo", branch),
       merge: async (branch) => twin.merge("demo", branch),
       makeDirty: async (branch) => twin.dirty("demo", branch, true),
+      push: async (branch) => twin.push("demo", branch),
+      leave: async (branch) => twin.leave("demo", branch),
       dispose: async () => {},
     }
   },

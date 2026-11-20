@@ -52,3 +52,4 @@ export {
   type ChangedRange,
 } from "./WidgetRules.js"
 export { widgetFormat } from "./widget.js"
+export { gateKind } from "./GateKind.js"

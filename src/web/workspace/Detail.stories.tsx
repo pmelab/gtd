@@ -1,10 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
-import { viewport } from "../testing/browserContext.js"
+import { cdpSession, viewport } from "../testing/browserContext.js"
 import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
+import { token } from "../testing/palette.js"
 import { fullWorkspace, statusWorktrees, workspace } from "./dashboard.fixture.js"
 import { Detail } from "./Detail.js"
+import { fullRun } from "./retrospective.fixture.js"
 import type { Entry } from "./view.js"
 
 const portal = workspace[1]!
@@ -46,8 +48,7 @@ export const GateFirstFullScreenOnAPhone: Story = {
   play: async ({ canvasElement }) => {
     await viewport(390, 844)
     const canvas = within(canvasElement)
-    const frame = canvas.getByTitle("Gate page")
-    await expect(frame.getAttribute("src")).toBe(plan.worktree.gate)
+    const frame = canvas.getByTestId("gate-tab")
     const detail = canvas.getByTestId("detail").getBoundingClientRect()
     await expect(detail.width).toBe(window.innerWidth)
     const tabs = canvas.getByRole("tablist", { name: "Worktree" }).getBoundingClientRect()
@@ -77,21 +78,65 @@ export const HeaderShowsWhereAndWhy: Story = {
   },
 }
 
-/** The gate's Proceed is the one yellow button; Run in Actions stays secondary while the gate waits. */
-export const OneYellowActionAtAGate: Story = {
-  decorators: withApi({
-    actions: () => ({
-      status: "needsYou",
-      actions: [{ id: "any:shell", label: "Open a shell", status: "any", fields: [] }],
-    }),
-  }),
+/** The gate's Proceed is an outline in the warning colour; Run in Actions stays secondary while the gate waits. */
+export const ProceedIsAnOutlineAtAGate: Story = {
+  decorators: withApi({}),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const proceed = canvas.getByRole("button", { name: "Proceed" })
+    const style = getComputedStyle(proceed)
+    await expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0)")
+    await expect(style.color).toBe(token("warning"))
+    await expect(style.borderTopColor).toBe(token("warning"))
     await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
     const run = await canvas.findByRole("button", { name: "Run" })
-    await expect(getComputedStyle(run).backgroundColor).not.toBe(
-      getComputedStyle(proceed).backgroundColor,
+    await expect(getComputedStyle(run).color).not.toBe(style.color)
+    await expect(getComputedStyle(run).borderTopColor).not.toBe(style.borderTopColor)
+  },
+}
+
+/** Retry stays secondary, so it looks different from Proceed. */
+export const RetryStaysSecondary: Story = {
+  args: { entry: { project: workspace[0]!, worktree: workspace[0]!.worktrees[1]! } },
+  play: async ({ canvasElement }) => {
+    const retry = within(canvasElement).getByRole("button", { name: "Retry" })
+    await expect(getComputedStyle(retry).backgroundColor).toBe(token("card"))
+    await expect(getComputedStyle(retry).color).not.toBe(token("warning"))
+  },
+}
+
+/** Proceed sends the HEAD commit the page showed, so a moved HEAD is refused. */
+export const ProceedSendsTheHeadThePageShowed: Story = {
+  decorators: withApi({ proceed: record("proceed", undefined) }),
+  play: async ({ canvasElement }) => {
+    calls.length = 0
+    await userEvent.click(within(canvasElement).getByRole("button", { name: "Proceed" }))
+    await waitFor(() =>
+      expect(calls).toEqual([
+        {
+          procedure: "proceed",
+          input: { worktree: "/ws/portal-plan", commit: "plan-head" },
+        },
+      ]),
+    )
+  },
+}
+
+/** A press gtd refuses says why. */
+export const ARefusedPressSaysWhy: Story = {
+  args: { entry: { project: workspace[0]!, worktree: workspace[0]!.worktrees[1]! } },
+  decorators: withApi({
+    retry: () => {
+      throw new Error("HEAD moved since the page loaded; reload and look again")
+    },
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("button", { name: "Retry" }))
+    await waitFor(() =>
+      expect(canvas.getByTestId("press-error").textContent).toBe(
+        "HEAD moved since the page loaded; reload and look again",
+      ),
     )
   },
 }
@@ -113,12 +158,25 @@ export const RunIsPrimaryWithoutAGate: Story = {
   },
 }
 
-/** The frame is labelled in words, never by its raw URL. */
-export const GateLabelIsReadable: Story = {
-  play: async ({ canvasElement }) => {
-    const gate = within(canvasElement).getByTestId("gate-tab")
-    await expect(gate).toHaveTextContent("Gate page")
-    await expect(gate).not.toHaveTextContent("data:text/html")
+/** The embedded gate talks to the worktree's own gate page API. */
+export const EmbedsTheWorktreesGate: Story = {
+  loaders: [
+    () => {
+      const urls: string[] = []
+      const real = window.fetch
+      window.fetch = (input, init) => {
+        urls.push(String(input instanceof Request ? input.url : input))
+        return real(input, init)
+      }
+      return { urls, restore: () => (window.fetch = real) }
+    },
+  ],
+  play: async ({ loaded }) => {
+    const { urls, restore } = loaded as { urls: string[]; restore: () => void }
+    await waitFor(() =>
+      expect(urls.some((u) => u.startsWith(`${plan.worktree.gate}/trpc`))).toBe(true),
+    )
+    restore()
   },
 }
 
@@ -135,15 +193,17 @@ export const OpenInTab: Story = {
   },
 }
 
-/** The detail offers Gate and Actions, in that order, and no Terminal. */
+/** The detail offers Gate, Actions and Retrospective, in that order, and no Terminal. */
 export const OffersGateThenActions: Story = {
   play: async ({ canvasElement }) => {
-    const tabs = within(canvasElement).getByRole("tablist", { name: "Worktree" })
+    const tabs = within(canvasElement).getByRole("tablist", {
+      name: "Worktree",
+    })
     await expect(
       within(tabs)
         .getAllByRole("tab")
         .map((b) => b.textContent),
-    ).toEqual(["Gate", "Actions"])
+    ).toEqual(["Gate", "Actions", "Retrospective"])
   },
 }
 
@@ -279,10 +339,18 @@ const MovingRest = (args: React.ComponentProps<typeof Detail>) => {
   const [worktree, setWorktree] = useState(plan.worktree)
   return (
     <>
-      <button onClick={() => setWorktree((w) => ({ ...w, label: "Answer the plan again" }))}>
+      <button
+        style={{ minWidth: 44, minHeight: 44 }}
+        onClick={() => setWorktree((w) => ({ ...w, label: "Answer the plan again" }))}
+      >
         relabel
       </button>
-      <button onClick={() => setWorktree((w) => ({ ...w, head: "c0ffee" }))}>commit</button>
+      <button
+        style={{ minWidth: 44, minHeight: 44 }}
+        onClick={() => setWorktree((w) => ({ ...w, head: "c0ffee" }))}
+      >
+        commit
+      </button>
       <Detail {...args} entry={{ ...plan, worktree }} />
     </>
   )
@@ -293,11 +361,12 @@ export const GateFollowsTheRest: Story = {
   render: (args) => <MovingRest {...args} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const first = canvas.getByTitle("Gate page")
+    const gate = () => canvas.getByTestId("gate-tab").firstElementChild
+    const first = gate()
     await userEvent.click(canvas.getByRole("button", { name: "relabel" }))
-    await expect(canvas.getByTitle("Gate page")).toBe(first)
+    await expect(gate()).toBe(first)
     await userEvent.click(canvas.getByRole("button", { name: "commit" }))
-    await expect(canvas.getByTitle("Gate page")).not.toBe(first)
+    await expect(gate()).not.toBe(first)
   },
 }
 
@@ -348,7 +417,7 @@ const detailOf = (key: string, status: string, reason: string, message?: string)
       const atGate = statusWorktrees[key]!.humanRest === true
       await expect(gate.hasAttribute("disabled")).toBe(!atGate)
       await expect(gate.getAttribute("aria-selected")).toBe(String(atGate))
-      await expect(canvas.queryByTitle("Gate page") !== null).toBe(atGate)
+      await expect(canvas.queryByTestId("gate-tab") !== null).toBe(atGate)
       await expect(canvas.queryByText("No human gate right now") !== null).toBe(!atGate)
     },
   }
@@ -405,7 +474,9 @@ const GateMoves = (args: React.ComponentProps<typeof Detail>) => {
   const worktree = { ...statusWorktrees.working!, humanRest }
   return (
     <>
-      <button onClick={() => setHumanRest((h) => !h)}>toggle</button>
+      <button style={{ minWidth: 44, minHeight: 44 }} onClick={() => setHumanRest((h) => !h)}>
+        toggle
+      </button>
       <Detail {...args} entry={{ project: shop, worktree }} />
     </>
   )
@@ -426,7 +497,7 @@ export const GateFollowsTheStatus: Story = {
     await expect(gate).toBeEnabled()
     await expect(gate.getAttribute("aria-selected")).toBe("false")
     await userEvent.click(gate)
-    await expect(canvas.getByTitle("Gate page")).toBeVisible()
+    await expect(canvas.getByTestId("gate-tab")).toBeVisible()
     await userEvent.click(canvas.getByRole("button", { name: "toggle" }))
     await expect(canvas.getByRole("tab", { name: "Actions" }).getAttribute("aria-selected")).toBe(
       "true",
@@ -434,5 +505,73 @@ export const GateFollowsTheStatus: Story = {
     await userEvent.click(canvas.getByRole("button", { name: "toggle" }))
     await expect(gate).toBeEnabled()
     await expect(gate.getAttribute("aria-selected")).toBe("false")
+  },
+}
+
+const retro = { retrospective: () => fullRun }
+
+const openRetrospective = async (canvasElement: HTMLElement) => {
+  const canvas = within(canvasElement)
+  await userEvent.click(canvas.getByRole("tab", { name: "Retrospective" }))
+  return canvas
+}
+
+const showsAllActors = async (canvas: ReturnType<typeof within>) => {
+  const tab = await canvas.findByTestId("retrospective-tab")
+  for (const label of ["Human", "Agent", "Judge", "Script"])
+    await expect(within(tab).getAllByText(label).length).toBeGreaterThan(0)
+  await expect(tab).toHaveTextContent("sent back")
+  await expect(tab).toHaveTextContent("Failed · exit 1")
+  await expect(tab).toHaveTextContent("Exit unknown")
+  await expect(tab).toHaveTextContent("Approved by Ada")
+  await expect(tab).toHaveTextContent("Worktree total $1.25")
+  await expect(canvas.getAllByTestId("retro-process")[1]!.hasAttribute("open")).toBe(false)
+  await expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth)
+}
+
+const scheme = async (value: "light" | "dark") => {
+  await (
+    await cdpSession()
+  )?.send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-color-scheme", value }],
+  })
+}
+
+/** A full run on a phone, in light and dark: every actor, no horizontal page scroll at 360 px. */
+export const RetrospectivePhoneLight: Story = {
+  decorators: withApi(retro),
+  play: async ({ canvasElement }) => {
+    await viewport(360, 800)
+    await scheme("light")
+    await showsAllActors(await openRetrospective(canvasElement))
+  },
+}
+
+export const RetrospectivePhoneDark: Story = {
+  decorators: withApi(retro),
+  play: async ({ canvasElement }) => {
+    await viewport(360, 800)
+    await scheme("dark")
+    await showsAllActors(await openRetrospective(canvasElement))
+    await scheme("light")
+  },
+}
+
+export const RetrospectiveDesktopLight: Story = {
+  decorators: withApi(retro),
+  play: async ({ canvasElement }) => {
+    await viewport(1280, 800)
+    await scheme("light")
+    await showsAllActors(await openRetrospective(canvasElement))
+  },
+}
+
+export const RetrospectiveDesktopDark: Story = {
+  decorators: withApi(retro),
+  play: async ({ canvasElement }) => {
+    await viewport(1280, 800)
+    await scheme("dark")
+    await showsAllActors(await openRetrospective(canvasElement))
+    await scheme("light")
   },
 }

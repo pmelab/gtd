@@ -397,9 +397,9 @@ export const Hunk = ({
   <div data-testid="hunk-screen" className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4">
     <HunkHeader node={node} index={index} total={total} />
     {node.detail !== undefined && node.detail.length > 0 && (
-      <div data-testid="hunk-description" className="max-w-prose text-sm text-muted-foreground">
+      <p data-testid="hunk-description" className="m-0 max-w-prose text-sm text-muted-foreground">
         <Inline inline={node.detailInline} fallback={node.detail} />
-      </div>
+      </p>
     )}
 
     <DiffBody diff={diff} />

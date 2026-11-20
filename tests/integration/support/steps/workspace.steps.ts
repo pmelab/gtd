@@ -158,6 +158,17 @@ Then("the Inbox lists:", async (world: GtdWorld, table: DataTable) => {
   const { items } = await bench(world).inbox()
   // Compares the columns the table has, such as `message`.
   const columns: readonly string[] = table.raw()[0] ?? []
+  const { root } = bench(world)
+  const expected = table
+    .hashes()
+    .map((row: Record<string, string>) =>
+      Object.fromEntries(
+        Object.entries(row as Record<string, string>).map(([k, v]) => [
+          k,
+          v.replaceAll("{root}", root),
+        ]),
+      ),
+    )
   assert.deepStrictEqual(
     items.map((item) =>
       Object.fromEntries(
@@ -167,7 +178,7 @@ Then("the Inbox lists:", async (world: GtdWorld, table: DataTable) => {
         ]),
       ),
     ),
-    table.hashes(),
+    expected,
   )
 })
 
@@ -230,6 +241,23 @@ Then("the Projects view links these gate pages:", async (world: GtdWorld, table:
     })),
   )
   assert.deepStrictEqual(rows, table.hashes())
+})
+
+Then(
+  "the Projects view shows gate kind {string} and base {string} for {string}",
+  async (world: GtdWorld, kind: string, base: string, ref: string) => {
+    const b = bench(world)
+    const path = await b.pathOf(ref)
+    const found = (await b.projects()).flatMap((p) => p.worktrees).find((w) => w.path === path)
+    assert.deepStrictEqual([found?.gateKind, found?.gateBase], [kind, base])
+  },
+)
+
+Then("the Projects view shows no gate kind for {string}", async (world: GtdWorld, ref: string) => {
+  const b = bench(world)
+  const path = await b.pathOf(ref)
+  const found = (await b.projects()).flatMap((p) => p.worktrees).find((w) => w.path === path)
+  assert.deepStrictEqual([found?.gateKind, found?.gateBase], [undefined, undefined])
 })
 
 Then("every listed gate page answers {int}", async (world: GtdWorld, status: number) => {
@@ -319,6 +347,10 @@ const split = (ref: string): [string, string] => ref.split("/") as [string, stri
 
 Given("the worktrees adapter has no watch", (world: GtdWorld) => {
   bench(world).watching = false
+})
+
+Given("the worktrees adapter has no unpushed", (world: GtdWorld) => {
+  bench(world).unpushedOffered = false
 })
 
 When("a commit lands on {string}", (world: GtdWorld, ref: string) => {

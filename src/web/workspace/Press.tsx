@@ -5,7 +5,7 @@ import { workspaceTrpc } from "./api.js"
 import { pressFor, type WorktreeView } from "./view.js"
 
 const PRESS = {
-  proceed: { label: "Proceed", Icon: Play, variant: "primary" },
+  proceed: { label: "Proceed", Icon: Play, variant: "warning" },
   retry: { label: "Retry", Icon: RotateCcw, variant: "secondary" },
 } as const
 
