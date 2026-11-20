@@ -583,7 +583,7 @@ that worktree at once.
 | --------------- | --------- | -------------------------------- |
 | `worktrees`     | worktrunk | `worktrunk({ roots })`           |
 | `terminal`      | rex       | `rex({ server, shell })`         |
-| `services`      | pitchfork | `pitchfork()`                    |
+| `services`      | pitchfork | `pitchfork({ publicPort })`      |
 | `actions`       | mise      | `mise()`                         |
 | `notifications` | ntfy      | `ntfy({ topic, server, token })` |
 
@@ -678,6 +678,12 @@ login shell (Rex's default when absent). It has `watch()`.
 
 `pitchfork()` uses the daemons of the worktree's own `pitchfork.toml`, and
 reports the URL of pitchfork's proxy as each daemon's URL.
+
+`pitchfork({ publicPort })` replaces the port of every service URL that has one
+with `publicPort`, for a proxy that is reachable on another port than pitchfork
+binds. The port drops when it is the scheme's default (`443` for `https`, `80`
+for `http`). `publicPort` must be an integer from 1 to 65535. It is unset by
+default, and URLs stay as pitchfork reports them.
 
 ### `actions`
 
