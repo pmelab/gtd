@@ -3,6 +3,8 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 import { Effect, type FileSystem } from "effect"
 import {
   currentRest,
+  MANIFEST_PATH,
+  dashboardManifest,
   dashboardPage,
   exposeHandler,
   gateHandler,
@@ -467,6 +469,11 @@ export const runWorkspaceCommand = (
         }
         const html = (body: string): Response =>
           new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } })
+        if (path === MANIFEST_PATH) {
+          return new Response(dashboardManifest(), {
+            headers: { "content-type": "application/manifest+json" },
+          })
+        }
         if (path !== "/") return gatePage(request, afterResponse, peer)
         return html(dashboardPage(TRPC))
       }

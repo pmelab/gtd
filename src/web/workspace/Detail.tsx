@@ -61,7 +61,7 @@ export const Detail = ({
     <section
       className={cn(
         "flex flex-col overflow-y-auto bg-background text-foreground",
-        embedded ? "min-h-0 min-w-0 flex-1" : "fixed inset-0 z-10",
+        embedded ? "min-h-0 min-w-0 flex-1" : "pt-safe pb-safe fixed inset-0 z-10",
       )}
       aria-label={`${project.name} / ${worktreeName(worktree)}`}
       data-testid="detail"

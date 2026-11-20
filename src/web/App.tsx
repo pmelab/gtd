@@ -18,7 +18,9 @@ const Reload = () => (
 )
 
 const StatePage = ({ children }: { readonly children: ReactNode }) => (
-  <main className="min-h-dvh bg-background px-4 py-8">{children}</main>
+  <main className="min-h-dvh bg-background px-4 pt-[calc(2rem+var(--safe-top,env(safe-area-inset-top)))] pb-[calc(2rem+var(--safe-bottom,env(safe-area-inset-bottom)))]">
+    {children}
+  </main>
 )
 
 const NOTICE = "mx-auto max-w-2xl"
@@ -96,7 +98,7 @@ export const App = () => {
   }
 
   return (
-    <div className="relative flex h-dvh flex-col bg-background">
+    <div className="pb-safe relative flex h-dvh flex-col bg-background">
       <Document
         filePath={step.file}
         context={{ repo: step.repo, branch: step.branch, label: step.label }}

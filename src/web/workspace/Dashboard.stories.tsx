@@ -430,10 +430,19 @@ export const InboxListsEveryItemState: Story = {
   },
 }
 
+const setInsets = (top: number, bottom: number): void => {
+  document.documentElement.style.setProperty("--safe-top", `${top}px`)
+  document.documentElement.style.setProperty("--safe-bottom", `${bottom}px`)
+}
+const clearInsets = (): void => {
+  document.documentElement.style.removeProperty("--safe-top")
+  document.documentElement.style.removeProperty("--safe-bottom")
+}
+
 /** On a phone the views sit in a bottom bar as wide as the screen, under a top bar naming the view. */
 export const PhoneHasATopBarAndBottomTabs: Story = {
   play: async ({ canvasElement }) => {
-    await viewport(390, 844)
+    await viewport(360, 800)
     const canvas = within(canvasElement)
     const nav = await phoneNav(canvas)
     await userEvent.click(within(nav).getByRole("button", { name: /^Now/ }))
@@ -445,10 +454,44 @@ export const PhoneHasATopBarAndBottomTabs: Story = {
       window.innerHeight,
     ])
     for (const tab of within(nav).getAllByRole("button")) {
-      await expect(tab.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
+      const { width, height } = tab.getBoundingClientRect()
+      await expect(width).toBeGreaterThanOrEqual(44)
+      await expect(height).toBeGreaterThanOrEqual(56)
     }
     await userEvent.click(canvas.getByRole("button", { name: "Projects" }))
     await expect(canvas.getByRole("heading", { level: 1 }).textContent).toBe("Projects")
+  },
+}
+
+/** Under a notch and a home indicator the tabs keep their height, the bar grows, the title clears the top and the last row clears the bar. */
+export const PhoneClearsTheInsets: Story = {
+  play: async ({ canvasElement }) => {
+    await viewport(360, 800)
+    setInsets(59, 34)
+    try {
+      const canvas = within(canvasElement)
+      const nav = await phoneNav(canvas)
+      for (const tab of within(nav).getAllByRole("button")) {
+        const { width, height } = tab.getBoundingClientRect()
+        await expect(width).toBeGreaterThanOrEqual(44)
+        await expect(height).toBeGreaterThanOrEqual(56)
+        await expect(nav.getBoundingClientRect().bottom - tab.getBoundingClientRect().bottom).toBe(
+          34,
+        )
+      }
+      const title = canvas.getByRole("heading", { level: 1 })
+      await expect(title.getBoundingClientRect().top).toBeGreaterThanOrEqual(59)
+      window.scrollTo(0, document.documentElement.scrollHeight)
+      const rows = canvasElement.querySelectorAll("main li, main section")
+      const last = rows[rows.length - 1]!
+      await waitFor(() =>
+        expect(last.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+          nav.getBoundingClientRect().top,
+        ),
+      )
+    } finally {
+      clearInsets()
+    }
   },
 }
 

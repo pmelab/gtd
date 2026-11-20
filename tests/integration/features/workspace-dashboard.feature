@@ -26,3 +26,13 @@ Feature: the dashboard
       | name     | content   |
       | gtd-page | workspace |
       | gtd-trpc | /trpc     |
+
+  Scenario: the dashboard is a home-screen app
+    When I start gtd workspace
+    Then the dashboard page has these home-screen meta tags:
+      | name                                   | content |
+      | apple-mobile-web-app-capable           | yes     |
+      | apple-mobile-web-app-status-bar-style  | default |
+    And the dashboard page links the manifest "/manifest.webmanifest"
+    And the dashboard viewport has "viewport-fit=cover" and "interactive-widget=resizes-content"
+    And the dashboard manifest is a standalone app named "gtd" with theme_color, background_color and 2 icons
