@@ -279,10 +279,18 @@ const MovingRest = (args: React.ComponentProps<typeof Detail>) => {
   const [worktree, setWorktree] = useState(plan.worktree)
   return (
     <>
-      <button onClick={() => setWorktree((w) => ({ ...w, label: "Answer the plan again" }))}>
+      <button
+        style={{ minWidth: 44, minHeight: 44 }}
+        onClick={() => setWorktree((w) => ({ ...w, label: "Answer the plan again" }))}
+      >
         relabel
       </button>
-      <button onClick={() => setWorktree((w) => ({ ...w, head: "c0ffee" }))}>commit</button>
+      <button
+        style={{ minWidth: 44, minHeight: 44 }}
+        onClick={() => setWorktree((w) => ({ ...w, head: "c0ffee" }))}
+      >
+        commit
+      </button>
       <Detail {...args} entry={{ ...plan, worktree }} />
     </>
   )

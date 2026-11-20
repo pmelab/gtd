@@ -199,7 +199,7 @@ export default defineConfig({
         dependsOn: ["build"],
         cache: flagged,
       },
-      "test:web": { command: "vitest run --project storybook", cache: flagged },
+      "test:web": { command: "vitest run --project storybook --project layout", cache: flagged },
       // The task sets scripts/test-states.ts plans: `vp run` takes one task name.
       gate: { command: "true", cache: false, dependsOn: [...TASKS] },
       "gate:tests": { command: "true", cache: false, dependsOn: [...VITEST_TASKS] },

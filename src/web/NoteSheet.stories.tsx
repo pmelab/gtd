@@ -133,7 +133,12 @@ const BusyTogglesHarness = (props: {
   return (
     <>
       <NoteSheet {...props} busy={busy} />
-      <button type="button" data-testid="clear-busy" onClick={() => setBusy(false)}>
+      <button
+        type="button"
+        style={{ minWidth: 44, minHeight: 44 }}
+        data-testid="clear-busy"
+        onClick={() => setBusy(false)}
+      >
         Clear busy
       </button>
     </>
@@ -178,7 +183,12 @@ const DismissDiscardsHarness = (args: {
   const [open, setOpen] = useState(true)
   if (!open) {
     return (
-      <button type="button" data-testid="reopen" onClick={() => setOpen(true)}>
+      <button
+        type="button"
+        style={{ minWidth: 44, minHeight: 44 }}
+        data-testid="reopen"
+        onClick={() => setOpen(true)}
+      >
         reopen
       </button>
     )
@@ -299,7 +309,12 @@ const UnmountDiscardsHarness = (args: {
   if (!mounted) return <div data-testid="unmounted" />
   return (
     <>
-      <button type="button" data-testid="unmount" onClick={() => setMounted(false)}>
+      <button
+        type="button"
+        style={{ minWidth: 44, minHeight: 44 }}
+        data-testid="unmount"
+        onClick={() => setMounted(false)}
+      >
         unmount
       </button>
       <NoteSheet anchor={args.anchor} onSave={args.onSave} onDismiss={() => {}} />
