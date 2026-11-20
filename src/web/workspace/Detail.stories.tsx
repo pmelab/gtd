@@ -1,11 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
-import { viewport } from "../testing/browserContext.js"
+import { cdpSession, viewport } from "../testing/browserContext.js"
 import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { token } from "../testing/palette.js"
 import { fullWorkspace, statusWorktrees, workspace } from "./dashboard.fixture.js"
 import { Detail } from "./Detail.js"
+import { fullRun } from "./retrospective.fixture.js"
 import type { Entry } from "./view.js"
 
 const portal = workspace[1]!
@@ -192,7 +193,7 @@ export const OpenInTab: Story = {
   },
 }
 
-/** The detail offers Gate and Actions, in that order, and no Terminal. */
+/** The detail offers Gate, Actions and Retrospective, in that order, and no Terminal. */
 export const OffersGateThenActions: Story = {
   play: async ({ canvasElement }) => {
     const tabs = within(canvasElement).getByRole("tablist", {
@@ -202,7 +203,7 @@ export const OffersGateThenActions: Story = {
       within(tabs)
         .getAllByRole("tab")
         .map((b) => b.textContent),
-    ).toEqual(["Gate", "Actions"])
+    ).toEqual(["Gate", "Actions", "Retrospective"])
   },
 }
 
@@ -457,3 +458,71 @@ export const DetailErrorNote: Story = detailOf(
   "Note failed",
   "gh: not logged in",
 )
+
+const retro = { retrospective: () => fullRun }
+
+const openRetrospective = async (canvasElement: HTMLElement) => {
+  const canvas = within(canvasElement)
+  await userEvent.click(canvas.getByRole("tab", { name: "Retrospective" }))
+  return canvas
+}
+
+const showsAllActors = async (canvas: ReturnType<typeof within>) => {
+  const tab = await canvas.findByTestId("retrospective-tab")
+  for (const label of ["Human", "Agent", "Judge", "Script"])
+    await expect(within(tab).getAllByText(label).length).toBeGreaterThan(0)
+  await expect(tab).toHaveTextContent("sent back")
+  await expect(tab).toHaveTextContent("Failed · exit 1")
+  await expect(tab).toHaveTextContent("Exit unknown")
+  await expect(tab).toHaveTextContent("Approved by Ada")
+  await expect(tab).toHaveTextContent("Worktree total $1.25")
+  await expect(canvas.getAllByTestId("retro-process")[1]!.hasAttribute("open")).toBe(false)
+  await expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(window.innerWidth)
+}
+
+const scheme = async (value: "light" | "dark") => {
+  await (
+    await cdpSession()
+  )?.send("Emulation.setEmulatedMedia", {
+    features: [{ name: "prefers-color-scheme", value }],
+  })
+}
+
+/** A full run on a phone, in light and dark: every actor, no horizontal page scroll at 360 px. */
+export const RetrospectivePhoneLight: Story = {
+  decorators: withApi(retro),
+  play: async ({ canvasElement }) => {
+    await viewport(360, 800)
+    await scheme("light")
+    await showsAllActors(await openRetrospective(canvasElement))
+  },
+}
+
+export const RetrospectivePhoneDark: Story = {
+  decorators: withApi(retro),
+  play: async ({ canvasElement }) => {
+    await viewport(360, 800)
+    await scheme("dark")
+    await showsAllActors(await openRetrospective(canvasElement))
+    await scheme("light")
+  },
+}
+
+export const RetrospectiveDesktopLight: Story = {
+  decorators: withApi(retro),
+  play: async ({ canvasElement }) => {
+    await viewport(1280, 800)
+    await scheme("light")
+    await showsAllActors(await openRetrospective(canvasElement))
+  },
+}
+
+export const RetrospectiveDesktopDark: Story = {
+  decorators: withApi(retro),
+  play: async ({ canvasElement }) => {
+    await viewport(1280, 800)
+    await scheme("dark")
+    await showsAllActors(await openRetrospective(canvasElement))
+    await scheme("light")
+  },
+}

@@ -63,8 +63,8 @@ is in error; the collapsed header counts those worktrees. A reload resets this.
 
 A tap on a worktree opens its detail as a screen of its own, at `?worktree=` its
 path (the link a notification carries). Close returns to the view it was opened
-from, or to Now when it was opened from a link. The detail has two tabs, at the
-bottom:
+from, or to Now when it was opened from a link. The detail has three tabs, at
+the bottom:
 
 - **Gate**, first: the worktree's [gate page](#gate-pages), shown without its
   own header and scrolling with the detail. The detail header, on both tabs,
@@ -72,6 +72,10 @@ bottom:
   page in a tab of its own.
 - **Actions**: the actions offered in the worktree status now, with their fields
   (see [`actions`](#actions)). Run starts the chosen one in a pane of its own.
+- **Retrospective**: every process on the worktree's branch, newest first, read
+  from git: each step's actor, states, time and gap, what each agent turn cost,
+  judge verdicts, check exit codes and what a person ticked or wrote. Free-text
+  edits outside the steering widgets are not shown.
 
 ## `gtd.workspace.ts`
 

@@ -18,6 +18,7 @@ import {
   switchTo,
   deleteBranch,
   pushRef,
+  recordExitScript,
   shipCommit,
   shellQuote,
   softResetTo,
@@ -88,7 +89,11 @@ type BlockOutcome =
   | { readonly kind: "noop"; readonly output?: string }
   | { readonly kind: "applied" }
   /** `error` is what the block printed on its way out; `status` defaults to 1. */
-  | { readonly kind: "failed"; readonly error: string; readonly status?: number }
+  | {
+      readonly kind: "failed"
+      readonly error: string
+      readonly status?: number
+    }
   /**
    * `fileExistsGuard` tripping on an absent file. The one shape that succeeds
    * EARLY, skipping every remaining block — every other guard here either
@@ -148,7 +153,11 @@ const recognizeKeepTurn = (repo: InMemRepo, block: string): BlockOutcome | undef
     return undefined
   }
   if (refNameFault(ref) !== undefined) {
-    return { kind: "failed", error: `fatal: invalid ref format: ${ref}`, status: 128 }
+    return {
+      kind: "failed",
+      error: `fatal: invalid ref format: ${ref}`,
+      status: 128,
+    }
   }
   const failure = repo.keepTurn(ref, message)
   return failure === undefined ? { kind: "applied" } : { kind: "failed", error: failure, status: 1 }
@@ -191,6 +200,15 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
       return undefined
     }
     const failure = repo.commitPath(path, message)
+    return failure === undefined
+      ? { kind: "applied" }
+      : { kind: "failed", error: failure, status: 1 }
+  }
+
+  if (block.startsWith("git add -A || exit 1\ngtd_message=")) {
+    const [message] = extractQuotedTokens(block)
+    if (message === undefined || commitAll(message, true) !== block) return undefined
+    const failure = repo.commitAllWithPrefix(repo.withExit(message))
     return failure === undefined
       ? { kind: "applied" }
       : { kind: "failed", error: failure, status: 1 }
@@ -364,7 +382,10 @@ const recognizeOutcome = (repo: InMemRepo, block: string): BlockOutcome | undefi
   if (!block.startsWith(`${OUTCOME_MARKER}\nprintf `)) return undefined
   const line = block.slice(OUTCOME_MARKER.length + 1)
   const [format, ...args] = shellWords(repo, line.slice("printf ".length))
-  return { kind: "noop", output: renderFormat(format!.replace(/\\n/g, "\n"), ...args) }
+  return {
+    kind: "noop",
+    output: renderFormat(format!.replace(/\\n/g, "\n"), ...args),
+  }
 }
 
 /** The word list of `printf`'s arguments: quoted literals, and the `"$(git …)"` lookups outcome lines carry. */
@@ -446,7 +467,11 @@ const recognizeFailurePromptWrapper = (
   if (innerOutcome.kind === "failed") {
     // `"$( … )"` strips the captured output's trailing newlines.
     const captured = innerOutcome.error.replace(/\n+$/, "")
-    return { kind: "failed", error: `${prompt}\n\n${captured}`, status: innerOutcome.status ?? 1 }
+    return {
+      kind: "failed",
+      error: `${prompt}\n\n${captured}`,
+      status: innerOutcome.status ?? 1,
+    }
   }
   return innerOutcome
 }
@@ -499,7 +524,10 @@ const recognizePresentationSubshell = (
   if (!git && result.error?.startsWith(UNRECOGNIZED_PREFIX)) {
     return { kind: "failed", error: `${result.output}${result.error}` }
   }
-  return { kind: "noop", output: `${result.output}${PRESENTATION_FAILURE_TEXT}` }
+  return {
+    kind: "noop",
+    output: `${result.output}${PRESENTATION_FAILURE_TEXT}`,
+  }
 }
 
 /** Anything left over must be an EXACT hit in the scripted-command table — mirrors `ScriptedCommand`'s two `kind`s (`Layers.ts`). */
@@ -515,7 +543,11 @@ const recognizeScriptedCommand = (
     return { kind: "applied" }
   }
   if (scripted.kind === "missing") {
-    return { kind: "failed", error: `sh: ${block.split(" ")[0]}: not found`, status: 127 }
+    return {
+      kind: "failed",
+      error: `sh: ${block.split(" ")[0]}: not found`,
+      status: 127,
+    }
   }
   scripted.effect?.()
   if (scripted.status !== 0) {
@@ -644,6 +676,14 @@ export const applyEmittedScript = (
   script: string,
   { git = true }: { readonly git?: boolean } = {},
 ): AppliedScriptResult => {
+  // The exit-recording prefix of a run body is no part of what the twin runs.
+  const recording = recordExitScript("")
+  if (script.startsWith(recording)) {
+    repo.runExit = undefined
+    const result = applyEmittedScript(repo, commands, script.slice(recording.length), { git })
+    repo.runExit = result.status
+    return result
+  }
   const flow = applyFlowScript(repo, commands, script)
   if (flow !== undefined) {
     return flow.ok
