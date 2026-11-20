@@ -27,6 +27,8 @@ export interface InMemoryTerminal {
   readonly adapter: TerminalAdapter
   /** Every pane ever opened, closed ones included, oldest first. */
   readonly panes: () => readonly InMemoryPane[]
+  /** The handles `focus` was called with, oldest first. */
+  readonly focused: () => readonly string[]
   /** The program in the pane reports a root OSC 7501 record. */
   readonly report: (handle: string, record: StatusRecord) => void
   /** The pane's command exits; the terminal drops a `working` or `blocked` record then. */
@@ -46,6 +48,7 @@ export interface InMemoryTerminalOptions {
 export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemoryTerminal => {
   const panes = new Map<string, InMemoryPane>()
   const closed = new Set<string>()
+  const focused: string[] = []
   let opened = 0
 
   const streams = new Set<{ handles: string[]; ended: boolean; wake: () => void }>()
@@ -117,6 +120,10 @@ export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemor
       closed.add(handle)
       hint(handle)
     },
+    focus: async (handle) => {
+      paneOf(handle)
+      focused.push(handle)
+    },
     // Hand-written so that `return()` ends a stream whose `next()` still waits.
     watch: () => ({
       [Symbol.asyncIterator]: () => {
@@ -144,6 +151,7 @@ export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemor
   return {
     adapter,
     panes: () => [...panes.values()],
+    focused: () => focused,
     report,
     exit,
     lose: (handle) => {

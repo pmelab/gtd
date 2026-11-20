@@ -11,13 +11,15 @@ import {
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { terminalContract, type TerminalHarness } from "../workspace-testkit/index.js"
 import { changedPane, rex } from "./rex.js"
 
 const which = (command: string): string | undefined => {
   try {
-    return execFileSync("sh", ["-c", `command -v ${command}`], { encoding: "utf8" }).trim()
+    return execFileSync("sh", ["-c", `command -v ${command}`], {
+      encoding: "utf8",
+    }).trim()
   } catch {
     return undefined
   }
@@ -57,7 +59,9 @@ let address = ""
 let sessions = 0
 
 const rexCli = (...args: string[]): string =>
-  execFileSync(REX!, ["-S", address, "--autostart=false", ...args], { encoding: "utf8" })
+  execFileSync(REX!, ["-S", address, "--autostart=false", ...args], {
+    encoding: "utf8",
+  })
 
 const harness: TerminalHarness = {
   setup: async () => {
@@ -73,7 +77,11 @@ const harness: TerminalHarness = {
       login: { name: "GTD_CONTRACT_LOGIN", value: "from the startup files" },
       probe: (spec) => {
         const out = join(worktree, `probe-${++probes}.json`)
-        const config = JSON.stringify({ out, end: spec.end, report: spec.report })
+        const config = JSON.stringify({
+          out,
+          end: spec.end,
+          report: spec.report,
+        })
         return {
           argv: [process.execPath, probeFile, config, ...(spec.args ?? [])],
           sight: async () =>
@@ -121,7 +129,12 @@ describe.skipIf(REX === undefined || BASH === undefined)(
           join(workspace, "state"),
         ],
         {
-          env: { PATH: process.env["PATH"], HOME: home, SHELL: BASH, XDG_RUNTIME_DIR: workspace },
+          env: {
+            PATH: process.env["PATH"],
+            HOME: home,
+            SHELL: BASH,
+            XDG_RUNTIME_DIR: workspace,
+          },
           stdio: "ignore",
         },
       )
@@ -215,7 +228,10 @@ describe("changedPane", () => {
       type: "session_event",
       payload: {
         session_id: "session:1",
-        event: { type: "block_event", payload: { block_id: "block:1", name, payload: {} } },
+        event: {
+          type: "block_event",
+          payload: { block_id: "block:1", name, payload: {} },
+        },
       },
     })
 
@@ -230,7 +246,9 @@ describe("changedPane", () => {
   it("names a closed block", () => {
     const line = JSON.stringify({
       type: "session_event",
-      payload: { event: { type: "block_closed", payload: { block_id: "block:2" } } },
+      payload: {
+        event: { type: "block_closed", payload: { block_id: "block:2" } },
+      },
     })
     expect(changedPane(line)).toBe("block:2")
   })
@@ -239,5 +257,33 @@ describe("changedPane", () => {
     expect(changedPane(blockEvent("pwd_changed"))).toBeUndefined()
     expect(changedPane(JSON.stringify({ type: "client_joined", payload: {} }))).toBeUndefined()
     expect(changedPane("Error: no Rex server")).toBeUndefined()
+  })
+})
+
+describe("focus", () => {
+  const made: string[] = []
+  afterEach(() => {
+    for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+  const fakeRex = (script: string): { bin: string; log: string; dir: string } => {
+    const dir = mkdtempSync(join(tmpdir(), "gtd-rex-fake-"))
+    const bin = join(dir, "rex")
+    const log = join(dir, "args")
+    writeFileSync(bin, `#!/bin/sh\nprintf '%s\\n' "$*" > ${log}\n${script}\n`, {
+      mode: 0o755,
+    })
+    made.push(dir)
+    return { bin, log, dir }
+  }
+
+  it("passes the server and --autostart=false, so a down server is never started", async () => {
+    const fake = fakeRex("exit 0")
+    await rex({ bin: fake.bin, server: "unix:///s" }).focus!("blk-1")
+    expect(readFileSync(fake.log, "utf8").trim()).toBe("-S unix:///s --autostart=false focus blk-1")
+  })
+
+  it("fails with rex's message", async () => {
+    const fake = fakeRex("echo 'no such block' >&2; exit 1")
+    await expect(rex({ bin: fake.bin }).focus!("blk-1")).rejects.toThrow("rex: no such block")
   })
 })

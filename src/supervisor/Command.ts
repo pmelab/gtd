@@ -45,6 +45,7 @@ import {
   socketPath,
   type ControlReply,
   type ControlRequest,
+  type SharedProject,
 } from "./Socket.js"
 import { worktreeChanges } from "./WorktreeChanges.js"
 import { openedPanes } from "./Panes.js"
@@ -68,6 +69,8 @@ interface ControlDeps {
   readonly notify: Notifier
   readonly projects: () => readonly ProjectView[]
   readonly noteChanged: () => void
+  /** What the dashboard shows, each worktree with its driver pane. */
+  readonly shared: () => readonly SharedProject[]
   readonly pauses: Pauses
   readonly dispatch: Dispatcher
   readonly after: (ms: number, run: () => void) => () => void
@@ -112,6 +115,7 @@ const controlHandler =
   (deps: ControlDeps) =>
   (endpoint: string) =>
   async (request: ControlRequest): Promise<ControlReply> => {
+    if (request.command === "projects") return { ok: true, projects: deps.shared() }
     if (request.command === "note") return noteRequest(deps, request, endpoint)
     if (isPause(request)) return pauseRequest(deps, request, endpoint)
     const { control } = deps
@@ -364,6 +368,14 @@ export const runWorkspaceCommand = (
         notify,
         projects: snapshot.projects,
         noteChanged: () => reactions.worktrees(noted.withNotes(snapshot.projects())),
+        shared: () =>
+          projects().map((project) => ({
+            ...project,
+            worktrees: project.worktrees.map((worktree) => {
+              const pane = driverRuns.pane(worktree.path)
+              return pane === undefined ? worktree : { ...worktree, pane }
+            }),
+          })),
         pauses: paused,
         dispatch,
         after: host.after,

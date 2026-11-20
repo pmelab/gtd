@@ -60,6 +60,13 @@ export interface WorkspaceControlRequest {
   readonly stateHome: string
 }
 
+interface WorkspaceNowRequest {
+  readonly config?: string
+  readonly cwd: string
+  readonly stateHome: string
+  readonly loadModule: (path: string) => Promise<Readonly<Record<string, unknown>>>
+}
+
 interface JudgeRequest {
   readonly provider: "fixed" | "jev" | "llm" | undefined
   readonly answers?: string | undefined
@@ -85,6 +92,8 @@ export class ToolCommands extends Context.Service<
       out: { readonly write: (chunk: string) => void; readonly flush: () => void },
     ) => Effect.Effect<void, Error>
     readonly workspaceControl: (request: WorkspaceControlRequest) => Effect.Effect<void, Error>
+    /** `gtd workspace now`: the Now view in the terminal. */
+    readonly workspaceNow: (request: WorkspaceNowRequest) => Effect.Effect<void, Error>
     /** `gtd` runs THIS gtd, so the LSP never reads a different version's state than the one it ships with. */
     readonly lsp: (gtd: HostOps["self"]) => Effect.Effect<void, Error>
     readonly judge: (request: JudgeRequest) => Promise<string>
