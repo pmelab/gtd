@@ -32,6 +32,7 @@ const gitWriteOf = (landing: Extract<Landing, { kind: "commit" }>, message: stri
   if (landing.only !== undefined) return { kind: "commitPath", path: landing.only, message }
   if (landing.keepTurn !== undefined) return { kind: "keepTurn", ref: landing.keepTurn, message }
   if (landing.spec.approved !== undefined) return { kind: "commitClean", message }
+  if (landing.spec.actor === "check") return { kind: "commitAll", message, exit: true }
   return { kind: "commitAll", message }
 }
 
@@ -64,7 +65,14 @@ export const planStep = (
       subject: landing.subject,
       steps: [
         ...formatStep(snapshot),
-        { kind: "gitWrite", write: { kind: "commitAll", message } },
+        {
+          kind: "gitWrite",
+          write: {
+            kind: "commitAll",
+            message,
+            ...(snapshot.actor === "check" ? { exit: true as const } : {}),
+          },
+        },
         { kind: "outcome", outcome: { kind: "commit", subject: landing.subject } },
       ],
     }

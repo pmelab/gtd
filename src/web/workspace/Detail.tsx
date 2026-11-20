@@ -6,13 +6,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs.js"
 import { ActionPicker } from "./ActionPicker.js"
 import { NoteLine } from "./NoteLine.js"
 import { EntryTitle } from "./Now.js"
+import { Retrospective } from "./Retrospective.js"
 import { PressButton, Refused } from "./Press.js"
 import { ServiceChips } from "./ServiceChips.js"
 import { StatusBadge } from "./Status.js"
 import { RemoveButton } from "./WorktreeChanges.js"
 import { reasonText, worktreeName, type Entry } from "./view.js"
 
-type Tab = "gate" | "actions"
+type Tab = "gate" | "actions" | "retrospective"
 
 /** The worktree's gate page, embedded from the URL the API names, with a way out to a full tab. */
 const Gate = ({ gate, head }: { readonly gate: string; readonly head: string }) => (
@@ -108,6 +109,9 @@ export const Detail = ({
           <TabsTrigger value="actions" className="lg:px-4">
             Actions
           </TabsTrigger>
+          <TabsTrigger value="retrospective" className="lg:px-4">
+            Retrospective
+          </TabsTrigger>
         </TabsList>
         <TabsContent value="gate" className="flex flex-col">
           <Gate gate={worktree.gate} head={worktree.head} />
@@ -115,6 +119,9 @@ export const Detail = ({
         <TabsContent value="actions" className="flex max-w-2xl flex-col gap-4">
           <ActionPicker project={project.id} worktree={worktree} />
           <RemoveButton project={project.id} worktree={worktree} onRemoved={onClose} />
+        </TabsContent>
+        <TabsContent value="retrospective" className="flex max-w-3xl min-w-0 flex-col gap-4">
+          <Retrospective project={project.id} worktree={worktree} />
         </TabsContent>
       </Tabs>
     </section>

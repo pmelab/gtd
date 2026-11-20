@@ -607,7 +607,7 @@ export class InMemRepo {
     })
     this.refs.set(shippedRef(hash), tip)
     this.branches.set(branch, hash)
-    return this.commitAsIs(`${message}\nGtd-Shipped: ${hash}`)
+    return this.commitAsIs(`${this.withExit(message, 0)}\nGtd-Shipped: ${hash}`)
   }
 
   /** Discard every pending change, tracked or untracked: stage everything, then hard-reset (which drops the freshly-staged untracked paths too). */
@@ -628,6 +628,16 @@ export class InMemRepo {
     this.index = staged
     this.stage(path)
     return failure
+  }
+
+  /** The last run body's exit status, as the real exit file holds it until a landing reads it. */
+  runExit: number | undefined
+
+  /** `message` plus the pending `Gtd-Exit` trailer; reading it clears it. */
+  withExit(message: string, fallback?: number): string {
+    const status = this.runExit ?? fallback
+    this.runExit = undefined
+    return status === undefined ? message : `${message}\nGtd-Exit: ${status}`
   }
 
   commitAllWithPrefix(prefix: string): string | undefined {

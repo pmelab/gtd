@@ -1,3 +1,4 @@
+import { execFile } from "node:child_process"
 import { basename, dirname } from "node:path"
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 import { Effect, type FileSystem } from "effect"
@@ -145,6 +146,14 @@ const asUiError = (error: unknown): UiError =>
  * `gtd workspace`: the one supervisor of a workspace. It serves the Projects
  * view until a signal ends it, then closes the server and frees the lock.
  */
+const gitIn = (cwd: string, args: readonly string[]): Promise<string> =>
+  new Promise((resolve, reject) => {
+    execFile("git", [...args], { cwd, maxBuffer: 256 * 1024 * 1024 }, (error, stdout) => {
+      if (error === null) resolve(stdout)
+      else reject(error)
+    })
+  })
+
 export const runWorkspaceCommand = (
   command: WorkspaceCommand,
   out: UiOut,
@@ -461,6 +470,7 @@ export const runWorkspaceCommand = (
               dispatch,
               pauses: paused,
               worktreeChanges: changes,
+              git: gitIn,
               caller: { identity: identity ?? "-", endpoint: path },
             }),
           })
