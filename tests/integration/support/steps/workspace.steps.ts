@@ -144,6 +144,17 @@ Then("the Inbox lists:", async (world: GtdWorld, table: DataTable) => {
   const { items } = await bench(world).inbox()
   // Compares the columns the table has, such as `message`.
   const columns: readonly string[] = table.raw()[0] ?? []
+  const { root } = bench(world)
+  const expected = table
+    .hashes()
+    .map((row: Record<string, string>) =>
+      Object.fromEntries(
+        Object.entries(row as Record<string, string>).map(([k, v]) => [
+          k,
+          v.replaceAll("{root}", root),
+        ]),
+      ),
+    )
   assert.deepStrictEqual(
     items.map((item) =>
       Object.fromEntries(
@@ -153,7 +164,7 @@ Then("the Inbox lists:", async (world: GtdWorld, table: DataTable) => {
         ]),
       ),
     ),
-    table.hashes(),
+    expected,
   )
 })
 
@@ -305,6 +316,10 @@ const split = (ref: string): [string, string] => ref.split("/") as [string, stri
 
 Given("the worktrees adapter has no watch", (world: GtdWorld) => {
   bench(world).watching = false
+})
+
+Given("the worktrees adapter has no unpushed", (world: GtdWorld) => {
+  bench(world).unpushedOffered = false
 })
 
 When("a commit lands on {string}", (world: GtdWorld, ref: string) => {

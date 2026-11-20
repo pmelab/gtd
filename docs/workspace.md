@@ -351,6 +351,15 @@ To dispatch an item, gtd:
    when it is free: its process has ended, no driver runs in it, its tree is
    clean and no other item is starting in it. Otherwise the item waits, queued,
    with the reason. When no worktree is on the branch, gtd creates one.
+   **Retry** looks first for the worktree the failed dispatch used, on whatever
+   branch it is on now, because a start action can move it. When that worktree
+   is free and has no commits outside the remotes, gtd runs the start action
+   there and creates nothing. When it is not free, or the item's branch has
+   commits outside the remotes, Retry changes nothing: the item stays failed,
+   and its message gives the reason and the worktree (or the branch). When the
+   worktree is gone but the branch exists with no such commits, Retry creates a
+   worktree on that branch. A worktrees adapter without `switch` and `unpushed`
+   keeps the first behaviour: Retry looks only at the item's branch.
 2. starts the worktree's services,
 3. runs the item's start action in a pane of its own, with `GTD_WORKSPACE_ITEM`:
    the item as JSON (`key`, `title`, `url`, `action`, `priority`, `blockedBy`,
@@ -621,6 +630,11 @@ has it.
 - **`create(project, branch, base)`** (optional): a new worktree on the new
   branch `branch`, made from `base` (default: the default branch). Returns the
   worktree's path. Without it, New worktree is refused.
+- **`switch(project, branch)`** (optional): a new worktree on the existing
+  branch. Returns its path. Retry uses it on a leftover branch.
+- **`unpushed(project, branch)`** (optional): whether the branch has commits on
+  no remote; `undefined` for no such branch. Retry uses it to refuse a leftover
+  that holds work.
 - **`remove(project, worktree, { force })`** (optional): removes the worktree at
   the path `worktree` and deletes its branch, and returns when the removal is
   complete. Without `force` it fails on a dirty tree and keeps a branch that is

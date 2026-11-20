@@ -132,6 +132,8 @@ export class WorkspaceBench {
   readonly clock = inMemoryClock()
   /** Whether the default worktrees adapter offers a watch. */
   watching = true
+  /** Whether the default worktrees adapter offers `unpushed`. */
+  unpushedOffered = true
   readonly services = inMemoryServices()
   readonly notifications = inMemoryNotifications()
   /** The changing calls the supervisor made to the worktrees, services and terminal adapters, in order. */
@@ -258,6 +260,11 @@ export class WorkspaceBench {
       create: async (project, branch, base) => {
         const path = await adapter.create!(project, branch, base)
         this.calls.push({ call: "worktrees.create", worktree: `${project}/${branch}` })
+        return path
+      },
+      switch: async (project, branch) => {
+        const path = await adapter.switch!(project, branch)
+        this.calls.push({ call: "worktrees.switch", worktree: `${project}/${branch}` })
         return path
       },
       remove: async (project, path, options) => {
@@ -392,8 +399,12 @@ export class WorkspaceBench {
     const host = Layer.succeed(SupervisorHost, {
       next: (path) => this.runNext(path),
       defaultWorktrees: () => {
-        const { watch, ...adapter } = this.loggedWorktrees()
-        return this.watching ? { ...adapter, watch: watch! } : adapter
+        const { watch, unpushed, ...adapter } = this.loggedWorktrees()
+        return {
+          ...adapter,
+          ...(this.watching ? { watch: watch! } : {}),
+          ...(this.unpushedOffered ? { unpushed: unpushed! } : {}),
+        }
       },
       defaultTerminal: () => this.loggedTerminal(),
       defaultServices: () => this.loggedServices(),

@@ -88,6 +88,16 @@ export interface WorktreesAdapter {
    */
   readonly create?: (project: string, branch: string, base?: string) => Promise<string>
   /**
+   * A new worktree on the existing branch `branch`. Returns the worktree's
+   * path. Without it, Retry creates no worktree on a leftover branch.
+   */
+  readonly switch?: (project: string, branch: string) => Promise<string>
+  /**
+   * Whether `branch` has commits that are on no remote; `undefined` when there
+   * is no such branch. Without it, Retry reuses no leftover.
+   */
+  readonly unpushed?: (project: string, branch: string) => Promise<boolean | undefined>
+  /**
    * Removes the worktree at `worktree` (its path) and deletes its branch, and
    * returns when the removal is complete. Without `force`, it fails on a
    * dirty tree and keeps a branch that is not merged. Without it, the
