@@ -550,7 +550,7 @@ Prints a sorted JSON array ([] when clean) and a summary on stderr; --verbose ad
     arity: "none",
     group: "Inspect",
     summary: "Serve the web and phone client",
-    details: `Serve gtd's web and phone client for this worktree. By default it publishes through \`tailscale serve\`, reachable from anywhere on the tailnet, on the first of ports 8443, 10000 and 443 that works; when none does it serves HTTPS locally instead of refusing. Done saves the steering file and keeps serving; the server exits when the worktree moves on to another step, or on a signal.`,
+    details: `Serve gtd's web and phone client for this worktree. By default it publishes through \`tailscale serve\`, reachable from anywhere on the tailnet, on the first of ports 8443, 10000 and 443 that works; when none does it serves HTTPS locally instead of refusing. Proceed is disabled here: it needs a driver, which \`gtd workspace\` gives its gate pages. The server exits when the worktree moves on to another step, or on a signal.`,
   },
   {
     token: "workspace",

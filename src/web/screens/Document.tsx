@@ -29,7 +29,7 @@ import { cn } from "../cn.js"
 import { Notice } from "../Notice.js"
 import { NoteSheet } from "../NoteSheet.js"
 import { messageForReadRefusal, SaveIndicator, useSaveIndicatorProps } from "../Refusal.js"
-import { readRefusalFrom, trpc } from "../api.js"
+import { proceedRefusalFrom, readRefusalFrom, trpc } from "../api.js"
 import type { CasTokens } from "../staleRetry.js"
 import { Badge } from "../ui/badge.js"
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card.js"
@@ -683,7 +683,12 @@ export interface DocumentViewProps {
   readonly readError?: unknown
   readonly onSet?: (anchor: SteeringAnchor, value: BoxValue) => TokenGuardedWrite
   readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => TokenGuardedWrite
-  readonly onDone?: () => Promise<unknown>
+  /** Present on a page that may press Proceed; absent on an idle worktree's page. */
+  readonly onProceed?: () => Promise<unknown>
+  /** Why Proceed is disabled, when it is. */
+  readonly proceedBlocked?: string | undefined
+  /** The last refusal's reason. */
+  readonly proceedError?: string | undefined
   readonly busy?: boolean | undefined
 }
 
@@ -705,7 +710,9 @@ export const DocumentView = ({
   readError,
   onSet,
   onSaveNote,
-  onDone,
+  onProceed,
+  proceedBlocked,
+  proceedError,
   busy,
 }: DocumentViewProps) => {
   const [noteAnchor, setNoteAnchor] = useState<SteeringAnchor | undefined>(undefined)
@@ -803,12 +810,12 @@ export const DocumentView = ({
     }).catch(() => {})
   }
 
-  const runDone = (): void => {
-    if (onDone === undefined) return
+  const runProceed = (): void => {
+    if (onProceed === undefined) return
     save({
-      cell: cellKey(filePath, undefined, "done"),
+      cell: cellKey(filePath, undefined, "proceed"),
       optimistic: true,
-      mutate: onDone,
+      mutate: onProceed,
     }).catch(() => {})
   }
 
@@ -870,24 +877,29 @@ export const DocumentView = ({
             </HunkOpenContext.Provider>
           </div>
         </div>
-        {onDone !== undefined && (
+        {onProceed !== undefined && (
           <div
-            data-testid="plan-done-row"
+            data-testid="plan-proceed-row"
             className={cn(
               "shrink-0 border-t border-border",
               inline ? "sticky bottom-0 z-10 bg-background" : "bg-card",
             )}
           >
-            <div className={cn(inline ? "w-full" : COLUMN, "flex items-center justify-end py-3")}>
+            <div className={cn(inline ? "w-full" : COLUMN, "flex flex-col items-end gap-2 py-3")}>
+              {(proceedBlocked ?? proceedError) !== undefined && (
+                <Notice tone="error" data-testid="proceed-refusal" className="w-full">
+                  {proceedBlocked ?? proceedError}
+                </Notice>
+              )}
               <Button
                 variant="primary"
-                data-testid="plan-done"
+                data-testid="plan-proceed"
                 className="w-full lg:w-auto"
-                onClick={runDone}
-                disabled={busy}
+                onClick={runProceed}
+                disabled={busy || proceedBlocked !== undefined}
               >
                 <Check aria-hidden="true" />
-                Done
+                Proceed
               </Button>
             </div>
           </div>
@@ -927,25 +939,17 @@ const MessageCard = ({
   </Card>
 )
 
-const HandedBackPanel = ({ inline }: { readonly inline: boolean }) => (
-  <Notice
-    data-testid="handed-back-panel"
-    role="status"
-    aria-live="polite"
-    className="mx-4 my-6 lg:mx-auto lg:max-w-2xl"
-  >
-    {inline
-      ? "Handed back. This turn is done."
-      : "Handed back. This turn is done; you can close this page."}
-  </Notice>
-)
-
-const useDocumentMutations = (filePath: string) => {
+const useDocumentMutations = (
+  filePath: string,
+  headSha: string | undefined,
+  onMovedOn: () => void,
+) => {
   const utils = trpc.useUtils()
   const invalidate = () => utils.readSteeringFile.invalidate({ filePath })
   const setValue = trpc.setValue.useMutation({ onSettled: invalidate })
   const writeNote = trpc.writeNote.useMutation({ onSettled: invalidate })
-  const done = trpc.done.useMutation()
+  const proceed = trpc.proceed.useMutation()
+  const [proceedError, setProceedError] = useState<string | undefined>(undefined)
   const onSet =
     (anchor: SteeringAnchor, value: BoxValue) =>
     (cas: CasTokens): Promise<unknown> =>
@@ -957,8 +961,19 @@ const useDocumentMutations = (filePath: string) => {
   return {
     onSet,
     onSaveNote,
-    onDone: () => done.mutateAsync({}),
-    isDone: done.isSuccess,
+    proceedError,
+    // A refusal is shown on the page, not filed as a failed write: the edits stay saved.
+    onProceed: async (): Promise<unknown> => {
+      setProceedError(undefined)
+      try {
+        await proceed.mutateAsync({ commit: headSha ?? "" })
+      } catch (error) {
+        setProceedError(proceedRefusalFrom(error) ?? "Proceed failed. Check that gtd is running.")
+        return undefined
+      }
+      onMovedOn()
+      return undefined
+    },
   }
 }
 
@@ -969,37 +984,46 @@ const DocumentInner = ({
   data,
   isLoading,
   error,
+  idle,
+  onMovedOn,
 }: {
   readonly filePath: string
   readonly context: GateContext | undefined
   readonly inline: boolean
-  readonly data: { readonly view?: SteeringView } | undefined
+  readonly data: { readonly view?: SteeringView; readonly headSha?: string } | undefined
   readonly isLoading: boolean
   readonly error: unknown
+  readonly idle: boolean
+  readonly onMovedOn: () => void
 }) => {
   const indicatorProps = useSaveIndicatorProps()
   const pending = useWriteStore((s) => s.pendingCount)
-  const { onSet, onSaveNote, onDone, isDone } = useDocumentMutations(filePath)
+  const { onSet, onSaveNote, onProceed, proceedError } = useDocumentMutations(
+    filePath,
+    data?.headSha,
+    onMovedOn,
+  )
+  const canProceed = trpc.canProceed.useQuery()
   const indicator = <SaveIndicator {...indicatorProps} />
   return (
     <>
       {!inline && indicator}
-      {isDone ? (
-        <HandedBackPanel inline={inline} />
-      ) : (
-        <DocumentView
-          view={data?.view}
-          filePath={filePath}
-          context={context}
-          inline={inline}
-          isLoading={isLoading}
-          readError={error}
-          onSet={onSet}
-          onSaveNote={onSaveNote}
-          onDone={onDone}
-          busy={pending > 0}
-        />
-      )}
+      <DocumentView
+        view={data?.view}
+        filePath={filePath}
+        context={context}
+        inline={inline}
+        isLoading={isLoading}
+        readError={error}
+        onSet={onSet}
+        onSaveNote={onSaveNote}
+        {...(idle ? {} : { onProceed })}
+        proceedBlocked={
+          canProceed.data?.available === false ? "No driver for this worktree" : undefined
+        }
+        proceedError={proceedError}
+        busy={pending > 0}
+      />
       {/* Inline, the pane scrolls: pin the toast to its visible bottom, not to the column's top. */}
       {inline && <div className="sticky bottom-0 z-20 h-0">{indicator}</div>}
     </>
@@ -1011,10 +1035,15 @@ export const Document = ({
   filePath,
   context,
   inline = false,
+  idle = false,
+  onMovedOn = () => {},
 }: {
   readonly filePath: string
   readonly context?: GateContext
   readonly inline?: boolean
+  /** An idle worktree's page has no Proceed. */
+  readonly idle?: boolean
+  readonly onMovedOn?: () => void
 }) => {
   const utils = trpc.useUtils()
   const query = trpc.readSteeringFile.useQuery({ filePath })
@@ -1034,6 +1063,8 @@ export const Document = ({
         data={query.data}
         isLoading={query.isLoading}
         error={query.error}
+        idle={idle}
+        onMovedOn={onMovedOn}
       />
     </WriteStoreProvider>
   )

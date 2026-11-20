@@ -19,6 +19,8 @@ export interface GateOptions {
   readonly servedFile: () => Promise<string | undefined>
   /** Runs after each write that landed. */
   readonly onEdit?: () => void
+  /** Presses Proceed for this worktree; a standalone `gtd ui` gives none. */
+  readonly proceed?: RouterContext["proceed"]
 }
 
 export const beatDepsOf = (host: UiHostOps): BeatDeps => ({
@@ -103,6 +105,7 @@ export const gateHandler = (options: GateOptions): UiHandler => {
   }
   const context: RouterContext = {
     readStep: options.readStep,
+    ...(options.proceed !== undefined ? { proceed: options.proceed } : {}),
     writeNote: async (request) =>
       (await isServed(request.filePath))
         ? edited(await writeNote({ ...request, worktreePath: root }, writeDeps))

@@ -78,17 +78,19 @@ export const HeaderShowsWhereAndWhy: Story = {
   },
 }
 
-/** The gate's Proceed is an outline in the warning colour; Run in Actions stays secondary while the gate waits. */
-export const ProceedIsAnOutlineAtAGate: Story = {
+/** The Gate tab hides the header Proceed (the page has its own); on Actions it is an outline in the warning colour, and Run stays secondary. */
+export const OneYellowActionAtAGate: Story = {
   decorators: withApi({}),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const proceed = canvas.getByRole("button", { name: "Proceed" })
+    const header = within(canvas.getByTestId("detail").querySelector("header")!)
+    await expect(header.queryByRole("button", { name: "Proceed" })).toBeNull()
+    await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
+    const proceed = header.getByRole("button", { name: "Proceed" })
     const style = getComputedStyle(proceed)
     await expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0)")
     await expect(style.color).toBe(token("warning"))
     await expect(style.borderTopColor).toBe(token("warning"))
-    await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
     const run = await canvas.findByRole("button", { name: "Run" })
     await expect(getComputedStyle(run).color).not.toBe(style.color)
     await expect(getComputedStyle(run).borderTopColor).not.toBe(style.borderTopColor)
@@ -110,7 +112,9 @@ export const ProceedSendsTheHeadThePageShowed: Story = {
   decorators: withApi({ proceed: record("proceed", undefined) }),
   play: async ({ canvasElement }) => {
     calls.length = 0
-    await userEvent.click(within(canvasElement).getByRole("button", { name: "Proceed" }))
+    const canvas = within(canvasElement)
+    await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
+    await userEvent.click(canvas.getByRole("button", { name: "Proceed" }))
     await waitFor(() =>
       expect(calls).toEqual([
         {
@@ -138,6 +142,14 @@ export const ARefusedPressSaysWhy: Story = {
         "HEAD moved since the page loaded; reload and look again",
       ),
     )
+  },
+}
+
+/** A rest with no steering file has no gate Proceed, so the header keeps its own. */
+export const KeepsProceedWithoutASteeringFile: Story = {
+  args: { entry: { project: portal, worktree: { ...plan.worktree, gated: false } } },
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).getByRole("button", { name: "Proceed" })).toBeTruthy()
   },
 }
 

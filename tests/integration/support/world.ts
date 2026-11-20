@@ -154,13 +154,11 @@ const doneNoteRequest = (
   text: string,
   anchor: SteeringAnchor = { kind: "paragraph", line: 0 },
 ) => ({
-  note: {
-    filePath,
-    expectedHeadSha: headSha,
-    expectedContentHash: contentHash,
-    anchor,
-    text,
-  },
+  filePath,
+  expectedHeadSha: headSha,
+  expectedContentHash: contentHash,
+  anchor,
+  text,
 })
 
 /**
@@ -1176,7 +1174,7 @@ export class GtdWorld extends QuickPickleWorld {
   ): Promise<void> {
     const session = await this.openUi(servePort)
     const note = await this.noteRequest(session, filePath, text)
-    await this.handOffThrough(session, (client) => client.done.mutate(note))
+    await this.handOffThrough(session, (client) => client.writeNote.mutate(note))
   }
 
   /** Arms the fake `tailscale` to fail every later `serve --bg`. */
@@ -1273,7 +1271,7 @@ export class GtdWorld extends QuickPickleWorld {
   async spawnGtdUiServeAndHandOffDefaultPort(filePath: string, text: string): Promise<void> {
     const session = await this.openUi("default")
     const note = await this.noteRequest(session, filePath, text)
-    await this.handOffThrough(session, (client) => client.done.mutate(note))
+    await this.handOffThrough(session, (client) => client.writeNote.mutate(note))
   }
 
   /**
@@ -1334,7 +1332,9 @@ export class GtdWorld extends QuickPickleWorld {
           }),
         ],
       })
-      await client.done.mutate(doneNoteRequest(filePath, headSha, contentHashOf(content), text))
+      await client.writeNote.mutate(
+        doneNoteRequest(filePath, headSha, contentHashOf(content), text),
+      )
       this.uiStepAfterDone = (await client.step.query()).status
     } finally {
       this.restoreTlsReject(previousTlsReject)
@@ -1351,13 +1351,13 @@ export class GtdWorld extends QuickPickleWorld {
   ): Promise<void> {
     const session = await this.openUi("direct")
     const note = await this.noteRequest(session, filePath, text, anchor)
-    await this.handOffThrough(session, (client) => client.done.mutate(note))
+    await this.handOffThrough(session, (client) => client.writeNote.mutate(note))
   }
 
   /** A `done` with no note — the Done control. */
   async spawnGtdUiAndHandOffNoNote(): Promise<void> {
     const session = await this.openUi("direct")
-    await this.handOffThrough(session, (client) => client.done.mutate({}))
+    await this.handOffThrough(session, (client) => client.canProceed.query())
   }
 
   /** A `setValue` write against the file's real token; `setValue` never ends the turn. */
@@ -1393,7 +1393,7 @@ export class GtdWorld extends QuickPickleWorld {
         anchor: { kind: "paragraph", line: 0 },
         text,
       })
-      await client.done.mutate({})
+      await client.canProceed.query()
     })
   }
 
@@ -1504,7 +1504,7 @@ export class GtdWorld extends QuickPickleWorld {
     const session = await this.openUi("direct")
     assert.strictEqual(await session.reload(), 200, "the reload must still be served")
     const note = await this.noteRequest(session, filePath, text)
-    await this.handOffThrough(session, (client) => client.done.mutate(note))
+    await this.handOffThrough(session, (client) => client.writeNote.mutate(note))
   }
 
   /** Runs the whole CLI shell (`runCli`) through a capturing `CliIo` backed by the in-memory layers. */

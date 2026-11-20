@@ -40,6 +40,7 @@ export const workspace: readonly ProjectView[] = [
         humanRest: true,
         kind: "question",
         label: "Answer the plan",
+        gated: true,
         refusal: "busy: still answering the last question",
       }),
       worktree("portal", "login", {

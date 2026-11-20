@@ -343,7 +343,7 @@ export const ADesign: Story = {
     context: { repo: "portal", branch: "rate-limit", label: "answering the design" },
     isLoading: false,
     view: widgetFormat.view(DESIGN),
-    onDone: () => Promise.resolve(),
+    onProceed: () => Promise.resolve(),
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

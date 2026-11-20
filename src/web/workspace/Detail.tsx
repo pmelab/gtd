@@ -64,9 +64,12 @@ const Gate = ({ gate, head }: { readonly gate: string; readonly head: string }) 
 const DetailHeader = ({
   entry,
   onClose,
+  hideProceed,
 }: {
   readonly entry: Entry
   readonly onClose: () => void
+  /** The gate page shows its own Proceed. */
+  readonly hideProceed: boolean
 }) => {
   const { worktree } = entry
   const reason = reasonText(worktree)
@@ -108,7 +111,7 @@ const DetailHeader = ({
       <Refused worktree={worktree} className="max-w-prose" />
       <ServiceChips worktree={worktree} />
       <div className="flex sm:max-w-xs">
-        <PressButton worktree={worktree} className="w-full" />
+        <PressButton worktree={worktree} className="w-full" hideProceed={hideProceed} />
       </div>
     </header>
   )
@@ -142,7 +145,11 @@ export const Detail = ({
       aria-label={`${project.name} / ${worktreeName(worktree)}`}
       data-testid="detail"
     >
-      <DetailHeader entry={entry} onClose={onClose} />
+      <DetailHeader
+        entry={entry}
+        onClose={onClose}
+        hideProceed={tab === "gate" && worktree.gated === true}
+      />
       <Tabs
         value={tab}
         onValueChange={(next) => {

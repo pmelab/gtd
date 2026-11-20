@@ -34,7 +34,7 @@ Feature: gtd ui — tailnet identity and same-origin POST checks
       | request             |
       | GET /               |
       | GET /trpc/step      |
-      | POST /trpc/done     |
+      | POST /trpc/proceed   |
       | POST /trpc/setValue |
 
   @inmem
@@ -110,20 +110,20 @@ Feature: gtd ui — tailnet identity and same-origin POST checks
   Scenario: a POST from the same origin passes the check
     When "owner@example.com" sends this request to gtd ui over tailscale serve:
       """
-      POST /trpc/done
+      POST /trpc/proceed
       content-type: application/json
       host: test-node.tailnet.ts.net:8443
       origin: https://test-node.tailnet.ts.net:8443
 
-      {}
+      {"commit":"abc"}
       """
-    Then gtd ui answers 200
+    Then gtd ui answers 409
 
   @inmem
   Scenario: a POST with no Sec-Fetch-Site and no Origin is refused
     When "owner@example.com" sends this request to gtd ui over tailscale serve:
       """
-      POST /trpc/done
+      POST /trpc/proceed
       content-type: application/json
 
       {}
@@ -134,7 +134,7 @@ Feature: gtd ui — tailnet identity and same-origin POST checks
   Scenario: a POST that is not JSON is refused, behind --http too
     When "owner@example.com" sends this request to gtd ui behind --http:
       """
-      POST /trpc/done
+      POST /trpc/proceed
       content-type: text/plain
       sec-fetch-site: same-origin
 
@@ -146,6 +146,6 @@ Feature: gtd ui — tailnet identity and same-origin POST checks
   Scenario: a GET never changes state
     When "owner@example.com" sends this request to gtd ui over tailscale serve:
       """
-      GET /trpc/done?input=%7B%7D
+      GET /trpc/proceed?input=%7B%7D
       """
     Then gtd ui answers 405

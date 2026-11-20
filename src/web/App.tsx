@@ -1,5 +1,5 @@
 import { RotateCw } from "lucide-react"
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import type { StepRead } from "../ui/index.js"
 import { Button } from "./Button.js"
 import { cn } from "./cn.js"
@@ -41,7 +41,7 @@ const NOTICE = "mx-auto max-w-2xl"
 /**
  * `gtd ui` serves exactly one worktree resting on exactly one step, so there
  * is no list to go back to: the document screen opens the step's steering
- * file, and `done` hands the turn back.
+ * file, and `proceed` moves the process on.
  *
  * Never renders nothing: a blank screen on a phone over a tailnet explains
  * nothing.
@@ -50,6 +50,7 @@ const NOTICE = "mx-auto max-w-2xl"
 export const App = ({ inline = false }: { readonly inline?: boolean }) => {
   const query = trpc.step.useQuery()
   const step = query.data
+  const [proceeded, setProceeded] = useState(false)
 
   if (query.isLoading) {
     return (
@@ -94,6 +95,18 @@ export const App = ({ inline = false }: { readonly inline?: boolean }) => {
     )
   }
 
+  if (proceeded) {
+    return (
+      <StatePage inline={inline}>
+        <Notice data-testid="app-moved-on" className={NOTICE}>
+          {inline
+            ? "This turn is over and the process moved on."
+            : "This turn is over and the process moved on. You can close this page."}
+        </Notice>
+      </StatePage>
+    )
+  }
+
   if (step.status === "moved-on") {
     return (
       <StatePage inline={inline}>
@@ -119,6 +132,8 @@ export const App = ({ inline = false }: { readonly inline?: boolean }) => {
       <Document
         inline={inline}
         filePath={step.file}
+        idle={step.idle}
+        onMovedOn={() => setProceeded(true)}
         context={{ repo: step.repo, branch: step.branch, label: step.label }}
       />
     </div>

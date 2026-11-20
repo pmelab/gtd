@@ -76,13 +76,13 @@ Feature: gtd workspace serves every worktree's gate page
       | request                          |
       | GET /portal/plan/gate            |
       | GET /portal/plan/gate/trpc/step  |
-      | POST /portal/plan/gate/trpc/done |
+      | POST /portal/plan/gate/trpc/proceed |
 
   Scenario Outline: a gate page takes only same-origin JSON POSTs
     When I start gtd workspace
     And "owner@example.com" sends this request to gtd workspace:
       """
-      POST /portal/plan/gate/trpc/done
+      POST /portal/plan/gate/trpc/proceed
       content-type: <type>
       sec-fetch-site: <site>
 
@@ -94,13 +94,30 @@ Feature: gtd workspace serves every worktree's gate page
       | type             | site        | status |
       | application/json | cross-site  | 403    |
       | text/plain       | same-origin | 415    |
-      | application/json | same-origin | 200    |
+      | application/json | same-origin | 400    |
 
   Scenario: a note saved through a gate page rechecks that worktree at once
     When I start gtd workspace
     And I save the note "Why now?" through the gate page of "portal/plan"
     Then the file ".gtd/PLAN.md" in "portal/plan" contains "Why now?"
     And gtd next has run in "portal/plan" since the note was saved
+
+  Scenario: Proceed on a gate page sends the HEAD commit to the driver as the caller
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      import { defineWorkspace } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"] })
+      """
+    And a driver that an earlier supervisor started runs in "portal/plan"
+    When I start gtd workspace
+    And I press Proceed through the gate page of "portal/plan"
+    Then the driver one-shots ran:
+      | worktree    | argv                 |
+      | portal/plan | drive proceed <HEAD> |
+    And the audit log reads:
+      | identity          | endpoint                       | project | worktree | action  | outcome  |
+      | owner@example.com | /portal/plan/gate/trpc/proceed | portal  | plan     | proceed | accepted |
 
   Scenario: an agent rest names no gate kind
     Given gtd next --json in "portal/plan" prints:

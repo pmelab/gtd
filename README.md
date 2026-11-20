@@ -476,8 +476,9 @@ a review checklist that shows each hunk's diff. Double-tap any block, or tap a
 widget's Note, to add an annotation. It also binds on an idle worktree, opening
 `.gtd/TODO.md` with a bare textfield so you can sketch from your phone; the
 sketch stays on disk until you run `gtd` again, from anywhere, to pick it up.
-Done saves and leaves the server running; it exits once the worktree moves on to
-another step. See
+The page's Proceed saves your answers and moves the process on under
+`gtd workspace`; a standalone `gtd ui` has no driver, so Proceed is disabled
+there, and the server exits once the worktree moves on to another step. See
 [Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
 for its `ui:` settings.
 

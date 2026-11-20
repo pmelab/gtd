@@ -561,8 +561,9 @@ Usage: gtd ui [options]
 Serve gtd's web and phone client for this worktree. By default it publishes
 through `tailscale serve`, reachable from anywhere on the tailnet, on the first
 of ports 8443, 10000 and 443 that works; when none does it serves HTTPS locally
-instead of refusing. Done saves the steering file and keeps serving; the server
-exits when the worktree moves on to another step, or on a signal.
+instead of refusing. Proceed is disabled here: it needs a driver, which
+`gtd workspace` gives its gate pages. The server exits when the worktree moves
+on to another step, or on a signal.
 
 Options:
   --port=<n>          The tailscale serve port (default: the first free of 8443,
