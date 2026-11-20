@@ -74,7 +74,14 @@ const locate = (projects: readonly ProjectView[], path: string) => {
 }
 
 export const controls = (deps: ControlDeps): Controls => {
-  const refusals = new Map<string, { readonly commit: string; readonly message: string }>()
+  const refusals = new Map<
+    string,
+    {
+      readonly commit: string
+      readonly status: WorktreeView["status"]
+      readonly message: string
+    }
+  >()
   const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => void deps.after(ms, resolve))
 
@@ -138,6 +145,16 @@ export const controls = (deps: ControlDeps): Controls => {
     }
   }
 
+  const reread = async (
+    found: NonNullable<ReturnType<typeof locate>>,
+    worktree: string,
+    refresh: boolean,
+  ) => {
+    // A cached `working` may predate the driver reaching its gate.
+    if (refresh) await deps.refreshDriver(worktree)
+    return locate(deps.projects(), worktree) ?? found
+  }
+
   return {
     press: async (press) => {
       let found = locate(deps.projects(), press.worktree)
@@ -147,6 +164,7 @@ export const controls = (deps: ControlDeps): Controls => {
       if (found === undefined) {
         return { outcome: "unknown", message: `no worktree at ${press.worktree}` }
       }
+      found = await reread(found, press.worktree, found.view.status === "working")
       const outcome = await decide(press, found.project, found.view)
       deps.audit.write({
         time: new Date(deps.now()).toISOString(),
@@ -161,7 +179,13 @@ export const controls = (deps: ControlDeps): Controls => {
         refusals.delete(press.worktree)
         await deps.refreshDriver(press.worktree)
       } else {
-        refusals.set(press.worktree, { commit: press.commit, message: outcome.message })
+        // A refusal holds only while the status stays what it was once the driver was read again.
+        const after = await reread(found, press.worktree, outcome.outcome === "refused")
+        refusals.set(press.worktree, {
+          commit: press.commit,
+          status: after.view.status,
+          message: outcome.message,
+        })
       }
       return outcome
     },
@@ -170,7 +194,9 @@ export const controls = (deps: ControlDeps): Controls => {
         ...project,
         worktrees: project.worktrees.map((w) => {
           const refusal = refusals.get(w.path)
-          return refusal?.commit === w.head ? { ...w, refusal: refusal.message } : w
+          return refusal?.commit === w.head && refusal.status === w.status
+            ? { ...w, refusal: refusal.message }
+            : w
         }),
       })),
   }

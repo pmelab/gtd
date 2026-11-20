@@ -42,6 +42,22 @@ Feature: Proceed and Retry from the dashboard
       | identity          | endpoint      | project | worktree | action  | outcome  |
       | owner@example.com | /trpc/proceed | portal  | plan     | proceed | accepted |
 
+  Scenario: Proceed is accepted when the driver reached its gate after the last status read
+    Given a driver that an earlier supervisor started runs in "portal/build"
+    When I start gtd workspace
+    And the driver in "portal/build" reports without a hint:
+      """
+      { "state": "blocked", "kind": "question", "title": "Build" }
+      """
+    And I press Proceed on "portal/build"
+    Then gtd accepts the press
+
+  Scenario: Proceed is refused while a step really runs
+    Given a driver that an earlier supervisor started runs in "portal/build"
+    When I start gtd workspace
+    And I press Proceed on "portal/build"
+    Then gtd refuses the press with "Proceed is for a worktree that needs you; this one is working"
+
   Scenario: a commit the person did not see is refused before gtd sends anything
     Given a driver that an earlier supervisor started runs in "portal/plan"
     When I start gtd workspace
