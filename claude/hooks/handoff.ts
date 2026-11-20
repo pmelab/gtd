@@ -25,7 +25,7 @@ export async function throwTo(
 ): Promise<Done> {
   if (rest.isIdle) return fail("Nothing is in progress, so there is nothing to throw.")
   // Only landed state travels: an edit still in the tree is half an answer.
-  if ((await io.run(["git", "status", "--porcelain"])).out.trim()) {
+  if ((await io.run(["git", "--no-optional-locks", "status", "--porcelain"])).out.trim()) {
     return fail("The working tree has edits. Proceed to land them, or stash them, then throw.")
   }
   const on = await throwBranch(io, now)
@@ -166,7 +166,7 @@ async function assign(io: GitIo, pr: Pr, handle: string) {
 }
 
 export async function catchFrom(io: GitIo, ref: string): Promise<Done> {
-  if ((await io.run(["git", "status", "--porcelain"])).out.trim()) {
+  if ((await io.run(["git", "--no-optional-locks", "status", "--porcelain"])).out.trim()) {
     return fail("The working tree has edits. Commit or stash them before catching.")
   }
   const checkout = await io.run(["gh", "pr", "checkout", ref])

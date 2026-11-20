@@ -155,10 +155,19 @@ const asUiError = (error: unknown): UiError =>
  */
 const gitIn = (cwd: string, args: readonly string[]): Promise<string> =>
   new Promise((resolve, reject) => {
-    execFile("git", [...args], { cwd, maxBuffer: 256 * 1024 * 1024 }, (error, stdout) => {
-      if (error === null) resolve(stdout)
-      else reject(error)
-    })
+    execFile(
+      "git",
+      [...args],
+      {
+        cwd,
+        maxBuffer: 256 * 1024 * 1024,
+        env: { ...process.env, GIT_OPTIONAL_LOCKS: "0" },
+      },
+      (error, stdout) => {
+        if (error === null) resolve(stdout)
+        else reject(error)
+      },
+    )
   })
 
 export const runWorkspaceCommand = (

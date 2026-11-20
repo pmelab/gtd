@@ -1,16 +1,22 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import {
+  copyFileSync,
+  existsSync,
   lstatSync,
+  mkdtempSync,
   mkdirSync,
   readFileSync,
   readlinkSync,
   realpathSync,
   renameSync,
+  rmSync,
   statSync,
   writeFileSync,
   type Stats,
 } from "node:fs"
+import { tmpdir } from "node:os"
+import { isAbsolute, join } from "node:path"
 import type { FileInfo, SyncIo } from "./SyncIo.js"
 
 // A tree listing, or one committed file, can overflow execFileSync's 1 MB default.
@@ -43,6 +49,9 @@ const infoOf = (stats: Stats): FileInfo => ({
   ...(process.platform === "win32" ? {} : { executable: (stats.mode & 0o100) !== 0 }),
 })
 
+// A read must not take `index.lock` to refresh the index: it could fail gtd's own landing.
+const READ_ENV = { ...process.env, GIT_OPTIONAL_LOCKS: "0" }
+
 export const nodeSyncIo: SyncIo = {
   readFile: (path) => orAbsent(() => readFileSync(path)),
   readText: (path) => orAbsent(() => readFileSync(path, "utf8")),
@@ -55,12 +64,28 @@ export const nodeSyncIo: SyncIo = {
   lstat: (path) => orAbsent(() => infoOf(lstatSync(path))),
   readLink: (path) => readlinkSync(path, "utf8"),
   realPath: (path) => realpathSync(path),
-  git: (cwd, args) => execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: MAX_BUFFER }),
+  git: (cwd, args) =>
+    execFileSync("git", args, { cwd, encoding: "utf8", maxBuffer: MAX_BUFFER, env: READ_ENV }),
   gitBytes: (cwd, args) =>
-    execFileSync("git", args, { cwd, maxBuffer: MAX_BUFFER, stdio: ["ignore", "pipe", "ignore"] }),
+    execFileSync("git", args, {
+      cwd,
+      maxBuffer: MAX_BUFFER,
+      stdio: ["ignore", "pipe", "ignore"],
+      env: READ_ENV,
+    }),
   hash: (algorithm, ...parts) => {
     const hash = createHash(algorithm)
     for (const part of parts) hash.update(part)
     return hash.digest("hex")
   },
 }
+
+/** A private copy of the git index at `index`, so a refreshing read never takes `index.lock`. */
+export const copyIndexToScratch = (index: string): { dir: string; copy: string } => {
+  const dir = mkdtempSync(join(tmpdir(), "gtd-index-"))
+  const copy = join(dir, "index")
+  if (isAbsolute(index) && existsSync(index)) copyFileSync(index, copy)
+  return { dir, copy }
+}
+
+export const removeScratch = (dir: string): void => rmSync(dir, { recursive: true, force: true })

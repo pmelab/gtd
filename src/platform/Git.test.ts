@@ -6,6 +6,7 @@ import { Cause, Effect, Exit, Option } from "effect"
 import { describe, expect, it } from "vitest"
 import { GitService, InvalidRefError, resolvedRefOrCorrupted } from "./Git.js"
 import { Host, NodeServices } from "./index.js"
+import { withStaleIndex } from "./ReadLocks.fixture.js"
 import { gitTiers, runGitServiceContract, runGitScriptContract } from "../twins/index.js"
 
 /**
@@ -158,4 +159,18 @@ describe("authorIdent [Live]", () => {
       rmSync(root, { recursive: true, force: true })
     }
   })
+})
+
+describe("read-only git calls", () => {
+  it("GitService.changedPaths leaves a stale index alone", () =>
+    withStaleIndex(async (root) => {
+      const paths = await Effect.runPromise(
+        Effect.flatMap(GitService, (g) => g.changedPaths()).pipe(
+          Effect.provide(GitService.Live),
+          Effect.provide(Host.layer({ root, home: root, env: {} })),
+          Effect.provide(NodeServices.layer),
+        ),
+      )
+      expect(paths).toEqual([])
+    }))
 })

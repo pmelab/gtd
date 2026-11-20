@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
 import { combinedScript, DID_NOT_RUN_COMMENT, emitScripts, type EmitStep } from "./Emit.js"
-import { commitOutcome, noteOutcome } from "./index.js"
+import { commitOutcome, GIT_LOCK_RETRY, noteOutcome } from "./index.js"
 
 /**
  * `sh -n` (POSIX syntax check), not `bash -n` — a script that only passes
@@ -55,6 +55,7 @@ describe("emitScripts — required only", () => {
     expect(required).not.toContain("git rev-parse")
     expect(required.split("\n\n")).toEqual([
       "set -eu",
+      GIT_LOCK_RETRY,
       "git commit --allow-empty -m 'gtd(agent): x'",
     ])
   })
@@ -101,7 +102,7 @@ describe("emitScripts — outcome steps", () => {
   it("renders an outcome step verbatim — no preamble, the step carries its own printf", () => {
     const { required } = emitScripts([{ kind: "outcome", command: commitOutcome("gtd(agent): x") }])
     expect(required).toContain(commitOutcome("gtd(agent): x"))
-    expect(required.split("\n\n").length).toBe(2)
+    expect(required.split("\n\n").length).toBe(3)
   })
 
   it("is syntactically valid POSIX sh", () => {

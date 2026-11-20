@@ -34,6 +34,9 @@ const plain = (content: string): string =>
   content.startsWith(EXEC) ? content.slice(EXEC.length) : content
 
 export class InMemRepo {
+  /** A foreign process holds this lock; the next git step fails on it `failures` times (all five tries when 5 or more). */
+  busyLock?: { readonly path: string; readonly failures: number } | undefined
+
   // Data-only marker read by no code path: embeds the sentinel in every
   // instance so a leaked object still carries it.
   // fallow-ignore-next-line unused-class-member

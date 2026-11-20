@@ -282,3 +282,48 @@ Feature: gtd land — the one landing verb, actorless
     Then it fails
     And stderr contains "1001 untracked files"
     And the commit count is unchanged
+
+  @inmem
+  Scenario: a landing survives a busy index lock that clears
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do it")
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And git's "index.lock" is busy for 2 tries
+    When I run gtd land
+    Then it succeeds
+    And the emitted script printed "gtd: git lock busy: .git/index.lock, retry 2 of 5"
+    And the emitted script printed "gtd: git lock busy: .git/index.lock, retry 3 of 5"
+    And the last commit subject is "gtd(human): idle → working"
+
+  @inmem
+  Scenario: a landing fails with git's own error after five tries on a busy index lock
+    Given a test project
+    And a gtd config file at "gtd.config.ts" with:
+      """
+      import { agent, human } from "@pmelab/gtd/flows"
+
+      export default async () => {
+        await human("idle", { message: "write NOTE.md to start a process" })
+        await agent("working", "do it")
+      }
+      """
+    And a file "NOTE.md" with:
+      """
+      a note
+      """
+    And git's "index.lock" is busy for 5 tries
+    When I run gtd land
+    Then it fails
+    And the emitted script printed "gtd: git lock busy: .git/index.lock, retry 5 of 5"
+    And stderr contains "Unable to create '.git/index.lock': File exists"

@@ -1,4 +1,4 @@
-import { shellQuote } from "./GitScript.js"
+import { GIT_LOCK_RETRY, shellQuote } from "./GitScript.js"
 
 export interface EmittedScripts {
   readonly required: string
@@ -8,10 +8,9 @@ export interface EmittedScripts {
 /**
  * Every kind renders its `command` verbatim (the one exception is a
  * `command` step carrying an `onFailure` prompt); the discriminant records
- * WHAT a step is, and nothing else. A failing git write is left to fail in
- * the user's shell — gtd never writes git itself, so there is nothing to
- * retry on its behalf — and an `outcome` step carries its own complete
- * `printf`, so no shared preamble is emitted for it either.
+ * WHAT a step is, and nothing else. The shared `GIT_LOCK_RETRY` preamble
+ * retries a git step on a busy lock; an `outcome` step carries its own
+ * complete `printf`.
  */
 export type EmitStep =
   | { readonly kind: "gitWrite"; readonly command: string }
@@ -54,7 +53,7 @@ const renderStep = (step: EmitStep): string => {
 }
 
 const assembleScript = (steps: ReadonlyArray<EmitStep>): string =>
-  steps.length === 0 ? "" : ["set -eu", ...steps.map(renderStep)].join("\n\n")
+  steps.length === 0 ? "" : ["set -eu", GIT_LOCK_RETRY, ...steps.map(renderStep)].join("\n\n")
 
 /** Build both halves from already-rendered command strings; an empty (or omitted) array produces the empty-string result, so a driver checking `if [ -n "$required" ]` never has to special-case a bare preamble. */
 export const emitScripts = (
