@@ -682,6 +682,8 @@ export interface DocumentViewProps {
   readonly isLoading: boolean
   readonly readError?: unknown
   readonly onSet?: (anchor: SteeringAnchor, value: BoxValue) => TokenGuardedWrite
+  /** Sends queued box values as one request; preferred over `onSet` when given. */
+  readonly onSetMany?: (items: readonly unknown[], tokens: CasTokens) => Promise<unknown>
   readonly onSaveNote?: (anchor: SteeringAnchor, text: string) => TokenGuardedWrite
   /** Present on a page that may press Proceed; absent on an idle worktree's page. */
   readonly onProceed?: () => Promise<unknown>
@@ -709,6 +711,7 @@ export const DocumentView = ({
   isLoading,
   readError,
   onSet,
+  onSetMany,
   onSaveNote,
   onProceed,
   proceedBlocked,
@@ -746,7 +749,9 @@ export const DocumentView = ({
     save({
       cell: cellKey(filePath, anchor, "value"),
       optimistic: value,
-      write: onSet === undefined ? undefined : onSet(anchor, value),
+      ...(onSetMany !== undefined
+        ? { batch: { key: filePath, item: { anchor, ...value }, send: onSetMany } }
+        : { write: onSet === undefined ? undefined : onSet(anchor, value) }),
     }).catch(() => {})
   }
 
@@ -946,20 +951,38 @@ const useDocumentMutations = (
 ) => {
   const utils = trpc.useUtils()
   const invalidate = () => utils.readSteeringFile.invalidate({ filePath })
-  const setValue = trpc.setValue.useMutation({ onSettled: invalidate })
-  const writeNote = trpc.writeNote.useMutation({ onSettled: invalidate })
+  const setValue = trpc.setValue.useMutation()
+  const setValues = trpc.setValues.useMutation()
+  const writeNote = trpc.writeNote.useMutation()
   const proceed = trpc.proceed.useMutation()
   const [proceedError, setProceedError] = useState<string | undefined>(undefined)
+  // Re-read once the write queue has emptied, not after each write.
+  const pending = useWriteStore((s) => s.pendingCount)
+  const wasPending = useRef(false)
+  useEffect(() => {
+    if (pending > 0) wasPending.current = true
+    else if (wasPending.current) {
+      wasPending.current = false
+      void invalidate()
+    }
+  })
   const onSet =
     (anchor: SteeringAnchor, value: BoxValue) =>
     (cas: CasTokens): Promise<unknown> =>
       setValue.mutateAsync({ filePath, ...cas, anchor, ...value })
+  const onSetMany = (items: readonly unknown[], cas: CasTokens): Promise<unknown> =>
+    setValues.mutateAsync({
+      filePath,
+      ...cas,
+      values: items as ReadonlyArray<{ anchor: SteeringAnchor } & BoxValue>,
+    })
   const onSaveNote =
     (anchor: SteeringAnchor, text: string) =>
     (cas: CasTokens): Promise<unknown> =>
       writeNote.mutateAsync({ filePath, ...cas, anchor, text })
   return {
     onSet,
+    onSetMany,
     onSaveNote,
     proceedError,
     // A refusal is shown on the page, not filed as a failed write: the edits stay saved.
@@ -998,7 +1021,7 @@ const DocumentInner = ({
 }) => {
   const indicatorProps = useSaveIndicatorProps()
   const pending = useWriteStore((s) => s.pendingCount)
-  const { onSet, onSaveNote, onProceed, proceedError } = useDocumentMutations(
+  const { onSet, onSetMany, onSaveNote, onProceed, proceedError } = useDocumentMutations(
     filePath,
     data?.headSha,
     onMovedOn,
@@ -1016,6 +1039,7 @@ const DocumentInner = ({
         isLoading={isLoading}
         readError={error}
         onSet={onSet}
+        onSetMany={onSetMany}
         onSaveNote={onSaveNote}
         {...(idle ? {} : { onProceed })}
         proceedBlocked={

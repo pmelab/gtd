@@ -14,6 +14,7 @@ export {
   dashboardManifest,
   dashboardPage,
   gateHandler,
+  humanRestOf,
 } from "./Gate.js"
 export { contentHashOf, liveReadFile } from "./Write.js"
 export type { ReadFileResult, RunInWorktree, ServeRecord, SpawnOutcome } from "./Ports.js"

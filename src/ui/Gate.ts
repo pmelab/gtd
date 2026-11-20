@@ -5,7 +5,14 @@ import { resolveDiff } from "./Diff.js"
 import type { UiHandler, UiHostOps } from "./Ports.js"
 import { readSteeringFile } from "./ReadSteeringFile.js"
 import { appRouter, type RouterContext } from "./Router.js"
-import { actorVia, writeNote, writeValue, type WriteResult } from "./Write.js"
+import {
+  humanRestCache,
+  writeNote,
+  writeValue,
+  writeValues,
+  type HumanRestCache,
+  type WriteResult,
+} from "./Write.js"
 
 /** One worktree's gate page: what it reads, and where its API is served. */
 export interface GateOptions {
@@ -17,6 +24,8 @@ export interface GateOptions {
   readonly readStep: () => Promise<StepRead>
   /** The one steering file the page may read and write, if any. */
   readonly servedFile: () => Promise<string | undefined>
+  /** Shared by the served-file check and the write guard; build once per worktree, outside any per-request handler. */
+  readonly rest?: HumanRestCache
   /** Runs after each write that landed. */
   readonly onEdit?: () => void
   /** Presses Proceed for this worktree; a standalone `gtd ui` gives none. */
@@ -29,20 +38,23 @@ export const beatDepsOf = (host: UiHostOps): BeatDeps => ({
   headSha: host.headSha,
 })
 
+/** A per-worktree cache of the human rest. */
+export const humanRestOf = (host: UiHostOps): HumanRestCache =>
+  humanRestCache(host.headSha, async (root) => {
+    const step = await readStep({ path: root }, beatDepsOf(host))
+    return step.status === "ok" && step.actor === "human" ? { file: step.file } : undefined
+  })
+
 /** `root`'s rest as of now, with the steering file its person may edit. */
 export const currentRest = (
   root: string,
   host: UiHostOps,
-): Pick<GateOptions, "readStep" | "servedFile"> => {
-  const read = (): Promise<StepRead> => readStep({ path: root }, beatDepsOf(host))
-  return {
-    readStep: read,
-    servedFile: async () => {
-      const step = await read()
-      return step.status === "ok" && step.actor === "human" ? step.file : undefined
-    },
-  }
-}
+  rest: HumanRestCache = humanRestOf(host),
+): Pick<GateOptions, "readStep" | "servedFile" | "rest"> => ({
+  readStep: (): Promise<StepRead> => readStep({ path: root }, beatDepsOf(host)),
+  servedFile: async () => (await rest.restOf(root))?.file,
+  rest,
+})
 
 const escapeAttribute = (text: string): string =>
   text.replace(/[&"<>]/g, (c) => ({ "&": "&amp;", '"': "&quot;", "<": "&lt;", ">": "&gt;" })[c]!)
@@ -91,7 +103,7 @@ export const gateHandler = (options: GateOptions): UiHandler => {
   const page = withTrpcEndpoint(options.clientHtml ?? generatedClientHtml, endpoint)
   const writeDeps = {
     headSha: host.headSha,
-    actorAt: actorVia(host.run),
+    actorAt: (options.rest ?? humanRestOf(host)).actorAt,
     readFile: host.readFile,
     writeFile: host.writeFile,
   }
@@ -113,6 +125,10 @@ export const gateHandler = (options: GateOptions): UiHandler => {
     writeValue: async (request) =>
       (await isServed(request.filePath))
         ? edited(await writeValue({ ...request, worktreePath: root }, writeDeps))
+        : vanished,
+    writeValues: async (request) =>
+      (await isServed(request.filePath))
+        ? edited(await writeValues({ ...request, worktreePath: root }, writeDeps))
         : vanished,
     resolveDiff: (path, line, endLine) => resolveDiff(root, path, line, endLine, host),
     readSteeringFile: async (request) =>

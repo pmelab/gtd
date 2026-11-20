@@ -4,6 +4,7 @@ import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 import { Effect, type FileSystem } from "effect"
 import {
   currentRest,
+  humanRestOf,
   MANIFEST_PATH,
   dashboardManifest,
   dashboardPage,
@@ -433,6 +434,14 @@ export const runWorkspaceCommand = (
         ]
       }
 
+      // One cache per worktree, outliving the per-request gate handler.
+      const rests = new Map<string, ReturnType<typeof humanRestOf>>()
+      const restOf = (worktree: string) => {
+        const known = rests.get(worktree) ?? humanRestOf(uiHost)
+        rests.set(worktree, known)
+        return known
+      }
+
       const gatePage: UiHandler = async (request, afterResponse, peer, identity) => {
         const gate = await gateOf(new URL(request.url).pathname, worktrees)
         if (gate === undefined) return new Response("not found\n", { status: 404 })
@@ -441,7 +450,7 @@ export const runWorkspaceCommand = (
           root: worktree,
           host: uiHost,
           endpoint: `${gate.base}${TRPC}`,
-          ...currentRest(worktree, uiHost),
+          ...currentRest(worktree, uiHost, restOf(worktree)),
           // The status a person just changed must not wait for a hint.
           onEdit: () => snapshot.recheckWorktree(worktree),
           proceed: async (commit) => {

@@ -36,10 +36,12 @@ const contextFor = (
   readSteeringFile: RouterContext["readSteeringFile"] = () =>
     Promise.resolve({ ok: false, reason: "file-vanished" }),
   writeValue: RouterContext["writeValue"] = () => Promise.resolve(WRITE_OK),
+  writeValues: RouterContext["writeValues"] = () => Promise.resolve(WRITE_OK),
 ): RouterContext => ({
   readStep,
   writeNote,
   writeValue,
+  writeValues,
   resolveDiff,
   readSteeringFile,
 })
@@ -174,6 +176,53 @@ describe("appRouter.setValue", () => {
     await caller.setValue(request)
     expect(received).toMatchObject({ checked: true })
     expect(received).not.toHaveProperty("text")
+  })
+})
+
+describe("appRouter.setValues", () => {
+  const request = {
+    filePath: ".gtd/REVIEW.md",
+    expectedHeadSha: "sha1",
+    expectedContentHash: "hash1",
+    values: [
+      { anchor: { kind: "hunk" as const, chunkIndex: 0, index: 0 }, checked: true },
+      { anchor: { kind: "option" as const, questionIndex: 1, index: 2 }, checked: false },
+    ],
+  }
+  const withWriteValues = (writeValues: RouterContext["writeValues"]) =>
+    appRouter.createCaller(
+      contextFor(undefined, undefined, undefined, undefined, undefined, writeValues),
+    )
+
+  it("delegates the tokens and every entry to the context's writeValues", async () => {
+    let received: unknown
+    const caller = withWriteValues((input) => {
+      received = input
+      return Promise.resolve(WRITE_OK)
+    })
+    await expect(caller.setValues(request)).resolves.toEqual(WRITE_OK)
+    expect(received).toEqual(request)
+  })
+
+  it("surfaces a refusal as a typed WriteNoteRefusal cause, naming the reason", async () => {
+    const caller = withWriteValues(() =>
+      Promise.resolve({ ok: false, reason: "stale-token", moved: "content-hash" }),
+    )
+    const error = await caller.setValues(request).catch((e: unknown) => e)
+    const cause = (error as { cause?: unknown }).cause
+    expect(cause).toBeInstanceOf(WriteNoteRefusal)
+    expect((cause as WriteNoteRefusal).reason).toBe("stale-token")
+    expect((cause as WriteNoteRefusal).moved).toBe("content-hash")
+  })
+
+  it("rejects a non-array values and an entry with a bad anchor before writeValues", async () => {
+    const caller = withWriteValues(() =>
+      Promise.reject(new Error("writeValues unexpectedly invoked")),
+    )
+    await expect(caller.setValues({ ...request, values: "x" } as never)).rejects.toThrow()
+    await expect(
+      caller.setValues({ ...request, values: [{ anchor: { kind: "unknown" } }] } as never),
+    ).rejects.toThrow()
   })
 })
 
