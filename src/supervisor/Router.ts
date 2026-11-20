@@ -259,11 +259,17 @@ interface RawCommit {
   readonly message: string
 }
 
-const logOf = async (git: Git, cwd: string, rev: string): Promise<readonly RawCommit[]> => {
+const logOf = async (
+  git: Git,
+  cwd: string,
+  rev: string,
+  extra: readonly string[] = [],
+): Promise<readonly RawCommit[]> => {
   const out = await git(cwd, [
     "log",
     "--first-parent",
     "--reverse",
+    ...extra,
     `--format=%H${FIELD}%cI${FIELD}%B${RECORD}`,
     rev,
   ])
@@ -410,17 +416,33 @@ const lastProcess = async (
   rev: string,
   entry?: string,
 ): Promise<RawCommit[]> => {
-  const log = await logOf(git, cwd, rev)
   if (entry !== undefined) {
-    const at = log.findIndex((c) => c.hash === entry)
-    return at === -1 ? [] : log.slice(at)
+    const hasParent = (await tryGit(git, cwd, ["rev-parse", "--verify", "-q", `${entry}^`])) !== ""
+    if (
+      !hasParent &&
+      (await tryGit(git, cwd, ["rev-parse", "--verify", "-q", `${entry}^{commit}`])) === ""
+    )
+      return []
+    const log = await logOf(git, cwd, hasParent ? `${entry}^..${rev}` : rev)
+    return log[0]?.hash === entry ? [...log] : []
   }
-  for (let i = log.length - 1; i >= 0; i--) {
-    const m = parseCommitMessage(log[i]!.message)
-    if (m.parsed?.from === undefined && m.parsed?.actor === "human") return log.slice(i)
-    if (m.parsed === undefined || m.branch !== undefined) return log.slice(i + 1)
+  const PAGE = 50
+  let collected: RawCommit[] = []
+  let from = rev
+  for (;;) {
+    const page = await logOf(git, cwd, from, ["-n", String(PAGE)])
+    collected = [...page, ...collected]
+    for (let i = page.length - 1; i >= 0; i--) {
+      const m = parseCommitMessage(page[i]!.message)
+      if (m.parsed?.from === undefined && m.parsed?.actor === "human") return collected.slice(i)
+      if (m.parsed === undefined || m.branch !== undefined) return collected.slice(i + 1)
+    }
+    const oldest = page[0]
+    if (oldest === undefined || page.length < PAGE) return collected
+    if ((await tryGit(git, cwd, ["rev-parse", "--verify", "-q", `${oldest.hash}^`])) === "")
+      return collected
+    from = `${oldest.hash}^`
   }
-  return [...log]
 }
 
 const isAncestor = async (git: Git, cwd: string, tip: string): Promise<boolean> => {
