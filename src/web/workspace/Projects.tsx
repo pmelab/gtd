@@ -4,7 +4,7 @@ import { Badge } from "../ui/badge.js"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible.js"
 import { NoteLine } from "./NoteLine.js"
 import { Refused } from "./Press.js"
-import { ServiceChips } from "./ServiceChips.js"
+import { ServicesFailure } from "./ServiceChips.js"
 import { StatusBadge } from "./Status.js"
 import { NewWorktree } from "./WorktreeChanges.js"
 import {
@@ -55,8 +55,7 @@ const Row = ({
     worktree.unavailable !== undefined ||
     noteText(worktree) !== undefined ||
     worktree.refusal !== undefined ||
-    worktree.servicesFailure !== undefined ||
-    (worktree.services ?? []).length > 0
+    worktree.servicesFailure !== undefined
   return (
     <li
       className={cn(
@@ -91,7 +90,7 @@ const Row = ({
           )}
           <NoteLine worktree={worktree} />
           <Refused worktree={worktree} />
-          <ServiceChips worktree={worktree} />
+          <ServicesFailure worktree={worktree} />
         </div>
       )}
     </li>

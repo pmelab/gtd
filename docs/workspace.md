@@ -49,8 +49,8 @@ The dashboard has three views:
   all projects. Each card opens the worktree's detail, where Proceed or Retry is
   (see [Proceed and Retry](#proceed-and-retry)). The worktrees that work fold
   into one line each, under "N working".
-- **Projects**: every worktree, grouped by project, with its status, its label,
-  its service chips and the reason of a refused press.
+- **Projects**: every worktree, grouped by project, with its status, its label
+  and the reason of a refused press. The worktree detail shows its services.
 - **Inbox**: the items that wait (see [Inbox](#inbox)).
 
 Banners above each view show problems with the workspace itself.

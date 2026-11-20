@@ -42,18 +42,20 @@ const Chip = ({ service }: { readonly service: Service }) => {
   )
 }
 
+/** The line a services outage leaves in place of the chips. */
+export const ServicesFailure = ({ worktree }: { readonly worktree: WorktreeView }) =>
+  worktree.servicesFailure === undefined ? null : (
+    <p className="flex items-start gap-2 text-sm text-destructive">
+      <CircleX aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+      <span data-testid="services-unavailable">
+        services unavailable: {worktree.servicesFailure.message}
+      </span>
+    </p>
+  )
+
 /** A worktree's services: name, running or not, the error; a chip with a URL opens it. */
 export const ServiceChips = ({ worktree }: { readonly worktree: WorktreeView }) => {
-  if (worktree.servicesFailure !== undefined) {
-    return (
-      <p className="flex items-start gap-2 text-sm text-destructive">
-        <CircleX aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-        <span data-testid="services-unavailable">
-          services unavailable: {worktree.servicesFailure.message}
-        </span>
-      </p>
-    )
-  }
+  if (worktree.servicesFailure !== undefined) return <ServicesFailure worktree={worktree} />
   const services = worktree.services ?? []
   if (services.length === 0) return null
   return (
