@@ -175,6 +175,11 @@ export type Command =
     }
   | {
       readonly kind: "workspaceControl"
+      readonly command: "now"
+      readonly config?: string
+    }
+  | {
+      readonly kind: "workspaceControl"
       readonly command: "pause" | "resume"
       readonly project?: string
       readonly feed?: string
@@ -1176,7 +1181,9 @@ const stateHomeOf = (host: HostOps, paths: Path.Path): string =>
 
 type ControlCommand = Extract<Command, { kind: "workspaceControl" }>
 
-const controlRequestOf = (command: ControlCommand): WorkspaceControlRequest["request"] => {
+const controlRequestOf = (
+  command: Exclude<ControlCommand, { command: "now" }>,
+): WorkspaceControlRequest["request"] => {
   switch (command.command) {
     case "note":
       return { command: "note", worktree: command.worktree, note: command.note }
@@ -1197,6 +1204,15 @@ const runWorkspaceControlCliCommand = (
   Effect.gen(function* () {
     const host = yield* Host
     const paths = yield* Path.Path
+    if (command.command === "now") {
+      yield* (yield* ToolCommands).workspaceNow({
+        ...(command.config !== undefined ? { config: command.config } : {}),
+        cwd: host.root,
+        stateHome: stateHomeOf(host, paths),
+        loadModule: (file) => evaluateModule(paths, file),
+      })
+      return
+    }
     yield* (yield* ToolCommands).workspaceControl({
       request: controlRequestOf(command),
       ...(command.config !== undefined ? { config: command.config } : {}),

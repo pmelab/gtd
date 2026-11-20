@@ -258,6 +258,10 @@ export const rex = (options: RexOptions = {}): TerminalAdapter => {
       const outcome = await call(["block", "close", handle])
       if (outcome.code !== 0 && !isGone(outcome)) fail("close", outcome)
     },
+    focus: async (handle) => {
+      const outcome = await call(["focus", handle])
+      if (outcome.code !== 0) fail("focus", outcome)
+    },
     watch: () => ({
       [Symbol.asyncIterator]: () =>
         paneEvents(

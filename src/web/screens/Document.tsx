@@ -15,7 +15,7 @@ import {
   MessageSquareText,
   type LucideIcon,
 } from "lucide-react"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import type {
   BlockListItem,
   InlineNode,
@@ -23,6 +23,7 @@ import type {
   SteeringView,
   SteeringViewNode,
 } from "../../steering/index.js"
+import { gateKind } from "../../steering/index.js"
 import { Button } from "../Button.js"
 import { cn } from "../cn.js"
 import { Notice } from "../Notice.js"
@@ -116,11 +117,13 @@ const HunkSlider = ({
   start,
   actions,
   onClose,
+  inline,
 }: {
   readonly pages: readonly Page[]
   readonly start: number
   readonly actions: WidgetActions
   readonly onClose: () => void
+  readonly inline: boolean
 }) => {
   const [at, setIndex] = useState(start)
   const index = Math.min(at, pages.length - 1)
@@ -130,7 +133,10 @@ const HunkSlider = ({
   return (
     <div
       data-testid="hunk-slider"
-      className="scrollbar-thin flex h-full min-h-0 flex-1 flex-col overflow-auto"
+      className={cn(
+        "flex min-h-0 flex-1 flex-col",
+        !inline && "scrollbar-thin h-full overflow-auto",
+      )}
     >
       <div className="sticky top-0 z-10 border-b border-border bg-background/95 backdrop-blur">
         <div className="mx-auto flex w-full max-w-5xl items-center justify-between gap-2 px-2 py-1 lg:px-4">
@@ -561,13 +567,6 @@ export interface GateContext {
   readonly label: string
 }
 
-/** `.gtd/SQUASH_MESSAGE.md` → "Squash message": the file's name is the only gate kind the page is told. */
-const gateKind = (filePath: string): string => {
-  const stem = (filePath.split("/").pop() ?? filePath).replace(/\.[^.]*$/, "")
-  const words = stem.replace(/[_-]+/g, " ").trim().toLowerCase()
-  return words.length > 0 ? words[0]!.toUpperCase() + words.slice(1) : filePath
-}
-
 /** A commit message is read as the exact text it will be, not as prose. */
 const isMessageFile = (filePath: string, nodes: readonly SteeringViewNode[]): boolean =>
   /message\.[^./]*$/i.test(filePath) && !nodes.some(isWidget)
@@ -591,7 +590,7 @@ const GateHeader = ({
 }) => (
   <header
     data-testid="gate-header"
-    className="sticky top-0 z-10 shrink-0 border-b border-border bg-card"
+    className="pt-safe sticky top-0 z-10 shrink-0 border-b border-border bg-card"
   >
     <div className={cn(COLUMN, "flex items-start gap-3 py-3")}>
       <GtdMark className="mt-0.5 size-9 rounded-lg dark:ring-1 dark:ring-border" />
@@ -646,10 +645,40 @@ export const DocumentSkeleton = ({ label }: { readonly label: string }) => (
   </div>
 )
 
+const scrollBoxOf = (from: Element | null): Element => {
+  for (let el = from?.parentElement; el; el = el.parentElement) {
+    if (/auto|scroll/.test(getComputedStyle(el).overflowY)) return el
+  }
+  return document.scrollingElement ?? document.documentElement
+}
+
+/**
+ * Inline, the slider shares the pane's scroll with the hidden document: open it at its
+ * top, not wherever the document was scrolled to, and return there when it closes.
+ */
+const useInlineSlideScroll = (
+  inline: boolean,
+  open: boolean,
+  screen: { readonly current: HTMLDivElement | null },
+  returnTo: { current: { readonly box: Element; readonly top: number } | undefined },
+): void => {
+  useLayoutEffect(() => {
+    if (!inline) return
+    if (open) {
+      screen.current?.scrollIntoView({ block: "start" })
+    } else if (returnTo.current !== undefined) {
+      returnTo.current.box.scrollTop = returnTo.current.top
+      returnTo.current = undefined
+    }
+  }, [inline, open, screen, returnTo])
+}
+
 export interface DocumentViewProps {
   readonly view: SteeringView | undefined
   readonly filePath: string
   readonly context?: GateContext | undefined
+  /** Inside the dashboard's detail pane: no header, no scroll area of its own. */
+  readonly inline?: boolean
   readonly isLoading: boolean
   readonly readError?: unknown
   readonly onSet?: (anchor: SteeringAnchor, value: BoxValue) => TokenGuardedWrite
@@ -676,6 +705,7 @@ export const DocumentView = ({
   view,
   filePath,
   context,
+  inline = false,
   isLoading,
   readError,
   onSet,
@@ -688,15 +718,20 @@ export const DocumentView = ({
   const [noteAnchor, setNoteAnchor] = useState<SteeringAnchor | undefined>(undefined)
   const [slide, setSlide] = useState<number | undefined>(undefined)
   const scroll = useRef<HTMLDivElement>(null)
+  const screen = useRef<HTMLDivElement>(null)
+  const returnTo = useRef<{ readonly box: Element; readonly top: number } | undefined>(undefined)
+  useInlineSlideScroll(inline, slide !== undefined, screen, returnTo)
   const overlay = useWriteStore((s) => s.overlay)
   const save = useWriteStore((s) => s.save)
 
   if (view === undefined) {
     if (isLoading) return <DocumentSkeleton label="Loading the file…" />
     return (
-      <Notice tone="error" className="mx-4 my-6 lg:mx-auto lg:max-w-2xl">
-        {readErrorMessage(readError)}
-      </Notice>
+      <div className="px-4 py-6">
+        <Notice tone="error" className="mx-auto max-w-2xl">
+          {readErrorMessage(readError)}
+        </Notice>
+      </div>
     )
   }
 
@@ -749,7 +784,12 @@ export const DocumentView = ({
         (hits, p, i) => (p.title === key ? [...hits, i] : hits),
         [],
       )[nth]
-      if (at !== undefined) setSlide(at)
+      if (at === undefined) return
+      if (inline) {
+        const box = scrollBoxOf(screen.current)
+        returnTo.current = { box, top: box.scrollTop }
+      }
+      setSlide(at)
     },
   }
 
@@ -786,12 +826,17 @@ export const DocumentView = ({
 
   return (
     <>
-      <div data-testid="document-screen" className="flex h-full min-h-0 flex-1 flex-col">
-        <GateHeader filePath={filePath} context={context} base={view.base} />
+      <div
+        ref={screen}
+        data-testid="document-screen"
+        className={cn("flex min-h-0 flex-1 flex-col", !inline && "h-full")}
+      >
+        {!inline && <GateHeader filePath={filePath} context={context} base={view.base} />}
         {slide !== undefined && pages.length > 0 && (
           <HunkSlider
             pages={pages}
             start={slide}
+            inline={inline}
             actions={actions}
             onClose={() => setSlide(undefined)}
           />
@@ -799,9 +844,15 @@ export const DocumentView = ({
         <div
           ref={scroll}
           data-testid="document-scroll"
-          className={`scrollbar-thin min-h-0 flex-1 overflow-auto ${slide !== undefined ? "hidden" : ""}`}
+          className={cn(
+            "min-h-0 flex-1",
+            !inline && "scrollbar-thin overflow-auto",
+            slide !== undefined && "hidden",
+          )}
         >
-          <div className={cn(COLUMN, "py-6 lg:py-8")}>
+          <div
+            className={cn(inline ? "w-full max-w-[68ch] py-2" : COLUMN, !inline && "py-6 lg:py-8")}
+          >
             <HunkOpenContext.Provider value={actions.openHunk}>
               {view.nodes.length > 0 && hasProse && <NoteGestureHint />}
               {view.nodes.length === 0 ? (
@@ -827,8 +878,14 @@ export const DocumentView = ({
           </div>
         </div>
         {onProceed !== undefined && (
-          <div data-testid="plan-proceed-row" className="shrink-0 border-t border-border bg-card">
-            <div className={cn(COLUMN, "flex flex-col items-end gap-2 py-3")}>
+          <div
+            data-testid="plan-proceed-row"
+            className={cn(
+              "shrink-0 border-t border-border",
+              inline ? "sticky bottom-0 z-10 bg-background" : "bg-card",
+            )}
+          >
+            <div className={cn(inline ? "w-full" : COLUMN, "flex flex-col items-end gap-2 py-3")}>
               {(proceedBlocked ?? proceedError) !== undefined && (
                 <Notice tone="error" data-testid="proceed-refusal" className="w-full">
                   {proceedBlocked ?? proceedError}
@@ -923,6 +980,7 @@ const useDocumentMutations = (
 const DocumentInner = ({
   filePath,
   context,
+  inline,
   data,
   isLoading,
   error,
@@ -931,6 +989,7 @@ const DocumentInner = ({
 }: {
   readonly filePath: string
   readonly context: GateContext | undefined
+  readonly inline: boolean
   readonly data: { readonly view?: SteeringView; readonly headSha?: string } | undefined
   readonly isLoading: boolean
   readonly error: unknown
@@ -945,13 +1004,15 @@ const DocumentInner = ({
     onMovedOn,
   )
   const canProceed = trpc.canProceed.useQuery()
+  const indicator = <SaveIndicator {...indicatorProps} />
   return (
     <>
-      <SaveIndicator {...indicatorProps} />
+      {!inline && indicator}
       <DocumentView
         view={data?.view}
         filePath={filePath}
         context={context}
+        inline={inline}
         isLoading={isLoading}
         readError={error}
         onSet={onSet}
@@ -963,6 +1024,8 @@ const DocumentInner = ({
         proceedError={proceedError}
         busy={pending > 0}
       />
+      {/* Inline, the pane scrolls: pin the toast to its visible bottom, not to the column's top. */}
+      {inline && <div className="sticky bottom-0 z-20 h-0">{indicator}</div>}
     </>
   )
 }
@@ -971,11 +1034,13 @@ const DocumentInner = ({
 export const Document = ({
   filePath,
   context,
+  inline = false,
   idle = false,
   onMovedOn = () => {},
 }: {
   readonly filePath: string
   readonly context?: GateContext
+  readonly inline?: boolean
   /** An idle worktree's page has no Proceed. */
   readonly idle?: boolean
   readonly onMovedOn?: () => void
@@ -994,6 +1059,7 @@ export const Document = ({
       <DocumentInner
         filePath={filePath}
         context={context}
+        inline={inline}
         data={query.data}
         isLoading={query.isLoading}
         error={query.error}

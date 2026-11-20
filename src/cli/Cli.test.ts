@@ -1489,3 +1489,12 @@ describe("runCli — flush normalizes the artifact's trailing newline", () => {
 // Re-exported so downstream test files can build Command values without
 // importing from Program.js — keeps the type import exercised here too.
 export type { Command }
+
+describe("gtd workspace now", () => {
+  it("takes --config and nothing else", () => {
+    expect(parseArgv(["node", "gtd.js", "workspace", "now", "--config", "w.ts"])).toMatchObject({
+      kind: "command",
+      command: { kind: "workspaceControl", command: "now", config: "w.ts" },
+    })
+  })
+})

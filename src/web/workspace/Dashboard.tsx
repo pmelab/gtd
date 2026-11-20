@@ -219,9 +219,7 @@ const Loaded = ({
       current={view}
       onSelect={onSelect}
       className={
-        desktop
-          ? "px-3"
-          : "fixed inset-x-0 bottom-0 z-10 border-t border-border bg-card pb-[env(safe-area-inset-bottom)]"
+        desktop ? "px-3" : "fixed inset-x-0 bottom-0 z-10 border-t border-border bg-card pb-safe"
       }
     />
   )
@@ -250,7 +248,7 @@ const Loaded = ({
         </aside>
       )}
       {!desktop && !detailOnly && (
-        <header className="sticky top-0 z-10 flex min-h-12 items-center justify-between gap-3 border-b border-border bg-background/90 px-4 pt-[env(safe-area-inset-top)] backdrop-blur">
+        <header className="sticky top-0 z-10 flex min-h-12 items-center justify-between gap-3 border-b border-border bg-background/90 px-4 pt-safe backdrop-blur">
           <h1 className="text-lg font-semibold">{title}</h1>
           <GtdWordmark className="h-5" />
         </header>
@@ -261,7 +259,7 @@ const Loaded = ({
             className={
               desktop
                 ? `flex min-w-0 flex-col ${split ? "w-[28rem] shrink-0 border-r border-border xl:w-[32rem]" : "flex-1"}`
-                : "flex min-w-0 flex-1 flex-col px-4 pt-4 pb-[calc(5rem+env(safe-area-inset-bottom))]"
+                : "flex min-w-0 flex-1 flex-col px-4 pt-4 pb-[calc(5rem+var(--safe-bottom,env(safe-area-inset-bottom)))]"
             }
           >
             {desktop ? (

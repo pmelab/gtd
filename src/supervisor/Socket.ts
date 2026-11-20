@@ -16,9 +16,11 @@ import { UiError } from "../ui/index.js"
 import { findWorkspaceModule } from "./Config.js"
 import { stateDirectory } from "./Lock.js"
 import { pauseScope } from "./Pauses.js"
+import type { ProjectView, WorktreeView } from "./Scan.js"
 
 /** One request per connection: a JSON line in, a JSON line back. */
 export type ControlRequest =
+  | { readonly command: "projects" }
   | {
       readonly command: "proceed" | "retry"
       /** The worktree's path. */
@@ -46,7 +48,14 @@ export type ControlRequest =
       readonly wait?: boolean
     }
 
-export type ControlReply = { readonly ok: true } | { readonly ok: false; readonly message: string }
+/** A worktree as the terminal reads it: with the handle of its driver pane. */
+export type SharedProject = Omit<ProjectView, "worktrees"> & {
+  readonly worktrees: readonly (WorktreeView & { readonly pane?: string })[]
+}
+
+export type ControlReply =
+  | { readonly ok: true; readonly projects?: readonly SharedProject[] }
+  | { readonly ok: false; readonly message: string }
 
 export const socketPath = (directory: string): string => join(directory, "socket")
 
@@ -67,6 +76,7 @@ const parseRequest = (line: string): ControlRequest | undefined => {
   const value = parseJson(line)
   if (!isRecord(value)) return undefined
   const { command } = value
+  if (command === "projects") return { command }
   if (command === "pause" || command === "resume") return parsePause(command, value)
   return parseWorktreeRequest(value)
 }
@@ -225,10 +235,23 @@ export const serveSocket = async (
   }
 }
 
-/** The supervisor's reply, or `undefined` when no supervisor listens at `path`. */
-const send = (path: string, request: ControlRequest): Promise<ControlReply | undefined> =>
+/**
+ * The supervisor's reply, or `undefined` when no supervisor listens at `path`.
+ * With `timeoutMs`, a supervisor that does not answer in time fails the read.
+ */
+export const send = (
+  path: string,
+  request: ControlRequest,
+  timeoutMs?: number,
+): Promise<ControlReply | undefined> =>
   new Promise((answered, failed) => {
     const socket = createConnection(path)
+    if (timeoutMs !== undefined) {
+      socket.setTimeout(timeoutMs, () => {
+        socket.destroy()
+        failed(new Error("the supervisor did not answer"))
+      })
+    }
     socket.once("error", (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT" || error.code === "ECONNREFUSED") answered(undefined)
       else failed(error)
@@ -243,7 +266,14 @@ const send = (path: string, request: ControlRequest): Promise<ControlReply | und
         } catch {
           reply = undefined
         }
-        if (isRecord(reply) && reply["ok"] === true) return answered({ ok: true })
+        if (isRecord(reply) && reply["ok"] === true) {
+          const { projects } = reply
+          return answered(
+            Array.isArray(projects)
+              ? { ok: true, projects: projects as readonly SharedProject[] }
+              : { ok: true },
+          )
+        }
         if (isRecord(reply) && typeof reply["message"] === "string") {
           return answered({ ok: false, message: reply["message"] })
         }
@@ -251,6 +281,12 @@ const send = (path: string, request: ControlRequest): Promise<ControlReply | und
       })
     })
   })
+
+/** The workspace's socket for the config and directory the command starts in. */
+export const socketFor = (cwd: string, config: string | undefined, stateHome: string): string => {
+  const file = findWorkspaceModule(cwd, config)
+  return socketPath(stateDirectory(stateHome, dirname(file)))
+}
 
 export interface ControlCommand {
   readonly request: ControlRequest

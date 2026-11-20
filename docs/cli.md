@@ -37,6 +37,7 @@ Inspect:
                             Pause dispatch
   workspace resume [project [feed]]
                             Resume dispatch
+  workspace now             Show the Now view in the terminal
 
 Driver plumbing:
   guide                     Print a briefing for writing a driver
@@ -710,6 +711,28 @@ It reaches the running supervisor of the workspace whose gtd.workspace.ts is
 innermost from the current directory, or the one --config names, through a unix
 socket only you may open. An unknown project or feed exits 1; so does a
 supervisor that is not running.
+
+Options:
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace now`
+
+```
+Usage: gtd workspace now [options]
+
+Show every worktree that needs you or is in error, across all projects, as the
+dashboard's Now view does, and how many worktrees are working. The screen
+redraws as statuses change. Up, down, j and k move the selection; Enter, or a
+number key 1 to 9, brings the driver pane of that worktree to the front through
+the terminal adapter. q or Ctrl-C quits.
+
+It reads the running supervisor of the workspace whose gtd.workspace.ts is
+innermost from the current directory, or the one --config names, through a unix
+socket only you may open. It exits 1 when no supervisor is running or when stdin
+or stdout is not a terminal.
 
 Options:
   --config=<path>     Use this gtd.workspace.ts instead of the innermost one

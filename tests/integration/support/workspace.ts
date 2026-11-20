@@ -1,4 +1,5 @@
 import { Effect, Layer } from "effect"
+import { EventEmitter } from "node:events"
 import { spawn } from "node:child_process"
 import {
   existsSync,
@@ -18,6 +19,7 @@ import { GtdError, GtdUsageError, NodeServices } from "../../../src/platform/ind
 import {
   driverPanes,
   runControlCommand,
+  runNowCommand,
   runWorkspaceCommand,
   stateDirectory,
   SupervisorClock,
@@ -75,7 +77,11 @@ const IDLE_NEXT = JSON.stringify({
  */
 class ManualClock {
   now = Date.parse("2026-01-01T00:00:00Z")
-  private readonly tasks = new Set<{ ms: number; due: number; task: () => Promise<void> }>()
+  private readonly tasks = new Set<{
+    ms: number
+    due: number
+    task: () => Promise<void>
+  }>()
   private readonly running = new Set<Promise<void>>()
 
   every = (ms: number, task: () => Promise<void>): (() => void) => {
@@ -132,6 +138,8 @@ export class WorkspaceBench {
   readonly clock = inMemoryClock()
   /** Whether the default worktrees adapter offers a watch. */
   watching = true
+  /** Whether the default worktrees adapter offers `unpushed`. */
+  unpushedOffered = true
   readonly services = inMemoryServices()
   readonly notifications = inMemoryNotifications()
   /** The changing calls the supervisor made to the worktrees, services and terminal adapters, in order. */
@@ -149,7 +157,10 @@ export class WorkspaceBench {
   /** What the supervisor runs when a watched file changes, by path; each returns once that change is handled. */
   private readonly fileWatches = new Map<string, Set<() => Promise<void>>>()
   /** Each driver one-shot the supervisor ran, in order. */
-  readonly oneShots: { readonly worktree: string; readonly argv: readonly string[] }[] = []
+  readonly oneShots: {
+    readonly worktree: string
+    readonly argv: readonly string[]
+  }[] = []
   /** Worktrees whose driver refuses every one-shot, with its stderr. */
   readonly refusing = new Map<string, string>()
   /** Worktrees whose driver never answers a one-shot, as if it never listened. */
@@ -257,7 +268,15 @@ export class WorkspaceBench {
       ...adapter,
       create: async (project, branch, base) => {
         const path = await adapter.create!(project, branch, base)
-        this.calls.push({ call: "worktrees.create", worktree: `${project}/${branch}` })
+        this.calls.push({
+          call: "worktrees.create",
+          worktree: `${project}/${branch}`,
+        })
+        return path
+      },
+      switch: async (project, branch) => {
+        const path = await adapter.switch!(project, branch)
+        this.calls.push({ call: "worktrees.switch", worktree: `${project}/${branch}` })
         return path
       },
       remove: async (project, path, options) => {
@@ -296,7 +315,10 @@ export class WorkspaceBench {
       status: (handle) => (this.terminalStopped ? new Promise(() => {}) : adapter.status(handle)),
       close: async (handle) => {
         const pane = this.terminal.panes().find((p) => p.handle === handle)
-        this.calls.push({ call: "terminal.close", worktree: await this.refOf(pane!.worktree) })
+        this.calls.push({
+          call: "terminal.close",
+          worktree: await this.refOf(pane!.worktree),
+        })
         await adapter.close(handle)
       },
     }
@@ -345,7 +367,11 @@ export class WorkspaceBench {
       return { status: 2, stdout: "", stderr: "no driver runs\n" }
     }
     const refusal = this.refusing.get(worktree)
-    return { status: refusal === undefined ? 0 : 1, stdout: "", stderr: refusal ?? "" }
+    return {
+      status: refusal === undefined ? 0 : 1,
+      stdout: "",
+      stderr: refusal ?? "",
+    }
   }
 
   /** What each worktree's `.gtd/` and index hold, as the supervisor reads them. */
@@ -392,8 +418,12 @@ export class WorkspaceBench {
     const host = Layer.succeed(SupervisorHost, {
       next: (path) => this.runNext(path),
       defaultWorktrees: () => {
-        const { watch, ...adapter } = this.loggedWorktrees()
-        return this.watching ? { ...adapter, watch: watch! } : adapter
+        const { watch, unpushed, ...adapter } = this.loggedWorktrees()
+        return {
+          ...adapter,
+          ...(this.watching ? { watch: watch! } : {}),
+          ...(this.unpushedOffered ? { unpushed: unpushed! } : {}),
+        }
       },
       defaultTerminal: () => this.loggedTerminal(),
       defaultServices: () => this.loggedServices(),
@@ -412,6 +442,7 @@ export class WorkspaceBench {
       },
       oneShot: (argv, worktree) => this.oneShot(argv, worktree),
       fingerprint: async (path) => this.prints.get(path) ?? "",
+      readFile: async (path) => this.files.get(path),
     })
     const tools = Layer.succeed(UserlandTools, {
       exec: async (argv) => {
@@ -464,6 +495,40 @@ export class WorkspaceBench {
     )
     await Effect.runPromise(runCli(["node", "gtd.js", ...args], io)).catch(() => {})
     this.lastCommand = result()
+  }
+
+  /** The Now view of `gtd workspace now`: what its screen showed after the keys, then it quits. */
+  async now(keys: readonly string[]): Promise<string> {
+    let screen = ""
+    const input = Object.assign(new EventEmitter(), {
+      isTTY: true,
+      setRawMode: () => {},
+      resume: () => {},
+      pause: () => {},
+    })
+    const run = Effect.runPromise(
+      runNowCommand({
+        cwd: this.root,
+        stateHome: this.stateHome,
+        loadModule: async () => ({
+          workspace: { adapters: { terminal: this.loggedTerminal() } },
+        }),
+        input,
+        output: {
+          isTTY: true,
+          columns: 80,
+          write: (chunk: string) => (screen += chunk),
+        },
+      }).pipe(Effect.provide(Layer.succeed(SupervisorHost, {} as never))),
+    )
+    while (screen === "") await delay(5)
+    for (const key of [...keys, "q"]) {
+      input.emit("data", key)
+      await delay(20)
+    }
+    await run
+    const frames = screen.split("\x1b[H\x1b[2J")
+    return (frames.at(-1) ?? "").replace("\x1b[?25h\x1b[?1049l", "")
   }
 
   /** Starts `gtd workspace` and returns once it serves or has exited. */
@@ -571,7 +636,10 @@ export class WorkspaceBench {
             `/trpc/${procedure}?input=${encodeURIComponent(JSON.stringify(input))}`,
           )
         : await this.post(`/trpc/${procedure}`, input)
-    const body = (await response.json()) as { result?: { data: unknown }; error?: unknown }
+    const body = (await response.json()) as {
+      result?: { data: unknown }
+      error?: unknown
+    }
     return body.result?.data ?? body.error
   }
 
@@ -620,7 +688,10 @@ export class WorkspaceBench {
   }
 
   deleteState(): void {
-    rmSync(stateDirectory(this.stateHome, this.root), { recursive: true, force: true })
+    rmSync(stateDirectory(this.stateHome, this.root), {
+      recursive: true,
+      force: true,
+    })
   }
 
   async projects(): Promise<readonly ProjectView[]> {
@@ -697,7 +768,12 @@ export class WorkspaceBench {
     child.stderr.on("data", (chunk: Buffer) => (stderr += chunk.toString("utf8")))
     return new Promise((resolve) =>
       child.once("close", (code) =>
-        resolve({ stdout, stdoutBytes: Buffer.from(stdout), stderr, exitCode: code ?? -1 }),
+        resolve({
+          stdout,
+          stdoutBytes: Buffer.from(stdout),
+          stderr,
+          exitCode: code ?? -1,
+        }),
       ),
     )
   }

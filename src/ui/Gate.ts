@@ -58,8 +58,30 @@ export const withTrpcEndpoint = (html: string, endpoint: string): string =>
 export const dashboardPage = (endpoint: string, clientHtml = generatedClientHtml): string =>
   withTrpcEndpoint(clientHtml, endpoint).replace(
     /<head[^>]*>/,
-    (head) => `${head}<meta name="gtd-page" content="workspace">`,
+    (head) =>
+      `${head}<meta name="gtd-page" content="workspace"><link rel="manifest" href="${MANIFEST_PATH}">`,
   )
+
+export const MANIFEST_PATH = "/manifest.webmanifest"
+
+/** The dashboard's web app manifest; icons are the data URIs the client page already carries. */
+export const dashboardManifest = (clientHtml = generatedClientHtml): string => {
+  const icon = (match: RegExp): string | undefined => match.exec(clientHtml)?.[1]
+  const png = icon(/<link rel="icon" type="image\/png" sizes="192x192" href="([^"]+)"/)
+  const svg = icon(/<link rel="icon" type="image\/svg\+xml" href="([^"]+)"/)
+  return JSON.stringify({
+    name: "gtd",
+    short_name: "gtd",
+    start_url: "/",
+    display: "standalone",
+    theme_color: "#f4f4f1",
+    background_color: "#f4f4f1",
+    icons: [
+      ...(png !== undefined ? [{ src: png, sizes: "192x192", type: "image/png" }] : []),
+      ...(svg !== undefined ? [{ src: svg, sizes: "any", type: "image/svg+xml" }] : []),
+    ],
+  })
+}
 
 const vanished: WriteResult = { ok: false, reason: "file-vanished" }
 

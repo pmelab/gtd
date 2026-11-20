@@ -8,7 +8,13 @@ export {
 } from "./Server.js"
 export { UiError, UiHost, UiShell, UiUsageError, type UiHandler, type UiHostOps } from "./Ports.js"
 export { liveUiHost } from "./Host.js"
-export { currentRest, dashboardPage, gateHandler } from "./Gate.js"
+export {
+  MANIFEST_PATH,
+  currentRest,
+  dashboardManifest,
+  dashboardPage,
+  gateHandler,
+} from "./Gate.js"
 export { contentHashOf, liveReadFile } from "./Write.js"
 export type { ReadFileResult, RunInWorktree, ServeRecord, SpawnOutcome } from "./Ports.js"
 export { readServeRecord, writeServeRecord, deleteServeRecord } from "./Serve.js"

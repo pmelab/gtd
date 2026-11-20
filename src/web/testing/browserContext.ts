@@ -46,3 +46,34 @@ export const disableTransitions = (): void => {
   style.textContent = "*, *::before, *::after { transition: none !important }"
   document.head.appendChild(style)
 }
+
+const TARGET_SELECTOR = "button, a[href], input, [role=button]"
+const MIN_TARGET = 44
+
+const describeElement = (el: Element): string => {
+  const label = el.getAttribute("aria-label") ?? el.textContent?.trim().slice(0, 30) ?? ""
+  return `<${el.tagName.toLowerCase()}> "${label}"`
+}
+
+/**
+ * The layout rules every story must meet: no sideways page scroll, and (on a
+ * phone) no visible, enabled target under 44px. Links inside a paragraph,
+ * list item or table cell are exempt. Returns one message per violation.
+ */
+export const auditLayout = (root: ParentNode, options: { readonly targets: boolean }): string[] => {
+  const problems: string[] = []
+  const page = document.documentElement
+  if (page.scrollWidth > page.clientWidth) {
+    problems.push(`page scrolls sideways (${page.scrollWidth}px > ${page.clientWidth}px)`)
+  }
+  if (!options.targets) return problems
+  for (const el of root.querySelectorAll(TARGET_SELECTOR)) {
+    if (el.matches("a") && el.closest("p, li, td, th") !== null) continue
+    if (el.matches(":disabled") || !el.checkVisibility({ visibilityProperty: true })) continue
+    const { width, height } = el.getBoundingClientRect()
+    if (width < MIN_TARGET || height < MIN_TARGET) {
+      problems.push(`${describeElement(el)} is ${Math.round(width)}x${Math.round(height)}px`)
+    }
+  }
+  return problems
+}

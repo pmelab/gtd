@@ -16,6 +16,8 @@ export interface WorktreeStatus {
   readonly message?: string
   /** The rest names a steering file, so its gate page has its own Proceed. */
   readonly gated?: boolean | undefined
+  /** The process rests on a person: the gate page has something to act on. */
+  readonly humanRest?: boolean
 }
 
 /** What gtd knows of a worktree's driver pane. */
@@ -123,7 +125,7 @@ const restStatus = (next: NextFields, driver: DriverState): WorktreeStatus => {
       ...(record.kind ? { kind: record.kind } : {}),
     }
   }
-  if (!DRIVEN_ACTORS.has(next.actor)) return { status: "needsYou", label }
+  if (!DRIVEN_ACTORS.has(next.actor)) return { status: "needsYou", label, humanRest: true }
   if (live) return { status: "working", label }
   return { status: "needsYou", label, message: "no driver runs" }
 }

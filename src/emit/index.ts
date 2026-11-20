@@ -15,6 +15,7 @@ export {
   commitPath,
   pinScript,
   failRestScript,
+  recordExitScript,
   repinScript,
   unpinScript,
   CHANGED_SINCE_LAND,

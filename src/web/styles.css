@@ -33,6 +33,10 @@
   --color-link: #151a1d;
   --color-disabled: #8d9397;
   --color-quote: #596066;
+  --color-actor-human: #1d4fb0;
+  --color-actor-agent: #6a2fb8;
+  --color-actor-judge: #8a4b00;
+  --color-actor-check: #00675a;
 
   /* Code and diff set. */
   --color-code-bg: #fafaf7;
@@ -90,6 +94,10 @@
     --color-link: #fafaf7;
     --color-disabled: #6e767b;
     --color-quote: #a2a8ac;
+    --color-actor-human: #7fb0ff;
+    --color-actor-agent: #c4a2ff;
+    --color-actor-judge: #ffb454;
+    --color-actor-check: #3fd6c0;
 
     --color-code-bg: #151a1d;
     --color-code: #ffa057;
@@ -246,4 +254,15 @@ input:not([type]) {
     outline: 2px solid var(--color-ring);
     outline-offset: 2px;
   }
+}
+
+/* Insets read a variable so a story can fake them; env() is 0 in a desktop browser. */
+@utility pt-safe {
+  padding-top: var(--safe-top, env(safe-area-inset-top));
+}
+@utility pb-safe {
+  padding-bottom: var(--safe-bottom, env(safe-area-inset-bottom));
+}
+@utility top-safe {
+  top: var(--safe-top, env(safe-area-inset-top));
 }

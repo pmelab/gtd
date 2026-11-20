@@ -19,7 +19,7 @@ export const RadioGroupItem = ({
   <RadioGroupPrimitive.Item
     data-slot="radio-group-item"
     className={cn(
-      "aspect-square size-5 shrink-0 rounded-full border border-input bg-card transition-colors outline-none",
+      "aspect-square size-11 shrink-0 rounded-full lg:size-5 border border-input bg-card transition-colors outline-none",
       "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
       "data-[state=checked]:border-foreground",
       "disabled:cursor-not-allowed disabled:opacity-50",
@@ -31,7 +31,7 @@ export const RadioGroupItem = ({
       data-slot="radio-group-indicator"
       className="grid place-content-center"
     >
-      <span className="size-2.5 rounded-full bg-foreground" />
+      <span className="size-5 rounded-full bg-foreground lg:size-2.5" />
     </RadioGroupPrimitive.Indicator>
   </RadioGroupPrimitive.Item>
 )

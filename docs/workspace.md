@@ -27,14 +27,15 @@ work as for `gtd ui`.
 
 ### Commands for your scripts
 
-| Command                                                        | See                                     |
-| -------------------------------------------------------------- | --------------------------------------- |
-| `gtd workspace proceed <worktree> <commit>`                    | [Proceed and Retry](#proceed-and-retry) |
-| `gtd workspace retry <worktree> <commit>`                      | [Proceed and Retry](#proceed-and-retry) |
-| `gtd workspace note <worktree> [message] [--error] [--notify]` | [Notes](#notes)                         |
-| `gtd workspace note <worktree> --clear`                        | [Notes](#notes)                         |
-| `gtd workspace pause [project [feed]] [--wait]`                | [Pause](#pause)                         |
-| `gtd workspace resume [project [feed]]`                        | [Pause](#pause)                         |
+| Command                                                        | See                                         |
+| -------------------------------------------------------------- | ------------------------------------------- |
+| `gtd workspace proceed <worktree> <commit>`                    | [Proceed and Retry](#proceed-and-retry)     |
+| `gtd workspace retry <worktree> <commit>`                      | [Proceed and Retry](#proceed-and-retry)     |
+| `gtd workspace note <worktree> [message] [--error] [--notify]` | [Notes](#notes)                             |
+| `gtd workspace note <worktree> --clear`                        | [Notes](#notes)                             |
+| `gtd workspace pause [project [feed]] [--wait]`                | [Pause](#pause)                             |
+| `gtd workspace resume [project [feed]]`                        | [Pause](#pause)                             |
+| `gtd workspace now`                                            | [Now in the terminal](#now-in-the-terminal) |
 
 Each finds the workspace like `gtd workspace` does, or uses the
 `gtd.workspace.ts` that `--config <path>` names, and reaches the running
@@ -46,11 +47,11 @@ supervisor through its socket (see [Security](#security)). The
 The dashboard has three views:
 
 - **Now**: only the worktrees that need you and the worktrees in error, across
-  all projects. Each has one primary button, Proceed or Retry (see
-  [Proceed and Retry](#proceed-and-retry)). The worktrees that work fold into
-  one line each, under "N working".
-- **Projects**: every worktree, grouped by project, with its status, its label,
-  its service chips and the reason of a refused press.
+  all projects. Each card opens the worktree's detail, where Proceed or Retry is
+  (see [Proceed and Retry](#proceed-and-retry)). The worktrees that work fold
+  into one line each, under "N working".
+- **Projects**: every worktree, grouped by project, with its status, its label
+  and the reason of a refused press. The worktree detail shows its services.
 - **Inbox**: the items that wait (see [Inbox](#inbox)).
 
 Banners above each view show problems with the workspace itself.
@@ -63,13 +64,32 @@ is in error; the collapsed header counts those worktrees. A reload resets this.
 
 A tap on a worktree opens its detail as a screen of its own, at `?worktree=` its
 path (the link a notification carries). Close returns to the view it was opened
-from, or to Now when it was opened from a link. The detail has two tabs, at the
-bottom:
+from, or to Now when it was opened from a link. The detail has three tabs, at
+the bottom:
 
-- **Gate**, first: the worktree's [gate page](#gate-pages), with a link that
-  opens it in a tab of its own.
+- **Gate**: the worktree's [gate page](#gate-pages), shown without its own
+  header and scrolling with the detail. It is enabled only while the process
+  rests on a person; otherwise it is disabled and Actions shows "No human gate
+  right now". The detail opens on Gate when it is enabled, else on Actions. A
+  worktree that reaches a gate while its detail is open enables Gate and keeps
+  Actions selected; passing the gate while Gate is selected switches to Actions.
+  The detail header, on every tab, names the gate kind and, for a review, the
+  review base, and links to the gate page in a tab of its own.
 - **Actions**: the actions offered in the worktree status now, with their fields
   (see [`actions`](#actions)). Run starts the chosen one in a pane of its own.
+- **Retrospective**: every process on the worktree's branch, newest first, read
+  from git: each step's actor, states, time and gap, what each agent turn cost,
+  judge verdicts, check exit codes and what a person ticked or wrote. Free-text
+  edits outside the steering widgets are not shown.
+
+## Now in the terminal
+
+`gtd workspace now` shows the dashboard's Now view in the terminal: the
+worktrees that need you or are in error, then a count of those that work. It
+redraws as statuses change. Up, down, `j` and `k` select a row; Enter, or `1` to
+`9`, calls the terminal adapter's `focus(handle)` with the driver pane of that
+worktree. Without `focus`, or without a pane, it shows the handle and the
+worktree path instead. `q` quits.
 
 ## `gtd.workspace.ts`
 
@@ -351,6 +371,15 @@ To dispatch an item, gtd:
    when it is free: its process has ended, no driver runs in it, its tree is
    clean and no other item is starting in it. Otherwise the item waits, queued,
    with the reason. When no worktree is on the branch, gtd creates one.
+   **Retry** looks first for the worktree the failed dispatch used, on whatever
+   branch it is on now, because a start action can move it. When that worktree
+   is free and has no commits outside the remotes, gtd runs the start action
+   there and creates nothing. When it is not free, or the item's branch has
+   commits outside the remotes, Retry changes nothing: the item stays failed,
+   and its message gives the reason and the worktree (or the branch). When the
+   worktree is gone but the branch exists with no such commits, Retry creates a
+   worktree on that branch. A worktrees adapter without `switch` and `unpushed`
+   keeps the first behaviour: Retry looks only at the item's branch.
 2. starts the worktree's services,
 3. runs the item's start action in a pane of its own, with `GTD_WORKSPACE_ITEM`:
    the item as JSON (`key`, `title`, `url`, `action`, `priority`, `blockedBy`,
@@ -583,7 +612,7 @@ that worktree at once.
 | --------------- | --------- | -------------------------------- |
 | `worktrees`     | worktrunk | `worktrunk({ roots })`           |
 | `terminal`      | rex       | `rex({ server, shell })`         |
-| `services`      | pitchfork | `pitchfork()`                    |
+| `services`      | pitchfork | `pitchfork({ publicPort })`      |
 | `actions`       | mise      | `mise()`                         |
 | `notifications` | ntfy      | `ntfy({ topic, server, token })` |
 
@@ -621,6 +650,11 @@ has it.
 - **`create(project, branch, base)`** (optional): a new worktree on the new
   branch `branch`, made from `base` (default: the default branch). Returns the
   worktree's path. Without it, New worktree is refused.
+- **`switch(project, branch)`** (optional): a new worktree on the existing
+  branch. Returns its path. Retry uses it on a leftover branch.
+- **`unpushed(project, branch)`** (optional): whether the branch has commits on
+  no remote; `undefined` for no such branch. Retry uses it to refuse a leftover
+  that holds work.
 - **`remove(project, worktree, { force })`** (optional): removes the worktree at
   the path `worktree` and deletes its branch, and returns when the removal is
   complete. Without `force` it fails on a dirty tree and keeps a branch that is
@@ -659,12 +693,13 @@ checkouts. A project added after the supervisor started is found by the next
   pane is gone. `record` is the root OSC 7501 record (`state`, `kind`, `title`,
   `msg`). `exit` is `{ code }` once `argv` has ended (`128 + n` for signal `n`),
   else `null`.
-- **`close(handle)`**, and optionally **`watch()`** (hints, each a handle whose
-  status may have changed).
+- **`close(handle)`**, and optionally **`focus(handle)`** (brings the pane to
+  the front of the person's terminal; `gtd workspace now` calls it) and
+  **`watch()`** (hints, each a handle whose status may have changed).
 
 `rex({ server, shell })` opens one Rex session per project id and one window per
 pane. `server` is a Rex server address as `rex -S` takes it; `shell` is the
-login shell (Rex's default when absent). It has `watch()`.
+login shell (Rex's default when absent). It has `focus()` and `watch()`.
 
 ### `services`
 
@@ -678,6 +713,12 @@ login shell (Rex's default when absent). It has `watch()`.
 
 `pitchfork()` uses the daemons of the worktree's own `pitchfork.toml`, and
 reports the URL of pitchfork's proxy as each daemon's URL.
+
+`pitchfork({ publicPort })` replaces the port of every service URL that has one
+with `publicPort`, for a proxy that is reachable on another port than pitchfork
+binds. The port drops when it is the scheme's default (`443` for `https`, `80`
+for `http`). `publicPort` must be an integer from 1 to 65535. It is unset by
+default, and URLs stay as pitchfork reports them.
 
 ### `actions`
 

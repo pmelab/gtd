@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, waitFor, within } from "storybook/test"
+import { expect, fireEvent, waitFor, within } from "storybook/test"
+import { widgetFormat } from "../steering/index.js"
 import { App } from "./App.js"
 import { TrpcTestProvider } from "./testing/TrpcTestProvider.js"
 
@@ -39,7 +40,10 @@ export const Default: Story = {
             contentHash: "deadbeef",
             view: {
               nodes: [
-                { title: "A paragraph worth reading.", anchor: { kind: "paragraph", line: 0 } },
+                {
+                  title: "A paragraph worth reading.",
+                  anchor: { kind: "paragraph", line: 0 },
+                },
               ],
             },
           }),
@@ -131,7 +135,9 @@ export const MovedOnStepShowsTheTurnIsOver: Story = {
   decorators: [
     (Story) => (
       <TrpcTestProvider
-        resolvers={{ step: () => ({ status: "moved-on", label: "reviewing a PR" }) }}
+        resolvers={{
+          step: () => ({ status: "moved-on", label: "reviewing a PR" }),
+        }}
       >
         <Story />
       </TrpcTestProvider>
@@ -157,7 +163,10 @@ export const StepQueryInFlightShowsALoadingSkeleton: Story = {
             contentHash: "deadbeef",
             view: {
               nodes: [
-                { title: "A paragraph worth reading.", anchor: { kind: "paragraph", line: 0 } },
+                {
+                  title: "A paragraph worth reading.",
+                  anchor: { kind: "paragraph", line: 0 },
+                },
               ],
             },
           }),
@@ -173,5 +182,110 @@ export const StepQueryInFlightShowsALoadingSkeleton: Story = {
     await expect(canvasElement.querySelector("[data-slot=skeleton]")).not.toBeNull()
     await expect(canvasElement.textContent?.length).toBeGreaterThan(0)
     await waitFor(() => expect(canvas.getByTestId("document-screen")).toBeInTheDocument())
+  },
+}
+
+const withInsets = async (top: number, bottom: number, run: () => Promise<void>): Promise<void> => {
+  document.documentElement.style.setProperty("--safe-top", `${top}px`)
+  document.documentElement.style.setProperty("--safe-bottom", `${bottom}px`)
+  try {
+    await run()
+  } finally {
+    document.documentElement.style.removeProperty("--safe-top")
+    document.documentElement.style.removeProperty("--safe-bottom")
+  }
+}
+
+const brokenDecorator: NonNullable<Story["decorators"]> = [
+  (Story) => (
+    <TrpcTestProvider
+      resolvers={{
+        step: () => ({
+          status: "broken",
+          repo: "gtd",
+          branch: "main",
+          detail: "bad",
+        }),
+      }}
+    >
+      <Story />
+    </TrpcTestProvider>
+  ),
+]
+
+/** A state page keeps its own padding on top of the inset, and keeps it with no inset. */
+export const StatePagePaddingAddsToTheInsets: Story = {
+  decorators: brokenDecorator,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const box = async (): Promise<DOMRect> =>
+      (await canvas.findByTestId("app-broken")).getBoundingClientRect()
+    await withInsets(0, 0, async () => {
+      await expect((await box()).top).toBeGreaterThanOrEqual(32)
+    })
+    await withInsets(50, 34, async () => {
+      await expect((await box()).top).toBeGreaterThanOrEqual(82)
+    })
+  },
+}
+
+/** The gate header clears the top inset once; the document screen adds no second band. */
+export const DocumentScreenClearsInsetsOnce: Story = {
+  ...Default,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await withInsets(50, 34, async () => {
+      const header = await canvas.findByTestId("gate-header")
+      await expect(parseFloat(getComputedStyle(header).paddingTop)).toBeGreaterThanOrEqual(50)
+    })
+  },
+}
+
+const LONG_PLAN = [
+  "## 🔘 Where is the counter stored?",
+  "",
+  "- [ ] Redis",
+  "- [ ] Memory",
+  "",
+  ...Array.from({ length: 40 }, (_, i) => `Paragraph ${i + 1} of the plan.\n`),
+].join("\n")
+
+/** Inline, in a pane that scrolls, a failed save stays in sight however far you scroll. */
+export const InlineAFailedSaveStaysInThePaneWhenScrolled: Story = {
+  render: () => (
+    <TrpcTestProvider
+      resolvers={{
+        step: () => okStep({ file: ".gtd/PLAN.md" }),
+        readSteeringFile: () => ({
+          ok: true,
+          content: LONG_PLAN,
+          headSha: "abc123",
+          contentHash: "deadbeef",
+          view: widgetFormat.view(LONG_PLAN),
+        }),
+        setValue: () => {
+          throw new Error("connection refused")
+        },
+      }}
+    >
+      <div data-testid="pane" className="relative h-[400px] overflow-auto">
+        <App inline />
+      </div>
+    </TrpcTestProvider>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const pane = canvas.getByTestId("pane")
+    await waitFor(() => expect(canvas.getAllByRole("radio")).toHaveLength(2))
+    await fireEvent.click(canvas.getAllByRole("radio")[1]!)
+    await waitFor(() => expect(canvas.getByTestId("save-indicator-expanded")).toBeInTheDocument())
+    await expect(pane.scrollHeight).toBeGreaterThan(1200)
+    const box = pane.getBoundingClientRect()
+    for (const top of [0, pane.scrollHeight / 2, pane.scrollHeight]) {
+      pane.scrollTop = top
+      const toast = canvas.getByTestId("save-indicator").getBoundingClientRect()
+      await expect(toast.top).toBeGreaterThanOrEqual(box.top)
+      await expect(toast.bottom).toBeLessThanOrEqual(box.bottom)
+    }
   },
 }

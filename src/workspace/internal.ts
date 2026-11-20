@@ -13,3 +13,5 @@ export {
   type Entry,
   type Inbox,
 } from "./inbox.js"
+
+export { detailText, nowView, reasonText, statusText, worktreeName, type NowEntry } from "./now.js"

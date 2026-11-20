@@ -1,8 +1,11 @@
+import { execFile } from "node:child_process"
 import { basename, dirname } from "node:path"
 import { fetchRequestHandler } from "@trpc/server/adapters/fetch"
 import { Effect, type FileSystem } from "effect"
 import {
   currentRest,
+  MANIFEST_PATH,
+  dashboardManifest,
   dashboardPage,
   exposeHandler,
   gateHandler,
@@ -45,6 +48,7 @@ import {
   socketPath,
   type ControlReply,
   type ControlRequest,
+  type SharedProject,
 } from "./Socket.js"
 import { worktreeChanges } from "./WorktreeChanges.js"
 import { openedPanes } from "./Panes.js"
@@ -68,6 +72,8 @@ interface ControlDeps {
   readonly notify: Notifier
   readonly projects: () => readonly ProjectView[]
   readonly noteChanged: () => void
+  /** What the dashboard shows, each worktree with its driver pane. */
+  readonly shared: () => readonly SharedProject[]
   readonly pauses: Pauses
   readonly dispatch: Dispatcher
   readonly after: (ms: number, run: () => void) => () => void
@@ -112,6 +118,7 @@ const controlHandler =
   (deps: ControlDeps) =>
   (endpoint: string) =>
   async (request: ControlRequest): Promise<ControlReply> => {
+    if (request.command === "projects") return { ok: true, projects: deps.shared() }
     if (request.command === "note") return noteRequest(deps, request, endpoint)
     if (isPause(request)) return pauseRequest(deps, request, endpoint)
     const { control } = deps
@@ -145,6 +152,14 @@ const asUiError = (error: unknown): UiError =>
  * `gtd workspace`: the one supervisor of a workspace. It serves the Projects
  * view until a signal ends it, then closes the server and frees the lock.
  */
+const gitIn = (cwd: string, args: readonly string[]): Promise<string> =>
+  new Promise((resolve, reject) => {
+    execFile("git", [...args], { cwd, maxBuffer: 256 * 1024 * 1024 }, (error, stdout) => {
+      if (error === null) resolve(stdout)
+      else reject(error)
+    })
+  })
+
 export const runWorkspaceCommand = (
   command: WorkspaceCommand,
   out: UiOut,
@@ -269,6 +284,7 @@ export const runWorkspaceCommand = (
         configName: basename(file),
         drivers: driverRuns,
         fingerprint: host.fingerprint,
+        readFile: host.readFile,
         services,
         lastAction: actions.last,
         after: host.after,
@@ -364,6 +380,14 @@ export const runWorkspaceCommand = (
         notify,
         projects: snapshot.projects,
         noteChanged: () => reactions.worktrees(noted.withNotes(snapshot.projects())),
+        shared: () =>
+          projects().map((project) => ({
+            ...project,
+            worktrees: project.worktrees.map((worktree) => {
+              const pane = driverRuns.pane(worktree.path)
+              return pane === undefined ? worktree : { ...worktree, pane }
+            }),
+          })),
         pauses: paused,
         dispatch,
         after: host.after,
@@ -473,12 +497,18 @@ export const runWorkspaceCommand = (
               dispatch,
               pauses: paused,
               worktreeChanges: changes,
+              git: gitIn,
               caller: { identity: identity ?? "-", endpoint: path },
             }),
           })
         }
         const html = (body: string): Response =>
           new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } })
+        if (path === MANIFEST_PATH) {
+          return new Response(dashboardManifest(), {
+            headers: { "content-type": "application/manifest+json" },
+          })
+        }
         if (path !== "/") return gatePage(request, afterResponse, peer, identity)
         return html(dashboardPage(TRPC))
       }

@@ -310,3 +310,12 @@ describe("Gtd-Mark", () => {
     expect(parsed.marks).toEqual([{ name: "ok", value: "fine" }])
   })
 })
+
+describe("Gtd-Exit", () => {
+  const body = (line: string) => `gtd(check): a → b\n\n${line}`
+  it("reads the exit code and skips a malformed one", () => {
+    expect(parseCommitMessage(body("Gtd-Exit: 2")).exit).toBe(2)
+    expect(parseCommitMessage(body("Gtd-Exit: nope")).exit).toBeUndefined()
+    expect(parseCommitMessage("gtd(check): a → b").exit).toBeUndefined()
+  })
+})

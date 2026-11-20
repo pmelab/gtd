@@ -4,7 +4,7 @@ import { Button } from "../Button.js"
 import { cn } from "../cn.js"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible.js"
 import { NoteLine } from "./NoteLine.js"
-import { PressButton, Refused } from "./Press.js"
+import { Refused } from "./Press.js"
 import { StatusBadge } from "./Status.js"
 import { detailText, nowView, worktreeName, type Entry, type ProjectView } from "./view.js"
 
@@ -31,12 +31,16 @@ const Card = ({
   return (
     <article
       className={cn(
-        "flex flex-col gap-3 rounded-lg border bg-card p-4 shadow-[0_1px_2px_rgb(21_26_29/0.05)]",
+        "flex cursor-pointer flex-col gap-3 rounded-lg border bg-card p-4 shadow-[0_1px_2px_rgb(21_26_29/0.05)]",
         selected ? "border-input" : "border-border",
         worktree.unavailable !== undefined && "opacity-60",
       )}
       aria-current={selected || undefined}
       data-testid="now-card"
+      onClick={() => {
+        if (window.getSelection()?.isCollapsed === false) return
+        onOpen()
+      }}
     >
       <div className="flex flex-wrap items-start justify-between gap-x-3 gap-y-1.5">
         <h2 className="min-w-0 text-base leading-snug">
@@ -47,9 +51,14 @@ const Card = ({
       {reason !== "" && <p className="max-w-prose text-sm text-foreground">{reason}</p>}
       <NoteLine worktree={worktree} />
       <Refused worktree={worktree} />
-      <div className="flex items-start gap-2 lg:flex-row-reverse lg:justify-start">
-        <PressButton worktree={worktree} className="w-full lg:min-w-32" />
-        <Button variant="ghost" onClick={onOpen}>
+      <div className="flex items-start gap-2">
+        <Button
+          variant="ghost"
+          onClick={(event) => {
+            event.stopPropagation()
+            onOpen()
+          }}
+        >
           Open
           <ChevronRight aria-hidden="true" />
         </Button>
@@ -98,8 +107,8 @@ const Working = ({
 )
 
 /**
- * The Now view: only gates and errors, across all projects, each with its one
- * action. Working worktrees fold into one row.
+ * The Now view: only gates and errors, across all projects, each opening its
+ * detail. Working worktrees fold into one row.
  */
 export const Now = ({
   projects,
