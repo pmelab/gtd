@@ -2,6 +2,7 @@ import { RotateCw } from "lucide-react"
 import type { ReactNode } from "react"
 import type { StepRead } from "../ui/index.js"
 import { Button } from "./Button.js"
+import { cn } from "./cn.js"
 import { Notice } from "./Notice.js"
 import { Document, DocumentSkeleton } from "./screens/Document.js"
 import { trpc } from "./api.js"
@@ -17,9 +18,13 @@ const Reload = () => (
   </Button>
 )
 
-const StatePage = ({ children }: { readonly children: ReactNode }) => (
-  <main className="min-h-dvh bg-background px-4 py-8">{children}</main>
-)
+const StatePage = ({
+  children,
+  inline,
+}: {
+  readonly children: ReactNode
+  readonly inline: boolean
+}) => <main className={inline ? "py-2" : "min-h-dvh bg-background px-4 py-8"}>{children}</main>
 
 const NOTICE = "mx-auto max-w-2xl"
 
@@ -32,13 +37,17 @@ const NOTICE = "mx-auto max-w-2xl"
  * nothing.
  */
 // fallow-ignore-next-line complexity
-export const App = () => {
+export const App = ({ inline = false }: { readonly inline?: boolean }) => {
   const query = trpc.step.useQuery()
   const step = query.data
 
   if (query.isLoading) {
     return (
-      <div data-testid="app-loading" aria-busy="true" className="min-h-dvh bg-background">
+      <div
+        data-testid="app-loading"
+        aria-busy="true"
+        className={inline ? "" : "min-h-dvh bg-background"}
+      >
         <DocumentSkeleton label="Loading the gate page…" />
       </div>
     )
@@ -47,7 +56,7 @@ export const App = () => {
   if (query.isError || step === undefined) {
     const detail = query.isError ? query.error.message : "no step was reported."
     return (
-      <StatePage>
+      <StatePage inline={inline}>
         <Notice tone="error" data-testid="app-query-error" className={NOTICE}>
           <p className="m-0">Could not reach the server: {detail}</p>
           <p className="m-0 mt-1 text-muted-foreground">
@@ -61,7 +70,7 @@ export const App = () => {
 
   if (step.status === "broken") {
     return (
-      <StatePage>
+      <StatePage inline={inline}>
         <Notice tone="error" data-testid="app-broken" className={NOTICE}>
           <p className="m-0">
             {step.repo} / {step.branch} cannot be read: {step.detail}
@@ -77,7 +86,7 @@ export const App = () => {
 
   if (step.status === "moved-on") {
     return (
-      <StatePage>
+      <StatePage inline={inline}>
         <Notice data-testid="app-moved-on" className={NOTICE}>
           This turn is over and the server is exiting. You can close this page.
         </Notice>
@@ -87,7 +96,7 @@ export const App = () => {
 
   if (!openable(step)) {
     return (
-      <StatePage>
+      <StatePage inline={inline}>
         <Notice tone="error" data-testid="app-unrenderable" className={NOTICE}>
           {`"${step.label}" has nothing this page can show. Continue on your computer.`}
         </Notice>
@@ -96,8 +105,9 @@ export const App = () => {
   }
 
   return (
-    <div className="relative flex h-dvh flex-col bg-background">
+    <div className={cn("relative flex flex-col", !inline && "h-dvh bg-background")}>
       <Document
+        inline={inline}
         filePath={step.file}
         context={{ repo: step.repo, branch: step.branch, label: step.label }}
       />

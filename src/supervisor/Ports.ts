@@ -1,6 +1,7 @@
 import { execFile } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { mkdirSync, readFileSync, watch, writeFileSync } from "node:fs"
+import { readFile } from "node:fs/promises"
 import { basename, dirname, join } from "node:path"
 import { Context, Layer } from "effect"
 import { worktreeFingerprint } from "./Snapshot.js"
@@ -44,6 +45,8 @@ interface SupervisorHostOps {
   readonly oneShot: (argv: readonly string[], worktree: string) => Promise<ExecResult>
   /** What `.gtd/` and the index hold, as a string that changes with them. */
   readonly fingerprint: (worktree: string) => Promise<string>
+  /** A file's text, or `undefined` when it cannot be read. */
+  readonly readFile: (path: string) => Promise<string | undefined>
 }
 
 export interface DefaultNotifications {
@@ -113,6 +116,7 @@ export class SupervisorHost extends Context.Service<SupervisorHost, SupervisorHo
     watchFile,
     oneShot: (argv, worktree) => exec(argv, worktree),
     fingerprint: worktreeFingerprint,
+    readFile: (path) => readFile(path, "utf8").catch(() => undefined),
   })
 }
 

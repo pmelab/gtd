@@ -422,3 +422,43 @@ export const AFileThatCannotBeReadSaysWhatToDo: Story = {
     await expect(within(canvasElement).getByRole("alert")).toHaveTextContent(/reload this page/)
   },
 }
+
+const LONG_REVIEW = [
+  REVIEW,
+  ...Array.from({ length: 30 }, (_, i) => `Paragraph ${i + 1} of the walkthrough.\n`),
+  "Revisit [the limiter](./src/limit.ts#1-40) at the end.",
+  "",
+].join("\n")
+
+/** Inline the pane scrolls the slider too: it opens at its top and closes back where you were. */
+export const InlineTheSliderOpensAtItsTopAndClosesWhereYouWere: Story = {
+  render: () => (
+    <div data-testid="pane" className="h-[200px] overflow-auto">
+      <div className="h-[600px]">Worktree header</div>
+      <DocumentView
+        inline
+        filePath=".gtd/REVIEW.md"
+        isLoading={false}
+        view={widgetFormat.view(LONG_REVIEW)}
+      />
+    </div>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const pane = canvas.getByTestId("pane")
+    const link = canvas.getAllByText("the limiter").at(-1)!
+    link.scrollIntoView({ block: "center" })
+    const before = pane.scrollTop
+    await expect(before).toBeGreaterThan(600)
+    await fireEvent.click(link)
+    const slider = canvas.getByTestId("hunk-slider")
+    await waitFor(() =>
+      expect(
+        Math.abs(slider.getBoundingClientRect().top - pane.getBoundingClientRect().top),
+      ).toBeLessThan(2),
+    )
+    await fireEvent.click(canvas.getByTestId("hunk-back"))
+    await waitFor(() => expect(canvas.queryByTestId("hunk-slider")).toBeNull())
+    await expect(pane.scrollTop).toBe(before)
+  },
+}
