@@ -26,6 +26,7 @@ export {
   discardPending,
   updateRef,
   keepTurn,
+  carryPass,
   deleteRef,
   switchBranchTo,
   switchBack,

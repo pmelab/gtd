@@ -13,6 +13,7 @@ import {
   discardPending,
   hardResetTo,
   keepTurn,
+  carryPass,
   mixedResetTo,
   switchBranchTo,
   switchBack,
@@ -192,6 +193,21 @@ const recognizeGitBuilders = (repo: InMemRepo, block: string): BlockOutcome | un
   // trailer-carrying subject is) and its later lines are part of the same
   // quoted argument.
   const conditionLine = conditionStatement(block)
+
+  const carryHeadCheck = block.startsWith("gtd_carry_index=")
+  if (block.startsWith("if ! git diff --binary ") || carryHeadCheck) {
+    const [, hash] = extractQuotedTokens(block)
+    const check = carryHeadCheck
+      ? "head"
+      : block.includes("git apply --check;")
+        ? "worktree"
+        : undefined
+    if (hash === undefined || carryPass(hash, check) !== block) return undefined
+    const failure = repo.carryKept(hash, check)
+    return failure === undefined
+      ? { kind: "applied" }
+      : { kind: "failed", error: failure, status: 1 }
+  }
 
   if (block.startsWith("git add -A || exit 1\ngtd_sign_cfg=")) return recognizeKeepTurn(repo, block)
 

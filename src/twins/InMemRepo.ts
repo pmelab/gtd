@@ -552,6 +552,28 @@ export class InMemRepo {
     this.writeCommit(message)
   }
 
+  /** Twin of `GitScript.carryPass`: the kept commit's diff against its parent, applied to the worktree only. */
+  carryKept(hash: string, check?: "worktree" | "head"): string | undefined {
+    const tip = this.getCommit(hash)
+    const parent = this.getCommit(tip?.parent ?? "")
+    if (tip === null || parent === null) return "fatal: bad revision"
+    const paths = diffTrees(parent.files, tip.files).map((e) => e.path)
+    const base = check === "head" ? this.headTree() : this.worktree
+    const clash = paths.find((path) => base.get(path) !== parent.files.get(path))
+    if (clash !== undefined)
+      return `error: ${clash}: patch does not apply\ngtd: kept pass ${hash} does not apply to the working tree — restore it by hand or steer`
+    if (check === undefined) this.writeWorktree(paths, tip.files)
+    return undefined
+  }
+
+  private writeWorktree(paths: readonly string[], files: ReadonlyMap<string, string>): void {
+    for (const path of paths) {
+      const content = files.get(path)
+      if (content === undefined) this.worktree.delete(path)
+      else this.worktree.set(path, content)
+    }
+  }
+
   /** Twin of `GitScript.keepTurn`: no hook runs; `signingFails` fails the marker. */
   keepTurn(refPrefix: string, message: string): string | undefined {
     this.stageAll()

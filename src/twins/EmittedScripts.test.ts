@@ -230,6 +230,71 @@ for (const makeTier of gitTiers) {
       })
     })
 
+    describe("carryPass", () => {
+      const PREFIX = "refs/gtd/kept/entry/build.naive"
+      const MESSAGE = "gtd(agent): build.naive → build.next"
+      const render = (kind: "carryPass" | "carryCheck", hash: string, against?: "head") =>
+        ScriptSurface.render([
+          { kind: "gitWrite", write: { kind, hash, ...(against ? { against } : {}) } },
+        ])
+      const keep = async () => {
+        expect(
+          run(
+            ScriptSurface.render([
+              { kind: "gitWrite", write: { kind: "keepTurn", ref: PREFIX, message: MESSAGE } },
+            ]),
+          ).ok,
+        ).toBe(true)
+        const marker = await t.provide(Effect.flatMap(GitService, (g) => g.lastCommitMessage()))
+        return /Gtd-Kept: ([0-9a-f]+)/.exec(marker)?.[1] ?? ""
+      }
+
+      it("a clean apply puts the kept pass back in the working tree", async () => {
+        t.seed.writeFile("naive.txt", "naive\n")
+        const kept = await keep()
+        expect(read("naive.txt")).toBeUndefined()
+        expect(run(render("carryPass", kept)).ok).toBe(true)
+        expect(read("naive.txt")).toBe("naive\n")
+      })
+
+      it("a clashing file fails naming the pass, and the check leaves the tree alone", async () => {
+        t.seed.writeFile("naive.txt", "naive\n")
+        const kept = await keep()
+        t.seed.writeFile("naive.txt", "other\n")
+        for (const kind of ["carryCheck", "carryPass"] as const) {
+          const result = run(render(kind, kept))
+          expect(result.ok).toBe(false)
+          expect(result.status).toBe(1)
+          expect(result.output).toContain(`gtd: kept pass ${kept}`)
+          expect(read("naive.txt")).toBe("other\n")
+        }
+      })
+
+      it("a check against HEAD ignores the working tree", async () => {
+        t.seed.writeFile("naive.txt", "naive\n")
+        const kept = await keep()
+        t.seed.writeFile("naive.txt", "other\n")
+        expect(run(render("carryCheck", kept, "head")).ok).toBe(true)
+        expect(read("naive.txt")).toBe("other\n")
+        t.seed.commit("naive.txt in HEAD", { "naive.txt": "other\n" })
+        t.seed.deleteFile("naive.txt")
+        const result = run(render("carryCheck", kept, "head"))
+        expect(result).toMatchObject({ ok: false, status: 1 })
+        expect(result.output).toContain(`gtd: kept pass ${kept}`)
+        expect(read("naive.txt")).toBeUndefined()
+      })
+
+      it("a deleted file is deleted again, and the check alone deletes nothing", async () => {
+        t.seed.deleteFile("readme.txt")
+        const kept = await keep()
+        expect(read("readme.txt")).toBe("hello")
+        expect(run(render("carryCheck", kept)).ok).toBe(true)
+        expect(read("readme.txt")).toBe("hello")
+        expect(run(render("carryPass", kept)).ok).toBe(true)
+        expect(read("readme.txt")).toBeUndefined()
+      })
+    })
+
     it("a mkdir + printf write lands one line per token, whatever the token holds", () => {
       const lines = String.raw`mkdir -p .gtd/packages
 printf '%s\n' 'a' '' 'it'\''s' '100%' '-x' 'a\b' '.gtd/packages/00-x.md' > '.gtd/packages/00-x.md'`
