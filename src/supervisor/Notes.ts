@@ -39,7 +39,13 @@ const applied = <S extends WorktreeStatus>(status: S, note: Note | undefined): N
   if (note === undefined) return status
   if (!note.error || status.status === "error") return { ...status, note }
   const { kind: _kind, ...rest } = status
-  return { ...rest, note, status: "error", errorKind: "note", message: note.message }
+  return {
+    ...rest,
+    note,
+    status: "error",
+    errorKind: "note",
+    message: note.message,
+  } as Noted<S>
 }
 
 export const notes = (deps: NotesDeps): Notes => {

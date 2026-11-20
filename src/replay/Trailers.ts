@@ -107,6 +107,8 @@ export interface CommitMessage {
   readonly vars: Readonly<Record<string, string>>
   readonly reviewBase: string | undefined
   readonly cost: readonly CostEntry[]
+  /** `Gtd-Exit`, on a run or ship landing: the body's exit code; a malformed value is skipped. */
+  readonly exit: number | undefined
   /** Written only on a process's finishing landing. */
   readonly branch: string | undefined
   readonly version: string | undefined
@@ -184,6 +186,7 @@ interface Trailers {
   anchor: string | undefined
   shipped: string | undefined
   tip: string | undefined
+  exit: number | undefined
   readonly judge: JudgeVerdict[]
   readonly marks: Mark[]
   readonly vars: Record<string, string>
@@ -243,6 +246,9 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
   "Gtd-Format": (value, into) => {
     if (FORMAT_RE.test(value)) into.format ??= Number(value)
   },
+  "Gtd-Exit": (value, into) => {
+    if (/^[0-9]{1,3}$/.test(value)) into.exit ??= Number(value)
+  },
   "Gtd-Cost": (value, into) => {
     const c = COST_RE.exec(value)
     if (c !== null) into.cost.push({ cost: Number(c[1]), model: c[2]?.trim() || undefined })
@@ -264,6 +270,7 @@ export const parseCommitMessage = (message: string): CommitMessage => {
     anchor: undefined,
     shipped: undefined,
     tip: undefined,
+    exit: undefined,
     judge: [],
     marks: [],
     vars: {},

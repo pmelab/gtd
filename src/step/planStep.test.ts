@@ -45,6 +45,21 @@ describe("planStep — commit", () => {
     ])
   })
 
+  it("a check attempt lands with its exit code", () => {
+    const s = snapshot({
+      state: "run",
+      stepDef: { actor: "check" },
+      actor: "check",
+      landing: { kind: "attempt", subject: "gtd(check): run" },
+    })
+    const outcome = planStep(s)
+    if (outcome.kind !== "commit") throw new Error(`expected commit, got ${outcome.kind}`)
+    expect(outcome.steps[0]).toMatchObject({
+      kind: "gitWrite",
+      write: { kind: "commitAll", exit: true },
+    })
+  })
+
   it("a transition commit carries the step trailer and reports both steps", () => {
     const s = snapshot({
       state: "building",

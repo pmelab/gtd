@@ -24,10 +24,15 @@ export interface InboxItem {
 /** How far gtd got with dispatching an item. */
 export type Dispatch =
   /** A person pressed Start or Retry, or a `queue` feed filed it; `waits` says why it has not started yet. */
-  | { readonly state: "approved"; readonly waits?: string }
+  | {
+      readonly state: "approved"
+      readonly waits?: string
+      /** A Retry: the worktree the failed dispatch used, when it had one. */
+      readonly retry?: { readonly worktree?: string }
+    }
   | { readonly state: "starting"; readonly worktree?: string }
   | { readonly state: "started"; readonly worktree: string }
-  | { readonly state: "failed"; readonly message: string }
+  | { readonly state: "failed"; readonly message: string; readonly worktree?: string }
 
 export interface Entry {
   readonly feed: string

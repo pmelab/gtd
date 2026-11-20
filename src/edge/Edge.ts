@@ -52,7 +52,13 @@ import {
 import type { Mark, ScopeAccess, SummaryContext } from "../flows/index.js"
 import { answerFindings, formatFinding, parseWidgets, serialize } from "../steering/index.js"
 import { personEditNote, steeringPreamble } from "../steering/internal.js"
-import { failRestScript, noteOutcome, pinScript, unpinScript } from "../emit/index.js"
+import {
+  failRestScript,
+  noteOutcome,
+  pinScript,
+  recordExitScript,
+  unpinScript,
+} from "../emit/index.js"
 import {
   judgeJson,
   PIN_PATH,
@@ -780,7 +786,7 @@ const scriptDef = (common: StepCommon, request: RequestOf<"run">): StepDef => ({
   content:
     request.options.onFail === "rest"
       ? failRestScript(request.body, RUN_FAILED_PATH)
-      : request.body,
+      : recordExitScript(request.body),
   ...optional("onFail", request.options.onFail),
 })
 

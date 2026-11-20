@@ -12,6 +12,26 @@ Given("{string} has no uncommitted changes", (world: GtdWorld, ref: string) => {
   bench(world).worktrees.dirty(...split(ref), false)
 })
 
+When(
+  "the worktree {string} moves to the branch {string}",
+  (world: GtdWorld, ref: string, to: string) => {
+    const [project, branch] = split(ref)
+    bench(world).worktrees.rename(project, branch, to)
+  },
+)
+
+When("the worktree {string} is gone but its branch stays", (world: GtdWorld, ref: string) => {
+  bench(world).worktrees.leave(...split(ref))
+})
+
+Given("{string} has a commit that is on no remote", (world: GtdWorld, ref: string) => {
+  bench(world).worktrees.commit(...split(ref))
+})
+
+Given("the tree of {string} has uncommitted changes", (world: GtdWorld, ref: string) => {
+  bench(world).worktrees.dirty(...split(ref), true)
+})
+
 const press = async (world: GtdWorld, procedure: string, ref: string) => {
   const [feed, key] = split(ref)
   const response = await bench(world).post(`/trpc/${procedure}`, { feed, key })
