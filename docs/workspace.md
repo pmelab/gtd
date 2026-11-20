@@ -46,9 +46,9 @@ supervisor through its socket (see [Security](#security)). The
 The dashboard has three views:
 
 - **Now**: only the worktrees that need you and the worktrees in error, across
-  all projects. Each has one primary button, Proceed or Retry (see
-  [Proceed and Retry](#proceed-and-retry)). The worktrees that work fold into
-  one line each, under "N working".
+  all projects. Each card opens the worktree's detail, where Proceed or Retry is
+  (see [Proceed and Retry](#proceed-and-retry)). The worktrees that work fold
+  into one line each, under "N working".
 - **Projects**: every worktree, grouped by project, with its status, its label,
   its service chips and the reason of a refused press.
 - **Inbox**: the items that wait (see [Inbox](#inbox)).

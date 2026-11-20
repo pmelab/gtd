@@ -103,6 +103,13 @@ describe.each([
     },
   )
 
+  it("warning text clears 4.5:1 on its hover and pressed tints over background and card", () => {
+    for (const ground of ["background", "card"]) {
+      const tinted = blendOverBackground(tokens.warning!, tokens[ground]!, 0.1)
+      expect(contrastRatio(tokens.warning!, tinted), ground).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
   it.each([
     ["primary-foreground", "primary"],
     ["primary-foreground", "primary-pressed"],
