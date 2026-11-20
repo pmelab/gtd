@@ -590,7 +590,7 @@ const GateHeader = ({
 }) => (
   <header
     data-testid="gate-header"
-    className="sticky top-0 z-10 shrink-0 border-b border-border bg-card"
+    className="pt-safe sticky top-0 z-10 shrink-0 border-b border-border bg-card"
   >
     <div className={cn(COLUMN, "flex items-start gap-3 py-3")}>
       <GtdMark className="mt-0.5 size-9 rounded-lg dark:ring-1 dark:ring-border" />

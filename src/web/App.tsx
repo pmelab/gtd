@@ -24,7 +24,17 @@ const StatePage = ({
 }: {
   readonly children: ReactNode
   readonly inline: boolean
-}) => <main className={inline ? "py-2" : "min-h-dvh bg-background px-4 py-8"}>{children}</main>
+}) => (
+  <main
+    className={
+      inline
+        ? "py-2"
+        : "min-h-dvh bg-background px-4 pt-[calc(2rem+var(--safe-top,env(safe-area-inset-top)))] pb-[calc(2rem+var(--safe-bottom,env(safe-area-inset-bottom)))]"
+    }
+  >
+    {children}
+  </main>
+)
 
 const NOTICE = "mx-auto max-w-2xl"
 
@@ -105,7 +115,7 @@ export const App = ({ inline = false }: { readonly inline?: boolean }) => {
   }
 
   return (
-    <div className={cn("relative flex flex-col", !inline && "h-dvh bg-background")}>
+    <div className={cn("relative flex flex-col", !inline && "pb-safe h-dvh bg-background")}>
       <Document
         inline={inline}
         filePath={step.file}

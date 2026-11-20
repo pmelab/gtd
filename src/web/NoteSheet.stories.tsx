@@ -545,3 +545,20 @@ export const OnDesktopTheSheetIsACentredDialog: Story = {
     ).toBeLessThanOrEqual(1)
   },
 }
+
+/** Under a home indicator the Save control sits fully above the bottom inset. */
+export const SaveClearsTheBottomInset: Story = {
+  args: { anchor: chunkAnchor, onSave: fn(), onDismiss: fn() },
+  play: async () => {
+    await viewport(360, 800)
+    document.documentElement.style.setProperty("--safe-bottom", "34px")
+    try {
+      const canvas = within(document.body)
+      await settled(document.body)
+      const save = canvas.getByTestId("note-sheet-save").getBoundingClientRect()
+      await expect(save.bottom).toBeLessThanOrEqual(window.innerHeight - 34)
+    } finally {
+      document.documentElement.style.removeProperty("--safe-bottom")
+    }
+  },
+}

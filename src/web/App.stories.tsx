@@ -40,7 +40,10 @@ export const Default: Story = {
             contentHash: "deadbeef",
             view: {
               nodes: [
-                { title: "A paragraph worth reading.", anchor: { kind: "paragraph", line: 0 } },
+                {
+                  title: "A paragraph worth reading.",
+                  anchor: { kind: "paragraph", line: 0 },
+                },
               ],
             },
           }),
@@ -132,7 +135,9 @@ export const MovedOnStepShowsTheTurnIsOver: Story = {
   decorators: [
     (Story) => (
       <TrpcTestProvider
-        resolvers={{ step: () => ({ status: "moved-on", label: "reviewing a PR" }) }}
+        resolvers={{
+          step: () => ({ status: "moved-on", label: "reviewing a PR" }),
+        }}
       >
         <Story />
       </TrpcTestProvider>
@@ -158,7 +163,10 @@ export const StepQueryInFlightShowsALoadingSkeleton: Story = {
             contentHash: "deadbeef",
             view: {
               nodes: [
-                { title: "A paragraph worth reading.", anchor: { kind: "paragraph", line: 0 } },
+                {
+                  title: "A paragraph worth reading.",
+                  anchor: { kind: "paragraph", line: 0 },
+                },
               ],
             },
           }),
@@ -174,6 +182,62 @@ export const StepQueryInFlightShowsALoadingSkeleton: Story = {
     await expect(canvasElement.querySelector("[data-slot=skeleton]")).not.toBeNull()
     await expect(canvasElement.textContent?.length).toBeGreaterThan(0)
     await waitFor(() => expect(canvas.getByTestId("document-screen")).toBeInTheDocument())
+  },
+}
+
+const withInsets = async (top: number, bottom: number, run: () => Promise<void>): Promise<void> => {
+  document.documentElement.style.setProperty("--safe-top", `${top}px`)
+  document.documentElement.style.setProperty("--safe-bottom", `${bottom}px`)
+  try {
+    await run()
+  } finally {
+    document.documentElement.style.removeProperty("--safe-top")
+    document.documentElement.style.removeProperty("--safe-bottom")
+  }
+}
+
+const brokenDecorator: NonNullable<Story["decorators"]> = [
+  (Story) => (
+    <TrpcTestProvider
+      resolvers={{
+        step: () => ({
+          status: "broken",
+          repo: "gtd",
+          branch: "main",
+          detail: "bad",
+        }),
+      }}
+    >
+      <Story />
+    </TrpcTestProvider>
+  ),
+]
+
+/** A state page keeps its own padding on top of the inset, and keeps it with no inset. */
+export const StatePagePaddingAddsToTheInsets: Story = {
+  decorators: brokenDecorator,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const box = async (): Promise<DOMRect> =>
+      (await canvas.findByTestId("app-broken")).getBoundingClientRect()
+    await withInsets(0, 0, async () => {
+      await expect((await box()).top).toBeGreaterThanOrEqual(32)
+    })
+    await withInsets(50, 34, async () => {
+      await expect((await box()).top).toBeGreaterThanOrEqual(82)
+    })
+  },
+}
+
+/** The gate header clears the top inset once; the document screen adds no second band. */
+export const DocumentScreenClearsInsetsOnce: Story = {
+  ...Default,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await withInsets(50, 34, async () => {
+      const header = await canvas.findByTestId("gate-header")
+      await expect(parseFloat(getComputedStyle(header).paddingTop)).toBeGreaterThanOrEqual(50)
+    })
   },
 }
 

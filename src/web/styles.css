@@ -255,3 +255,14 @@ input:not([type]) {
     outline-offset: 2px;
   }
 }
+
+/* Insets read a variable so a story can fake them; env() is 0 in a desktop browser. */
+@utility pt-safe {
+  padding-top: var(--safe-top, env(safe-area-inset-top));
+}
+@utility pb-safe {
+  padding-bottom: var(--safe-bottom, env(safe-area-inset-bottom));
+}
+@utility top-safe {
+  top: var(--safe-top, env(safe-area-inset-top));
+}

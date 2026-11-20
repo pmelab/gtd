@@ -156,7 +156,7 @@ const SheetFooter = ({
    */
   <div
     data-testid="note-sheet-footer"
-    className="flex items-center justify-end gap-2 border-t border-border px-4 py-3 lg:px-6 lg:py-4"
+    className="flex items-center justify-end gap-2 border-t border-border px-4 pt-3 pb-[calc(0.75rem+var(--safe-bottom,env(safe-area-inset-bottom)))] lg:px-6 lg:py-4"
   >
     <div className="flex gap-2">
       <Button variant="ghost" data-testid="note-sheet-dismiss" onClick={onDismiss}>
