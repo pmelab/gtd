@@ -161,6 +161,25 @@ describe.skipIf(REX === undefined || BASH === undefined)(
       throw new Error("the command never exited")
     }
 
+    it("exposes the fields focus() reads from block inspect and client ls", async () => {
+      const fixture = await harness.setup()
+      try {
+        const probe = fixture.probe({ end: "hold" })
+        const handle = await fixture.adapter.run(fixture.project, fixture.worktree, probe.argv, {})
+        const inspected = JSON.parse(rexCli("block", "inspect", handle, "--json")) as {
+          session_id?: unknown
+        }
+        expect(typeof inspected.session_id).toBe("string")
+        const listed = JSON.parse(rexCli("client", "ls", "--all", "--json")) as {
+          clients?: unknown
+        }
+        expect(Array.isArray(listed.clients)).toBe(true)
+        await probe.release()
+      } finally {
+        await fixture.dispose()
+      }
+    }, 30_000)
+
     // The OSC 7501 spec: a terminal drops `working` and `blocked` when the
     // process exits, and keeps `done` and `error`. A kept pane starts no shell
     // after the exit, so no prompt clears what is left.
@@ -276,13 +295,155 @@ describe("focus", () => {
     return { bin, log, dir }
   }
 
-  it("passes the server and --autostart=false, so a down server is never started", async () => {
-    const fake = fakeRex("exit 0")
-    await rex({ bin: fake.bin, server: "unix:///s" }).focus!("blk-1")
-    expect(readFileSync(fake.log, "utf8").trim()).toBe("-S unix:///s --autostart=false focus blk-1")
+  const clients = JSON.stringify({
+    clients: [
+      {
+        client_id: "cli1",
+        info: { kind: "cli" },
+        connected_at: "2026-01-04T00:00:00Z",
+        session_ids: ["A"],
+      },
+      {
+        client_id: "appC",
+        info: { kind: "app" },
+        connected_at: "2026-01-02T00:00:00Z",
+        session_ids: ["A"],
+      },
+      {
+        client_id: "appA",
+        info: { kind: "app" },
+        connected_at: "2026-01-01T00:00:00Z",
+        session_ids: ["A"],
+      },
+      {
+        client_id: "appB",
+        info: { kind: "app" },
+        connected_at: "2026-01-03T00:00:00Z",
+        session_ids: ["B"],
+      },
+    ],
+  })
+  const inspect = JSON.stringify({
+    session_id: "S",
+    block: { window_id: "W" },
+  })
+  const scripted = (clientJson: string): ReturnType<typeof fakeRex> => {
+    const fake = fakeRex("")
+    writeFileSync(
+      fake.bin,
+      `#!/bin/sh
+printf '%s|%s|%s\n' "$REX_SESSION" "$REX_BLOCK" "$*" >> ${fake.log}
+case "$*" in
+  *"block inspect"*) echo '${inspect}' ;;
+  *"client ls"*) echo '${clientJson}' ;;
+  *"block call"*) echo '{}' ;;
+esac
+exit 0
+`,
+      { mode: 0o755 },
+    )
+    return fake
+  }
+  const withEnv = async (env: Record<string, string | undefined>, fn: () => Promise<void>) => {
+    const saved = { s: process.env.REX_SESSION, b: process.env.REX_BLOCK }
+    for (const [k, v] of Object.entries(env)) {
+      if (v === undefined) delete process.env[k]
+      else process.env[k] = v
+    }
+    try {
+      await fn()
+    } finally {
+      for (const [k, v] of [
+        ["REX_SESSION", saved.s],
+        ["REX_BLOCK", saved.b],
+      ] as const) {
+        if (v === undefined) delete process.env[k]
+        else process.env[k] = v
+      }
+    }
+  }
+  const lines = (log: string): string[] => readFileSync(log, "utf8").trim().split("\n")
+
+  it("drops the caller's Rex scope and keeps the server flags on every call", async () => {
+    const fake = scripted(clients)
+    await withEnv({ REX_SESSION: "A", REX_BLOCK: "x" }, async () => {
+      const a = rex({ bin: fake.bin, server: "unix:///s" })
+      await a.focus!("blk-1")
+      await a.status("blk-1")
+      await a.close("blk-1")
+    })
+    for (const line of lines(fake.log)) {
+      expect(line.startsWith("||-S unix:///s --autostart=false ")).toBe(true)
+    }
   })
 
-  it("fails with rex's message", async () => {
+  it("switches the app clients attached to the caller's session, then focuses", async () => {
+    const fake = scripted(clients)
+    await withEnv({ REX_SESSION: "A" }, () => rex({ bin: fake.bin }).focus!("blk-1"))
+    const calls = lines(fake.log).map((l) => l.split("|")[2])
+    expect(calls).toEqual([
+      "--autostart=false block inspect blk-1 --json",
+      "--autostart=false client ls --all --json",
+      "--autostart=false do -C appA session.select session_id=S window_id=W",
+      "--autostart=false do -C appC session.select session_id=S window_id=W",
+      "--autostart=false focus blk-1",
+    ])
+  })
+
+  it("switches only the latest app client outside Rex or when none is attached", async () => {
+    for (const session of [undefined, "Z"]) {
+      const fake = scripted(clients)
+      await withEnv({ REX_SESSION: session }, () => rex({ bin: fake.bin }).focus!("blk-1"))
+      const selects = lines(fake.log).filter((l) => l.includes("session.select"))
+      expect(selects).toHaveLength(1)
+      expect(selects[0]).toContain("-C appB ")
+    }
+  })
+
+  it("focuses without switching when no app client is connected", async () => {
+    const fake = scripted(JSON.stringify({ clients: [] }))
+    await rex({ bin: fake.bin }).focus!("blk-1")
+    const log = lines(fake.log)
+    expect(log.some((l) => l.includes("session.select"))).toBe(false)
+    expect(log.at(-1)).toContain("focus blk-1")
+  })
+
+  it("still focuses when client ls or session.select fails", async () => {
+    for (const failing of ["client ls", "session.select"]) {
+      const fake = scripted(clients)
+      const body = readFileSync(fake.bin, "utf8").replace(
+        "exit 0\n",
+        `case "$*" in *"${failing}"*) echo boom >&2; exit 1 ;; esac\nexit 0\n`,
+      )
+      writeFileSync(fake.bin, body, { mode: 0o755 })
+      await rex({ bin: fake.bin }).focus!("blk-1")
+      expect(lines(fake.log).at(-1)).toContain("focus blk-1")
+    }
+  })
+
+  it("focuses without switching when block inspect gives no session_id", async () => {
+    const fake = scripted(clients)
+    const body = readFileSync(fake.bin, "utf8").replace(`echo '${inspect}'`, `echo '{}'`)
+    writeFileSync(fake.bin, body, { mode: 0o755 })
+    await rex({ bin: fake.bin }).focus!("blk-1")
+    const calls = lines(fake.log).map((l) => l.split("|")[2])
+    expect(calls).toEqual([
+      "--autostart=false block inspect blk-1 --json",
+      "--autostart=false focus blk-1",
+    ])
+  })
+
+  it("fails with rex's message when focus fails", async () => {
+    const fake = scripted(clients)
+    const body = readFileSync(fake.bin, "utf8").replace(
+      "exit 0\n",
+      `case "$*" in *"focus blk-1"*) echo 'focus boom' >&2; exit 1 ;; esac\nexit 0\n`,
+    )
+    writeFileSync(fake.bin, body, { mode: 0o755 })
+    await expect(rex({ bin: fake.bin }).focus!("blk-1")).rejects.toThrow("focus boom")
+  })
+
+  it("fails with rex's message when the block cannot be inspected", async () => {
     const fake = fakeRex("echo 'no such block' >&2; exit 1")
     await expect(rex({ bin: fake.bin }).focus!("blk-1")).rejects.toThrow("rex: no such block")
   })
