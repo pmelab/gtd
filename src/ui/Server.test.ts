@@ -2703,44 +2703,21 @@ describe("the tRPC API surface mounted under /trpc", () => {
   })
 })
 
-describe("done saves without ending the server", () => {
-  it("done writes the note durably and the server keeps serving afterwards", async () => {
+describe("a standalone gtd ui has no proceed path", () => {
+  it("proceed is unavailable and refuses with the reason; the server keeps serving", async () => {
     const { boundUrl, fiber } = await startRealServer(tmpDir)
-
-    const filePath = "NOTES.md"
-    const absPath = join(tmpDir, filePath)
-    const content = "Paragraph zero here.\n\nParagraph two here.\n"
-    writeFileSync(absPath, content)
-    execFileSync("git", ["add", "-A"], { cwd: tmpDir })
-    execFileSync("git", ["commit", "-q", "-m", "add notes"], { cwd: tmpDir })
-    const headSha = await liveHeadSha(tmpDir)
-    if (headSha === undefined) throw new Error("liveHeadSha resolved to undefined")
-
     await withInsecureTls(async () => {
       const client = createTRPCClient<AppRouter>({
         links: [httpBatchLink({ url: `${boundUrl}trpc`, headers: SAME_ORIGIN })],
       })
-      const result = await client.done.mutate({
-        note: {
-          filePath,
-          expectedHeadSha: headSha,
-          expectedContentHash: contentHashOf(content),
-          anchor: { kind: "paragraph", line: 0 },
-          text: "handed back",
-        },
-      })
-      // Read off disk, so this also proves `done` wrote through before resolving.
-      const written = readFileSync(absPath, "utf8")
-      expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
-      expect(written).toContain("handed back")
-
-      // The server is still up after `done`: a later read still answers.
-      const step = await client.step.query()
-      expect(step.status).toBe("ok")
-      const noNote = await client.done.mutate({})
-      expect(noNote).toEqual({ ok: true })
+      expect(await client.canProceed.query()).toEqual({ available: false })
+      const error = await client.proceed.mutate({ commit: "abc" }).catch((e: unknown) => e)
+      expect(error).toBeInstanceOf(TRPCClientError)
+      expect(
+        (error as InstanceType<typeof TRPCClientError>).data as { proceedRefusal?: unknown },
+      ).toMatchObject({ proceedRefusal: { message: "No driver for this worktree" } })
+      expect((await client.step.query()).status).toBe("ok")
     })
-
     expect(fiber.pollUnsafe()).toBeUndefined()
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
@@ -2758,15 +2735,13 @@ describe("done saves without ending the server", () => {
       const client = createTRPCClient<AppRouter>({
         links: [httpBatchLink({ url: `${boundUrl}trpc`, headers: SAME_ORIGIN })],
       })
-      const error = await client.done
+      const error = await client.writeNote
         .mutate({
-          note: {
-            filePath: "NOTES.md",
-            expectedHeadSha: "not-the-real-sha",
-            expectedContentHash: "not-the-real-hash",
-            anchor: { kind: "paragraph", line: 0 },
-            text: "should not land",
-          },
+          filePath: "NOTES.md",
+          expectedHeadSha: "not-the-real-sha",
+          expectedContentHash: "not-the-real-hash",
+          anchor: { kind: "paragraph", line: 0 },
+          text: "should not land",
         })
         .catch((e: unknown) => e)
       expect(error).toBeInstanceOf(TRPCClientError)
@@ -2843,20 +2818,6 @@ describe("package 02: gtd ui binds on an idle worktree", () => {
       const after = await client.step.query()
       expect(after).toMatchObject({ status: "ok", kind: "capture" })
     })
-    await Effect.runPromise(Fiber.interrupt(fiber))
-  })
-
-  it("hand-off at idle is the existing done with no note: no write happens and the server keeps running", async () => {
-    const { boundUrl, fiber } = await startRealServer(tmpDir, idleBeatJson("message"))
-    await withInsecureTls(async () => {
-      const client = createTRPCClient<AppRouter>({
-        links: [httpBatchLink({ url: `${boundUrl}trpc`, headers: SAME_ORIGIN })],
-      })
-      const result = await client.done.mutate({})
-      expect(result).toEqual({ ok: true })
-    })
-    expect(fiber.pollUnsafe()).toBeUndefined()
-    expect(existsSync(join(tmpDir, ".gtd/TODO.md"))).toBe(false)
     await Effect.runPromise(Fiber.interrupt(fiber))
   })
 })

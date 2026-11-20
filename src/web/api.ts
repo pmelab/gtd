@@ -68,3 +68,14 @@ export const readRefusalFrom = (error: unknown): ReadRefusalInfo | undefined => 
   if (typeof reason !== "string") return undefined
   return { reason: reason as ReadRefusalInfo["reason"] }
 }
+
+/** The reason a Proceed was refused, as `Router.ts`'s `errorFormatter` attaches it; `undefined` for any other error. */
+export const proceedRefusalFrom = (error: unknown): string | undefined => {
+  if (typeof error !== "object" || error === null) return undefined
+  const data = (error as { data?: unknown }).data
+  if (typeof data !== "object" || data === null) return undefined
+  const refusal = (data as { proceedRefusal?: unknown }).proceedRefusal
+  if (typeof refusal !== "object" || refusal === null) return undefined
+  const message = (refusal as { message?: unknown }).message
+  return typeof message === "string" ? message : undefined
+}

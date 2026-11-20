@@ -409,7 +409,7 @@ export const runWorkspaceCommand = (
         ]
       }
 
-      const gatePage: UiHandler = async (request, afterResponse, peer) => {
+      const gatePage: UiHandler = async (request, afterResponse, peer, identity) => {
         const gate = await gateOf(new URL(request.url).pathname, worktrees)
         if (gate === undefined) return new Response("not found\n", { status: 404 })
         const worktree = gate.worktree.path
@@ -420,12 +420,24 @@ export const runWorkspaceCommand = (
           ...currentRest(worktree, uiHost),
           // The status a person just changed must not wait for a hint.
           onEdit: () => snapshot.recheckWorktree(worktree),
-        })(request, afterResponse, peer)
+          proceed: async (commit) => {
+            const outcome = await control.press({
+              action: "proceed",
+              worktree,
+              commit,
+              ...(identity !== undefined ? { identity } : {}),
+              endpoint: `${gate.base}${TRPC}/proceed`,
+            })
+            return outcome.outcome === "accepted"
+              ? { ok: true }
+              : { ok: false, message: outcome.message }
+          },
+        })(request, afterResponse, peer, identity)
       }
 
       const handler: UiHandler = async (request, afterResponse, peer, identity) => {
         const path = new URL(request.url).pathname
-        if (isGatePath(path)) return gatePage(request, afterResponse, peer)
+        if (isGatePath(path)) return gatePage(request, afterResponse, peer, identity)
         if (path === TRPC || path.startsWith(`${TRPC}/`)) {
           return fetchRequestHandler({
             endpoint: TRPC,
@@ -467,7 +479,7 @@ export const runWorkspaceCommand = (
         }
         const html = (body: string): Response =>
           new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } })
-        if (path !== "/") return gatePage(request, afterResponse, peer)
+        if (path !== "/") return gatePage(request, afterResponse, peer, identity)
         return html(dashboardPage(TRPC))
       }
 

@@ -14,6 +14,8 @@ export interface WorktreeStatus {
   /** What the driver waits for when it needs you: `permission`, `question`, `auth`. */
   readonly kind?: string
   readonly message?: string
+  /** The rest names a steering file, so its gate page has its own Proceed. */
+  readonly gated?: boolean | undefined
 }
 
 /** What gtd knows of a worktree's driver pane. */
@@ -28,6 +30,7 @@ interface NextFields {
   readonly kind?: unknown
   readonly idle?: unknown
   readonly actor?: unknown
+  readonly file?: unknown
   readonly label?: unknown
   readonly state?: unknown
   readonly content?: unknown
@@ -76,10 +79,17 @@ export const driverRuns = (driver: DriverState): boolean =>
  * The worktree status from `gtd next --json`, run in the worktree, and the
  * root OSC 7501 record and exit of its driver's pane.
  */
-// fallow-ignore-next-line complexity
 export const worktreeStatus = (outcome: SpawnOutcome, driver: DriverState): WorktreeStatus => {
   const next = parseNext(outcome)
   if (!next.ok) return next.status
+  const status = restStatus(next, driver)
+  return next.actor === "human" && typeof next.file === "string"
+    ? { ...status, gated: true }
+    : status
+}
+
+// fallow-ignore-next-line complexity
+const restStatus = (next: NextFields, driver: DriverState): WorktreeStatus => {
   const label =
     typeof next.label === "string" ? next.label : typeof next.state === "string" ? next.state : ""
   if (next.kind === "stalled") {

@@ -334,13 +334,47 @@ export const ADesignGateWithNoOpenQuestionIsAcceptedAsIs: Story = {
     filePath: ".gtd/DESIGN.md",
     isLoading: false,
     view: widgetFormat.view("# Design\n\nThe limiter wraps the router.\n"),
-    onDone: () => Promise.resolve(),
+    onProceed: () => Promise.resolve(),
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(canvas.getByText("The limiter wraps the router.")).toBeInTheDocument()
     await expect(canvas.queryByTestId("widget-single-select")).toBeNull()
-    await expect(canvas.getByTestId("plan-done")).toBeEnabled()
+    await expect(canvas.getByTestId("plan-proceed")).toBeEnabled()
+  },
+}
+
+const PROCEED_ARGS = {
+  filePath: ".gtd/DESIGN.md",
+  isLoading: false,
+  view: widgetFormat.view("# Design\n\nThe limiter wraps the router.\n"),
+}
+
+export const AProceedRefusalShowsAboveTheButton: Story = {
+  args: { ...PROCEED_ARGS, onProceed: () => Promise.resolve(), proceedError: "HEAD moved" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("proceed-refusal")).toHaveTextContent("HEAD moved")
+  },
+}
+
+export const ABlockedProceedIsDisabledAndSaysWhy: Story = {
+  args: {
+    ...PROCEED_ARGS,
+    onProceed: () => Promise.resolve(),
+    proceedBlocked: "No driver for this worktree",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("plan-proceed")).toBeDisabled()
+    await expect(canvas.getByTestId("proceed-refusal")).toHaveTextContent("No driver")
+  },
+}
+
+export const APageWithoutOnProceedHasNoProceedRow: Story = {
+  args: PROCEED_ARGS,
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).queryByTestId("plan-proceed-row")).toBeNull()
   },
 }
 

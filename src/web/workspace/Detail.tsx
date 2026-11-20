@@ -91,7 +91,11 @@ export const Detail = ({
         <Refused worktree={worktree} className="max-w-prose" />
         <ServiceChips worktree={worktree} />
         <div className="flex sm:max-w-xs">
-          <PressButton worktree={worktree} className="w-full" />
+          <PressButton
+            worktree={worktree}
+            className="w-full"
+            hideProceed={tab === "gate" && worktree.gated === true}
+          />
         </div>
       </header>
       <Tabs

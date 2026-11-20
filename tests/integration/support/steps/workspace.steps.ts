@@ -259,17 +259,23 @@ When(
     assert.ok(step.status === "ok" && step.file !== undefined, `no steering file: ${step.status}`)
     const read = await client.readSteeringFile.query({ filePath: step.file })
     savedAt.set(world, b.nextRuns.length)
-    await client.done.mutate({
-      note: {
-        filePath: step.file,
-        expectedHeadSha: read.headSha,
-        expectedContentHash: read.contentHash,
-        anchor: { kind: "paragraph", line: 0 },
-        text,
-      },
+    await client.writeNote.mutate({
+      filePath: step.file,
+      expectedHeadSha: read.headSha,
+      expectedContentHash: read.contentHash,
+      anchor: { kind: "paragraph", line: 0 },
+      text,
     })
   },
 )
+
+When("I press Proceed through the gate page of {string}", async (world: GtdWorld, ref: string) => {
+  const b = bench(world)
+  const path = await b.pathOf(ref)
+  const view = (await b.projects()).flatMap((p) => p.worktrees).find((w) => w.path === path)
+  assert.ok(view !== undefined, `the dashboard does not show ${ref}`)
+  await b.gateClient(await gateOf(b, ref)).proceed.mutate({ commit: view.head })
+})
 
 Then(
   "the file {string} in {string} contains {string}",

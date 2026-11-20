@@ -17,16 +17,19 @@ const PRESS = {
 export const PressButton = ({
   worktree,
   className,
+  hideProceed = false,
 }: {
   readonly worktree: WorktreeView
   readonly className?: string
+  /** The Gate tab's page has its own Proceed. */
+  readonly hideProceed?: boolean
 }) => {
   const utils = workspaceTrpc.useUtils()
   const settled = { onSettled: () => utils.projects.invalidate() }
   const proceed = workspaceTrpc.proceed.useMutation(settled)
   const retry = workspaceTrpc.retry.useMutation(settled)
   const action = pressFor(worktree)
-  if (action === undefined) return null
+  if (action === undefined || (hideProceed && action === "proceed")) return null
   const mutation = action === "proceed" ? proceed : retry
   const failed = mutation.error?.message
   const { label, Icon, variant } = PRESS[action]

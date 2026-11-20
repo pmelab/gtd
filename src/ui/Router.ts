@@ -22,6 +22,18 @@ export interface RouterContext {
   readonly readSteeringFile: (
     request: NoWorktreePath<ReadSteeringFileRequest>,
   ) => Promise<ReadSteeringFileResult>
+  /** Presses Proceed for the served worktree at `commit`; absent when the caller has no driver to press. */
+  readonly proceed?: (
+    commit: string,
+  ) => Promise<{ readonly ok: true } | { readonly ok: false; readonly message: string }>
+}
+
+/** A refused Proceed, carried as a thrown `TRPCError`'s `cause` — the page reads `error.data.proceedRefusal.message`. */
+export class ProceedRefusal extends Error {
+  constructor(readonly refusal: string) {
+    super(refusal)
+    this.name = "ProceedRefusal"
+  }
 }
 
 /** One of `Write.ts#WriteNoteRequest`'s five typed refusals, carried as a thrown `TRPCError`'s `cause` — the phone renders a different sentence for each, read off `error.data.writeRefusal`, never off `error.message`. */
@@ -62,6 +74,7 @@ const t = initTRPC.context<RouterContext>().create({
           moved: r.moved,
         })),
         readRefusal: refusalField(cause, ReadSteeringFileRefusal, (r) => ({ reason: r.reason })),
+        proceedRefusal: refusalField(cause, ProceedRefusal, (r) => ({ message: r.refusal })),
       },
     }
   },
@@ -184,23 +197,12 @@ const setValueInput = (
   }
 }
 
-/**
- * `done`'s own input validator — `{ note?: <writeNoteInput fields> }`, one
- * optional nested object rather than `writeNoteInput`'s own six
- * independently-optional flat fields (which could arrive in half-valid
- * combinations). `note` present is validated by `writeNoteInput` itself, so
- * a malformed note throws here, before `done`'s resolver ever runs — never
- * reaching `ctx.writeNote`. `note` absent needs no tokens:
- * there is nothing to compare-and-swap when nothing is written.
- */
-const doneInput = (
-  value: unknown,
-): {
-  readonly note?: ReturnType<typeof writeNoteInput>
-} => {
-  if (!isRecord(value)) throw new Error("expected a done request")
-  if (value.note === undefined) return {}
-  return { note: writeNoteInput(value.note) }
+/** `proceed`'s input: the HEAD commit the page shows. */
+const proceedInput = (value: unknown): { readonly commit: string } => {
+  if (!isRecord(value) || typeof value.commit !== "string") {
+    throw new Error("expected { commit: string }")
+  }
+  return { commit: value.commit }
 }
 
 /** `steeringView`'s own input validator — a `{ content: string }`, no `worktreePath`. */
@@ -290,27 +292,23 @@ export const appRouter = t.router({
     }
   }),
 
-  /**
-   * The done action: writes the steering file exactly as `writeNote` does
-   * WHEN `note` is present; `note` absent writes nothing. Either way the
-   * server keeps running — the outer loop that started `gtd ui` decides when
-   * the turn is over, and the moved-on detection ends the process once it
-   * advances.
-   */
-  done: t.procedure.input(doneInput).mutation(async ({ input, ctx }) => {
-    if (input.note === undefined) return { ok: true as const }
-    const write = await ctx.writeNote(input.note)
-    if (!write.ok) {
+  /** Whether this server has a driver to press for the page's Proceed. */
+  canProceed: t.procedure.query(({ ctx }) => ({ available: ctx.proceed !== undefined })),
+
+  /** Proceed: presses the worktree's driver at `commit`. A refusal carries its reason to the page. */
+  proceed: t.procedure.input(proceedInput).mutation(async ({ input, ctx }) => {
+    const result =
+      ctx.proceed === undefined
+        ? { ok: false as const, message: "No driver for this worktree" }
+        : await ctx.proceed(input.commit)
+    if (!result.ok) {
       throw new TRPCError({
         code: "CONFLICT",
-        message: `gtd ui: write refused (${write.reason})`,
-        cause: new WriteNoteRefusal(write.reason, write.moved),
+        message: result.message,
+        cause: new ProceedRefusal(result.message),
       })
     }
-    return {
-      ok: true as const,
-      contentHash: write.contentHash,
-    }
+    return { ok: true as const }
   }),
 
   /**

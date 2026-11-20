@@ -77,7 +77,7 @@ export const HeaderShowsWhereAndWhy: Story = {
   },
 }
 
-/** The gate's Proceed is the one yellow button; Run in Actions stays secondary while the gate waits. */
+/** The Gate tab hides the header Proceed (the page has its own); the Actions tab shows it, and Run stays secondary. */
 export const OneYellowActionAtAGate: Story = {
   decorators: withApi({
     actions: () => ({
@@ -87,12 +87,21 @@ export const OneYellowActionAtAGate: Story = {
   }),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const proceed = canvas.getByRole("button", { name: "Proceed" })
+    await expect(canvas.queryByRole("button", { name: "Proceed" })).toBeNull()
     await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
+    const proceed = canvas.getByRole("button", { name: "Proceed" })
     const run = await canvas.findByRole("button", { name: "Run" })
     await expect(getComputedStyle(run).backgroundColor).not.toBe(
       getComputedStyle(proceed).backgroundColor,
     )
+  },
+}
+
+/** A rest with no steering file has no gate Proceed, so the header keeps its own. */
+export const KeepsProceedWithoutASteeringFile: Story = {
+  args: { entry: { project: portal, worktree: { ...plan.worktree, gated: false } } },
+  play: async ({ canvasElement }) => {
+    await expect(within(canvasElement).getByRole("button", { name: "Proceed" })).toBeTruthy()
   },
 }
 

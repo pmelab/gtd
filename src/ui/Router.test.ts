@@ -5,6 +5,7 @@ import {
   appRouter,
   ReadSteeringFileRefusal,
   WriteNoteRefusal,
+  ProceedRefusal,
   type RouterContext,
 } from "./Router.js"
 
@@ -50,8 +51,6 @@ const doneNote = {
   anchor: { kind: "paragraph" as const, line: 3 },
   text: "a note",
 }
-
-const doneRequest = { note: doneNote }
 
 describe("appRouter.step", () => {
   it("delegates straight to the context's readStep", async () => {
@@ -309,49 +308,27 @@ describe("appRouter.readSteeringFile", () => {
   })
 })
 
-describe("appRouter.done", () => {
-  it("with a note: writes it and returns the write's result", async () => {
-    const write = vi.fn(() => Promise.resolve(WRITE_OK))
-    const caller = appRouter.createCaller(contextFor(undefined, write))
-    const result = await caller.done(doneRequest)
-    expect(result).toEqual(WRITE_OK)
-    expect(write).toHaveBeenCalledTimes(1)
+describe("appRouter.proceed", () => {
+  it("presses the caller's proceed at the given commit", async () => {
+    const proceed = vi.fn(() => Promise.resolve({ ok: true as const }))
+    const caller = appRouter.createCaller({ ...contextFor(), proceed })
+    expect(await caller.proceed({ commit: "abc" })).toEqual({ ok: true })
+    expect(proceed).toHaveBeenCalledWith("abc")
   })
 
-  it("with a note: a failed write refuses with the same WriteNoteRefusal-carrying CONFLICT error", async () => {
-    const caller = appRouter.createCaller(
-      contextFor(undefined, () =>
-        Promise.resolve({ ok: false, reason: "stale-token", moved: "sha" }),
-      ),
-    )
-    const error = await caller.done(doneRequest).catch((e: unknown) => e)
-    expect(error).toBeInstanceOf(Error)
-    expect((error as { cause?: unknown }).cause).toBeInstanceOf(WriteNoteRefusal)
-    expect((error as { code?: string }).code).toBe("CONFLICT")
+  it("a refused press carries its reason as a ProceedRefusal", async () => {
+    const proceed = () => Promise.resolve({ ok: false as const, message: "HEAD moved" })
+    const caller = appRouter.createCaller({ ...contextFor(), proceed })
+    const error = await caller.proceed({ commit: "abc" }).catch((e: unknown) => e)
+    expect((error as { cause?: unknown }).cause).toBeInstanceOf(ProceedRefusal)
+    expect((error as Error).message).toBe("HEAD moved")
   })
 
-  it("with no note: performs no write at all", async () => {
-    const write = vi.fn(() => Promise.resolve(WRITE_OK))
-    const caller = appRouter.createCaller(contextFor(undefined, write))
-    const result = await caller.done({})
-    expect(result).toEqual({ ok: true })
-    expect(write).not.toHaveBeenCalled()
-  })
-
-  it("with a malformed note (a missing string field) throws before anything is written", async () => {
-    const write = vi.fn(() => Promise.resolve(WRITE_OK))
-    const caller = appRouter.createCaller(contextFor(undefined, write))
-    await expect(caller.done({ note: { ...doneNote, text: undefined } } as never)).rejects.toThrow()
-    expect(write).not.toHaveBeenCalled()
-  })
-
-  it("with a malformed note (a bad anchor) throws before anything is written", async () => {
-    const write = vi.fn(() => Promise.resolve(WRITE_OK))
-    const caller = appRouter.createCaller(contextFor(undefined, write))
-    await expect(
-      caller.done({ note: { ...doneNote, anchor: { kind: "unknown" } } } as never),
-    ).rejects.toThrow()
-    expect(write).not.toHaveBeenCalled()
+  it("with no proceed path it refuses with 'No driver for this worktree' and reports unavailable", async () => {
+    const caller = appRouter.createCaller(contextFor())
+    expect(await caller.canProceed()).toEqual({ available: false })
+    const error = await caller.proceed({ commit: "abc" }).catch((e: unknown) => e)
+    expect((error as Error).message).toBe("No driver for this worktree")
   })
 })
 
@@ -360,19 +337,6 @@ describe("no procedure input carries a filesystem path from the client", () => {
   // none may accept a `worktreePath` (or any other path-shaped) field. The
   // server always writes/reads through the one worktree it serves, resolved
   // server-side from `Host`, never named by the client.
-  it("done ignores a worktreePath field passed alongside otherwise well-formed input", async () => {
-    const caller = appRouter.createCaller(contextFor())
-    // Passed as an extra field: proves the validator doesn't merely ignore
-    // it silently but that no code path here ever reads `input.worktreePath`
-    // by checking `done` behaves identically whether or not it's present.
-    // The structural test below covers writeNote/readSteeringFile/diff too.
-    const withPath = { ...doneRequest, worktreePath: "/etc/passwd" }
-    const without = { ...doneRequest }
-    const a = await caller.done(withPath as never)
-    const b = await caller.done(without)
-    expect(a).toEqual(b)
-  })
-
   // Structural, not textual: earlier this grepped Router.ts's own source for
   // the literal string "worktreePath" — which only pinned that ONE field
   // name is gone, not the property its own title claimed (a `filePath`/
