@@ -9,6 +9,7 @@ export {
 } from "./Emit.js"
 export {
   shellQuote,
+  GIT_LOCK_RETRY,
   commitAll,
   commitAsIs,
   commitClean,

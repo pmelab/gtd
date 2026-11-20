@@ -96,7 +96,9 @@ describe("throw", () => {
   })
 
   test("only landed state travels", async () => {
-    const { io, ran } = repo({ "git status --porcelain": { out: " M .gtd/QA.md\n" } })
+    const { io, ran } = repo({
+      "git --no-optional-locks status --porcelain": { out: " M .gtd/QA.md\n" },
+    })
     expect(await throwTo(io, rest, undefined, NOW)).toMatchObject({ ok: false })
     expect(ran().some((c) => c.startsWith("git push"))).toBe(false)
   })
@@ -189,7 +191,7 @@ describe("catch", () => {
     })
     expect(await catchFrom(io, "9")).toEqual({ ok: true, text: "Caught u" })
     expect(ran()).toEqual([
-      "git status --porcelain",
+      "git --no-optional-locks status --porcelain",
       "gh pr checkout 9",
       "gh pr view 9 --json number,url",
       "gh pr edit 9 --add-assignee @me",
@@ -198,7 +200,7 @@ describe("catch", () => {
   })
 
   test("refuses over local edits", async () => {
-    const { io, ran } = repo({ "git status --porcelain": { out: "?? x\n" } })
+    const { io, ran } = repo({ "git --no-optional-locks status --porcelain": { out: "?? x\n" } })
     expect(await catchFrom(io, "9")).toMatchObject({ ok: false })
     expect(ran()).not.toContain("gh pr checkout 9")
   })

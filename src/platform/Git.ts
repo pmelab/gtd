@@ -1,6 +1,7 @@
 import { Context, Effect, Layer, Option, Stream } from "effect"
 import { ChildProcess, ChildProcessSpawner } from "effect/process"
 import { Host } from "./Host.js"
+import { copyIndexToScratch, removeScratch } from "./NodeSync.js"
 
 export interface GitReaderOperations {
   readonly lastCommitSubject: (ref?: string) => Effect.Effect<string, Error>
@@ -312,8 +313,12 @@ const classifyUntracked = (
  * quoted paths broke a swallowed `git add`. Callers that expect a probe to
  * fail handle it with an explicit `catch`.
  */
-const run = (
+const run = (root: string, ...args: [string, ...Array<string>]) =>
+  runWithEnv(root, undefined, ...args)
+
+const runWithEnv = (
   root: string,
+  env: Record<string, string> | undefined,
   ...args: [string, ...Array<string>]
 ): Effect.Effect<string, Error, ChildProcessSpawner.ChildProcessSpawner> =>
   Effect.scoped(
@@ -325,6 +330,7 @@ const run = (
         // exits, which would kill a git hook's background job.
         ChildProcess.make(command, rest, {
           cwd: root,
+          ...(env === undefined ? {} : { env, extendEnv: true }),
           stdout: "pipe",
           stderr: "pipe",
           detached: false,
@@ -382,6 +388,20 @@ const makeGitImpl = (
 ): GitOperations => {
   const exec = (...args: [string, ...Array<string>]) =>
     run(root, ...args).pipe(Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner))
+
+  // `git diff` refreshes the index under `index.lock` whatever GIT_OPTIONAL_LOCKS says, which
+  // could fail a landing; a private copy takes that write instead.
+  const readOnlyDiff = (...args: [string, ...Array<string>]) =>
+    Effect.acquireUseRelease(
+      exec("git", "rev-parse", "--path-format=absolute", "--git-path", "index").pipe(
+        Effect.map((out) => copyIndexToScratch(out.trim())),
+      ),
+      ({ copy }) =>
+        runWithEnv(root, { GIT_INDEX_FILE: copy }, ...args).pipe(
+          Effect.provideService(ChildProcessSpawner.ChildProcessSpawner, spawner),
+        ),
+      ({ dir }) => Effect.sync(() => removeScratch(dir)),
+    )
 
   return {
     lastCommitSubject: (ref = "HEAD") =>
@@ -459,7 +479,7 @@ const makeGitImpl = (
         const ref = base ?? "HEAD"
         // Tolerates the empty-repo case (no HEAD), where the diff has no ref
         // to compare against and reports no tracked changes.
-        const nameStatusOut = yield* exec("git", "diff", "--name-status", "-z", ref).pipe(
+        const nameStatusOut = yield* readOnlyDiff("git", "diff", "--name-status", "-z", ref).pipe(
           Effect.catch(() => Effect.succeed("")),
         )
         const trackedPaths = parseNameStatus(splitNul(nameStatusOut))

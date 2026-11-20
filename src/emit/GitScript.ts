@@ -29,6 +29,23 @@ const commitWordAllowEmpty = (m: string, only?: string): string => {
   ].join("\n")
 }
 
+/** Shadows `git` for the whole landing: a step that fails on a busy `*.lock` changed nothing, so it runs again (5 tries, 2s apart). */
+export const GIT_LOCK_RETRY = [
+  `git() {`,
+  `  gtd_try=1`,
+  `  while :; do`,
+  `    gtd_rc=0`,
+  `    { gtd_err=$(command git "$@" 2>&1 >&3 3>&-) || gtd_rc=$?; } 3>&1`,
+  `    if [ -n "$gtd_err" ]; then printf '%s\\n' "$gtd_err" >&2; fi`,
+  `    gtd_lock=$(printf '%s\\n' "$gtd_err" | sed -nE "s/^(fatal|error): Unable to create '(.*\\.lock)': File exists.*/\\2/p" | head -n 1)`,
+  `    if [ "$gtd_rc" = 0 ] || [ -z "$gtd_lock" ] || [ "$gtd_try" -ge 5 ]; then return "$gtd_rc"; fi`,
+  `    gtd_try=$((gtd_try + 1))`,
+  `    echo "gtd: git lock busy: $gtd_lock, retry $gtd_try of 5" >&2`,
+  `    sleep 2`,
+  `  done`,
+  `}`,
+].join("\n")
+
 export const CHANGED_SINCE_LAND =
   "gtd: the working tree changed since `gtd land` — revert the edits and run `gtd land` again to approve"
 
@@ -121,7 +138,7 @@ export const unpinScript = (path: string): string => `rm -f -- ${shellQuote(path
 export const commitClean = (message: string): string =>
   [
     `gtd_head=$(git rev-parse --verify HEAD) || exit 1`,
-    `if [ -n "$(git status --porcelain --untracked-files=all --ignore-submodules=none)" ]; then`,
+    `if [ -n "$(git --no-optional-locks status --porcelain --untracked-files=all --ignore-submodules=none)" ]; then`,
     `  printf '%s\\n' ${shellQuote(CHANGED_SINCE_LAND)} >&2`,
     `  exit 1`,
     `fi`,
@@ -237,10 +254,11 @@ export const shipCommit = (
     `gtd_tree=$(git write-tree) || exit 1`,
     `gtd_index=$(git rev-parse --git-path gtd-ship-index) || exit 1`,
     `rm -f -- "$gtd_index"`,
-    `GIT_INDEX_FILE="$gtd_index" git read-tree "$gtd_tree" || exit 1`,
-    `GIT_INDEX_FILE="$gtd_index" git rm -r -q --cached --ignore-unmatch -- .gtd || exit 1`,
-    `git ls-tree -r "$gtd_ship_parent" -- .gtd | GIT_INDEX_FILE="$gtd_index" git update-index --index-info || exit 1`,
-    `gtd_ship_tree=$(GIT_INDEX_FILE="$gtd_index" git write-tree) || exit 1`,
+    // Subshells: `git` is a function, and a prefix assignment may outlive a function call in POSIX mode.
+    `(GIT_INDEX_FILE="$gtd_index"; export GIT_INDEX_FILE; git read-tree "$gtd_tree") || exit 1`,
+    `(GIT_INDEX_FILE="$gtd_index"; export GIT_INDEX_FILE; git rm -r -q --cached --ignore-unmatch -- .gtd) || exit 1`,
+    `git ls-tree -r "$gtd_ship_parent" -- .gtd | (GIT_INDEX_FILE="$gtd_index"; export GIT_INDEX_FILE; git update-index --index-info) || exit 1`,
+    `gtd_ship_tree=$(GIT_INDEX_FILE="$gtd_index"; export GIT_INDEX_FILE; git write-tree) || exit 1`,
     `rm -f -- "$gtd_index"`,
     `gtd_shipped=$(git commit-tree "$gtd_sign" "$gtd_ship_tree" -p "$gtd_ship_parent" -m "$gtd_ship_message") || exit 1`,
     `git update-ref "${shippedRef("")}$gtd_shipped" "$gtd_head" || exit 1`,
@@ -357,6 +375,8 @@ export type RunnableScript = string & { readonly guarded: unique symbol }
 export const ScriptSurface = {
   render: (steps: readonly LandStep[]): RunnableScript => {
     const rendered = steps.map(renderLandStep)
-    return (rendered.length === 0 ? "" : ["set -eu", ...rendered].join("\n\n")) as RunnableScript
+    return (
+      rendered.length === 0 ? "" : ["set -eu", GIT_LOCK_RETRY, ...rendered].join("\n\n")
+    ) as RunnableScript
   },
 }

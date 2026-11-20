@@ -9,6 +9,7 @@ import {
   commitClean,
   commitPath,
   deleteRef,
+  GIT_LOCK_RETRY,
   discardPending,
   hardResetTo,
   keepTurn,
@@ -104,7 +105,7 @@ type BlockOutcome =
 const SET_FLAGS_RE = /^set\s+-\S+(\s+\S+)*$/
 
 const recognizeSetFlags = (block: string): BlockOutcome | undefined =>
-  SET_FLAGS_RE.test(block) ? { kind: "noop" } : undefined
+  SET_FLAGS_RE.test(block) || block === GIT_LOCK_RETRY ? { kind: "noop" } : undefined
 
 /**
  * This module's own invented precondition-assertion shape, not a real gtd
@@ -693,6 +694,27 @@ export const applyEmittedScript = (
   return script.startsWith("#!") ? unrecognized(script) : applyBlocks(repo, commands, script, git)
 }
 
+/** A git step meeting `repo.busyLock`: the retry lines it prints, and the failure when every try is spent. */
+const busyLockStep = (
+  repo: InMemRepo,
+  block: string,
+): { output: string; failed?: { error: string; status: number } } | undefined => {
+  const busy = repo.busyLock
+  if (busy === undefined || !block.includes("git ")) return undefined
+  repo.busyLock = undefined
+  let output = ""
+  for (let n = 2; n <= Math.min(busy.failures + 1, 5); n++) {
+    output += `gtd: git lock busy: ${busy.path}, retry ${n} of 5\n`
+  }
+  return busy.failures >= 5
+    ? {
+        output,
+        failed: { error: `fatal: Unable to create '${busy.path}': File exists.`, status: 1 },
+      }
+    : { output }
+}
+
+// fallow-ignore-next-line complexity
 const applyBlocks = (
   repo: InMemRepo,
   commands: CommandTable,
@@ -702,6 +724,9 @@ const applyBlocks = (
   const recognizers = recognizersFor(repo, commands, git)
   let output = ""
   for (const block of splitBlocks(script)) {
+    const stuck = git ? busyLockStep(repo, block) : undefined
+    output += stuck?.output ?? ""
+    if (stuck?.failed) return failedAt(stuck.failed, output)
     const outcome = recognizeBlock(recognizers, block)
     if (outcome === undefined) return unrecognized(block, output)
     if (outcome.kind === "noop") output += outcome.output ?? ""

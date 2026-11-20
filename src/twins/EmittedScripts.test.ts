@@ -15,10 +15,20 @@ import {
   transitionOutcome,
   type EmitStep,
 } from "../emit/index.js"
+import { execFileSync, spawnSync } from "node:child_process"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { Effect, Option } from "effect"
 import { ScriptSurface } from "../emit/index.js"
 import { GitService, shippedRef } from "../platform/index.js"
-import { gitTiers, type GitTier, type ScriptedCommand } from "./index.js"
+import {
+  applyEmittedScript,
+  InMemRepo,
+  gitTiers,
+  type GitTier,
+  type ScriptedCommand,
+} from "./index.js"
 
 // Every case runs through real `sh` — with this build's `gtd` on PATH — and
 // through `applyEmittedScript`. A command a case runs is declared for the
@@ -455,3 +465,89 @@ printf '%s\n' 'a' '' 'it'\''s' '100%' '-x' 'a\b' '.gtd/packages/00-x.md' > '.gtd
     })
   })
 }
+
+describe("a busy git lock", () => {
+  const land = commitAll("gtd: land")
+
+  const liveRepo = () => {
+    const dir = mkdtempSync(join(tmpdir(), "gtd-lock-"))
+    const git = (...args: string[]) => execFileSync("git", args, { cwd: dir })
+    git("init", "-q")
+    git("config", "user.email", "a@b.c")
+    git("config", "user.name", "t")
+    git("commit", "-q", "--allow-empty", "-m", "init")
+    writeFileSync(join(dir, "a.txt"), "a\n")
+    writeFileSync(join(dir, ".git", "index.lock"), "")
+    return dir
+  }
+  const runSh = (dir: string, text: string, prefix = "") =>
+    spawnSync("sh", ["-c", `${prefix}${text}`], { cwd: dir, encoding: "utf8" })
+
+  it("is retried by real sh until released, tracing each retry", () => {
+    const dir = liveRepo()
+    try {
+      const result = runSh(
+        dir,
+        emitScripts(commandSteps(land)).required,
+        "(sleep 3; rm -f .git/index.lock) & ",
+      )
+      expect(result.status).toBe(0)
+      const retries = result.stderr.split("\n").filter((l) => l.startsWith("gtd: git lock busy"))
+      expect(retries.map((l) => l.replace(/busy: .*index\.lock,/, "busy:"))).toEqual([
+        "gtd: git lock busy: retry 2 of 5",
+        "gtd: git lock busy: retry 3 of 5",
+      ])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("fails with git's own error when real sh meets it through all five tries", () => {
+    const dir = liveRepo()
+    try {
+      const result = runSh(dir, emitScripts(commandSteps(land)).required)
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).toContain("File exists")
+      expect(result.stderr).toContain("retry 5 of 5")
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }, 20_000)
+
+  it("does not retry lock text that a hook printed", () => {
+    const dir = liveRepo()
+    try {
+      rmSync(join(dir, ".git", "index.lock"))
+      const hook = join(dir, ".git", "hooks", "pre-commit")
+      writeFileSync(
+        hook,
+        "#!/bin/sh\necho \"hook: Unable to create '/x/index.lock': File exists\" >&2\nexit 1\n",
+        { mode: 0o755 },
+      )
+      const result = runSh(dir, emitScripts(commandSteps(land)).required)
+      expect(result.status).not.toBe(0)
+      expect(result.stderr).not.toContain("retry")
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it("is retried by the twin until released", () => {
+    const repo = new InMemRepo()
+    repo.busyLock = { path: ".git/index.lock", failures: 2 }
+    const result = applyEmittedScript(repo, commands, emitScripts(commandSteps(land)).required)
+    expect(result.ok).toBe(true)
+    expect(result.output).toBe(
+      "gtd: git lock busy: .git/index.lock, retry 2 of 5\n" +
+        "gtd: git lock busy: .git/index.lock, retry 3 of 5\n",
+    )
+  })
+
+  it("fails in the twin when it never releases", () => {
+    const repo = new InMemRepo()
+    repo.busyLock = { path: ".git/index.lock", failures: 5 }
+    const result = applyEmittedScript(repo, commands, emitScripts(commandSteps(land)).required)
+    expect(result).toMatchObject({ ok: false })
+    expect(result.output).toContain("Unable to create '.git/index.lock': File exists")
+  })
+})

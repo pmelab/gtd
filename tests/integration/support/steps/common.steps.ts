@@ -54,6 +54,15 @@ function writeRepoFile(world: GtdWorld, path: string, content: string, createDir
   }
 }
 
+// In-memory tier only: the twin fails the next git step that many times on this lock.
+Given(
+  "git's {string} is busy for {int} tries",
+  (world: GtdWorld, lock: string, failures: number) => {
+    assert.ok(world.repo !== undefined, "this step needs an @inmem scenario")
+    world.repo.busyLock = { path: `.git/${lock}`, failures }
+  },
+)
+
 Given("a file {string} with:", (world: GtdWorld, path: string, content: string) => {
   writeRepoFile(world, path, content)
 })
