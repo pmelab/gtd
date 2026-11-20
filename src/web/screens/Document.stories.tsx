@@ -92,7 +92,62 @@ const recording = (calls: unknown[]) => ({
     calls.push(input)
     return { ok: true, contentHash: "deadbeef2" }
   },
+  setValues: (input: unknown) => {
+    for (const value of (input as { values: unknown[] }).values) calls.push(value)
+    return { ok: true, contentHash: "deadbeef2" }
+  },
 })
+
+const MANY = [
+  "# Plan",
+  "",
+  "## ☑️ Which endpoints?",
+  "",
+  ...[1, 2, 3, 4, 5, 6].map((n) => `- [ ] /e${n}`),
+  "",
+].join("\n")
+
+export const TickingManyBoxesBatchesTheWritesAndRefetchesOnce: StoryObj<typeof Document> = {
+  render: (args) => {
+    const probe = { batches: [] as number[], reads: 0 }
+    ;(globalThis as { __probe?: typeof probe }).__probe = probe
+    return (
+      <TrpcTestProvider
+        resolvers={{
+          readSteeringFile: () => {
+            probe.reads++
+            return {
+              ok: true,
+              content: MANY,
+              headSha: "abc123",
+              contentHash: "deadbeef",
+              view: widgetFormat.view(MANY),
+            }
+          },
+          setValues: (input: unknown) => {
+            probe.batches.push((input as { values: unknown[] }).values.length)
+            return { ok: true, contentHash: "deadbeef2" }
+          },
+        }}
+      >
+        <Document {...args} />
+      </TrpcTestProvider>
+    )
+  },
+  args: { filePath: ".gtd/PLAN.md" },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByTestId("widget-multi-select")).toBeInTheDocument())
+    const boxes = within(canvas.getByTestId("widget-multi-select")).getAllByRole("checkbox")
+    for (const box of boxes) await fireEvent.click(box)
+    const probe = (globalThis as unknown as { __probe: { batches: number[]; reads: number } })
+      .__probe
+    // The first tick leaves alone; the ticks queued behind it leave together.
+    await waitFor(() => expect(probe.batches.reduce((a, b) => a + b, 0)).toBe(boxes.length))
+    await waitFor(() => expect(probe.reads).toBe(2))
+    await expect(probe.batches.length).toBeLessThan(boxes.length)
+  },
+}
 
 export const PickingAnOptionWritesItsAnchor: StoryObj<typeof Document> = {
   render: (args) => (

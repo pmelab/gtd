@@ -90,6 +90,25 @@ export interface SaveArgs {
    * retries once against freshly-refetched tokens before giving up.
    */
   readonly write?: ((tokens: CasTokens) => Promise<unknown>) | undefined
+  /**
+   * A write that joins the other `batch` entries with the same `key` queued
+   * next to it: they leave as ONE `send(items, tokens)` request, its result
+   * (or failure) shared by every entry. Mutually exclusive with `write`.
+   */
+  readonly batch?:
+    | {
+        readonly key: string
+        readonly item: unknown
+        readonly send: (items: readonly unknown[], tokens: CasTokens) => Promise<unknown>
+      }
+    | undefined
+}
+
+interface QueueEntry {
+  readonly run: () => Promise<unknown>
+  readonly onOk: (value: unknown) => void
+  readonly onErr: (error: unknown) => void
+  readonly batch?: NonNullable<SaveArgs["batch"]>
 }
 
 export interface WriteStoreApi {
@@ -128,7 +147,7 @@ interface InternalState extends WriteStoreApi {
   /** This screen's own best-known compare-and-swap tokens — synced in by `WriteStoreProvider`'s own props on every render, read fresh at dequeue time by a `write` thunk, never cached at call time. */
   readonly tokens: { readonly headSha: string; readonly contentHash: string } | undefined
   readonly refetchTokens: (() => Promise<CasTokens>) | undefined
-  readonly queue: ReadonlyArray<() => Promise<void>>
+  readonly queue: ReadonlyArray<QueueEntry>
   readonly draining: boolean
   readonly collapseTimer: ReturnType<typeof setTimeout> | undefined
   readonly savedTimer: ReturnType<typeof setTimeout> | undefined
@@ -173,17 +192,47 @@ export const createWriteStore = (): StoreApi<InternalState> =>
 
     const drain = (): void => {
       if (get().draining) return
-      const next = get().queue[0]
-      if (next === undefined) return
-      set((s) => ({ draining: true, queue: s.queue.slice(1) }))
-      void next().finally(() => {
-        set({ draining: false })
-        drain()
-      })
+      const first = get().queue[0]
+      if (first === undefined) return
+      // Consecutive entries of one batch key leave as a single request.
+      let taken = 1
+      if (first.batch !== undefined) {
+        const key = first.batch.key
+        const queue = get().queue
+        while (queue[taken]?.batch?.key === key) taken++
+      }
+      const entries = get().queue.slice(0, taken)
+      set((s) => ({ draining: true, queue: s.queue.slice(taken) }))
+      const send = first.batch?.send
+      const run =
+        send === undefined || first.batch === undefined
+          ? first.run
+          : wrapWrite((tokens) =>
+              send(
+                entries.map((e) => e.batch?.item),
+                tokens,
+              ),
+            )
+      const settled = (): Promise<unknown> => {
+        try {
+          return run()
+        } catch (error) {
+          return Promise.reject(error)
+        }
+      }
+      void settled()
+        .then(
+          (value) => entries.forEach((e) => e.onOk(value)),
+          (error: unknown) => entries.forEach((e) => e.onErr(error)),
+        )
+        .finally(() => {
+          set({ draining: false })
+          drain()
+        })
     }
 
-    const enqueue = (run: () => Promise<void>): void => {
-      set((s) => ({ queue: [...s.queue, run] }))
+    const enqueue = (entry: QueueEntry): void => {
+      set((s) => ({ queue: [...s.queue, entry] }))
       drain()
     }
 
@@ -243,7 +292,7 @@ export const createWriteStore = (): StoreApi<InternalState> =>
       }
     }
 
-    const save = ({ cell, optimistic, mutate, write }: SaveArgs): Promise<unknown> => {
+    const save = ({ cell, optimistic, mutate, write, batch }: SaveArgs): Promise<unknown> => {
       const gen = get().nextGen
       set((s) => ({
         nextGen: s.nextGen + 1,
@@ -254,56 +303,47 @@ export const createWriteStore = (): StoreApi<InternalState> =>
       const run = write !== undefined ? wrapWrite(write) : mutate
 
       return new Promise((resolve, reject) => {
-        enqueue(() => {
+        const onOk = (value: unknown): void => {
+          set((s) => {
+            const failed = new Map(s.failed)
+            failed.delete(cell)
+            return { failed }
+          })
+          settleSaveStatus(true)
+          resolve(value)
+        }
+        const onErr = (error: unknown): void => {
+          set((s) => {
+            // A failed write rolls back ONLY while it's still the latest
+            // write for this cell — a newer write has already replaced
+            // the overlay entry, and that one owns the slot now.
+            const current = s.overlay[cell]
+            const overlay = { ...s.overlay }
+            if (current?.gen === gen) delete overlay[cell]
+            const failed = new Map(s.failed)
+            failed.delete(cell)
+            failed.set(cell, writeRefusalFrom(error) ?? { reason: "unknown" })
+            return { overlay, failed, expanded: true }
+          })
+          restartCollapseTimer()
+          settleSaveStatus(false)
+          reject(error)
+        }
+        enqueue({
           // `run` is only ever invoked once this entry reaches the front of
           // the queue, after every earlier write has already settled and
           // swapped the token — never at `save`'s own call time.
-          const settled =
-            run === undefined
-              ? (() => {
-                  // `vite.config.ts`'s `web` pack entry defines
-                  // `process.env.NODE_ENV` as the literal `"production"`, so
-                  // the bundler's own dead-code elimination drops this
-                  // branch entirely from the shipped browser build — this is
-                  // not a runtime check the browser evaluates, it never
-                  // survives to run there at all.
-                  if (process.env.NODE_ENV !== "production") {
-                    console.warn(
-                      `writeStore: no mutation wired up for cell "${cell}" — nothing was sent`,
-                    )
-                  }
-                  return Promise.resolve(undefined)
-                })()
-              : run()
-
-          return settled.then(
-            (value) => {
-              set((s) => {
-                const failed = new Map(s.failed)
-                failed.delete(cell)
-                return { failed }
-              })
-              settleSaveStatus(true)
-              resolve(value)
-            },
-            (error: unknown) => {
-              set((s) => {
-                // A failed write rolls back ONLY while it's still the latest
-                // write for this cell — a newer write has already replaced
-                // the overlay entry, and that one owns the slot now.
-                const current = s.overlay[cell]
-                const overlay = { ...s.overlay }
-                if (current?.gen === gen) delete overlay[cell]
-                const failed = new Map(s.failed)
-                failed.delete(cell)
-                failed.set(cell, writeRefusalFrom(error) ?? { reason: "unknown" })
-                return { overlay, failed, expanded: true }
-              })
-              restartCollapseTimer()
-              settleSaveStatus(false)
-              reject(error)
-            },
-          )
+          run: () => {
+            if (run !== undefined) return run()
+            // The bundler drops this dev-only branch from the shipped build.
+            if (process.env.NODE_ENV !== "production") {
+              console.warn(`writeStore: no mutation wired up for cell "${cell}" — nothing was sent`)
+            }
+            return Promise.resolve(undefined)
+          },
+          onOk,
+          onErr,
+          ...(batch !== undefined ? { batch } : {}),
         })
       })
     }

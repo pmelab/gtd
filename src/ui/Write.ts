@@ -3,7 +3,7 @@ import { readFile as readFileFs, mkdir, writeFile as writeFileFs } from "node:fs
 import { dirname } from "node:path"
 import type { SteeringAnchor, SteeringFormat } from "../steering/index.js"
 import { applySteeringEdits, serialize, widgetFormat } from "../steering/internal.js"
-import type { ReadFileResult, RunInWorktree } from "./Ports.js"
+import type { ReadFileResult } from "./Ports.js"
 import { resolveWithinRoot } from "./SafePath.js"
 
 /**
@@ -78,7 +78,7 @@ export interface WriteValueRequest {
  * falsy value. Only `absent` may create-on-write; `unreadable` always refuses.
  */
 
-/** Every side effect a write needs, injected so tests touch no real checkout. `actorAt`/`headSha` are called FRESH on every write — the rest gate is re-checked at write time, never cached. */
+/** Every side effect a write needs, injected so tests touch no real checkout. `headSha` is read fresh on every write; `actorAt` may cache per HEAD sha, because the rest changes only with a commit. */
 export interface WriteDeps {
   readonly headSha: (worktreePath: string) => Promise<string | undefined>
   /** The actor the worktree currently rests with (`"human"`/`"agent"`/etc, `StateFields.ts`'s `Actor`) — `undefined` when it can't be determined (treated as not-resting-with-a-human, never as an implicit pass). */
@@ -190,19 +190,70 @@ export const writeValue = (request: WriteValueRequest, deps: WriteDeps): Promise
   })
 }
 
-/** `actorAt` over `run`: spawns a fresh `gtd next --json` and reads its `actor`. `undefined` on any failure, which the gate treats as "not resting with a human". */
-export const actorVia =
-  (run: RunInWorktree) =>
-  async (worktreePath: string): Promise<string | undefined> => {
-    const outcome = await run(worktreePath, "gtd next --json")
-    if (outcome.status !== 0) return undefined
-    try {
-      const parsed = JSON.parse(outcome.stdout) as { readonly actor?: unknown }
-      return typeof parsed.actor === "string" ? parsed.actor : undefined
-    } catch {
-      return undefined
+export interface WriteValuesRequest {
+  readonly worktreePath: string
+  readonly filePath: string
+  readonly expectedHeadSha: string
+  readonly expectedContentHash: string
+  /** Applied in order to one read of the file; one refusal refuses all. */
+  readonly values: ReadonlyArray<{
+    readonly anchor: SteeringAnchor
+    readonly checked?: boolean
+    readonly text?: string
+  }>
+}
+
+/** `writeValue` for a list of values: one read, one compare-and-swap, one file write. Each value is applied and serialized in turn, so the bytes equal N single writes. */
+export const writeValues = (request: WriteValuesRequest, deps: WriteDeps): Promise<WriteResult> => {
+  const absPath = resolveWithinRoot(request.worktreePath, request.filePath)
+  if (absPath === undefined) return Promise.resolve({ ok: false, reason: "file-vanished" })
+  return enqueue(absPath, async (): Promise<WriteResult> => {
+    const verified = await verifyForWrite(request, absPath, deps)
+    if (!verified.ok) return verified
+
+    let content = verified.content
+    for (const value of request.values) {
+      const applied = widgetFormat.apply(content, value.anchor, {
+        ...(value.checked !== undefined ? { checked: value.checked } : {}),
+        ...(value.text !== undefined ? { text: value.text } : {}),
+      })
+      if (!applied.ok) return annotateRefusal(applied.reason)
+      content = serialize(applySteeringEdits(content, applied.edits))
     }
+    return finishWrite(absPath, content, deps)
+  })
+}
+
+/**
+ * Remembers, per worktree, the HEAD sha at which the process was last seen
+ * resting with a human (and its served file). Process state comes only from
+ * commits, so the answer holds while HEAD stays. A failed read, a missing sha
+ * or a non-human actor is never cached.
+ */
+export const humanRestCache = (
+  headSha: (worktreePath: string) => Promise<string | undefined>,
+  readRest: (worktreePath: string) => Promise<{ readonly file: string | undefined } | undefined>,
+) => {
+  const cache = new Map<string, { readonly sha: string; readonly file: string | undefined }>()
+  const restOf = async (
+    worktreePath: string,
+  ): Promise<{ readonly file: string | undefined } | undefined> => {
+    const sha = await headSha(worktreePath)
+    const hit = cache.get(worktreePath)
+    if (sha !== undefined && hit?.sha === sha) return { file: hit.file }
+    cache.delete(worktreePath)
+    const rest = await readRest(worktreePath)
+    if (rest !== undefined && sha !== undefined) cache.set(worktreePath, { sha, file: rest.file })
+    return rest
   }
+  return {
+    restOf,
+    actorAt: async (worktreePath: string): Promise<string | undefined> =>
+      (await restOf(worktreePath)) === undefined ? undefined : "human",
+  }
+}
+
+export type HumanRestCache = ReturnType<typeof humanRestCache>
 
 /**
  * The only place that sees the real `errno`, so the only place that

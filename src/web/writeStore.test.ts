@@ -336,3 +336,93 @@ describe("createWriteStore — dismiss", () => {
     expect(store.getState().expanded).toBe(false)
   })
 })
+
+describe("createWriteStore — batched box writes", () => {
+  const tokens = { headSha: "h", contentHash: "c" }
+  const setup = () => {
+    const store = createWriteStore()
+    store.setState({
+      tokens,
+      refetchTokens: async () => ({ expectedHeadSha: "h", expectedContentHash: "c" }),
+    })
+    return store
+  }
+  const box = (store: ReturnType<typeof setup>, n: number, send: never) =>
+    store.getState().save({
+      cell: `b${n}`,
+      optimistic: n,
+      batch: { key: "f", item: n, send },
+    })
+
+  it("ticks queued behind an in-flight save leave as one request, in order", async () => {
+    const store = setup()
+    const first = deferred<{ contentHash: string }>()
+    const send = vi.fn().mockReturnValueOnce(first.promise).mockResolvedValue({ contentHash: "x" })
+    const all = [box(store, 0, send as never)]
+    for (let i = 1; i <= 29; i++) all.push(box(store, i, send as never))
+    first.resolve({ contentHash: "y" })
+    await Promise.all(all)
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(send.mock.calls[1]?.[0]).toEqual(Array.from({ length: 29 }, (_, i) => i + 1))
+  })
+
+  it("a note between ticks keeps its place", async () => {
+    const store = setup()
+    const order: string[] = []
+    const send = vi.fn(async (items: unknown[]) => {
+      order.push(`batch:${items.join(",")}`)
+      return { contentHash: "x" }
+    })
+    const first = deferred<void>()
+    const p0 = store.getState().save({ cell: "gate", optimistic: 0, mutate: () => first.promise })
+    const p1 = box(store, 1, send as never)
+    const note = store.getState().save({
+      cell: "n",
+      optimistic: "t",
+      mutate: async () => {
+        order.push("note")
+      },
+    })
+    const p2 = box(store, 2, send as never)
+    first.resolve()
+    await Promise.all([p0, p1, note, p2])
+    expect(order).toEqual(["batch:1", "note", "batch:2"])
+  })
+
+  it("retries a stale-token refusal once: one refetch, the same items with the new tokens", async () => {
+    const store = createWriteStore()
+    const refetchTokens = vi.fn(async () => ({
+      expectedHeadSha: "h2",
+      expectedContentHash: "c2",
+    }))
+    store.setState({ tokens, refetchTokens })
+    const send = vi
+      .fn()
+      .mockRejectedValueOnce({ data: { writeRefusal: { reason: "stale-token", moved: "sha" } } })
+      .mockResolvedValue({ contentHash: "x" })
+    const first = deferred<void>()
+    const p0 = store.getState().save({ cell: "gate", optimistic: 0, mutate: () => first.promise })
+    const ps = [1, 2].map((n) => box(store, n, send as never))
+    first.resolve()
+    await Promise.all([p0, ...ps])
+    expect(refetchTokens).toHaveBeenCalledTimes(1)
+    expect(send).toHaveBeenCalledTimes(2)
+    expect(send.mock.calls[0]?.[0]).toEqual([1, 2])
+    expect(send.mock.calls[1]?.[0]).toEqual([1, 2])
+    expect(send.mock.calls[1]?.[1]).toEqual({ expectedHeadSha: "h2", expectedContentHash: "c2" })
+    expect(store.getState().failed.size).toBe(0)
+  })
+
+  it("a failed batch rolls back and fails every tick in it", async () => {
+    const store = setup()
+    const first = deferred<void>()
+    const send = vi.fn().mockRejectedValue(new Error("boom"))
+    const p0 = store.getState().save({ cell: "gate", optimistic: 0, mutate: () => first.promise })
+    const ps = [1, 2, 3].map((n) => box(store, n, send as never).catch(() => "failed"))
+    first.resolve()
+    await Promise.all([p0, ...ps])
+    expect(send).toHaveBeenCalledTimes(1)
+    expect(store.getState().failed.size).toBe(3)
+    expect(store.getState().overlayValue("b2")).toBeUndefined()
+  })
+})

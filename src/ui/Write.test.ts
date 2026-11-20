@@ -8,7 +8,9 @@ import {
   liveReadFile,
   liveWriteFile,
   writeNote,
+  humanRestCache,
   writeValue,
+  writeValues,
   type WriteDeps,
 } from "./Write.js"
 import type { ReadFileResult } from "./index.js"
@@ -449,5 +451,109 @@ describe("writeValue", () => {
     expect(written.split("\n").every((line) => line.length <= 80)).toBe(true)
     expect(written).toContain("- [x] ./a.ts#1-1 hunk")
     expect(result).toEqual({ ok: true, contentHash: contentHashOf(written) })
+  })
+})
+
+describe("writeValues", () => {
+  const TWO = [
+    "# Plan",
+    "",
+    "## 🔍 Chunk",
+    "",
+    "- [ ] ./a.ts#1-1 one",
+    "- [ ] ./b.ts#1-1 two",
+    "",
+  ].join("\n")
+  const values = [
+    { anchor: { kind: "hunk" as const, chunkIndex: 0, index: 0 }, checked: true },
+    { anchor: { kind: "hunk" as const, chunkIndex: 0, index: 1 }, checked: true },
+  ]
+  const request = () => ({
+    worktreePath: WORKTREE,
+    filePath: FILE,
+    expectedHeadSha: "sha1",
+    expectedContentHash: contentHashOf(TWO),
+  })
+
+  it("writes the bytes N single writes would, in one file write", async () => {
+    let disk = TWO
+    const deps = fakeDeps({
+      readFile: vi.fn(() => content(disk)),
+      writeFile: vi.fn(async (_p: string, c: string) => {
+        disk = c
+      }),
+    })
+    const result = await writeValues({ ...request(), values }, deps)
+    expect(result.ok).toBe(true)
+    expect(deps.writeFile).toHaveBeenCalledTimes(1)
+
+    let single = TWO
+    const singleDeps = fakeDeps({
+      readFile: vi.fn(() => content(single)),
+      writeFile: vi.fn(async (_p: string, c: string) => {
+        single = c
+      }),
+    })
+    for (const v of values) {
+      await writeValue(
+        {
+          ...request(),
+          expectedContentHash: contentHashOf(single),
+          anchor: v.anchor,
+          checked: v.checked,
+        },
+        singleDeps,
+      )
+    }
+    expect(disk).toBe(single)
+  })
+
+  it("one unresolvable value refuses the whole batch and writes nothing", async () => {
+    const deps = fakeDeps({ readFile: vi.fn(() => content(TWO)) })
+    const result = await writeValues(
+      {
+        ...request(),
+        values: [values[0]!, { anchor: { kind: "hunk", chunkIndex: 9, index: 9 }, checked: true }],
+      },
+      deps,
+    )
+    expect(result).toEqual({ ok: false, reason: "anchor-unresolved" })
+    expect(deps.writeFile).not.toHaveBeenCalled()
+  })
+
+  it("refuses a stale sha like a single write", async () => {
+    const deps = fakeDeps({ readFile: vi.fn(() => content(TWO)) })
+    const result = await writeValues({ ...request(), expectedHeadSha: "old", values }, deps)
+    expect(result).toEqual({ ok: false, reason: "stale-token", moved: "sha" })
+  })
+})
+
+describe("humanRestCache", () => {
+  const make = (shas: (string | undefined)[], reads: ({ file: string } | undefined)[]) => {
+    const readRest = vi.fn(async () => reads.shift())
+    const cache = humanRestCache(async () => shas.shift(), readRest)
+    return { cache, readRest }
+  }
+
+  it("runs the check once while HEAD stays", async () => {
+    const { cache, readRest } = make(["a", "a", "a"], [{ file: "f" }])
+    await cache.actorAt("/w")
+    await cache.actorAt("/w")
+    expect((await cache.restOf("/w"))?.file).toBe("f")
+    expect(readRest).toHaveBeenCalledTimes(1)
+  })
+
+  it("checks again after HEAD moves and refuses when no longer human", async () => {
+    const { cache, readRest } = make(["a", "b"], [{ file: "f" }, undefined])
+    expect(await cache.actorAt("/w")).toBe("human")
+    expect(await cache.actorAt("/w")).toBeUndefined()
+    expect(readRest).toHaveBeenCalledTimes(2)
+  })
+
+  it("never caches a failed check", async () => {
+    const { cache, readRest } = make(["a", "a"], [undefined, { file: "f" }])
+    expect(await cache.actorAt("/w")).toBeUndefined()
+    expect(await cache.actorAt("/w")).toBe("human")
+    expect(readRest).toHaveBeenCalledTimes(2)
   })
 })

@@ -4,7 +4,12 @@ import type { StepRead } from "./Beat.js"
 import type { DiffResult } from "./Diff.js"
 import type { ReadSteeringFileRequest, ReadSteeringFileResult } from "./ReadSteeringFile.js"
 import { steeringViewFor } from "./View.js"
-import type { WriteNoteRequest, WriteResult, WriteValueRequest } from "./Write.js"
+import type {
+  WriteNoteRequest,
+  WriteResult,
+  WriteValueRequest,
+  WriteValuesRequest,
+} from "./Write.js"
 
 /** A request shape with the client-supplied `worktreePath` stripped — the server always writes/reads through the one worktree it serves, closed over server-side, never named by the client. */
 type NoWorktreePath<T> = Omit<T, "worktreePath">
@@ -14,6 +19,7 @@ export interface RouterContext {
   readonly readStep: () => Promise<StepRead>
   readonly writeNote: (request: NoWorktreePath<WriteNoteRequest>) => Promise<WriteResult>
   readonly writeValue: (request: NoWorktreePath<WriteValueRequest>) => Promise<WriteResult>
+  readonly writeValues: (request: NoWorktreePath<WriteValuesRequest>) => Promise<WriteResult>
   readonly resolveDiff: (
     path: string,
     line: number | undefined,
@@ -197,6 +203,33 @@ const setValueInput = (
   }
 }
 
+/** `setValues`' input: the tokens once, then a list of `setValue` bodies. */
+const setValuesInput = (value: unknown): NoWorktreePath<WriteValuesRequest> => {
+  if (!isRecord(value) || !Array.isArray(value.values)) throw new Error("expected a write request")
+  const { filePath, expectedHeadSha, expectedContentHash } = value
+  for (const field of [filePath, expectedHeadSha, expectedContentHash]) {
+    if (typeof field !== "string") throw new Error("expected string fields on a write request")
+  }
+  return {
+    filePath: filePath as string,
+    expectedHeadSha: expectedHeadSha as string,
+    expectedContentHash: expectedContentHash as string,
+    values: value.values.map((entry: unknown) => {
+      const { anchor, checked, text } = setValueInput({
+        filePath,
+        expectedHeadSha,
+        expectedContentHash,
+        ...(isRecord(entry) ? entry : {}),
+      })
+      return {
+        anchor,
+        ...(checked !== undefined ? { checked } : {}),
+        ...(text !== undefined ? { text } : {}),
+      }
+    }),
+  }
+}
+
 /** `proceed`'s input: the HEAD commit the page shows. */
 const proceedInput = (value: unknown): { readonly commit: string } => {
   if (!isRecord(value) || typeof value.commit !== "string") {
@@ -290,6 +323,19 @@ export const appRouter = t.router({
       ok: true as const,
       contentHash: result.contentHash,
     }
+  }),
+
+  /** `setValue` for a batch of values: one compare-and-swap, one write, one refusal for all. */
+  setValues: t.procedure.input(setValuesInput).mutation(async ({ input, ctx }) => {
+    const result = await ctx.writeValues(input)
+    if (!result.ok) {
+      throw new TRPCError({
+        code: "CONFLICT",
+        message: `gtd ui: write refused (${result.reason})`,
+        cause: new WriteNoteRefusal(result.reason, result.moved),
+      })
+    }
+    return { ok: true as const, contentHash: result.contentHash }
   }),
 
   /** Whether this server has a driver to press for the page's Proceed. */
