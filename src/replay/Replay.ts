@@ -324,6 +324,7 @@ const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
     "system",
     "allowEmpty",
     "keep",
+    "carry",
     "validate",
     "cap",
     "exhausted",

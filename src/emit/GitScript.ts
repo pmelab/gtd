@@ -198,6 +198,34 @@ export const keepTurn = (refPrefix: string, message: string): string => {
   ].join("\n")
 }
 
+const carryFailure = (hash: string): string =>
+  `  printf '%s\\n' ${shellQuote(`gtd: kept pass ${hash} does not apply to the working tree — restore it by hand or steer`)} >&2`
+
+const keptDiff = (hash: string): string =>
+  `git diff --binary ${shellQuote(`${hash}^`)} ${shellQuote(hash)}`
+
+/**
+ * Puts a kept tip's changes (against its parent) back into the working tree; names the tip when they do not apply.
+ * `check` only tests the apply: against the working tree, or against HEAD through a scratch index.
+ */
+export const carryPass = (hash: string, check?: "worktree" | "head"): string =>
+  check === "head"
+    ? [
+        `gtd_carry_index=$(git rev-parse --git-path gtd-carry-index) || exit 1`,
+        `if ! { GIT_INDEX_FILE="$gtd_carry_index" git read-tree HEAD && ${keptDiff(hash)} | GIT_INDEX_FILE="$gtd_carry_index" git apply --cached --check; }; then`,
+        `  rm -f "$gtd_carry_index"`,
+        carryFailure(hash),
+        `  exit 1`,
+        `fi`,
+        `rm -f "$gtd_carry_index"`,
+      ].join("\n")
+    : [
+        `if ! ${keptDiff(hash)} | git apply${check === "worktree" ? " --check" : ""}; then`,
+        carryFailure(hash),
+        `  exit 1`,
+        `fi`,
+      ].join("\n")
+
 /** `git switch -C <branch> [<start>]`: create or reset the branch, carrying pending changes over. */
 export const switchBranchTo = (branch: string, start?: string): string =>
   `git switch -q -C ${shellQuote(branch)}${start === undefined ? "" : ` ${shellQuote(start)}`}`
@@ -321,10 +349,13 @@ type Renderers = {
 
 const GIT_WRITES: Renderers = {
   commitAll: (w) => commitAll(w.message, w.exit === true),
+  discardPending: () => discardPending(),
   commitPath: (w) => commitPath(w.path, w.message),
   commitClean: (w) => commitClean(w.message),
   updateRef: (w) => updateRef(w.ref, w.target),
   keepTurn: (w) => keepTurn(w.ref, w.message),
+  carryCheck: (w) => carryPass(w.hash, w.against ?? "worktree"),
+  carryPass: (w) => carryPass(w.hash),
   switchBranch: (w) => switchBranchTo(w.branch),
   switchTo: (w) => switchBack(w.branch),
   pushRef: (w) => pushRef(w.remote, w.ref),

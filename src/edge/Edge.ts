@@ -1341,7 +1341,7 @@ export const renderRest = (rest: Rest): Effect.Effect<RenderedRest, Error> =>
 export const stalledAt = (rest: Rest): boolean =>
   failedRunStalled(rest) ||
   rest.shipBlocked !== undefined ||
-  (rest.changes.length === 0 &&
+  ((rest.changes.length === 0 || carriedOnly(rest) !== undefined) &&
     rest.stepDef.kind === "prompt" &&
     rest.stepDef.allowEmpty !== true &&
     rest.run.headTurn?.state === rest.state &&
@@ -1395,12 +1395,36 @@ const approvalRefusal = (rest: Rest, approver: Option.Option<AuthorIdent>): Land
   return undefined
 }
 
+/**
+ * The carried tip of a keep step whose tree still equals the carried pass: the
+ * turn added nothing, so it is as empty as one on a clean tree.
+ */
+const carriedOnly = (rest: Rest): string | undefined => {
+  const request = rest.step.request
+  const carry =
+    request.kind === "agent" && request.options.keep === true ? request.options.carry : undefined
+  if (carry === undefined || carry.hash === "" || carry.changes.length === 0) return undefined
+  if (rest.changes.length !== carry.changes.length) return undefined
+  const files = rest.setup.repoFiles
+  const same = carry.changes.every(
+    (c) =>
+      rest.changes.some((p) => p.path === c.path) &&
+      files.readSync(c.path) === files.readCommittedSync(c.path, carry.hash),
+  )
+  return same ? carry.hash : undefined
+}
+
 /** The landing a clean tree decides before any replay, if it decides one. */
 const cleanLanding = (rest: Rest): Landing | undefined => {
-  if (rest.changes.length > 0) return undefined
+  const discard = carriedOnly(rest)
+  if (rest.changes.length > 0 && discard === undefined) return undefined
   const def = rest.stepDef
   if (def.kind === "prompt" && def.allowEmpty !== true) {
-    return { kind: "attempt", subject: formatSubject(rest.actor, rest.state) }
+    return {
+      kind: "attempt",
+      subject: formatSubject(rest.actor, rest.state),
+      ...(discard === undefined ? {} : { discard }),
+    }
   }
   if (rest.actor === "human" && def.acceptClean !== true) return { kind: "noop", settled: false }
   return undefined
@@ -1501,6 +1525,7 @@ const landingTo = (
   branch: Option.Option<string>,
   approver: Option.Option<AuthorIdent>,
   marks: readonly Mark[],
+  carry?: string,
 ): Landing => {
   if (isSettledNoop(rest, to)) return { kind: "noop", settled: true }
   // The landing that leaves the flow's first step starts the process: it
@@ -1528,6 +1553,7 @@ const landingTo = (
     },
     ...(finishes ? { keepHistory: processHistoryRef(rest.run.startHash) } : {}),
     ...keptTurn(rest),
+    ...(carry === undefined ? {} : { carryPass: carry }),
   }
 }
 
@@ -1628,7 +1654,17 @@ const decideLanding = (
     )
     const to = yield* landingTarget(outcome, rest)
     if (typeof to !== "string") return to
-    return landingTo(rest, to, branch, approver, outcomeMarks(outcome))
+    const next = outcome.kind === "rest" ? outcome.rest.request : undefined
+    const carry =
+      next?.kind === "agent" && next.options.keep === true ? next.options.carry?.hash : undefined
+    // The carried tip is this very landing's kept pass: it has no commit to carry yet.
+    if (carry === "" && outcome.kind === "rest") {
+      return {
+        kind: "refusal",
+        message: `gtd land: ${outcome.rest.name} carries the kept pass of ${rest.step.name}, which this landing sets aside — a carry needs an earlier landing; run \`gtd abandon\` or change the workflow`,
+      }
+    }
+    return landingTo(rest, to, branch, approver, outcomeMarks(outcome), carry)
   })
 
 /** The user's branch: `<b>` for a process on `gtd/<b>` while `<b>` still exists; any other branch as is. */

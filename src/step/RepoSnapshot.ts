@@ -11,7 +11,12 @@ export type Landing =
   /** Nothing to land. `settled` when re-running the rest cannot change that. */
   | { readonly kind: "noop"; readonly settled: boolean }
   /** An empty agent turn: recorded, but the process stays at the step. */
-  | { readonly kind: "attempt"; readonly subject: string }
+  | {
+      readonly kind: "attempt"
+      readonly subject: string
+      /** The carried tip the turn only restored: reset to HEAD, then re-applied after the commit. */
+      readonly discard?: string
+    }
   | {
       readonly kind: "commit"
       readonly to: StateName
@@ -20,6 +25,8 @@ export type Landing =
       readonly keepHistory?: string
       /** The kept ref this landing's turn goes to; the branch gets a marker commit instead. */
       readonly keepTurn?: string
+      /** A kept tip the next step starts from: its changes go back into the tree after the commit. */
+      readonly carryPass?: string
       /** The `gtd/<b>` branch a starting landing switches to before it commits. */
       readonly startBranch?: string
       /** The user's branch `<b>` a finishing landing switches back to, after its history ref. */

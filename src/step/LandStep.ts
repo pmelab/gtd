@@ -8,10 +8,13 @@ import type { StateName } from "../workflow/index.js"
  */
 export type GitWrite =
   | { readonly kind: "commitAll"; readonly message: string; readonly exit?: true }
+  | { readonly kind: "discardPending" }
   | { readonly kind: "commitPath"; readonly path: string; readonly message: string }
   | { readonly kind: "commitClean"; readonly message: string }
   | { readonly kind: "updateRef"; readonly ref: string; readonly target: "HEAD" }
   | { readonly kind: "keepTurn"; readonly ref: string; readonly message: string }
+  | { readonly kind: "carryCheck"; readonly hash: string; readonly against?: "head" }
+  | { readonly kind: "carryPass"; readonly hash: string }
   | { readonly kind: "switchBranch"; readonly branch: string }
   | { readonly kind: "switchTo"; readonly branch: string }
   | { readonly kind: "pushRef"; readonly remote: string; readonly ref: string }

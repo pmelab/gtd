@@ -189,6 +189,14 @@ Then(
   },
 )
 
+Then("stderr contains the hash of {string}", (world: GtdWorld, name: string) => {
+  const hash = hashOf(world, name)
+  assert.ok(
+    world.lastResult.stderr.includes(hash),
+    `Expected stderr to contain "${hash}". Got:\n${world.lastResult.stderr}`,
+  )
+})
+
 Then(
   "no commit on the first-parent log since {string} touches {string}",
   (world: GtdWorld, since: string, path: string) => {

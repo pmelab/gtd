@@ -65,6 +65,12 @@ export type AgentOptions = SteeringOptions &
          */
         readonly keep: true
         readonly allowEmpty?: false | undefined
+        /**
+         * Start the turn on top of this kept tip (`kept(name)`): its changes are put back,
+         * uncommitted, before the turn begins, so the new kept pass holds both. A tip that
+         * no longer applies stalls the landing that enters this step, naming its hash.
+         */
+        readonly carry?: KeptTip | undefined
       }
   )
 
