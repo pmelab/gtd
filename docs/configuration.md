@@ -161,8 +161,10 @@ that finishes a process), `Gtd-Mark:` (`<name>=<value>`, one per `mark()` call),
 [Step options](#step-options)), `Gtd-Shipped:` (only on a `ship` step's landing:
 the commit it put on the user's branch), `Gtd-Approved:` (only on the landing
 that completes an `approve` gate: one JSON object with the `step`, the git
-`user.name` and `user.email`). Every commit gtd writes also carries
-`Gtd-Format:` (see [History format](#history-format)).
+`user.name` and `user.email`), `Gtd-Exit:` (only on a `run` or `ship` step's
+landing: the exit code of the step's body; absent on older commits). Every
+commit gtd writes also carries `Gtd-Format:` (see
+[History format](#history-format)).
 
 A step name starting with `gtd:` is reserved for gtd's own beats, such as
 `gtd:pin` and `gtd:unpin` (see

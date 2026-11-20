@@ -35,19 +35,21 @@ histories written by an older or newer gtd.
   is read wrongly. `Gtd-Approved:` is another: only a `human` step with the
   `approve` option writes it, and an older gtd refuses that workflow at load the
   same way. `Gtd-Mark:` is a third: additive, no `Gtd-Format` bump, written only
-  by a workflow that calls `mark()`, and replay never reads it. Replay reads the
-  kept object it names to answer `kept()`, which lives under
-  `refs/gtd/kept/<entry>/<step>/<hash>` in the clone that landed it: a kept ref
-  is local and its object is part of what replay needs there. `Gtd-Pin:` is not
-  additive: replay steps over the pin and unpin commits it marks, which an older
-  gtd would replay as turns, so it moved `Gtd-Format` to 2. `Gtd-Anchor:` is not
-  additive either: replay sets aside the commits before a repin that carries it,
-  which an older gtd would replay, so it moved `Gtd-Format` to 3. Renaming the
-  pin beats to `gtd:pin` and `gtd:unpin` in commit subjects moved it to 4: an
-  older gtd reads those names as steps. gtd no longer writes `Gtd-Config:` and
-  ignores it on older commits. A ship no longer writes `Gtd-History:` or
-  `Gtd-Tip:` on the user's branch; its process tip is the local
-  `refs/gtd/shipped/<ship>` ref, and gtd still reads `Gtd-Tip:` on older ships.
+  by a workflow that calls `mark()`, and replay never reads it. `Gtd-Exit:` is a
+  fourth: written on a `run` or `ship` landing, additive, and replay never reads
+  it. Replay reads the kept object it names to answer `kept()`, which lives
+  under `refs/gtd/kept/<entry>/<step>/<hash>` in the clone that landed it: a
+  kept ref is local and its object is part of what replay needs there.
+  `Gtd-Pin:` is not additive: replay steps over the pin and unpin commits it
+  marks, which an older gtd would replay as turns, so it moved `Gtd-Format`
+  to 2. `Gtd-Anchor:` is not additive either: replay sets aside the commits
+  before a repin that carries it, which an older gtd would replay, so it moved
+  `Gtd-Format` to 3. Renaming the pin beats to `gtd:pin` and `gtd:unpin` in
+  commit subjects moved it to 4: an older gtd reads those names as steps. gtd no
+  longer writes `Gtd-Config:` and ignores it on older commits. A ship no longer
+  writes `Gtd-History:` or `Gtd-Tip:` on the user's branch; its process tip is
+  the local `refs/gtd/shipped/<ship>` ref, and gtd still reads `Gtd-Tip:` on
+  older ships.
 - **Pin format** — what the `gtd` on `PATH` reads to hand a pinned process over:
   the `gtdpin <format> gtd <version>` header line of `.gtd/process.gtdpin`, then
   one gzipped ES module, in [Pinned processes](docs/cli.md#pinned-processes).

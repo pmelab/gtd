@@ -34,6 +34,10 @@ export interface WorktreesFixture {
   readonly merge: (branch: string, how: "squash" | "merge") => Promise<void>
   /** An untracked file in the branch's worktree. */
   readonly makeDirty: (branch: string) => Promise<void>
+  /** The branch's commits pushed to the project's remote. */
+  readonly push: (branch: string) => Promise<void>
+  /** The branch's worktree gone, the branch kept: what a failed dispatch may leave. */
+  readonly leave: (branch: string) => Promise<void>
   readonly dispose: () => Promise<void>
 }
 
@@ -273,6 +277,34 @@ export const worktreesContract = (harness: WorktreesHarness): readonly ContractC
     run: withFixture(harness, async (fixture) => {
       await fixture.addWorktree("taken")
       await failsWith(createIn(fixture, "taken"), "create", "create() of an existing branch")
+    }),
+  },
+  {
+    name: "switch() makes a worktree on a leftover branch, and list() reports it at the path it returned",
+    run: withFixture(harness, async (fixture) => {
+      await fixture.addWorktree("left")
+      await fixture.leave("left")
+      const switchTo = fixture.adapter.switch ?? fail("the adapter has no switch()")
+      const path = await switchTo(fixture.project, "left")
+      const left = await worktreeOf(fixture, "left")
+      if (left.path !== path) fail(`list() reports ${left.path}, switch() returned ${path}`)
+    }),
+  },
+  {
+    name: "unpushed() is undefined for no branch, false for a new or pushed branch, true for a committed one",
+    run: withFixture(harness, async (fixture) => {
+      const unpushed = fixture.adapter.unpushed ?? fail("the adapter has no unpushed()")
+      const is = async (branch: string, expected: boolean | undefined): Promise<void> => {
+        const got = await unpushed(fixture.project, branch)
+        if (got !== expected) fail(`unpushed(${branch}) is ${got}, not ${expected}`)
+      }
+      await is("none", undefined)
+      await fixture.addWorktree("fresh")
+      await is("fresh", false)
+      await fixture.commit("fresh")
+      await is("fresh", true)
+      await fixture.push("fresh")
+      await is("fresh", false)
     }),
   },
   {

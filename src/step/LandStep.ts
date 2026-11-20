@@ -7,7 +7,7 @@ import type { StateName } from "../workflow/index.js"
  * impossible rather than merely discouraged.
  */
 export type GitWrite =
-  | { readonly kind: "commitAll"; readonly message: string }
+  | { readonly kind: "commitAll"; readonly message: string; readonly exit?: true }
   | { readonly kind: "commitPath"; readonly path: string; readonly message: string }
   | { readonly kind: "commitClean"; readonly message: string }
   | { readonly kind: "updateRef"; readonly ref: string; readonly target: "HEAD" }

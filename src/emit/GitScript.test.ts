@@ -10,13 +10,16 @@ import {
   commitClean,
   deleteRef,
   discardPending,
+  failRestScript,
   fetchHistoryRefs,
   hardResetTo,
   keepTurn,
   mixedResetTo,
   pathspec,
+  recordExitScript,
   ScriptSurface,
   shellQuote,
+  shipCommit,
   softResetTo,
   updateRef,
 } from "./GitScript.js"
@@ -382,5 +385,78 @@ describe("keepTurn", () => {
     expect(result.status).toBe(1)
     const calls = readFileSync(log, "utf8").trim().split("\n")
     expect(calls).not.toContain("update-ref -d refs/gtd/kept/abc/build.naive/commit0")
+  })
+})
+
+describe("a run step's exit code", () => {
+  const sh = (cwd: string, script: string) =>
+    spawnSync("sh", ["-c", script], { cwd, encoding: "utf8" })
+  const repo = (): string => {
+    const dir = mkdtempSync(join(tmpdir(), "gtd-exit-"))
+    execFileSync("git", ["init", "-q"], { cwd: dir })
+    execFileSync("git", ["config", "user.email", "a@b.c"], { cwd: dir })
+    execFileSync("git", ["config", "user.name", "n"], { cwd: dir })
+    return dir
+  }
+  const landed = (dir: string): string =>
+    execFileSync("git", ["log", "-1", "--format=%B"], { cwd: dir, encoding: "utf8" })
+  const land = (dir: string) =>
+    sh(
+      dir,
+      ScriptSurface.render([
+        {
+          kind: "gitWrite",
+          write: { kind: "commitAll", message: "gtd(check): a → b", exit: true },
+        },
+      ]),
+    )
+
+  it("lands a failing body's exit code as a Gtd-Exit trailer", () => {
+    const dir = repo()
+    expect(sh(dir, recordExitScript("exit 3")).status).toBe(3)
+    land(dir)
+    expect(landed(dir)).toContain("Gtd-Exit: 3")
+  })
+
+  it("lands a passing body's exit code, and none without a body", () => {
+    const dir = repo()
+    sh(dir, recordExitScript("true"))
+    land(dir)
+    expect(landed(dir)).toContain("Gtd-Exit: 0")
+    land(dir)
+    expect(landed(dir)).not.toContain("Gtd-Exit")
+  })
+
+  it("records a rest body's failure although the script succeeds", () => {
+    const dir = repo()
+    expect(sh(dir, failRestScript("exit 4", ".gtd/run-failed.txt")).status).toBe(0)
+    land(dir)
+    expect(landed(dir)).toContain("Gtd-Exit: 4")
+  })
+
+  it("lands a ship with the recorded exit code, or 0 without a body, and Gtd-Shipped", () => {
+    for (const [body, code] of [
+      ["exit 5", "5"],
+      [undefined, "0"],
+    ] as const) {
+      const dir = repo()
+      const git = (...a: string[]) => execFileSync("git", a, { cwd: dir, encoding: "utf8" }).trim()
+      git("commit", "-q", "--allow-empty", "-m", "base")
+      git("branch", "target")
+      const parent = git("rev-parse", "target")
+      git("commit", "-q", "--allow-empty", "-m", "work")
+      if (body !== undefined) sh(dir, recordExitScript(body))
+      sh(dir, shipCommit("target", parent, "shipped", "gtd(check): a → b"))
+      expect(landed(dir)).toContain(`Gtd-Exit: ${code}`)
+      expect(landed(dir)).toContain("Gtd-Shipped:")
+    }
+  })
+
+  it("records the exit code of a body that changes directory", () => {
+    const dir = repo()
+    execFileSync("mkdir", ["sub"], { cwd: dir })
+    sh(dir, recordExitScript("cd sub\nexit 6"))
+    land(dir)
+    expect(landed(dir)).toContain("Gtd-Exit: 6")
   })
 })

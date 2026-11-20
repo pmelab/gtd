@@ -32,4 +32,26 @@ describe("worktreeStatus", () => {
       message: "no driver runs",
     })
   })
+
+  it("flags a human rest only", () => {
+    const humanRest = {
+      status: 0,
+      stdout: JSON.stringify({ kind: "prompt", actor: "human", idle: false, label: "Plan" }),
+      stderr: "",
+    }
+    const none: DriverState = { kind: "none" }
+    expect(worktreeStatus(humanRest, none)).toMatchObject({ status: "needsYou", humanRest: true })
+    expect(worktreeStatus(agentRest, none).humanRest).toBeUndefined()
+    expect(
+      worktreeStatus(humanRest, {
+        kind: "pane",
+        pane: {
+          record: { state: "blocked", kind: "question" },
+          alive: true,
+          busy: true,
+          exit: null,
+        },
+      }).humanRest,
+    ).toBeUndefined()
+  })
 })

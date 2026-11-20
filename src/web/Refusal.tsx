@@ -107,7 +107,7 @@ const countSuffix = (otherFailedCount: number): string =>
     ? ` …and ${otherFailedCount} other write${otherFailedCount === 1 ? "" : "s"} didn't land.`
     : ""
 
-/** Bottom-centre, clear of the Done bar, positioned against `App.tsx`'s `relative` column so showing it shifts nothing. */
+/** Bottom-centre, clear of the Done bar; absolute, so showing it shifts nothing. */
 const TOAST =
   "absolute bottom-20 left-1/2 z-20 -translate-x-1/2 rounded-lg border bg-popover text-popover-foreground shadow-[0_4px_16px_rgb(21_26_29/0.12)]"
 

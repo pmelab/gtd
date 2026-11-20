@@ -116,3 +116,63 @@ describe.skipIf(PITCHFORK === undefined)("the pitchfork adapter", () => {
     })
   })
 })
+
+describe("the pitchfork adapter's publicPort", () => {
+  const listing = (url: string | null): string =>
+    JSON.stringify([{ namespace: "p", name: "web", status: "running", url }])
+
+  const urlWith = async (
+    reported: string | null,
+    publicPort?: number,
+  ): Promise<string | undefined> => {
+    const dir = mkdtempSync(join(tmpdir(), "pf-"))
+    try {
+      const fake = join(dir, "pitchfork")
+      writeFileSync(fake, `#!/bin/sh\ncat <<'EOF'\n${listing(reported)}\nEOF\n`)
+      chmodSync(fake, 0o755)
+      const services = await pitchfork({
+        bin: fake,
+        ...(publicPort === undefined ? {} : { publicPort }),
+      }).list("p", dir)
+      return services[0]?.url
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  }
+
+  it("drops the port when it is the scheme's default", async () => {
+    expect(await urlWith("https://web.p.test:8443", 443)).toBe("https://web.p.test")
+  })
+  it("replaces the port otherwise", async () => {
+    expect(await urlWith("https://web.p.test:8443", 9443)).toBe("https://web.p.test:9443")
+  })
+  it("leaves URLs alone without the option", async () => {
+    expect(await urlWith("https://web.p.test:8443")).toBe("https://web.p.test:8443")
+  })
+  it("leaves a URL without a port alone", async () => {
+    expect(await urlWith("https://web.p.test", 9443)).toBe("https://web.p.test")
+  })
+  it("replaces an explicit default port", async () => {
+    expect(await urlWith("http://web.p.test:80", 8080)).toBe("http://web.p.test:8080")
+    expect(await urlWith("https://web.p.test:443", 8443)).toBe("https://web.p.test:8443")
+  })
+  it("drops the port for http with 80", async () => {
+    expect(await urlWith("http://web.p.test:8080", 80)).toBe("http://web.p.test")
+  })
+  it("keeps the path, query and slash", async () => {
+    expect(await urlWith("https://h:8443/", 9443)).toBe("https://h:9443/")
+    expect(await urlWith("https://h:8443/path?x=1", 9443)).toBe("https://h:9443/path?x=1")
+    expect(await urlWith("http://h:1?x", 2)).toBe("http://h:2?x")
+  })
+  it("leaves an unparsable URL alone", async () => {
+    expect(await urlWith("not a url", 9443)).toBe("not a url")
+  })
+  it("keeps a missing URL missing", async () => {
+    expect(await urlWith(null, 443)).toBeUndefined()
+  })
+  it("rejects an invalid publicPort", () => {
+    for (const bad of [0, 65536, 1.5, Number.NaN]) {
+      expect(() => pitchfork({ publicPort: bad })).toThrow(/publicPort/)
+    }
+  })
+})

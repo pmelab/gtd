@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react"
+import { useRef, useState } from "react"
 import type { SteeringAnchor } from "../steering/index.js"
 import { Button } from "./Button.js"
 import { Textarea } from "./ui/input.js"
+import { Sheet, SheetContent, SheetTitle } from "./ui/sheet.js"
 
 const ANCHOR_TITLE: Record<SteeringAnchor["kind"], string> = {
   chunk: "Note on this chunk",
@@ -70,36 +71,14 @@ const useAnimatedDismissal = (onDismiss: () => void) => {
     setClosing(true)
     setTimeout(onDismiss, CLOSE_MS)
   }
-  return {
-    phase: closing ? ("out" as const) : ("in" as const),
-    dismiss,
-    onKeyDown: (event: React.KeyboardEvent) => {
-      if (event.key === "Escape") dismiss()
-    },
-  }
+  return { closing, dismiss }
 }
 
-/** Focuses the field on open and stops the document behind the scrim scrolling under a touch. */
-const useSheetMount = (textareaRef: React.RefObject<HTMLTextAreaElement | null>) => {
-  useEffect(() => {
-    textareaRef.current?.focus()
-    const previous = document.body.style.overflow
-    document.body.style.overflow = "hidden"
-    return () => {
-      document.body.style.overflow = previous
-    }
-  }, [textareaRef])
-}
-
-/** Phone slides a sheet up from the bottom; from 1024px it is a centred dialog that fades and scales in. */
-const SCRIM_ANIMATION = {
-  in: "animate-[scrim-in_160ms_ease-out]",
-  out: "animate-[scrim-out_160ms_ease-out_forwards]",
-}
-const PANEL_ANIMATION = {
-  in: "animate-[sheet-in_220ms_cubic-bezier(0.2,0,0,1)] lg:animate-[dialog-in_180ms_cubic-bezier(0.2,0,0,1)]",
-  out: "animate-[sheet-out_160ms_ease-out_forwards] lg:animate-[dialog-out_140ms_ease-out_forwards]",
-}
+const SCRIM_ANIMATION =
+  "data-[state=open]:animate-[scrim-in_160ms_ease-out] data-[state=closed]:animate-[scrim-out_160ms_ease-out_forwards]"
+/** The panel is a child of the content box, so it reads the box's `data-state` through `group`. */
+const PANEL_ANIMATION =
+  "group-data-[state=open]:animate-[sheet-in_220ms_cubic-bezier(0.2,0,0,1)] group-data-[state=closed]:animate-[sheet-out_160ms_ease-out_forwards] lg:group-data-[state=open]:animate-[dialog-in_180ms_cubic-bezier(0.2,0,0,1)] lg:group-data-[state=closed]:animate-[dialog-out_140ms_ease-out_forwards]"
 
 const SheetBody = ({
   title,
@@ -119,7 +98,7 @@ const SheetBody = ({
       aria-hidden="true"
       className="mx-auto mt-3 h-1.5 w-10 shrink-0 rounded-full bg-muted lg:hidden"
     />
-    <h2 className="px-4 pt-4 text-lg font-semibold lg:px-6 lg:pt-6">{title}</h2>
+    <SheetTitle className="px-4 pt-4 text-lg font-semibold lg:px-6 lg:pt-6">{title}</SheetTitle>
     <label
       htmlFor="note-sheet-textarea"
       className="block px-4 pt-1 text-sm text-muted-foreground lg:px-6"
@@ -216,60 +195,48 @@ export const NoteSheet = ({
 }: NoteSheetProps) => {
   const [text, setText] = useState(note ?? "")
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
-  const { phase, dismiss, onKeyDown } = useAnimatedDismissal(onDismiss)
+  const { closing, dismiss } = useAnimatedDismissal(onDismiss)
   const copy = sheetCopy(anchor, title, label)
-  useSheetMount(textareaRef)
 
   return (
-    /*
-     * `fixed inset-x-0 top-0 h-dvh`, NOT `inset-0`: `inset-0` resolves
-     * against the LAYOUT viewport, which on iOS Safari and default Android
-     * Chrome does not shrink when the software keyboard opens, so the
-     * bottom-anchored panel would sit behind the keyboard. `h-dvh` plus
-     * `index.html`'s `interactive-widget=resizes-content` makes this box
-     * end where the keyboard begins, and the panel — a normal-flow child
-     * of it — lands above the keyboard without ever knowing its height.
-     */
-    <div
-      data-testid="note-sheet-overlay"
-      role="dialog"
-      aria-modal="true"
-      aria-label={copy.title}
-      onKeyDown={onKeyDown}
-      className="fixed inset-x-0 top-0 z-50 flex h-dvh flex-col justify-end lg:items-center lg:justify-center lg:p-6"
-    >
-      {/* A real button, not a click-handling div: dismissing by tapping
-          outside is a control, so it is one thing to a screen reader and to
-          the keyboard too. The blur is what keeps the document visible
-          UNDER the note — the note is about that block, and losing sight of
-          it was the cost of the old full-screen takeover. */}
-      <button
-        type="button"
-        data-testid="note-sheet-scrim"
-        aria-label="Dismiss the note"
-        onClick={dismiss}
-        className={`absolute inset-0 cursor-default bg-black/50 backdrop-blur-[2px] ${SCRIM_ANIMATION[phase]}`}
-      />
-      <div
-        data-testid="note-sheet"
-        className={`relative mx-auto flex max-h-full w-full max-w-lg flex-col rounded-t-xl border border-b-0 border-border bg-card text-card-foreground shadow-lg lg:rounded-xl lg:border-b ${PANEL_ANIMATION[phase]}`}
+    <Sheet open onOpenChange={(open) => !open && dismiss()}>
+      {/* `h-dvh` box (not `inset-0`) with the footer in flow keeps Save above
+          the software keyboard; see `index.html`'s `interactive-widget`. The
+          box ignores pointer events so a tap outside the panel reaches the
+          scrim and counts as outside. */}
+      <SheetContent
+        data-testid="note-sheet-overlay"
+        aria-describedby={undefined}
+        style={{ pointerEvents: "none" }}
+        closing={closing}
+        scrimClassName={SCRIM_ANIMATION}
+        onOpenAutoFocus={(event) => {
+          event.preventDefault()
+          textareaRef.current?.focus()
+        }}
+        className="group fixed inset-x-0 top-0 z-50 flex h-dvh flex-col justify-end outline-none lg:items-center lg:justify-center lg:p-6"
       >
-        <SheetBody
-          title={copy.title}
-          label={copy.label}
-          text={text}
-          onTextChange={setText}
-          textareaRef={textareaRef}
-        />
-        <SheetFooter
-          anchor={anchor}
-          text={text}
-          onSave={onSave}
-          onDismiss={dismiss}
-          onDone={onDone}
-          busy={busy}
-        />
-      </div>
-    </div>
+        <div
+          data-testid="note-sheet"
+          className={`pointer-events-auto relative mx-auto flex max-h-full w-full max-w-lg flex-col rounded-t-xl border border-b-0 border-border bg-card text-card-foreground shadow-lg lg:rounded-xl lg:border-b ${PANEL_ANIMATION}`}
+        >
+          <SheetBody
+            title={copy.title}
+            label={copy.label}
+            text={text}
+            onTextChange={setText}
+            textareaRef={textareaRef}
+          />
+          <SheetFooter
+            anchor={anchor}
+            text={text}
+            onSave={onSave}
+            onDismiss={dismiss}
+            onDone={onDone}
+            busy={busy}
+          />
+        </div>
+      </SheetContent>
+    </Sheet>
   )
 }

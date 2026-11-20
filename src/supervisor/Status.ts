@@ -14,6 +14,8 @@ export interface WorktreeStatus {
   /** What the driver waits for when it needs you: `permission`, `question`, `auth`. */
   readonly kind?: string
   readonly message?: string
+  /** The process rests on a person: the gate page has something to act on. */
+  readonly humanRest?: boolean
 }
 
 /** What gtd knows of a worktree's driver pane. */
@@ -113,7 +115,7 @@ export const worktreeStatus = (outcome: SpawnOutcome, driver: DriverState): Work
       ...(record.kind ? { kind: record.kind } : {}),
     }
   }
-  if (!DRIVEN_ACTORS.has(next.actor)) return { status: "needsYou", label }
+  if (!DRIVEN_ACTORS.has(next.actor)) return { status: "needsYou", label, humanRest: true }
   if (live) return { status: "working", label }
   return { status: "needsYou", label, message: "no driver runs" }
 }

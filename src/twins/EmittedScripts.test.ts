@@ -8,6 +8,7 @@ import {
   emitScripts,
   failRestScript,
   failurePromptWrapper,
+  recordExitScript,
   switchBranchTo,
   switchBack,
   switchTo,
@@ -30,6 +31,7 @@ const commands = new Map<string, ScriptedCommand>([
   [`cp '${FILE}' copy.md`, { kind: "rewrite", file: "copy.md", content: "a\n" }],
   [`printf "bad: %s\\n" '${FILE}'; exit 2`, { kind: "exit", status: 2, output: `bad: ${FILE}\n` }],
   ["false", { kind: "exit", status: 1, output: "" }],
+  ["exit 3", { kind: "exit", status: 3, output: "" }],
 ])
 
 const commandSteps = (...cmds: string[]): EmitStep[] =>
@@ -369,6 +371,20 @@ printf '%s\n' 'a' '' 'it'\''s' '100%' '-x' 'a\b' '.gtd/packages/00-x.md' > '.gtd
     })
 
     describe("commitAll", () => {
+      it("a run body's exit status lands as Gtd-Exit, then is gone", async () => {
+        const trailers = async () =>
+          (await t.provide(Effect.flatMap(GitService, (g) => g.lastCommitMessage())))
+            .split("\n")
+            .filter((l) => l.startsWith("Gtd-Exit"))
+        expect(run(recordExitScript("exit 3")).ok).toBe(false)
+        t.seed.writeFile("a.txt", "a\n")
+        expect(run(commitAll("gtd(check): a → b", true)).ok).toBe(true)
+        expect(await trailers()).toEqual(["Gtd-Exit: 3"])
+        t.seed.writeFile("b.txt", "b\n")
+        expect(run(commitAll("gtd(check): b → c", true)).ok).toBe(true)
+        expect(await trailers()).toEqual([])
+      })
+
       it("a staging hook's edit lands in the commit", () => {
         t.seed.stagingHook("readme.txt", "hooked")
         t.seed.writeFile("a.txt", "a\n")

@@ -162,8 +162,8 @@ const npmAllowList = [
       "vite",
       "yaml",
     ],
-    units: testRunnerUsers,
-    label: "tests and test support",
+    units: [...testRunnerUsers, "^\\.storybook/"],
+    label: "tests, test support and .storybook",
   },
 ]
 
