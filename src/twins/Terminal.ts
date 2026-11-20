@@ -30,7 +30,7 @@ export interface InMemoryTerminal {
   /** The handles `focus` was called with, oldest first. */
   readonly focused: () => readonly string[]
   /** The program in the pane reports a root OSC 7501 record. */
-  readonly report: (handle: string, record: StatusRecord) => void
+  readonly report: (handle: string, record: StatusRecord, quiet?: boolean) => void
   /** The pane's command exits; the terminal drops a `working` or `blocked` record then. */
   readonly exit: (handle: string, code: number) => void
   /** The pane is lost with its terminal, as after a reboot. */
@@ -76,9 +76,9 @@ export const inMemoryTerminal = (options: InMemoryTerminalOptions = {}): InMemor
     }
     hint(handle)
   }
-  const report = (handle: string, record: StatusRecord): void => {
+  const report = (handle: string, record: StatusRecord, quiet = false): void => {
     paneOf(handle).record = record
-    hint(handle)
+    if (!quiet) hint(handle)
   }
 
   const adapter: TerminalAdapter = {

@@ -18,6 +18,14 @@ Given("the driver in {string} reports:", async (world: GtdWorld, ref: string, re
   await settle()
 })
 
+Given(
+  "the driver in {string} reports without a hint:",
+  async (world: GtdWorld, ref: string, record: string) => {
+    const b = bench(world)
+    b.terminal.report(await b.paneOf(ref), JSON.parse(record) as StatusRecord, true)
+  },
+)
+
 When("the driver in {string} exits {int}", async (world: GtdWorld, ref: string, code: number) => {
   const b = bench(world)
   b.terminal.exit(await b.paneOf(ref), code)

@@ -262,10 +262,13 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
   }
 
   const refreshDriver = async (path: string): Promise<void> => {
-    const driver = await deps.drivers.state(path)
+    // A driver that prints no status record is judged by `gtd next` too.
+    const owner = [...kept].find(([, p]) => p.seen.has(path))
+    const seen = owner === undefined ? undefined : await look(owner[0], path, false)
+    const driver = seen?.driver ?? (await deps.drivers.state(path))
     for (const project of kept.values()) {
       const before = project.seen.get(path)
-      if (before !== undefined) project.seen.set(path, { ...before, driver })
+      if (before !== undefined) project.seen.set(path, { ...before, ...seen, driver })
     }
     deps.changed?.()
   }
