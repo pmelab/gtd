@@ -52,6 +52,17 @@ describe("worktreeStatus", () => {
           exit: null,
         },
       }).humanRest,
+    ).toBe(true)
+    expect(
+      worktreeStatus(agentRest, {
+        kind: "pane",
+        pane: {
+          record: { state: "blocked", kind: "permission" },
+          alive: true,
+          busy: true,
+          exit: null,
+        },
+      }).humanRest,
     ).toBeUndefined()
   })
 })
