@@ -10,6 +10,7 @@ import {
 import {
   applyPoll,
   dismiss,
+  dropGoneFeeds,
   emptyInbox,
   idOf,
   inboxItems,
@@ -90,6 +91,7 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
     if (kept !== saved) deps.store.saveItems(JSON.parse(kept) as Entry[])
     saved = kept
   }
+  setInbox(dropGoneFeeds(inbox, new Set(feeds.keys())))
 
   // The project's main checkout, where a feed's commands run by default.
   const projectPath = async (project: string): Promise<string> => {
@@ -188,6 +190,7 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
       const started = cancels !== undefined
       stop()
       feeds = next
+      setInbox(dropGoneFeeds(inbox, new Set(feeds.keys())))
       for (const name of failing.keys()) if (!feeds.has(name)) failing.delete(name)
       if (started) start()
     },

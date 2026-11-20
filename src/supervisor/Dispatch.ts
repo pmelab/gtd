@@ -52,7 +52,7 @@ export interface DrivesView {
 }
 
 export interface Dispatcher {
-  /** Start on a proposed item, Retry on a failed one: `false` when there is no such item. */
+  /** Start on a proposed item, Retry on a failed one whose feed is in the config: `false` when there is no such item. */
   readonly press: (
     action: "start" | "retry",
     feed: string,
@@ -388,10 +388,16 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     return run
   }
 
+  // A retry of an item whose feed left the config would be held, queued, where Dismiss no longer takes it.
+  const pressable = (action: "start" | "retry", item: InboxItem): boolean =>
+    action === "start"
+      ? item.state === "proposed"
+      : item.state === "failed" && deps.feeds.feeds().some((f) => f.feed === item.feed)
+
   return {
     press: async (action, feed, key, caller) => {
       const item = deps.feeds.items().find((i) => i.feed === feed && i.key === key)
-      if (item?.state !== (action === "start" ? "proposed" : "failed")) return false
+      if (!item || !pressable(action, item)) return false
       const failed = dispatchOf(item)
       set(item, {
         state: "approved",

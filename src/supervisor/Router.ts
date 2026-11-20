@@ -594,7 +594,7 @@ export const workspaceRouter = t.router({
     if (!(await ctx.dispatch.press("retry", input.feed, input.key, ctx.caller)))
       throw new TRPCError({
         code: "NOT_FOUND",
-        message: `no failed item ${input.feed}/${input.key}`,
+        message: `no failed item ${input.feed}/${input.key} of a feed in the config`,
       })
   }),
   /** Pauses dispatch in the workspace (`{}`), a project, or a feed of a project. */

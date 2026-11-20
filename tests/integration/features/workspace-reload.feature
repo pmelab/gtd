@@ -147,3 +147,98 @@ Feature: gtd workspace reloads gtd.workspace.ts
     And the Projects view lists:
       | project | worktree | status | label |
       | portal  | main     | idle   | Idle  |
+
+  Scenario: a reload that removes a feed drops its waiting items and its dismissals
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      import { feed } from "@pmelab/gtd/workspace"
+
+      export const issues = feed({
+        project: "portal",
+        every: "5m",
+        mode: "propose",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "issue", "list"])).stdout),
+      })
+      """
+    And the command "gh issue list" prints:
+      """
+      [{ "key": "1", "title": "Add login", "action": "start:feature", "priority": 0 }, { "key": "2", "title": "Fix footer", "action": "start:feature", "priority": 0 }]
+      """
+    When I start gtd workspace
+    And I dismiss "issues/1" in the Inbox
+    And the workspace file "gtd.workspace.ts" changes to:
+      """
+      export const workspace = {}
+      """
+    Then the Inbox lists:
+      | feed | key | title | state |
+    When the workspace file "gtd.workspace.ts" changes to:
+      """
+      import { feed } from "@pmelab/gtd/workspace"
+
+      export const issues = feed({
+        project: "portal",
+        every: "5m",
+        mode: "propose",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "issue", "list"])).stdout),
+      })
+      """
+    Then the Inbox lists:
+      | feed   | key | title      | state    |
+      | issues | 1   | Add login  | proposed |
+      | issues | 2   | Fix footer | proposed |
+
+  Scenario: a reload that removes the feed of a blocker lets the item that it blocked start
+    Given the actions adapter offers these actions:
+      """
+      [{ "id": "start:feature", "label": "Start a feature", "status": "idle", "fields": [] }]
+      """
+    And a workspace file "gtd.workspace.ts" with:
+      """
+      import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"] })
+
+      export const deploys = feed({
+        project: "portal",
+        every: "5m",
+        mode: "queue",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "pr", "list"])).stdout),
+      })
+
+      export const board = feed({
+        project: "portal",
+        every: "5m",
+        mode: "propose",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "issue", "list"])).stdout),
+      })
+      """
+    And the command "gh pr list" prints:
+      """
+      [{ "key": "d1", "title": "Deploy", "action": "start:feature", "priority": 0, "blockedBy": ["board/7"] }]
+      """
+    And the command "gh issue list" prints:
+      """
+      [{ "key": "7", "title": "Fix login", "action": "start:feature", "priority": 0 }]
+      """
+    When I start gtd workspace
+    Then the Inbox lists:
+      | feed    | key | title     | state    |
+      | board   | 7   | Fix login | proposed |
+      | deploys | d1  | Deploy    | blocked  |
+    When the workspace file "gtd.workspace.ts" changes to:
+      """
+      import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
+
+      export const workspace = defineWorkspace({ driver: ["drive"] })
+
+      export const deploys = feed({
+        project: "portal",
+        every: "5m",
+        mode: "queue",
+        poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "pr", "list"])).stdout),
+      })
+      """
+    Then gtd opened these action panes:
+      | worktree          | argv              |
+      | portal/deploys/d1 | ["start:feature"] |

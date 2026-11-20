@@ -46,6 +46,15 @@ When("I retry {string} in the Inbox", (world: GtdWorld, ref: string) =>
   press(world, "retryItem", ref),
 )
 
+When(
+  "I retry {string} in the Inbox, which answers {int}",
+  async (world: GtdWorld, ref: string, status: number) => {
+    const [feed, key] = split(ref)
+    const response = await bench(world).post("/trpc/retryItem", { feed, key })
+    assert.strictEqual(response.status, status, await response.text())
+  },
+)
+
 const itemOf = (world: GtdWorld, handle: string): unknown => {
   const pane = bench(world)
     .terminal.panes()

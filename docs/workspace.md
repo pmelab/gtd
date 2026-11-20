@@ -356,7 +356,9 @@ feed, and after each Start or Retry. It does not dispatch until every feed has
 polled once since the supervisor started, so that a blocker of another feed is
 in the inbox. An item waits, queued, with the reason, when:
 
-- an item it names in `blockedBy` is in the inbox (it shows as blocked),
+- an item it names in `blockedBy` is in the inbox (it shows as blocked). A
+  blocker that left the inbox no longer holds it: a feed that stops returning
+  the blocker, or a reload that removes the blocker's feed, lets it start,
 - `limits.maxDrives` drives are in use in the workspace,
 - `wip` drives are in use in its project (`projects.<id>.wip`, else
   `limits.wip`),
@@ -395,6 +397,13 @@ again, while the pane of its start action is there; otherwise it is failed.
 
 **Dismiss** hides a proposed or failed item until its feed stops returning it. A
 later poll that returns the key again files it anew.
+
+When gtd.workspace.ts no longer exports a feed, at startup and at each reload
+that succeeds, the proposed, queued and blocked items of that feed leave the
+Inbox without a poll, also those a person started, and its dismissals are
+forgotten. Starting items finish, and failed items stay, but only Dismiss takes
+them: Retry needs the feed. A feed you add back files its items anew as
+proposed. A renamed feed counts as removed.
 
 ### Pause
 

@@ -42,8 +42,17 @@ const STATE_VARIANT: Readonly<Record<InboxItem["state"], "outline" | "muted" | "
   failed: "destructive",
 }
 
-const Presses = ({ item, onPress }: { readonly item: InboxItem; readonly onPress: OnPress }) => {
-  const presses = PRESSES[item.state]
+// The supervisor turns down a Retry of an item whose feed left the config.
+const Presses = ({
+  item,
+  known,
+  onPress,
+}: {
+  readonly item: InboxItem
+  readonly known: boolean
+  readonly onPress: OnPress
+}) => {
+  const presses = PRESSES[item.state]?.filter((press) => known || press !== "retry")
   if (presses === undefined) return null
   return (
     <div className="flex shrink-0 gap-2">
@@ -126,10 +135,12 @@ const Failure = ({
 
 const Item = ({
   item,
+  known,
   onPress,
   failure,
 }: {
   readonly item: InboxItem
+  readonly known: boolean
   readonly onPress: OnPress
   readonly failure?: string | undefined
 }) => (
@@ -147,7 +158,7 @@ const Item = ({
         </span>
         <Message item={item} />
       </div>
-      <Presses item={item} onPress={onPress} />
+      <Presses item={item} known={known} onPress={onPress} />
     </div>
     <Failure message={failure} testId="press-error" />
   </li>
@@ -221,6 +232,7 @@ const Feed = ({
             <Item
               key={`${item.feed}/${item.key}`}
               item={item}
+              known={known}
               onPress={view.onPress}
               failure={
                 view.pressFailures?.find((f) => f.feed === item.feed && f.key === item.key)?.message
