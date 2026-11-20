@@ -64,7 +64,9 @@ const fixture = (): string => {
   return dir
 }
 
+let outputBytes = 0
 const ask = async (dir: string, branch = "feat"): Promise<Retrospective> => {
+  outputBytes = 0
   const ctx = {
     projects: () => [
       {
@@ -73,7 +75,11 @@ const ask = async (dir: string, branch = "feat"): Promise<Retrospective> => {
         worktrees: [{ path: dir, branch, head: "h", main: false, gate: "/g" }],
       },
     ],
-    git: async (cwd: string, args: readonly string[]) => git(cwd, args),
+    git: async (cwd: string, args: readonly string[]) => {
+      const out = git(cwd, args)
+      outputBytes += out.length
+      return out
+    },
   }
   const caller = workspaceRouter.createCaller(ctx as never)
   return caller.retrospective({ project: "p", worktree: dir, head: "" })
@@ -137,6 +143,88 @@ describe("retrospective", () => {
     git(dir, ["update-ref", `refs/gtd/history/${entry}`, tip])
     const { processes } = await ask(dir, "gtd/feat")
     expect(processes.find((p) => p.entry === entry)?.finished).toBe(true)
+  })
+
+  const withHistory = (n: number): string => {
+    const dir = mkdtempSync(join(tmpdir(), "gtd-retro-long-"))
+    git(dir, ["init", "-q", "-b", "feat"])
+    git(dir, ["config", "user.email", "a@b.c"])
+    git(dir, ["config", "user.name", "n"])
+    // One fast-import stream keeps a long history cheap to build.
+    const stream = Array.from(
+      { length: n },
+      (_, i) =>
+        `commit refs/heads/feat\ncommitter n <a@b.c> ${1_700_000_000 + i} +0000\ndata 12\nplain commit\n`,
+    ).join("")
+    execFileSync("git", ["fast-import", "--quiet"], { cwd: dir, input: stream })
+    git(dir, ["reset", "-q", "--hard", "feat"])
+    return dir
+  }
+
+  const finishedAfter = (dir: string): string => {
+    const entry = commit(dir, "gtd(human): a.a → a.b", [], { "TODO.md": "Job\n" })
+    commit(dir, "gtd(agent): a.b → a.c")
+    const tip = commit(dir, "gtd(check): a.c → done", ["Gtd-Branch: feat"])
+    git(dir, ["update-ref", `refs/gtd/history/${entry}`, tip])
+    return entry
+  }
+
+  it("reads the same amount of git output for a live process however long the history", async () => {
+    const small = withHistory(100)
+    commit(small, "gtd(human): a.a → a.b", [], { "TODO.md": "Job\n" })
+    commit(small, "gtd(agent): a.b → a.c")
+    commit(small, "gtd(check): a.c → a.d")
+    const a = await ask(small)
+    const smallBytes = outputBytes
+    const big = withHistory(2000)
+    commit(big, "gtd(human): a.a → a.b", [], { "TODO.md": "Job\n" })
+    commit(big, "gtd(agent): a.b → a.c")
+    commit(big, "gtd(check): a.c → a.d")
+    const b = await ask(big)
+    expect(a.processes[0]!.steps.map((s) => s.to)).toEqual(["a.b", "a.c", "a.d"])
+    expect(b.processes[0]!.steps.map((s) => s.to)).toEqual(["a.b", "a.c", "a.d"])
+    expect(outputBytes).toBe(smallBytes)
+  })
+
+  it("reads the same amount of git output for a finished process however long the history", async () => {
+    const small = withHistory(100)
+    finishedAfter(small)
+    await ask(small, "gtd/feat")
+    const smallBytes = outputBytes
+    const big = withHistory(2000)
+    const entry = finishedAfter(big)
+    const { processes } = await ask(big, "gtd/feat")
+    expect(processes.find((p) => p.entry === entry)?.steps).toHaveLength(3)
+    expect(outputBytes).toBe(smallBytes)
+  })
+
+  it("keeps every step of a live process longer than one page", async () => {
+    const dir = withHistory(3)
+    commit(dir, "gtd(human): a.a → s0", [], { "TODO.md": "Job\n" })
+    for (let i = 1; i <= 120; i++) commit(dir, `gtd(agent): s${i - 1} → s${i}`)
+    const { processes } = await ask(dir)
+    expect(processes[0]!.steps).toHaveLength(121)
+    expect(processes[0]!.steps[0]!.to).toBe("s0")
+  })
+
+  it("reads a finished process whose entry is the root commit", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "gtd-retro-root-"))
+    git(dir, ["init", "-q", "-b", "feat"])
+    git(dir, ["config", "user.email", "a@b.c"])
+    git(dir, ["config", "user.name", "n"])
+    const entry = commit(dir, "gtd(human): a.a → a.b", [], { "TODO.md": "Job\n" })
+    const tip = commit(dir, "gtd(check): a.b → done", ["Gtd-Branch: feat"])
+    git(dir, ["update-ref", `refs/gtd/history/${entry}`, tip])
+    const { processes } = await ask(dir, "gtd/feat")
+    expect(processes.find((p) => p.entry === entry)?.steps).toHaveLength(2)
+  })
+
+  it("skips a finished process whose entry is not in the history", async () => {
+    const dir = withHistory(3)
+    const tip = commit(dir, "gtd(check): a.b → done", ["Gtd-Branch: feat"])
+    git(dir, ["update-ref", `refs/gtd/history/${"a".repeat(40)}`, tip])
+    const { processes } = await ask(dir, "gtd/feat")
+    expect(processes).toEqual([])
   })
 
   it("refuses an unknown worktree", async () => {
