@@ -2,6 +2,7 @@ import { globSync, readFileSync } from "node:fs"
 import { defineConfig } from "vitest/config"
 import { quickpickle } from "quickpickle"
 import { storybookTest } from "@storybook/addon-vitest/vitest-plugin"
+import tailwindcss from "@tailwindcss/vite"
 import react from "@vitejs/plugin-react"
 import { playwright } from "@vitest/browser-playwright"
 import { rawMd } from "./tests/vitest.rawMd.js"
@@ -97,6 +98,21 @@ export default defineConfig({
           include: featuresTagged("@live"),
           setupFiles: [...SETUP_FILES],
           testTimeout: 300_000,
+        },
+      },
+      {
+        // Separate project: the layout audit needs the Tailwind plugin.
+        plugins: [react(), tailwindcss()],
+        test: {
+          name: "layout",
+          include: ["src/web/testing/browserContext.test.tsx"],
+          testTimeout: 30_000,
+          browser: {
+            enabled: true,
+            headless: true,
+            provider: playwright(),
+            instances: [{ browser: "chromium" }],
+          },
         },
       },
       {

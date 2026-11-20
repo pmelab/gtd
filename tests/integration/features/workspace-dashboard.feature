@@ -15,10 +15,23 @@ Feature: the dashboard
       | project | branch |
       | portal  | main   |
       | portal  | plan   |
+      | portal  | build  |
     And gtd next --json in "portal/plan" prints:
       """
       { "kind": "capture", "actor": "human", "idle": false, "label": "Answer the plan" }
       """
+
+  Scenario: a worktree resting on a human is flagged, one resting on the agent is not
+    Given gtd next --json in "portal/build" prints:
+      """
+      { "kind": "prompt", "actor": "agent", "idle": false, "label": "Building" }
+      """
+    When I start gtd workspace
+    Then the Projects view flags these worktrees as at a human gate:
+      | project | worktree | humanRest |
+      | portal  | main     | false     |
+      | portal  | build    | false     |
+      | portal  | plan     | true      |
 
   Scenario: the dashboard is the web client, with its API at /trpc
     When I start gtd workspace

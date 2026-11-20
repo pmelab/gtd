@@ -94,14 +94,30 @@ describe.each([
     expect([tokens.foreground, tokens.card]).toContain("#fafaf7")
   })
 
-  it.each(["foreground", "muted-foreground", "link", "warning", "destructive", "success", "quote"])(
-    "%s text clears 4.5:1 on background, card and muted",
-    (name) => {
-      for (const ground of ["background", "card", "muted"]) {
-        expect(contrastRatio(tokens[name]!, tokens[ground]!), ground).toBeGreaterThanOrEqual(4.5)
-      }
-    },
-  )
+  it.each([
+    "foreground",
+    "muted-foreground",
+    "link",
+    "warning",
+    "destructive",
+    "success",
+    "quote",
+    "actor-human",
+    "actor-agent",
+    "actor-judge",
+    "actor-check",
+  ])("%s text clears 4.5:1 on background, card and muted", (name) => {
+    for (const ground of ["background", "card", "muted"]) {
+      expect(contrastRatio(tokens[name]!, tokens[ground]!), ground).toBeGreaterThanOrEqual(4.5)
+    }
+  })
+
+  it("warning text clears 4.5:1 on its hover and pressed tints over background and card", () => {
+    for (const ground of ["background", "card"]) {
+      const tinted = blendOverBackground(tokens.warning!, tokens[ground]!, 0.1)
+      expect(contrastRatio(tokens.warning!, tinted), ground).toBeGreaterThanOrEqual(4.5)
+    }
+  })
 
   it.each([
     ["primary-foreground", "primary"],
@@ -118,6 +134,11 @@ describe.each([
       expect(contrastRatio(tokens.input!, tokens[ground]!), ground).toBeGreaterThanOrEqual(3)
       expect(contrastRatio(tokens.ring!, tokens[ground]!), ground).toBeGreaterThanOrEqual(3)
     }
+  })
+
+  it("the four actor colours differ from each other", () => {
+    const actors = ["human", "agent", "judge", "check"].map((a) => tokens[`actor-${a}`])
+    expect(new Set(actors).size).toBe(4)
   })
 
   it("the error, attention and working colours differ from each other", () => {

@@ -33,8 +33,36 @@ export const CHANGED_SINCE_LAND =
   "gtd: the working tree changed since `gtd land` — revert the edits and run `gtd land` again to approve"
 
 /** `git add -A || exit 1` (an `&&` left side would not abort under `set -e`) then `commitAllowEmpty`. */
-export const commitAll = (message: string): string =>
-  `git add -A || exit 1\n${commitAllowEmpty(message)}`
+export const commitAll = (message: string, exit = false): string =>
+  exit
+    ? `git add -A || exit 1\n${exitMessage(message, false)}\n${commitWordAllowEmpty(`"$gtd_message"`)}`
+    : `git add -A || exit 1\n${commitAllowEmpty(message)}`
+
+// A run body leaves its exit status here, inside `.git`, for the landing to
+// read as `Gtd-Exit`; a ship step has no body, so it defaults to 0.
+// Absolute: a body that runs `cd` would otherwise lose a relative path.
+const EXIT_FILE = `gtd_exit_file=$(cd "$(git rev-parse --git-dir)" && pwd -P)/gtd-exit || exit 1`
+
+/** Sets `$gtd_message` to `message` plus a `Gtd-Exit` trailer from the exit file. */
+const exitMessage = (message: string, shipping: boolean): string =>
+  [
+    `gtd_message=${shellQuote(message)}`,
+    EXIT_FILE,
+    ...(shipping ? [`gtd_exit=0`] : []),
+    `if [ -s "$gtd_exit_file" ]; then gtd_exit=$(tr -dc '0-9' <"$gtd_exit_file"); fi`,
+    `rm -f -- "$gtd_exit_file"`,
+    `if [ -n "\${gtd_exit:-}" ]; then gtd_message=$(printf '%s\\nGtd-Exit: %s' "$gtd_message" "$gtd_exit"); fi`,
+  ].join("\n")
+
+/** A `run()` body that records its exit status, however it ends, for the landing. */
+export const recordExitScript = (body: string): string =>
+  [
+    EXIT_FILE,
+    `rm -f -- "$gtd_exit_file"`,
+    `trap 'printf "%s\\n" "$?" >"$gtd_exit_file"' EXIT`,
+    "",
+    body,
+  ].join("\n")
 
 /** Commits `path` alone, as the worktree has it; every other pending change stays pending. */
 export const commitPath = (path: string, message: string): string =>
@@ -60,6 +88,8 @@ export const failRestScript = (body: string, path: string): string => {
     `  mkdir -p ${shellQuote(path.slice(0, slash))}`,
     `  printf 'exit %s\\n%s\\n' "$gtd_run_status" "$(printf '%s\\n' "$gtd_run_out" | tail -n 50)" >${p}`,
     `fi`,
+    EXIT_FILE,
+    `printf '%s\\n' "$gtd_run_status" >"$gtd_exit_file"`,
   ].join("\n")
 }
 
@@ -200,7 +230,6 @@ export const shipCommit = (
     `gtd_ship_parent=${shellQuote(parent)}`,
     `gtd_ship_branch=${shellQuote(branch)}`,
     `gtd_ship_message=${shellQuote(shipMessage)}`,
-    `gtd_land_message=${shellQuote(message)}`,
     `git add -A || exit 1`,
     `gtd_sign_cfg=$(git config --type=bool --default=false commit.gpgSign) || exit 1`,
     `if [ "$gtd_sign_cfg" = true ]; then gtd_sign=-S; else gtd_sign=--no-gpg-sign; fi`,
@@ -216,7 +245,8 @@ export const shipCommit = (
     `gtd_shipped=$(git commit-tree "$gtd_sign" "$gtd_ship_tree" -p "$gtd_ship_parent" -m "$gtd_ship_message") || exit 1`,
     `git update-ref "${shippedRef("")}$gtd_shipped" "$gtd_head" || exit 1`,
     `git update-ref -m "gtd: ship" "refs/heads/$gtd_ship_branch" "$gtd_shipped" "$gtd_ship_parent" || exit 1`,
-    `gtd_message=$(printf "%s\\nGtd-Shipped: %s" "$gtd_land_message" "$gtd_shipped")`,
+    exitMessage(message, true),
+    `gtd_message=$(printf "%s\\nGtd-Shipped: %s" "$gtd_message" "$gtd_shipped")`,
     commitWordAllowEmpty(`"$gtd_message"`),
   ].join("\n")
 
@@ -272,7 +302,7 @@ type Renderers = {
 }
 
 const GIT_WRITES: Renderers = {
-  commitAll: (w) => commitAll(w.message),
+  commitAll: (w) => commitAll(w.message, w.exit === true),
   commitPath: (w) => commitPath(w.path, w.message),
   commitClean: (w) => commitClean(w.message),
   updateRef: (w) => updateRef(w.ref, w.target),

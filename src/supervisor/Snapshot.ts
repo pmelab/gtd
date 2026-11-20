@@ -1,5 +1,6 @@
 import { readdir, readFile, stat } from "node:fs/promises"
 import { join, resolve } from "node:path"
+import { gateKind, widgetFormat } from "../steering/index.js"
 import {
   durationMs,
   type AdapterFailure,
@@ -69,7 +70,13 @@ const DEFAULT_POLL = "10s"
 const SERVICES_CONCURRENCY = 4
 
 /** What a worktree's status is made of; a driver changes without a new `gtd next`. */
+interface GateFacts {
+  readonly gateKind?: string
+  readonly gateBase?: string
+}
+
 interface Seen {
+  readonly gate: GateFacts
   readonly next: SpawnOutcome
   readonly driver: DriverState
 }
@@ -182,6 +189,24 @@ const partnerTips = async (gitDir: string): Promise<string[]> => {
   return [`partner:${partner}:${await tipOf(commonDir, `refs/heads/${partner}`)}`]
 }
 
+/** The gate kind and review base of the steering file `gtd next` names. */
+const gateFacts = async (
+  path: string,
+  next: SpawnOutcome,
+  read: ((file: string) => Promise<string | undefined>) | undefined,
+): Promise<GateFacts> => {
+  let file: unknown
+  try {
+    const beat = JSON.parse(next.stdout) as { file?: unknown; actor?: unknown }
+    file = beat.actor === "human" ? beat.file : undefined
+  } catch {
+    return {}
+  }
+  if (typeof file !== "string" || file === "") return {}
+  const base = widgetFormat.view((await read?.(join(path, file))) ?? "").base
+  return { gateKind: gateKind(file), ...(base !== undefined ? { gateBase: base } : {}) }
+}
+
 const statusOf = ({ next, driver }: Seen) => worktreeStatus(next, driver)
 
 export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
@@ -218,7 +243,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
     const next = await deps.next(path)
     const driver = await deps.drivers.state(path)
     if (restart && isOrphan(next, driver)) orphans.push({ project, path })
-    return { next, driver }
+    return { next, driver, gate: await gateFacts(path, next, deps.readFile) }
   }
 
   // Drivers outlive the supervisor: only an orphan is started, and a crashed driver waits for Retry.
@@ -509,6 +534,7 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
               head: w.head,
               main: w.main,
               gate: gatePath(id, w),
+              ...project.seen.get(w.path)!.gate,
               ...statusOf(project.seen.get(w.path)!),
               ...servicesOf.get(w.path),
               ...lastAction(w.path),

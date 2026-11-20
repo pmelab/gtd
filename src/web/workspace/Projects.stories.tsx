@@ -33,6 +33,7 @@ const Refreshing = ({
     <>
       <button
         type="button"
+        style={{ minWidth: 44, minHeight: 44 }}
         onClick={() => {
           setProjects(next)
         }}
@@ -87,25 +88,10 @@ export const ListsEveryWorktreeGroupedByProject: Story = {
   },
 }
 
-/** A chip names the service, whether it runs and its error; a chip with a URL links to it. */
-export const ShowsServiceChips: Story = {
+/** A list row names the worktree and its status, not its services. */
+export const ShowsNoServiceChips: Story = {
   play: async ({ canvasElement }) => {
-    const chips = within(canvasElement).getAllByTestId("service-chip")
-    await expect(chips.map((c) => c.textContent)).toEqual([
-      "web running",
-      "web stopped",
-      "jobs error: exit code 3",
-    ])
-    const dots = chips.map((c) => getComputedStyle(c.firstElementChild!).backgroundColor)
-    await expect(dots).toEqual([token("success"), token("muted-foreground"), token("destructive")])
-    for (const chip of chips) {
-      await expect(chip.getBoundingClientRect().height).toBeGreaterThanOrEqual(24)
-    }
-    await expect(chips.map((c) => c.getAttribute("href"))).toEqual([
-      "https://web.portal.example.ts.net",
-      "https://web.login.portal.example.ts.net",
-      null,
-    ])
+    await expect(within(canvasElement).queryAllByTestId("service-chip")).toEqual([])
   },
 }
 

@@ -22,6 +22,7 @@ export const SETUP_FILES: readonly string[] = [
   "./tests/integration/support/steps/ui-lifecycle.steps.ts",
   "./tests/integration/support/steps/workspace.steps.ts",
   "./tests/integration/support/steps/workspace-driver.steps.ts",
+  "./tests/integration/support/steps/workspace-now.steps.ts",
   "./tests/integration/support/steps/workspace-services.steps.ts",
   "./tests/integration/support/steps/workspace-actions.steps.ts",
   "./tests/integration/support/steps/workspace-reload.steps.ts",

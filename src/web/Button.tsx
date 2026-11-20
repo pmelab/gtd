@@ -22,6 +22,8 @@ const buttonVariants = cva(
           "bg-primary text-primary-foreground hover:bg-primary-pressed/80 active:bg-primary-pressed",
         secondary:
           "border border-border bg-card text-foreground shadow-[0_1px_2px_rgb(21_26_29/0.05)] hover:bg-accent active:bg-accent",
+        warning:
+          "border border-warning bg-transparent text-warning hover:bg-warning/10 active:bg-warning/10",
         ghost: "bg-transparent text-foreground hover:bg-accent active:bg-accent",
         danger:
           "border border-destructive/50 bg-card text-destructive hover:bg-destructive hover:text-destructive-foreground active:bg-destructive active:text-destructive-foreground",

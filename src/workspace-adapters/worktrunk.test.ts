@@ -37,6 +37,10 @@ const harness: WorktreesHarness = {
       git(cwd, "commit", "-q", "-m", `commit ${commits}`)
     }
     commitIn(main)
+    const origin = join(workspace, "origin.git")
+    execFileSync("git", ["init", "-q", "--bare", origin], { env })
+    git(main, "remote", "add", "origin", origin)
+    git(main, "push", "-q", "origin", "main")
     const worktreeOf = (branch: string): string => join(workspace, `demo.wt-${branch}`)
     return {
       adapter: worktrunk({ roots: [join(workspace, "*")] }),
@@ -54,6 +58,8 @@ const harness: WorktreesHarness = {
         }
       },
       makeDirty: async (branch) => writeFileSync(join(worktreeOf(branch), "untracked.txt"), "x"),
+      push: async (branch) => void git(main, "push", "-q", "origin", branch),
+      leave: async (branch) => void git(main, "worktree", "remove", worktreeOf(branch)),
       dispose: async () => rmSync(workspace, { recursive: true, force: true }),
     }
   },

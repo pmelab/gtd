@@ -216,6 +216,54 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     )
   }
 
+  const dispatchOf = (item: InboxItem): Dispatch | undefined =>
+    deps.feeds.inbox().entries.get(idOf(item.feed, item.key))?.dispatch
+
+  const isRetry = (item: InboxItem): boolean => {
+    const now = dispatchOf(item)
+    return now?.state === "approved" && now.retry !== undefined
+  }
+
+  // Keeps a Retry's mark while the item waits.
+  const hold = (item: InboxItem, waits: string): Dispatch => {
+    const now = dispatchOf(item)
+    return {
+      state: "approved",
+      waits,
+      ...(now?.state === "approved" && now.retry ? { retry: now.retry } : {}),
+    }
+  }
+
+  const refused = (what: string, reasons: readonly string[], worktree?: string): Dispatch => ({
+    state: "failed",
+    message: `Retry refused, ${what} is not free: ${reasons.join(", ")}`,
+    ...(worktree !== undefined ? { worktree } : {}),
+  })
+
+  const OWN = "it has commits outside the remotes"
+
+  // A Retry's leftover: refuses it when it holds work; `undefined` when it is not there.
+  const leftover = async (
+    item: InboxItem,
+    listed: readonly Worktree[],
+    path: string | undefined,
+    branch: string,
+  ): Promise<Worktree | Dispatch | undefined> => {
+    const unpushed = deps.worktrees.unpushed
+    if (unpushed === undefined) return undefined
+    const left = listed.find((w) => w.path === path)
+    if (left !== undefined) {
+      const reasons = [...(await busy(left))]
+      if (left.branch !== undefined && (await unpushed(item.project, left.branch)))
+        reasons.push(OWN)
+      return reasons.length === 0 ? left : refused(left.path, reasons, left.path)
+    }
+    const onBranch = listed.some((w) => w.branch === branch)
+    return !onBranch && (await unpushed(item.project, branch)) === true
+      ? refused(`branch ${branch}`, [OWN])
+      : undefined
+  }
+
   // The worktree on the item's branch, `undefined` for none, or a failed or waiting dispatch.
   const target = async (
     item: InboxItem,
@@ -223,24 +271,34 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
   ): Promise<Worktree | Dispatch | undefined> => {
     const problem = branchProblem(branch)
     if (problem !== undefined) return { state: "failed", message: problem }
+    const now = dispatchOf(item)
+    const retry = now?.state === "approved" ? now.retry : undefined
     let found: Worktree | undefined
     try {
-      found = (await deps.worktrees.list(item.project)).find((w) => w.branch === branch)
+      const listed = await deps.worktrees.list(item.project)
+      const refusal =
+        retry === undefined ? undefined : await leftover(item, listed, retry.worktree, branch)
+      if (refusal !== undefined) return refusal
+      found = listed.find((w) => w.branch === branch)
     } catch (error) {
-      return { state: "approved", waits: messageOf(error) }
+      return hold(item, messageOf(error))
     }
     const reasons = found === undefined ? [] : await busy(found)
     if (reasons.length === 0) return found
-    return {
-      state: "approved",
-      waits: `${item.project}/${branch} is not free: ${reasons.join(", ")}`,
-    }
+    return hold(item, `${item.project}/${branch} is not free: ${reasons.join(", ")}`)
   }
 
-  const create = async (item: InboxItem, branch: string): Promise<string> => {
+  const create = async (item: InboxItem, branch: string, retrying: boolean): Promise<string> => {
     if (deps.worktrees.create === undefined)
       throw new Error("the worktrees adapter creates no worktrees")
-    const path = await deps.worktrees.create(item.project, branch)
+    const leftover =
+      retrying &&
+      deps.worktrees.switch !== undefined &&
+      deps.worktrees.unpushed !== undefined &&
+      (await deps.worktrees.unpushed(item.project, branch)) === false
+    const path = leftover
+      ? await deps.worktrees.switch!(item.project, branch)
+      : await deps.worktrees.create(item.project, branch)
     set(item, { state: "starting", worktree: path })
     await deps.refresh(item.project)
     return path
@@ -251,8 +309,8 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     (item: InboxItem, worktree: string) =>
     (run: ActionRun): void => {
       const ok = run.exit === 0 && run.message === undefined
-      const message = run.message ?? `${item.action} exited ${run.exit}`
-      set(item, ok ? { state: "started", worktree } : { state: "failed", message })
+      const message = `${run.message ?? `${item.action} exited ${run.exit}`} (worktree ${worktree})`
+      set(item, ok ? { state: "started", worktree } : { state: "failed", message, worktree })
     }
 
   const resumeOne = async (item: InboxItem, worktree: string | undefined): Promise<void> => {
@@ -260,31 +318,45 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     const following =
       worktree !== undefined &&
       (await deps.actions.resume(item.project, worktree, env, ended(item, worktree)))
-    if (!following) set(item, { state: "failed", message: "gtd stopped while the item started" })
+    if (!following)
+      set(item, {
+        state: "failed",
+        message: `gtd stopped while the item started${worktree !== undefined ? ` (worktree ${worktree})` : ""}`,
+        ...(worktree !== undefined ? { worktree } : {}),
+      })
   }
 
   // Checked again as the item starts: a pause may have come in while the pass awaited.
   const claimable = (item: InboxItem): boolean => {
     if (!waiting(item)) return false
     const paused = deps.paused?.(item)
-    if (paused !== undefined) set(item, { state: "approved", waits: paused })
+    if (paused !== undefined) set(item, hold(item, paused))
     return paused === undefined
   }
+
+  // A failure names the worktree, when there is one.
+  const failure = (message: string, path: string | undefined): Dispatch =>
+    path === undefined
+      ? { state: "failed", message }
+      : { state: "failed", message: `${message} (worktree ${path})`, worktree: path }
 
   // Runs the item up to its start action's pane; the action's exit settles it.
   const dispatch = async (item: InboxItem): Promise<void> => {
     const branch = branchOf(item)
+    const retrying = isRetry(item)
     const found = await target(item, branch)
     if (!claimable(item)) return
     if (found !== undefined && "state" in found) return set(item, found)
     set(item, { state: "starting", ...(found ? { worktree: found.path } : {}) })
+    let path = found?.path
     try {
-      const worktree = found?.path ?? (await create(item, branch))
+      const worktree = path ?? (await create(item, branch, retrying))
+      path = worktree
       await deps.services.up(item.project, worktree)
       const env = { GTD_WORKSPACE_ITEM: itemVariable(item) }
       await deps.actions.run(item.project, worktree, item.action, {}, env, ended(item, worktree))
     } catch (error) {
-      set(item, { state: "failed", message: messageOf(error) })
+      set(item, failure(messageOf(error), path))
     }
   }
 
@@ -305,7 +377,7 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
             (await limited(item.project)) ??
             (await deps.feeds.canStart(item))
           if (held === undefined) await dispatch(item)
-          else if (item.message !== held) set(item, { state: "approved", waits: held })
+          else if (item.message !== held) set(item, hold(item, held))
         } finally {
           claimed.delete(id)
         }
@@ -320,7 +392,16 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     press: async (action, feed, key, caller) => {
       const item = deps.feeds.items().find((i) => i.feed === feed && i.key === key)
       if (item?.state !== (action === "start" ? "proposed" : "failed")) return false
-      set(item, { state: "approved" })
+      const failed = dispatchOf(item)
+      set(item, {
+        state: "approved",
+        ...(action === "retry"
+          ? {
+              retry:
+                failed?.state === "failed" && failed.worktree ? { worktree: failed.worktree } : {},
+            }
+          : {}),
+      })
       const procedure = action === "start" ? "startItem" : "retryItem"
       deps.audit.write({
         time: new Date(deps.now()).toISOString(),

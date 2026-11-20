@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, within } from "storybook/test"
 import { viewport } from "../testing/browserContext.js"
 import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { token } from "../testing/palette.js"
@@ -37,7 +37,7 @@ type Story = StoryObj<typeof Now>
 const statuses = (cards: readonly HTMLElement[]) =>
   cards.map((c) => c.querySelector("[data-status]")?.textContent)
 
-/** Only gates and errors get a card, each with its one action; working worktrees fold into one row. */
+/** Only gates and errors get a card, each opening its detail; working worktrees fold into one row. */
 export const ShowsOnlyGatesAndErrors: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -47,19 +47,6 @@ export const ShowsOnlyGatesAndErrors: Story = {
       "Portal/plan",
     ])
     await expect(statuses(cards)).toEqual(["error (crashed)", "needs you (question)"])
-    await expect(
-      cards.map((c) =>
-        within(c)
-          .getAllByRole("button")
-          .map((b) => b.textContent),
-      ),
-    ).toEqual([
-      ["Retry", "Open"],
-      ["Proceed", "Open"],
-    ])
-    const [retry, proceed] = cards.map((c) => within(c).getAllByRole("button")[0]!)
-    await expect(getComputedStyle(proceed!).backgroundColor).toBe(token("primary"))
-    await expect(getComputedStyle(retry!).backgroundColor).toBe(token("card"))
     const [error, gate] = cards.map((c) => c.querySelector<HTMLElement>("[data-status]")!)
     await expect(getComputedStyle(error!).backgroundColor).toBe(token("destructive"))
     await expect(getComputedStyle(gate!).backgroundColor).toBe(token("primary"))
@@ -68,17 +55,6 @@ export const ShowsOnlyGatesAndErrors: Story = {
     await expect(within(working).getByText("1 working")).toBeVisible()
     await userEvent.click(within(working).getByRole("button", { expanded: false }))
     await expect(within(working).getByRole("button", { name: /api\/build/ })).toBeVisible()
-  },
-}
-
-/** Proceed sends the HEAD commit the page showed, so a moved HEAD is refused. */
-export const ProceedSendsTheHeadThePageShowed: Story = {
-  play: async ({ canvasElement }) => {
-    pressed.length = 0
-    await userEvent.click(within(canvasElement).getByRole("button", { name: "Proceed" }))
-    await waitFor(() =>
-      expect(pressed).toEqual([{ worktree: "/ws/portal-plan", commit: "plan-head" }]),
-    )
   },
 }
 
@@ -92,16 +68,14 @@ export const ShowsTheRefusal: Story = {
   },
 }
 
-/** A press gtd refuses says why, on the card. */
-export const ARefusedPressSaysWhy: Story = {
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.click(canvas.getByRole("button", { name: "Retry" }))
-    await waitFor(() =>
-      expect(canvas.getByTestId("press-error").textContent).toBe(
-        "HEAD moved since the page loaded; reload and look again",
-      ),
-    )
+/** Selecting the refusal text to copy it does not open the detail. */
+export const SelectingTextDoesNotOpen: Story = {
+  play: async ({ canvasElement, args }) => {
+    const refusal = within(canvasElement).getByTestId("refusal")
+    window.getSelection()?.selectAllChildren(refusal)
+    refusal.click()
+    await expect(args.onOpen).not.toHaveBeenCalled()
+    window.getSelection()?.removeAllRanges()
   },
 }
 
@@ -113,6 +87,30 @@ export const OpenShowsTheDetail: Story = {
     await expect(args.onOpen).toHaveBeenCalledWith(
       expect.objectContaining({ worktree: expect.objectContaining({ branch: "plan" }) }),
     )
+  },
+}
+
+/** Gates and errors carry no press button, on a phone or at desktop width. */
+export const NoPressButtonOnACard: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    for (const width of [390, 1280]) {
+      await viewport(width, 844)
+      await expect(canvas.queryByRole("button", { name: "Proceed" })).toBeNull()
+      await expect(canvas.queryByRole("button", { name: "Retry" })).toBeNull()
+    }
+  },
+}
+
+/** A click on the card body opens the detail; the Open button opens it once. */
+export const CardBodyOpensTheDetail: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    const [, gate] = canvas.getAllByTestId("now-card")
+    await userEvent.click(within(gate!).getByRole("heading"))
+    await expect(args.onOpen).toHaveBeenCalledTimes(1)
+    await userEvent.click(within(gate!).getByRole("button", { name: "Open" }))
+    await expect(args.onOpen).toHaveBeenCalledTimes(2)
   },
 }
 
