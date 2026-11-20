@@ -66,10 +66,14 @@ path (the link a notification carries). Close returns to the view it was opened
 from, or to Now when it was opened from a link. The detail has three tabs, at
 the bottom:
 
-- **Gate**, first: the worktree's [gate page](#gate-pages), shown without its
-  own header and scrolling with the detail. The detail header, on both tabs,
-  names the gate kind and, for a review, the review base, and links to the gate
-  page in a tab of its own.
+- **Gate**: the worktree's [gate page](#gate-pages), shown without its own
+  header and scrolling with the detail. It is enabled only while the process
+  rests on a person; otherwise it is disabled and Actions shows "No human gate
+  right now". The detail opens on Gate when it is enabled, else on Actions. A
+  worktree that reaches a gate while its detail is open enables Gate and keeps
+  Actions selected; passing the gate while Gate is selected switches to Actions.
+  The detail header, on every tab, names the gate kind and, for a review, the
+  review base, and links to the gate page in a tab of its own.
 - **Actions**: the actions offered in the worktree status now, with their fields
   (see [`actions`](#actions)). Run starts the chosen one in a pane of its own.
 - **Retrospective**: every process on the worktree's branch, newest first, read

@@ -402,14 +402,24 @@ const detailShows =
     if (reason === "") await expect(canvas.queryByTestId("detail-reason")).toBeNull()
     else await expect(canvas.getByTestId("detail-reason")).toHaveTextContent(reason)
     if (message) await expect(detail).toHaveTextContent(message)
-    await expect(canvas.getByRole("heading")).toHaveTextContent(statusWorktrees[key]!.branch!)
+    await expect(detail.querySelector("header h2")).toHaveTextContent(statusWorktrees[key]!.branch!)
   }
 
 const detailOf = (key: string, status: string, reason: string, message?: string): Story => {
   const entry: Entry = { project: shop, worktree: statusWorktrees[key]! }
+  const shown = detailShows(key, status, reason, message)
   return {
     args: { entry, onClose: fn() },
-    play: detailShows(key, status, reason, message),
+    play: async (context) => {
+      await shown(context)
+      const canvas = within(context.canvasElement)
+      const gate = canvas.getByRole("tab", { name: "Gate" })
+      const atGate = statusWorktrees[key]!.humanRest === true
+      await expect(gate.hasAttribute("disabled")).toBe(!atGate)
+      await expect(gate.getAttribute("aria-selected")).toBe(String(atGate))
+      await expect(canvas.queryByTestId("gate-tab") !== null).toBe(atGate)
+      await expect(canvas.queryByText("No human gate right now") !== null).toBe(!atGate)
+    },
   }
 }
 
@@ -458,6 +468,45 @@ export const DetailErrorNote: Story = detailOf(
   "Note failed",
   "gh: not logged in",
 )
+
+const GateMoves = (args: React.ComponentProps<typeof Detail>) => {
+  const [humanRest, setHumanRest] = useState(false)
+  const worktree = { ...statusWorktrees.working!, humanRest }
+  return (
+    <>
+      <button style={{ minWidth: 44, minHeight: 44 }} onClick={() => setHumanRest((h) => !h)}>
+        toggle
+      </button>
+      <Detail {...args} entry={{ project: shop, worktree }} />
+    </>
+  )
+}
+
+/** Reaching a gate enables Gate without selecting it; passing it while selected returns to Actions, and the next gate keeps Actions. */
+export const GateFollowsTheStatus: Story = {
+  render: (args) => <GateMoves {...args} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const gate = canvas.getByRole("tab", { name: "Gate" })
+    await expect(gate).toBeDisabled()
+    await userEvent.click(gate)
+    await expect(canvas.getByRole("tab", { name: "Actions" }).getAttribute("aria-selected")).toBe(
+      "true",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "toggle" }))
+    await expect(gate).toBeEnabled()
+    await expect(gate.getAttribute("aria-selected")).toBe("false")
+    await userEvent.click(gate)
+    await expect(canvas.getByTestId("gate-tab")).toBeVisible()
+    await userEvent.click(canvas.getByRole("button", { name: "toggle" }))
+    await expect(canvas.getByRole("tab", { name: "Actions" }).getAttribute("aria-selected")).toBe(
+      "true",
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "toggle" }))
+    await expect(gate).toBeEnabled()
+    await expect(gate.getAttribute("aria-selected")).toBe("false")
+  },
+}
 
 const retro = { retrospective: () => fullRun }
 

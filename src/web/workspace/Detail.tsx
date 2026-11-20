@@ -60,6 +60,60 @@ const Gate = ({ gate, head }: { readonly gate: string; readonly head: string }) 
   </div>
 )
 
+/** The detail's header: title, close, gate kind and link, status, why, and the press. */
+const DetailHeader = ({
+  entry,
+  onClose,
+}: {
+  readonly entry: Entry
+  readonly onClose: () => void
+}) => {
+  const { worktree } = entry
+  const reason = reasonText(worktree)
+  return (
+    <header className="flex flex-col gap-3 px-4 pt-4 pb-5 lg:px-6 lg:pt-3">
+      <div className="flex items-start justify-between gap-3">
+        <h2 className="min-w-0 pt-1.5 text-xl leading-snug lg:pt-0.5">
+          <EntryTitle entry={entry} />
+        </h2>
+        <Button variant="ghost" size="icon" className="-mr-2" onClick={onClose} aria-label="Close">
+          <X aria-hidden="true" />
+        </Button>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        {worktree.gateKind !== undefined && (
+          <span className="text-base font-medium" data-testid="detail-gate-kind">
+            {worktree.gateKind}
+          </span>
+        )}
+        {worktree.gateBase !== undefined && (
+          <span className="text-sm text-muted-foreground" data-testid="detail-gate-base">
+            Review base: <code className="font-mono text-foreground">{worktree.gateBase}</code>
+          </span>
+        )}
+        <Button asChild size="sm">
+          <a href={worktree.gate} target="_blank" rel="noreferrer" data-testid="open-gate">
+            <ExternalLink aria-hidden="true" />
+            Open in new tab
+          </a>
+        </Button>
+      </div>
+      <StatusBadge worktree={worktree} className="self-start" />
+      {reason !== "" && (
+        <p className="max-w-prose text-base" data-testid="detail-reason">
+          {reason}
+        </p>
+      )}
+      <NoteLine worktree={worktree} />
+      <Refused worktree={worktree} className="max-w-prose" />
+      <ServiceChips worktree={worktree} />
+      <div className="flex sm:max-w-xs">
+        <PressButton worktree={worktree} className="w-full" />
+      </div>
+    </header>
+  )
+}
+
 /**
  * A worktree's detail: its status and press, then the gate page and Actions
  * as tabs. On a phone it covers the screen; on desktop it is the right pane.
@@ -74,9 +128,11 @@ export const Detail = ({
   /** Desktop: a pane beside the list instead of a screen over it. */
   readonly embedded?: boolean
 }) => {
-  const [tab, setTab] = useState<Tab>("gate")
   const { project, worktree } = entry
-  const reason = reasonText(worktree)
+  const atGate = worktree.humanRest === true
+  const [tab, setTab] = useState<Tab>(atGate ? "gate" : "actions")
+  // Passing a gate forgets Gate, so the next gate leaves Actions selected.
+  if (!atGate && tab === "gate") setTab("actions")
   return (
     <section
       className={cn(
@@ -86,52 +142,7 @@ export const Detail = ({
       aria-label={`${project.name} / ${worktreeName(worktree)}`}
       data-testid="detail"
     >
-      <header className="flex flex-col gap-3 px-4 pt-4 pb-5 lg:px-6 lg:pt-3">
-        <div className="flex items-start justify-between gap-3">
-          <h2 className="min-w-0 pt-1.5 text-xl leading-snug lg:pt-0.5">
-            <EntryTitle entry={entry} />
-          </h2>
-          <Button
-            variant="ghost"
-            size="icon"
-            className="-mr-2"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            <X aria-hidden="true" />
-          </Button>
-        </div>
-        <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
-          {worktree.gateKind !== undefined && (
-            <span className="text-base font-medium" data-testid="detail-gate-kind">
-              {worktree.gateKind}
-            </span>
-          )}
-          {worktree.gateBase !== undefined && (
-            <span className="text-sm text-muted-foreground" data-testid="detail-gate-base">
-              Review base: <code className="font-mono text-foreground">{worktree.gateBase}</code>
-            </span>
-          )}
-          <Button asChild size="sm">
-            <a href={worktree.gate} target="_blank" rel="noreferrer" data-testid="open-gate">
-              <ExternalLink aria-hidden="true" />
-              Open in new tab
-            </a>
-          </Button>
-        </div>
-        <StatusBadge worktree={worktree} className="self-start" />
-        {reason !== "" && (
-          <p className="max-w-prose text-base" data-testid="detail-reason">
-            {reason}
-          </p>
-        )}
-        <NoteLine worktree={worktree} />
-        <Refused worktree={worktree} className="max-w-prose" />
-        <ServiceChips worktree={worktree} />
-        <div className="flex sm:max-w-xs">
-          <PressButton worktree={worktree} className="w-full" />
-        </div>
-      </header>
+      <DetailHeader entry={entry} onClose={onClose} />
       <Tabs
         value={tab}
         onValueChange={(next) => {
@@ -140,7 +151,7 @@ export const Detail = ({
         className="flex-1 gap-4 px-4 pb-4 lg:px-6 lg:pb-6"
       >
         <TabsList aria-label="Worktree" className="w-full lg:w-fit">
-          <TabsTrigger value="gate" className="lg:px-4">
+          <TabsTrigger value="gate" disabled={!atGate} className="lg:px-4">
             Gate
           </TabsTrigger>
           <TabsTrigger value="actions" className="lg:px-4">
@@ -150,10 +161,17 @@ export const Detail = ({
             Retrospective
           </TabsTrigger>
         </TabsList>
-        <TabsContent value="gate" className="flex flex-col">
-          <Gate gate={worktree.gate} head={worktree.head} />
-        </TabsContent>
+        {atGate && (
+          <TabsContent value="gate" className="flex flex-col">
+            <Gate gate={worktree.gate} head={worktree.head} />
+          </TabsContent>
+        )}
         <TabsContent value="actions" className="flex max-w-2xl flex-col gap-4">
+          {!atGate && (
+            <p className="text-sm text-muted-foreground" data-testid="no-gate-hint">
+              No human gate right now
+            </p>
+          )}
           <ActionPicker project={project.id} worktree={worktree} />
           <RemoveButton project={project.id} worktree={worktree} onRemoved={onClose} />
         </TabsContent>

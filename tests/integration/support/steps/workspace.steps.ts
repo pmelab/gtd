@@ -126,6 +126,20 @@ Then("the Projects view lists:", async (world: GtdWorld, table: DataTable) => {
   assert.deepStrictEqual(rows, table.hashes())
 })
 
+Then(
+  "the Projects view flags these worktrees as at a human gate:",
+  async (world: GtdWorld, table: DataTable) => {
+    const rows = (await bench(world).projects()).flatMap((project) =>
+      project.worktrees.map((w) => ({
+        project: project.name,
+        worktree: w.branch ?? w.path,
+        humanRest: String(w.humanRest === true),
+      })),
+    )
+    assert.deepStrictEqual(rows, table.hashes())
+  },
+)
+
 Given("the command {string} prints:", (world: GtdWorld, argv: string, stdout: string) => {
   bench(world).commands.set(argv, { status: 0, stdout, stderr: "" })
 })
