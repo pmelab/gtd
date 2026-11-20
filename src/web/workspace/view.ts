@@ -22,51 +22,13 @@ export interface Entry {
   readonly worktree: WorktreeView
 }
 
-export interface NowView {
-  /** Gates and errors across all projects: each has one primary button. */
-  readonly attention: readonly Entry[]
-  /** Collapsed: they need nobody now. */
-  readonly working: readonly Entry[]
-}
-
-const entries = (projects: readonly ProjectView[]): Entry[] =>
-  projects.flatMap((project) => project.worktrees.map((worktree) => ({ project, worktree })))
-
-export const nowView = (projects: readonly ProjectView[]): NowView => {
-  const all = entries(projects)
-  return {
-    attention: all.filter(
-      ({ worktree }) => worktree.status === "needsYou" || worktree.status === "error",
-    ),
-    working: all.filter(({ worktree }) => worktree.status === "working"),
-  }
-}
-
-export const worktreeName = (w: WorktreeView): string =>
-  w.branch ?? w.path.split("/").at(-1) ?? w.path
-
-const STATUS_TEXT: Readonly<Record<StatusName, string>> = {
-  needsYou: "needs you",
-  working: "working",
-  error: "error",
-  idle: "idle",
-}
-
-/** The status in words: `needs you (question)`, `error (crashed)`. */
-export const statusText = (w: WorktreeView): string => {
-  const kind = w.errorKind ?? w.kind
-  return kind === undefined ? STATUS_TEXT[w.status] : `${STATUS_TEXT[w.status]} (${kind})`
-}
-
-/** What the worktree waits for, and why: its label, then its message. */
-export const detailText = (w: WorktreeView): string =>
-  [w.label, w.message].filter((s) => s !== undefined && s !== "").join(" — ")
-
-/** The detail, unless it only repeats the status ("Idle" beside "idle"): empty then. */
-export const reasonText = (w: WorktreeView): string => {
-  const detail = detailText(w)
-  return detail.toLowerCase() === statusText(w) ? "" : detail
-}
+export {
+  nowView,
+  worktreeName,
+  statusText,
+  detailText,
+  reasonText,
+} from "../../workspace/internal.js"
 
 /** The worktree's note, when the status message does not already say it. */
 export const noteText = (w: WorktreeView): string | undefined =>

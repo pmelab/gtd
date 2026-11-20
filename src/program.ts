@@ -84,6 +84,15 @@ export const liveToolCommands = Layer.effect(
               Effect.mapError((error) => new GtdError(error.message, error.detail)),
             )
         }),
+      workspaceNow: (request) =>
+        lazy("workspace", async () => {
+          const { runNowCommand, SupervisorHost } = await import("./supervisor/index.js")
+          return () =>
+            runNowCommand(request).pipe(
+              Effect.provide(SupervisorHost.Live),
+              Effect.mapError((error) => new GtdError(error.message, error.detail)),
+            )
+        }),
       lsp: (gtd) =>
         lazy("lsp", async () => {
           const { startLspServer } = await import("./lsp/index.js")

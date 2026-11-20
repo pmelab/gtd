@@ -27,14 +27,15 @@ work as for `gtd ui`.
 
 ### Commands for your scripts
 
-| Command                                                        | See                                     |
-| -------------------------------------------------------------- | --------------------------------------- |
-| `gtd workspace proceed <worktree> <commit>`                    | [Proceed and Retry](#proceed-and-retry) |
-| `gtd workspace retry <worktree> <commit>`                      | [Proceed and Retry](#proceed-and-retry) |
-| `gtd workspace note <worktree> [message] [--error] [--notify]` | [Notes](#notes)                         |
-| `gtd workspace note <worktree> --clear`                        | [Notes](#notes)                         |
-| `gtd workspace pause [project [feed]] [--wait]`                | [Pause](#pause)                         |
-| `gtd workspace resume [project [feed]]`                        | [Pause](#pause)                         |
+| Command                                                        | See                                         |
+| -------------------------------------------------------------- | ------------------------------------------- |
+| `gtd workspace proceed <worktree> <commit>`                    | [Proceed and Retry](#proceed-and-retry)     |
+| `gtd workspace retry <worktree> <commit>`                      | [Proceed and Retry](#proceed-and-retry)     |
+| `gtd workspace note <worktree> [message] [--error] [--notify]` | [Notes](#notes)                             |
+| `gtd workspace note <worktree> --clear`                        | [Notes](#notes)                             |
+| `gtd workspace pause [project [feed]] [--wait]`                | [Pause](#pause)                             |
+| `gtd workspace resume [project [feed]]`                        | [Pause](#pause)                             |
+| `gtd workspace now`                                            | [Now in the terminal](#now-in-the-terminal) |
 
 Each finds the workspace like `gtd workspace` does, or uses the
 `gtd.workspace.ts` that `--config <path>` names, and reaches the running
@@ -80,6 +81,15 @@ the bottom:
   from git: each step's actor, states, time and gap, what each agent turn cost,
   judge verdicts, check exit codes and what a person ticked or wrote. Free-text
   edits outside the steering widgets are not shown.
+
+## Now in the terminal
+
+`gtd workspace now` shows the dashboard's Now view in the terminal: the
+worktrees that need you or are in error, then a count of those that work. It
+redraws as statuses change. Up, down, `j` and `k` select a row; Enter, or `1` to
+`9`, calls the terminal adapter's `focus(handle)` with the driver pane of that
+worktree. Without `focus`, or without a pane, it shows the handle and the
+worktree path instead. `q` quits.
 
 ## `gtd.workspace.ts`
 
@@ -683,12 +693,13 @@ checkouts. A project added after the supervisor started is found by the next
   pane is gone. `record` is the root OSC 7501 record (`state`, `kind`, `title`,
   `msg`). `exit` is `{ code }` once `argv` has ended (`128 + n` for signal `n`),
   else `null`.
-- **`close(handle)`**, and optionally **`watch()`** (hints, each a handle whose
-  status may have changed).
+- **`close(handle)`**, and optionally **`focus(handle)`** (brings the pane to
+  the front of the person's terminal; `gtd workspace now` calls it) and
+  **`watch()`** (hints, each a handle whose status may have changed).
 
 `rex({ server, shell })` opens one Rex session per project id and one window per
 pane. `server` is a Rex server address as `rex -S` takes it; `shell` is the
-login shell (Rex's default when absent). It has `watch()`.
+login shell (Rex's default when absent). It has `focus()` and `watch()`.
 
 ### `services`
 
