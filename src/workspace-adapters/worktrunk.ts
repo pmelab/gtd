@@ -26,9 +26,14 @@ interface Ran {
   readonly stderr: string
 }
 
-const run = (command: string, args: readonly string[], cwd?: string): Promise<Ran> =>
+const run = (
+  command: string,
+  args: readonly string[],
+  cwd?: string,
+  env?: NodeJS.ProcessEnv,
+): Promise<Ran> =>
   new Promise((resolve) => {
-    execFile(command, args, { cwd, maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
+    execFile(command, args, { cwd, env, maxBuffer: 64 * 1024 * 1024 }, (error, stdout, stderr) => {
       const code = (error as NodeJS.ErrnoException | null)?.code
       resolve({
         status: error === null ? 0 : typeof code === "number" ? code : 127,
@@ -37,6 +42,11 @@ const run = (command: string, args: readonly string[], cwd?: string): Promise<Ra
       })
     })
   })
+
+// Reads must not rewrite a stale index under `index.lock`: that could fail a landing.
+const readEnv = (): NodeJS.ProcessEnv => ({ ...process.env, GIT_OPTIONAL_LOCKS: "0" })
+const read = (command: string, args: readonly string[], cwd?: string): Promise<Ran> =>
+  run(command, args, cwd, readEnv())
 
 const isDirectory = (path: string): boolean => {
   try {
@@ -108,10 +118,10 @@ const failure = (op: string, message: string, detail?: unknown): AdapterError =>
  * reflog says where it was created; `undefined` when there is none.
  */
 const hasOwnCommits = async (path: string, branch: string): Promise<boolean | undefined> => {
-  const reflog = await run("git", ["reflog", "show", "--format=%H", `refs/heads/${branch}`], path)
+  const reflog = await read("git", ["reflog", "show", "--format=%H", `refs/heads/${branch}`], path)
   const created = reflog.stdout.trim().split("\n").at(-1)
   if (reflog.status !== 0 || created === undefined || created === "") return undefined
-  const count = await run("git", ["rev-list", "--count", `${created}..refs/heads/${branch}`], path)
+  const count = await read("git", ["rev-list", "--count", `${created}..refs/heads/${branch}`], path)
   return count.status === 0 ? Number(count.stdout.trim()) > 0 : undefined
 }
 
@@ -133,7 +143,7 @@ const dirtyOf = (item: ListItem): boolean | undefined => {
 }
 
 const worktreesOf = async (project: Project): Promise<readonly Worktree[]> => {
-  const listed = await run("wt", ["-C", project.path, "list", "--format=json"])
+  const listed = await read("wt", ["-C", project.path, "list", "--format=json"])
   if (listed.status !== 0) {
     throw failure("list", `wt list failed in ${project.path}`, listed.stderr.trim())
   }
@@ -260,7 +270,7 @@ const watchGitDirs = (projects: readonly Project[]): AsyncIterator<WatchHint> =>
 
 // Fetch, then fast-forward only: a main checkout that has moved apart stays as it is.
 const refreshMain = async (path: string): Promise<RefreshResult> => {
-  const upstream = await run("git", ["rev-parse", "--abbrev-ref", "@{upstream}"], path)
+  const upstream = await read("git", ["rev-parse", "--abbrev-ref", "@{upstream}"], path)
   if (upstream.status !== 0) return { state: "ok" }
   const fetched = await run("git", ["fetch", "--quiet"], path)
   if (fetched.status !== 0) {
@@ -343,10 +353,10 @@ export const worktrunk = (options: WorktrunkOptions): WorktreesAdapter => {
     unpushed: async (id, branch) => {
       const project = await projectOf(id, "unpushed")
       const ref = `refs/heads/${branch}`
-      const exists = await run("git", ["rev-parse", "--verify", "--quiet", ref], project.path)
+      const exists = await read("git", ["rev-parse", "--verify", "--quiet", ref], project.path)
       if (exists.status !== 0) return undefined
       // The main checkout's HEAD is the default branch: its commits are not the branch's own.
-      const count = await run(
+      const count = await read(
         "git",
         ["rev-list", "--count", ref, "--not", "HEAD", "--remotes"],
         project.path,
