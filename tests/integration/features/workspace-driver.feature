@@ -73,6 +73,25 @@ Feature: gtd workspace starts drivers in their own panes and reads their status
     And gtd opened these driver panes:
       | worktree | argv |
 
+  Scenario: a blocked pane at a human gate still flags the worktree as at a human gate
+    Given the worktrees adapter reports these worktrees:
+      | project | branch |
+      | portal  | plan   |
+    And gtd next --json in "portal/plan" prints:
+      """
+      { "kind": "capture", "actor": "human", "idle": false, "label": "Answer the plan" }
+      """
+    And a driver that an earlier supervisor started runs in "portal/plan"
+    And the driver in "portal/plan" reports:
+      """
+      { "state": "blocked", "kind": "permission", "title": "Run npm install?" }
+      """
+    When I start gtd workspace
+    Then the Projects view flags these worktrees as at a human gate:
+      | project | worktree | humanRest |
+      | portal  | main     | false     |
+      | portal  | plan     | true      |
+
   Scenario: a driver that prints no OSC record still gets needs you, working, idle and error
     Given the worktrees adapter reports these worktrees:
       | project | branch |

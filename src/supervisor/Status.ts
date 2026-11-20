@@ -123,6 +123,7 @@ const restStatus = (next: NextFields, driver: DriverState): WorktreeStatus => {
       status: "needsYou",
       label: record.title ?? label,
       ...(record.kind ? { kind: record.kind } : {}),
+      ...(DRIVEN_ACTORS.has(next.actor) ? {} : { humanRest: true }),
     }
   }
   if (!DRIVEN_ACTORS.has(next.actor)) return { status: "needsYou", label, humanRest: true }
