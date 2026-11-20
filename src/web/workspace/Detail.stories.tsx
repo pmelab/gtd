@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { viewport } from "../testing/browserContext.js"
+import { token } from "../testing/palette.js"
 import { WorkspaceTrpcTestProvider } from "../testing/TrpcTestProvider.js"
 import { fullWorkspace, statusWorktrees, workspace } from "./dashboard.fixture.js"
 import { Detail } from "./Detail.js"
@@ -386,3 +387,37 @@ export const DetailErrorNote: Story = detailOf(
   "Note failed",
   "gh: not logged in",
 )
+
+/** The detail page keeps every service: name, status, error, state colour and link. */
+export const ShowsServiceChips: Story = {
+  args: {
+    entry: {
+      project: portal,
+      worktree: {
+        ...portal.worktrees[2]!,
+        services: [
+          ...(portal.worktrees[0]!.services ?? []),
+          ...(portal.worktrees[2]!.services ?? []),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const chips = within(canvasElement).getAllByTestId("service-chip")
+    await expect(chips.map((c) => c.textContent)).toEqual([
+      "web running",
+      "web stopped",
+      "jobs error: exit code 3",
+    ])
+    const dots = chips.map((c) => getComputedStyle(c.firstElementChild!).backgroundColor)
+    await expect(dots).toEqual([token("success"), token("muted-foreground"), token("destructive")])
+    for (const chip of chips) {
+      await expect(chip.getBoundingClientRect().height).toBeGreaterThanOrEqual(24)
+    }
+    await expect(chips.map((c) => c.getAttribute("href"))).toEqual([
+      "https://web.portal.example.ts.net",
+      "https://web.login.portal.example.ts.net",
+      null,
+    ])
+  },
+}
