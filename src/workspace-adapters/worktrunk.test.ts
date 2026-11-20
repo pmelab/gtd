@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -156,6 +156,29 @@ describe("worktrunk refresh", () => {
       })
     } finally {
       rmSync(workspace, { recursive: true, force: true })
+    }
+  })
+})
+
+describe("worktrunk list", () => {
+  it("runs wt with optional git locks off", async () => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-worktrunk-env-")))
+    const oldPath = process.env["PATH"]
+    try {
+      const bin = join(root, "bin")
+      mkdirSync(bin)
+      writeFileSync(
+        join(bin, "wt"),
+        `#!/bin/sh\nprintf '%s' "$GIT_OPTIONAL_LOCKS" > "${join(root, "seen")}"\necho '{"schema":2,"items":[]}'\n`,
+        { mode: 0o755 },
+      )
+      execFileSync("git", ["init", "-q", "-b", "main", join(root, "demo")], { env })
+      process.env["PATH"] = `${bin}:${oldPath}`
+      await worktrunk({ roots: [join(root, "*")] }).list("demo")
+      expect(readFileSync(join(root, "seen"), "utf8")).toBe("0")
+    } finally {
+      process.env["PATH"] = oldPath
+      rmSync(root, { recursive: true, force: true })
     }
   })
 })
