@@ -1,5 +1,4 @@
 import type { GitWrite, LandStep, Outcome } from "../step/index.js"
-import { shippedRef } from "../platform/index.js"
 
 // POSIX single-quote escaping for a shell command; every builder below routes its interpolated values through this.
 export const shellQuote = (value: string): string => `'${value.replace(/'/g, "'\\''")}'`
@@ -258,8 +257,8 @@ export const pushRef = (remote: string, ref: string): string => {
 }
 
 /**
- * A ship step's landing, in one block because the landing commit's
- * `Gtd-Shipped` trailer names the squash it makes first. The squash carries
+ * A ship step's landing, in one block because the landing commit's second
+ * parent is the squash it makes first. The squash carries
  * the staged tree with `.gtd/` as `<branch>` has it, built in a scratch index; `<branch>` moves by
  * compare-and-swap against `parent`, so a branch moved since the decision
  * fails the script before the landing commits. `commit-tree` ignores
@@ -289,10 +288,11 @@ export const shipCommit = (
     `gtd_ship_tree=$(GIT_INDEX_FILE="$gtd_index"; export GIT_INDEX_FILE; git write-tree) || exit 1`,
     `rm -f -- "$gtd_index"`,
     `gtd_shipped=$(git commit-tree "$gtd_sign" "$gtd_ship_tree" -p "$gtd_ship_parent" -m "$gtd_ship_message") || exit 1`,
-    `git update-ref "${shippedRef("")}$gtd_shipped" "$gtd_head" || exit 1`,
     `git update-ref -m "gtd: ship" "refs/heads/$gtd_ship_branch" "$gtd_shipped" "$gtd_ship_parent" || exit 1`,
     exitMessage(message, true),
-    `gtd_message=$(printf "%s\\nGtd-Shipped: %s" "$gtd_message" "$gtd_shipped")`,
+    // MERGE_HEAD makes the landing commit a merge whose second parent is the ship.
+    `gtd_merge_head=$(git rev-parse --git-path MERGE_HEAD) || exit 1`,
+    `printf '%s\\n' "$gtd_shipped" >"$gtd_merge_head" || exit 1`,
     commitWordAllowEmpty(`"$gtd_message"`),
   ].join("\n")
 

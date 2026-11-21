@@ -165,3 +165,50 @@ Then(
     assert.strictEqual(mode, "100755")
   },
 )
+
+const tryResolve = (world: GtdWorld, name: string): string | undefined => {
+  try {
+    return resolve(world, name)
+  } catch {
+    return undefined
+  }
+}
+
+Then("the last commit's first parent is at {string}", (world: GtdWorld, mark: string) => {
+  assert.strictEqual(tryResolve(world, "HEAD~1"), resolve(world, mark))
+})
+
+Then(
+  "the last commit's second parent is the tip of {string}",
+  (world: GtdWorld, branch: string) => {
+    assert.strictEqual(tryResolve(world, "HEAD^2"), branchTip(world, branch))
+  },
+)
+
+Then("the last commit has no second parent", (world: GtdWorld) => {
+  assert.strictEqual(tryResolve(world, "HEAD^2"), undefined)
+})
+
+Then(
+  "the branch {string} tip message does not contain {string}",
+  (world: GtdWorld, branch: string, text: string) => {
+    assert.ok(!messageAt(world, `refs/heads/${branch}`).includes(text))
+  },
+)
+
+Then("no ref starts with {string}", (world: GtdWorld, prefix: string) => {
+  const refs =
+    world.tier === "inmem"
+      ? world.repo!.listRefs(prefix).map((r) => r.ref)
+      : git(world, "for-each-ref", "--format=%(refname)", prefix).split("\n").filter(Boolean)
+  assert.deepStrictEqual(refs, [])
+})
+
+Given(
+  "an older gtd linked the ship {string} to the process commit {string}",
+  (world: GtdWorld, ship: string, mark: string) => {
+    const ref = `refs/gtd/shipped/${resolve(world, ship)}`
+    if (world.tier === "inmem") world.repo!.updateRef(ref, resolve(world, mark)!)
+    else git(world, "update-ref", ref, resolve(world, mark)!)
+  },
+)

@@ -38,6 +38,8 @@ export interface EpisodeCommit {
   readonly hash: string
   readonly message: string
   readonly tree: TreeView
+  /** The commit's second parent: the ship a format 6 ship landing merges. */
+  readonly mergeParent?: string
   /** Present when the commit carries Gtd-Kept and that object still exists. */
   readonly kept?: { readonly hash: string; readonly tree: TreeView }
 }
@@ -743,7 +745,11 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
     expectNextOf(commit)
     skipPins()
     noteKept(step, commit)
-    return replyFor(step.request, commit.parsed.judge, commit.parsed.shipped)
+    return replyFor(
+      step.request,
+      commit.parsed.judge,
+      commit.parsed.format >= 6 ? commit.mergeParent : commit.parsed.shipped,
+    )
   }
 
   // A turn that ends a pinned process names the unpin, which is no step.

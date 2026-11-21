@@ -108,7 +108,7 @@ export const hotfix = workflow(
     expect(exitCode).toBe(0)
     expect(stdout).toContain(
       commitAll(
-        `gtd(human): working\n\nGtd-Workflow: hotfix\nGtd-Var: greeting=hello\nGtd-Format: 5`,
+        `gtd(human): working\n\nGtd-Workflow: hotfix\nGtd-Var: greeting=hello\nGtd-Format: 6`,
       ),
     )
     expect(repo.commitHistory()).toHaveLength(before)
@@ -657,14 +657,14 @@ describe("gtd next — refuses when history diverges from what replay reaches", 
 
 describe("a history written in a format this gtd does not read", () => {
   // The exact wording is pinned in Format.test.ts; this is the part that proves the format gate fired.
-  const FOREIGN = "is written in history format 6, but this gtd reads formats 1 to 5"
+  const FOREIGN = "is written in history format 7, but this gtd reads formats 1 to 6"
 
   /** A step commit that would also diverge, so only the format gate can explain the refusal. */
   const foreignStep = async (): Promise<InMemRepo> => {
     const repo = seed(IDLE_THEN_WORKING)
     await landTurn(repo, { "NOTE.md": "a note\n" })
     repo.writeFile("WORK.md", "done\n")
-    repo.seedCommit("gtd(agent): elsewhere → review\n\nGtd-Step: elsewhere#1\nGtd-Format: 6")
+    repo.seedCommit("gtd(agent): elsewhere → review\n\nGtd-Step: elsewhere#1\nGtd-Format: 7")
     return repo
   }
 
@@ -689,7 +689,7 @@ describe("a history written in a format this gtd does not read", () => {
   it("refuses even when a foreign subject hides the commit from the episode", async () => {
     const repo = seed(IDLE_THEN_WORKING)
     repo.writeFile("NOTE.md", "a note\n")
-    repo.seedCommit("gtd2[human] idle -> working\n\nGtd-Format: 6")
+    repo.seedCommit("gtd2[human] idle -> working\n\nGtd-Format: 7")
     for (const command of ["next", "abandon"]) {
       const { exitCode, stderr } = await run(repo, command)
       expect(exitCode).toBe(1)
@@ -700,7 +700,7 @@ describe("a history written in a format this gtd does not read", () => {
   it("a commit gtd never wrote is not read for a format, even quoting the trailer", async () => {
     const repo = seed(IDLE_THEN_WORKING)
     repo.writeFile("NOTE.md", "a note\n")
-    repo.seedCommit("feat: x\n\nGtd-Format: 6")
+    repo.seedCommit("feat: x\n\nGtd-Format: 7")
     expect((await run(repo, "next")).exitCode).toBe(0)
   })
 
@@ -708,7 +708,7 @@ describe("a history written in a format this gtd does not read", () => {
     const repo = seed(IDLE_THEN_WORKING)
     const base = repo.resolveRef("HEAD")!
     repo.writeFile("NOTE.md", "a note\n")
-    repo.seedCommit("gtd(human): idle → working\n\nGtd-Step: idle#1\nGtd-Format: 6")
+    repo.seedCommit("gtd(human): idle → working\n\nGtd-Step: idle#1\nGtd-Format: 7")
     repo.updateRef(HISTORY_REF, repo.resolveRef("HEAD")!)
     repo.hardResetTo(base)
     const { exitCode, stderr } = await run(repo, "restore")

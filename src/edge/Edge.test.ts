@@ -10,7 +10,7 @@ import {
   renderRest,
   restAt,
   restIsIdle,
-  shipTip,
+  shipLinked,
   reviewBaseFor,
   snapshotFromRest,
   stalledAt,
@@ -222,7 +222,7 @@ describe("currentRun", () => {
     const before = headOf(repo)
     const opening = await enter(repo, "side")
     expect(repo.lastCommitMessage(opening)).toBe(
-      `gtd(human): fixing\n\nGtd-Workflow: side\nGtd-Var: base=\nGtd-Var: reviewer=nobody\nGtd-Format: 5`,
+      `gtd(human): fixing\n\nGtd-Workflow: side\nGtd-Var: base=\nGtd-Var: reviewer=nobody\nGtd-Format: 6`,
     )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
@@ -255,7 +255,7 @@ export const again = workflow(async () => {
     const before = headOf(repo)
     const opening = await enter(repo, "again")
     expect(repo.lastCommitMessage(opening)).toBe(
-      `gtd(human): idle\n\nGtd-Workflow: again\nGtd-Format: 5`,
+      `gtd(human): idle\n\nGtd-Workflow: again\nGtd-Format: 6`,
     )
     const fixed = await land(repo, { "fix.txt": "x\n" })
     const run = await provide(currentRun, repo)
@@ -436,7 +436,7 @@ export const again = workflow(async () => {
       const repo = repoWith(LINEAR)
       await land(repo, { "a.txt": "a\n" })
       await land(repo)
-      expect(repo.lastCommitMessage()).toBe("gtd(agent): building\n\nGtd-Format: 5")
+      expect(repo.lastCommitMessage()).toBe("gtd(agent): building\n\nGtd-Format: 6")
       const run = await provide(currentRun, repo)
       expect(run.headTurn).toEqual({
         state: "building",
@@ -1955,7 +1955,7 @@ export default async () => {
   })
 })
 
-describe("shipTip", () => {
+describe("shipLinked", () => {
   const processTip = () => {
     const repo = new InMemRepo()
     repo.writeFile("a.txt", "a")
@@ -1967,23 +1967,23 @@ describe("shipTip", () => {
     repo.seedCommit(message)
     return repo.resolveRef("HEAD")!
   }
-  const tipOf = (repo: InMemRepo, ship: string) =>
-    Effect.runSync(shipTip(fakeGitOperations(repo), ship))
+  const linked = (repo: InMemRepo, ship: string, tip: string) =>
+    Effect.runSync(shipLinked(fakeGitOperations(repo), ship, tip))
 
-  it("finds the process tip a ship's local ref points at", () => {
+  it("links a ship through the local ref an older gtd wrote", () => {
     const { repo, tip } = processTip()
     const ship = shipOn(repo, "feat: a thing")
     repo.updateRef(shippedRef(ship), tip)
-    expect(tipOf(repo, ship)).toBe(tip)
+    expect(linked(repo, ship, tip)).toBe(true)
   })
 
-  it("reads the Gtd-Tip trailer of a ship an older gtd made", () => {
+  it("links a ship through the Gtd-Tip trailer of an older gtd", () => {
     const { repo, tip } = processTip()
-    expect(tipOf(repo, shipOn(repo, `feat: a thing\n\nGtd-Tip: ${tip}`))).toBe(tip)
+    expect(linked(repo, shipOn(repo, `feat: a thing\n\nGtd-Tip: ${tip}`), tip)).toBe(true)
   })
 
-  it("finds nothing for a commit that is no ship", () => {
-    const { repo } = processTip()
-    expect(tipOf(repo, shipOn(repo, "feat: by hand"))).toBeUndefined()
+  it("links nothing for a commit that is no ship", () => {
+    const { repo, tip } = processTip()
+    expect(linked(repo, shipOn(repo, "feat: by hand"), tip)).toBe(false)
   })
 })

@@ -363,7 +363,7 @@ printf '%s\n' 'a' '' 'it'\''s' '100%' '-x' 'a\b' '.gtd/packages/00-x.md' > '.gtd
 
     describe("shipCommit", () => {
       const HISTORY = "refs/gtd/history/0123456789012345678901234567890123456789"
-      const LANDING = "gtd(check): shipping → after\n\nGtd-Format: 5"
+      const LANDING = "gtd(check): shipping → after\n\nGtd-Format: 6"
       const git = <A>(f: (g: GitService["Service"]) => Effect.Effect<A, Error>) =>
         t.provide(Effect.flatMap(GitService, f))
       // As a landing renders it: under `set -eu`.
@@ -382,11 +382,13 @@ printf '%s\n' 'a' '' 'it'\''s' '100%' '-x' 'a\b' '.gtd/packages/00-x.md' > '.gtd
           },
         ])
 
-      it("squashes the staged tree minus .gtd/ onto the branch, then lands naming it", async () => {
+      it("squashes the staged tree minus .gtd/ onto the branch, then lands merging it", async () => {
         const branch = await git((g) => g.currentBranch())
         const user = Option.getOrElse(branch, () => "main")
         const parent = t.observe.resolveRef("HEAD")
         expect(run(switchBranchTo(`gtd/${user}`)).ok).toBe(true)
+        t.seed.commit("chore: process", { "p.txt": "p\n" })
+        const before = t.observe.resolveRef("HEAD")
         t.seed.writeFile("a.txt", "shipped\n")
         t.seed.writeFile(".gtd/notes.md", "kept back\n")
         const result = run(ship(user, parent, "feat: it's shipped"))
@@ -395,11 +397,13 @@ printf '%s\n' 'a' '' 'it'\''s' '100%' '-x' 'a\b' '.gtd/packages/00-x.md' > '.gtd
         expect(shipped).not.toBe(parent)
         expect(t.observe.resolveRef(`${shipped}~1`)).toBe(parent)
         expect(await git((g) => g.readFileAtRef(shipped, "a.txt"))).toBe("shipped\n")
-        expect(await git((g) => g.diffPaths(parent, shipped))).toEqual(["a.txt"])
+        expect(await git((g) => g.diffPaths(parent, shipped))).toEqual(["a.txt", "p.txt"])
         const message = await git((g) => g.lastCommitMessage(shipped))
         expect(message.trim()).toBe("feat: it's shipped")
-        expect(await git((g) => g.readRefOption(shippedRef(shipped)))).toEqual(Option.some(parent))
-        expect(await git((g) => g.lastCommitMessage("HEAD"))).toContain(`Gtd-Shipped: ${shipped}`)
+        expect(await git((g) => g.readRefOption(shippedRef(shipped)))).toEqual(Option.none())
+        expect(await git((g) => g.readRefOption("HEAD^2"))).toEqual(Option.some(shipped))
+        expect(t.observe.resolveRef("HEAD~1")).toBe(before)
+        expect(await git((g) => g.lastCommitMessage("HEAD"))).not.toContain("Gtd-Shipped")
         expect(t.observe.statusPorcelain()).toBe("")
       })
 

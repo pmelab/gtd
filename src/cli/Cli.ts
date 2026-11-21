@@ -537,7 +537,7 @@ Prints a sorted JSON array ([] when clean) and a summary on stderr; --verbose ad
     arity: { name: "ref" },
     group: "Inspect",
     summary: "Replay one finished process",
-    details: `Replay one finished process under today's config and print its steps, judge verdicts and approvals. <ref> is a full ref, an entry hash or a unique prefix of one, or a branch name. Refuses when a config file changed since; a different gtd version only warns. --json prints the trail as one document. Writes nothing.`,
+    details: `Replay one finished process under today's config and print its steps, judge verdicts, approvals and, at a ship step, the commit it shipped (short hash and subject; --json adds shipped: { hash, subject } to that step). <ref> is a full ref, an entry hash or a unique prefix of one, or a branch name. Refuses when a config file changed since; a different gtd version only warns. --json prints the trail as one document. Writes nothing.`,
   },
   {
     token: "history fetch",

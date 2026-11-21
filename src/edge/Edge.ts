@@ -502,15 +502,22 @@ export const summaryRun: Effect.Effect<ProcessRun, Error, ConfigRequirements> = 
   },
 )
 
-/** The process commit whose tree `commit` shipped, or `undefined` when `commit` is no ship. An older gtd named it in a `Gtd-Tip` trailer. */
-export const shipTip = (
+/**
+ * Whether `tip` contains the ship `commit`: git ancestry, since a ship landing
+ * merges the ship. A ship an older gtd made links only through its `Gtd-Tip`
+ * trailer or the `refs/gtd/shipped/` ref.
+ */
+export const shipLinked = (
   git: GitOperations,
   commit: string,
-): Effect.Effect<string | undefined, Error> =>
+  tip: string,
+): Effect.Effect<boolean, Error> =>
   Effect.gen(function* () {
-    const legacy = parseCommitMessage(yield* git.lastCommitMessage(commit)).tip
-    if (legacy !== undefined) return legacy
-    return Option.getOrUndefined(yield* git.readRefOption(shippedRef(commit)))
+    if (yield* git.isAncestor(commit, tip)) return true
+    const legacy =
+      parseCommitMessage(yield* git.lastCommitMessage(commit)).tip ??
+      Option.getOrUndefined(yield* git.readRefOption(shippedRef(commit)))
+    return legacy !== undefined && (yield* git.isAncestor(legacy, tip))
   })
 
 const leftProcessTip = (
@@ -525,8 +532,7 @@ const leftProcessTip = (
     if (Option.isNone(tip)) return undefined
     const message = yield* git.lastCommitMessage(tip.value)
     if (parseCommitMessage(message).parsed?.to === undefined) return undefined
-    const since = (yield* shipTip(git, head.hash)) ?? head.hash
-    if (!(yield* git.isAncestor(since, tip.value))) return undefined
+    if (!(yield* shipLinked(git, head.hash, tip.value))) return undefined
     return { hash: tip.value, subject: message.split("\n")[0]! }
   })
 
@@ -986,9 +992,11 @@ const setupFor = (
       const tip = parseCommitMessage(c.message).kept
       // A plain `rev-parse --verify` of a missing 40-hex object succeeds; `^{commit}` does not.
       const exists = tip !== undefined && Option.isSome(yield* git.readRefOption(`${tip}^{commit}`))
+      const merged = yield* git.readRefOption(`${c.hash}^2`)
       episode.push({
         hash: c.hash,
         message: c.message,
+        ...(Option.isSome(merged) ? { mergeParent: merged.value } : {}),
         tree: commitTree(repoFiles, c.hash),
         ...(exists ? { kept: { hash: tip, tree: commitTree(repoFiles, tip) } } : {}),
       })
@@ -1802,8 +1810,7 @@ const revertedPaths = (
 ) =>
   Effect.gen(function* () {
     const head = yield* git.resolveRef("HEAD")
-    const shipped = yield* shipTip(git, parent)
-    if (shipped !== undefined && (yield* git.isAncestor(shipped, head))) return []
+    if (yield* shipLinked(git, parent, head)) return []
     const fork = yield* git.mergeBase(parent, head)
     const foreign = Option.isNone(fork)
       ? [...changed]
@@ -1819,6 +1826,13 @@ const revertedPaths = (
         moded.read(path) === committed.read(path) &&
         moded.mode!(path) === committed.mode!(path),
     )
+  })
+
+/** Whether `ship` is one this HEAD made whose landing did not commit: git still holds it as the merge in progress. */
+const pendingShip = (git: GitOperations, ship: string) =>
+  Effect.gen(function* () {
+    const merging = yield* git.readRefOption("MERGE_HEAD")
+    return Option.isSome(merging) && merging.value === ship
   })
 
 /**
@@ -1846,12 +1860,7 @@ const decideShip = (
     )
     // A landing whose hook rejected after the ship moved `<b>`: its tip is a ship of this very HEAD.
     // An edit since (say, to satisfy that hook) ships again rather than reusing the stale ship.
-    const pending = yield* shipTip(git, parent)
-    if (
-      changed.size === 0 &&
-      pending !== undefined &&
-      pending === (yield* git.resolveRef("HEAD"))
-    ) {
+    if (changed.size === 0 && (yield* pendingShip(git, parent))) {
       return { kind: "recorded", hash: parent }
     }
     const reverted = yield* revertedPaths(git, repoFiles, parent, tree, changed, treeRef)
@@ -1902,7 +1911,6 @@ const shipSnapshot = (
     if (decision.kind === "recorded") {
       const recorded = {
         ...decided,
-        spec: { ...decided.spec, shipped: decision.hash },
         recordedHistory: processHistoryRef(rest.run.startHash),
       }
       return snapshotOf(rest, yield* withBranchAndPush(recorded))
@@ -1992,6 +2000,8 @@ export interface HistoryStep {
   readonly to: StateName
   readonly verdicts: readonly JudgeVerdict[]
   readonly approval?: ApprovalEntry
+  /** The commit this ship step put on the user's branch; no `subject` when that commit is gone. */
+  readonly shipped?: { readonly hash: string; readonly subject?: string }
 }
 
 export interface HistoryTrail {
@@ -2055,21 +2065,39 @@ const notClosedError = (hash: string, outcome: UnendedOutcome): Error =>
     ? new Error(`gtd history: ${hash.slice(0, 7)} does not close a process under today's config`)
     : (replayError(outcome) ?? new Error("gtd history: replay failed"))
 
-const historySteps = (run: ProcessRun): readonly HistoryStep[] => {
-  const messages = new Map(run.episode.commits.map((c) => [c.hash, c.message]))
-  return run.trace.map((entry): HistoryStep => {
-    const message = parseCommitMessage(messages.get(entry.hash) ?? "")
-    return {
-      hash: entry.hash,
-      subject: (messages.get(entry.hash) ?? "").split("\n")[0] ?? "",
-      actor: entry.actor,
-      from: message.parsed?.from,
-      to: entry.state,
-      verdicts: message.judge,
-      ...optional("approval", approvalEntryOf(entry.hash, message)[0]),
-    }
+/** The ship a step's landing links: its second parent, or the trailer of a landing an older gtd wrote. */
+const shippedOf = (
+  git: GitOperations,
+  hash: string,
+  message: ReturnType<typeof parseCommitMessage>,
+) =>
+  Effect.gen(function* () {
+    const merged = yield* git.readRefOption(`${hash}^2`)
+    const ship = Option.isSome(merged) ? merged.value : message.shipped
+    if (ship === undefined) return undefined
+    const subject = yield* Effect.option(git.lastCommitSubject(ship))
+    return Option.isSome(subject) ? { hash: ship, subject: subject.value } : { hash: ship }
   })
-}
+
+const historySteps = (git: GitOperations, run: ProcessRun) =>
+  Effect.gen(function* () {
+    const messages = new Map(run.episode.commits.map((c) => [c.hash, c.message]))
+    const steps: HistoryStep[] = []
+    for (const entry of run.trace) {
+      const message = parseCommitMessage(messages.get(entry.hash) ?? "")
+      steps.push({
+        hash: entry.hash,
+        subject: (messages.get(entry.hash) ?? "").split("\n")[0] ?? "",
+        actor: entry.actor,
+        from: message.parsed?.from,
+        to: entry.state,
+        verdicts: message.judge,
+        ...optional("approval", approvalEntryOf(entry.hash, message)[0]),
+        ...optional("shipped", yield* shippedOf(git, entry.hash, message)),
+      })
+    }
+    return steps as readonly HistoryStep[]
+  })
 
 const versionWarningFor = (recorded: string | undefined): string | undefined =>
   recorded === GTD_VERSION
@@ -2094,7 +2122,7 @@ export const historyTrail = (tip: string): Effect.Effect<HistoryTrail, Error, Re
     })
     return {
       tip: hash,
-      steps: historySteps(run),
+      steps: yield* historySteps(git, run),
       ended: outcome.via,
       version: { recorded, running: GTD_VERSION },
       ...(versionWarning !== undefined ? { versionWarning } : {}),

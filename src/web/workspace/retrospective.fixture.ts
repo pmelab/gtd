@@ -16,6 +16,7 @@ const step = (
   costs: [],
   verdicts: [],
   approvedBy: undefined,
+  shipped: undefined,
   exit: undefined,
   ticked: [],
   written: [],
@@ -55,7 +56,9 @@ export const fullRun: Retrospective = {
           approvedBy: "Ada",
         }),
         step(6, "check", "build.naive", "build.test", { exit: 0 }),
-        step(7, "check", "build.test", "build.done"),
+        step(7, "check", "build.test", "build.done", {
+          shipped: { hash: "a1b2c3d4e5f6".padEnd(40, "0"), subject: "feat: add it" },
+        }),
       ],
     },
     {

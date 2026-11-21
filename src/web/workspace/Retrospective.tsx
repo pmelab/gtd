@@ -83,6 +83,12 @@ const StepRow = ({ step }: { readonly step: RetroStep }) => {
               : `Failed · exit ${step.exit}`}
         </div>
       )}
+      {step.shipped !== undefined && (
+        <div className="text-small break-words" data-testid="retro-shipped">
+          Shipped {step.shipped.hash.slice(0, 7)}
+          {step.shipped.subject !== undefined && ` ${step.shipped.subject}`}
+        </div>
+      )}
       {step.verdicts.map((v) => (
         <div key={v.id} className="text-small break-words">
           {v.id}: {String(v.answer)} ({Math.round(v.p * 100)}%) ·{" "}

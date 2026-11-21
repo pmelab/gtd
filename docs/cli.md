@@ -527,9 +527,11 @@ Options:
 Usage: gtd history show <ref> [options]
 
 Replay one finished process under today's config and print its steps, judge
-verdicts and approvals. <ref> is a full ref, an entry hash or a unique prefix of
-one, or a branch name. Refuses when a config file changed since; a different gtd
-version only warns. --json prints the trail as one document. Writes nothing.
+verdicts, approvals and, at a ship step, the commit it shipped (short hash and
+subject; --json adds shipped: { hash, subject } to that step). <ref> is a full
+ref, an entry hash or a unique prefix of one, or a branch name. Refuses when a
+config file changed since; a different gtd version only warns. --json prints the
+trail as one document. Writes nothing.
 
 Options:
   --json[=<path>]     Print the JSON document, or with --json=<path> one field
