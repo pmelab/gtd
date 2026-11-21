@@ -46,6 +46,7 @@ Feature: Start and Retry dispatch an inbox item
       | call             | worktree      |
       | worktrees.create | portal/board/7 |
       | services.up      | portal/board/7 |
+    And the worktree "portal/board/7" was created with the description "Add signup"
     And gtd opened these action panes:
       | worktree       | argv              |
       | portal/board/7 | ["start:feature"] |

@@ -78,15 +78,29 @@ const REFUSAL_CODES = {
   unsupported: "PRECONDITION_FAILED",
 } as const
 
+const optionalText = (value: unknown, key: string): string | undefined => {
+  const field = (value as Record<string, unknown> | null | undefined)?.[key]
+  if (field !== undefined && typeof field !== "string") {
+    throw new TRPCError({ code: "BAD_REQUEST", message: `${key} must be a string` })
+  }
+  return field
+}
+
 const createWorktreeInput = (value: unknown) => {
-  const { branch, base } = (value ?? {}) as Record<string, unknown>
-  if (typeof branch !== "string" || (base !== undefined && typeof base !== "string")) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "expected { project, branch, base? }" })
+  const branch = optionalText(value, "branch")
+  const base = optionalText(value, "base")
+  const description = optionalText(value, "description")
+  if (branch === undefined && description === undefined) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "expected { project, branch, base? } or { project, description }",
+    })
   }
   return {
     project: text(value, "project"),
-    branch,
-    ...(typeof base === "string" ? { base } : {}),
+    branch: branch ?? "",
+    ...(description !== undefined ? { description } : {}),
+    ...(base !== undefined ? { base } : {}),
   }
 }
 
@@ -557,7 +571,13 @@ export const workspaceRouter = t.router({
     .input(createWorktreeInput)
     .mutation(({ ctx, input }) =>
       refusals(() =>
-        ctx.worktreeChanges.create(input.project, input.branch, input.base, ctx.caller),
+        ctx.worktreeChanges.create(
+          input.project,
+          input.branch,
+          input.base,
+          ctx.caller,
+          input.description,
+        ),
       ),
     ),
   /** Remove: `{ confirm }` lists what a person must confirm first; `{ removed: true }` once it is gone. */

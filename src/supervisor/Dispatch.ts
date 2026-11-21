@@ -297,8 +297,12 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
       deps.worktrees.unpushed !== undefined &&
       (await deps.worktrees.unpushed(item.project, branch)) === false
     const path = leftover
-      ? await deps.worktrees.switch!(item.project, branch)
-      : await deps.worktrees.create(item.project, branch)
+      ? await deps.worktrees.switch!(item.project, branch, {
+          description: item.title,
+        })
+      : await deps.worktrees.create(item.project, branch, undefined, {
+          description: item.title,
+        })
     set(item, { state: "starting", worktree: path })
     await deps.refresh(item.project)
     return path
@@ -338,7 +342,11 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
   const failure = (message: string, path: string | undefined): Dispatch =>
     path === undefined
       ? { state: "failed", message }
-      : { state: "failed", message: `${message} (worktree ${path})`, worktree: path }
+      : {
+          state: "failed",
+          message: `${message} (worktree ${path})`,
+          worktree: path,
+        }
 
   // Runs the item up to its start action's pane; the action's exit settles it.
   const dispatch = async (item: InboxItem): Promise<void> => {
@@ -347,7 +355,10 @@ export const dispatcher = (deps: DispatchDeps): Dispatcher => {
     const found = await target(item, branch)
     if (!claimable(item)) return
     if (found !== undefined && "state" in found) return set(item, found)
-    set(item, { state: "starting", ...(found ? { worktree: found.path } : {}) })
+    set(item, {
+      state: "starting",
+      ...(found ? { worktree: found.path } : {}),
+    })
     let path = found?.path
     try {
       const worktree = path ?? (await create(item, branch, retrying))

@@ -510,6 +510,17 @@ New worktree refuses answers 400, a worktree that Remove keeps 409, an unknown
 project or worktree 404, and a worktrees adapter without `create` or
 `remove` 412.
 
+With `nameWorktree` in `gtd.workspace.ts`, the form asks for a description
+instead of a branch, and refuses an empty one. Scripts send
+`{ project, description }`. gtd calls `nameWorktree(text, { project })`, which
+returns `{ branch, description }` (a promise), checks the branch as below and
+creates the worktree on it with that description. A hook that throws, or returns
+a branch that is invalid or in use, refuses the request with the message and
+creates nothing. Projects, Now and Detail show line 1 of a worktree's
+description as its title, line 2 below it, and the branch in smaller text; the
+terminal Now view shows line 1, then the branch while the row has room.
+Worktrees that the inbox creates get the item's title as their description.
+
 New worktree takes a project and a branch name. The supervisor refuses a name
 that git does not take as a new branch, and a branch that a worktree of the
 project is on already. Then it creates the worktree with the worktrees adapter
@@ -657,16 +668,21 @@ has it.
 - **`projects()`**: every project, as `{ id, path }`. Project settings are keyed
   by the id.
 - **`list(project)`**: the project's worktrees, as
-  `{ path, branch, head, main, integrated, dirty }`. `integrated` is `true` when
-  the branch has commits of its own and all of them are on the default branch
-  (squash merges count), and `undefined` when the adapter cannot tell. `dirty`
-  is `true` when the tree has uncommitted changes (untracked files count), and
-  `undefined` or absent when the adapter cannot tell.
-- **`create(project, branch, base)`** (optional): a new worktree on the new
-  branch `branch`, made from `base` (default: the default branch). Returns the
-  worktree's path. Without it, New worktree is refused.
-- **`switch(project, branch)`** (optional): a new worktree on the existing
-  branch. Returns its path. Retry uses it on a leftover branch.
+  `{ path, branch, head, main, integrated, dirty, description }`. `description`
+  is the branch's description, and absent when it has none. `integrated` is
+  `true` when the branch has commits of its own and all of them are on the
+  default branch (squash merges count), and `undefined` when the adapter cannot
+  tell. `dirty` is `true` when the tree has uncommitted changes (untracked files
+  count), and `undefined` or absent when the adapter cannot tell.
+- **`create(project, branch, base, { description })`** (optional): a new
+  worktree on the new branch `branch`, made from `base` (default: the default
+  branch). Returns the worktree's path. `description` is the branch's
+  description; an adapter that ignores it drops it. Without it, New worktree is
+  refused.
+- **`switch(project, branch, { description })`** (optional): a new worktree on
+  the existing branch. Returns its path. `description` is written as the
+  branch's description only when the branch has none. Retry uses it on a
+  leftover branch.
 - **`unpushed(project, branch)`** (optional): whether the branch has commits on
   no remote; `undefined` for no such branch. Retry uses it to refuse a leftover
   that holds work.
@@ -689,14 +705,15 @@ starts with `~/`, and a `*` segment matches any directory. A matched directory
 is a project when it is a main checkout. Its id is what the `*` segments
 matched, joined by `/`, or the directory's name when the root has no `*`.
 Without a `worktrees` adapter, every main checkout directly in the workspace
-root is a project. `create` runs `wt switch --create`, so your worktrunk config
-decides where the worktree goes, and its hooks run; `remove` runs
-`wt remove --foreground`. `refresh` runs `git fetch` and `git merge --ff-only`
-against the main checkout's upstream; a main checkout without an upstream is
-left as it is. Its `watch()` watches the git directories of each project (not
-`refs/remotes`, so a fetch is no change) and installs nothing into your
-checkouts. A project added after the supervisor started is found by the next
-10-minute read.
+root is a project. `list` reads `branch.<b>.description` from git config.
+`create` writes it before `wt switch --create` and unsets it when that fails.
+`create` runs `wt switch --create`, so your worktrunk config decides where the
+worktree goes, and its hooks run; `remove` runs `wt remove --foreground`.
+`refresh` runs `git fetch` and `git merge --ff-only` against the main checkout's
+upstream; a main checkout without an upstream is left as it is. Its `watch()`
+watches the git directories of each project (not `refs/remotes`, so a fetch is
+no change) and installs nothing into your checkouts. A project added after the
+supervisor started is found by the next 10-minute read.
 
 ### `terminal`
 

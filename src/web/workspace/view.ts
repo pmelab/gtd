@@ -25,6 +25,9 @@ export interface Entry {
 export {
   nowView,
   worktreeName,
+  worktreeBranch,
+  worktreeSubtitle,
+  worktreeTitle,
   statusText,
   detailText,
   reasonText,

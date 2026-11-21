@@ -6,6 +6,7 @@ export interface NowWorktree {
   readonly label?: string | undefined
   readonly message?: string | undefined
   readonly branch?: string | undefined
+  readonly description?: string | undefined
   readonly path: string
 }
 
@@ -38,6 +39,14 @@ export const nowView = <P extends NowProject<NowWorktree>>(
 export const worktreeName = (w: NowWorktree): string =>
   w.branch ?? w.path.split("/").at(-1) ?? w.path
 
+/** Line 1 of the description, else the branch or directory name. */
+export const worktreeTitle = (w: NowWorktree): string =>
+  w.description?.split("\n")[0]?.trim() || worktreeName(w)
+
+/** Line 2 of the description, when there is one. */
+export const worktreeSubtitle = (w: NowWorktree): string =>
+  w.description?.split("\n")[1]?.trim() ?? ""
+
 const STATUS_TEXT: Readonly<Record<NowWorktree["status"], string>> = {
   needsYou: "needs you",
   working: "working",
@@ -60,3 +69,7 @@ export const reasonText = (w: NowWorktree): string => {
   const detail = detailText(w)
   return detail.toLowerCase() === statusText(w) ? "" : detail
 }
+
+/** The branch shown beside the title, when the title is not the branch. */
+export const worktreeBranch = (w: NowWorktree): string | undefined =>
+  w.description?.split("\n")[0]?.trim() ? w.branch : undefined

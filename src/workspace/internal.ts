@@ -15,4 +15,14 @@ export {
   type Inbox,
 } from "./inbox.js"
 
-export { detailText, nowView, reasonText, statusText, worktreeName, type NowEntry } from "./now.js"
+export {
+  detailText,
+  nowView,
+  reasonText,
+  statusText,
+  worktreeName,
+  worktreeBranch,
+  worktreeSubtitle,
+  worktreeTitle,
+  type NowEntry,
+} from "./now.js"

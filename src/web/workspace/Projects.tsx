@@ -11,7 +11,9 @@ import {
   attentionCount,
   noteText,
   reasonText,
-  worktreeName,
+  worktreeBranch,
+  worktreeSubtitle,
+  worktreeTitle,
   type Entry,
   type ProjectView,
   type WorktreeView,
@@ -75,7 +77,17 @@ const Row = ({
         aria-current={selected || undefined}
         onClick={onOpen}
       >
-        <span className="font-semibold">{worktreeName(worktree)}</span>
+        <span>
+          <span className="font-semibold">{worktreeTitle(worktree)}</span>
+          {worktreeBranch(worktree) !== undefined && (
+            <span className="pl-2 text-xs text-muted-foreground">{worktreeBranch(worktree)}</span>
+          )}
+          {worktreeSubtitle(worktree) !== "" && (
+            <span className="block text-sm text-muted-foreground">
+              {worktreeSubtitle(worktree)}
+            </span>
+          )}
+        </span>
         <StatusBadge worktree={worktree} />
         {detail !== "" && (
           <span className="col-span-2 text-sm text-muted-foreground">{detail}</span>
@@ -133,7 +145,7 @@ const Group = ({
           {!expanded && attention > 0 && (
             <Badge data-testid="project-attention">{attention} need you</Badge>
           )}
-          <NewWorktree project={project.id} />
+          <NewWorktree project={project.id} describe={project.namesWorktrees === true} />
         </div>
         {project.mainStale !== undefined && (
           <Problem tone="warning" testId="main-stale">

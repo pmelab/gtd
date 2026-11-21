@@ -81,7 +81,9 @@ describe("worktrunk roots", () => {
   it("names a project by what its * segments matched", async () => {
     const workspace = realpathSync(mkdtempSync(join(tmpdir(), "gtd-worktrunk-")))
     try {
-      execFileSync("git", ["init", "-q", join(workspace, "portal", "main")], { env })
+      execFileSync("git", ["init", "-q", join(workspace, "portal", "main")], {
+        env,
+      })
       expect(await worktrunk({ roots: [join(workspace, "*", "main")] }).projects()).toEqual([
         { id: "portal", path: join(workspace, "portal", "main") },
       ])
@@ -120,7 +122,9 @@ describe("worktrunk refresh", () => {
   it("fast-forwards the main checkout to its upstream", async () => {
     await withClone(async ({ root, origin, main }) => {
       commitIn(origin, "b.txt")
-      expect(await worktrunk({ roots: [root] }).refresh!("demo")).toEqual({ state: "ok" })
+      expect(await worktrunk({ roots: [root] }).refresh!("demo")).toEqual({
+        state: "ok",
+      })
       expect(git(main, "rev-parse", "HEAD")).toBe(git(origin, "rev-parse", "HEAD"))
     })
   }, 30_000)
@@ -172,7 +176,9 @@ describe("worktrunk list", () => {
         `#!/bin/sh\nprintf '%s' "$GIT_OPTIONAL_LOCKS" > "${join(root, "seen")}"\necho '{"schema":2,"items":[]}'\n`,
         { mode: 0o755 },
       )
-      execFileSync("git", ["init", "-q", "-b", "main", join(root, "demo")], { env })
+      execFileSync("git", ["init", "-q", "-b", "main", join(root, "demo")], {
+        env,
+      })
       process.env["PATH"] = `${bin}:${oldPath}`
       await worktrunk({ roots: [join(root, "*")] }).list("demo")
       expect(readFileSync(join(root, "seen"), "utf8")).toBe("0")
@@ -180,5 +186,108 @@ describe("worktrunk list", () => {
       process.env["PATH"] = oldPath
       rmSync(root, { recursive: true, force: true })
     }
+  })
+})
+
+describe("worktrunk branch descriptions", () => {
+  const git = (cwd: string, ...args: string[]): string =>
+    execFileSync("git", args, { cwd, env, encoding: "utf8" })
+
+  const withFakeWt = async (
+    script: string,
+    body: (main: string, adapter: ReturnType<typeof worktrunk>) => Promise<void>,
+  ): Promise<void> => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-worktrunk-desc-")))
+    const oldPath = process.env["PATH"]
+    try {
+      const bin = join(root, "bin")
+      mkdirSync(bin)
+      writeFileSync(join(bin, "wt"), script.replaceAll("$ROOT", root), {
+        mode: 0o755,
+      })
+      const main = join(root, "demo")
+      execFileSync("git", ["init", "-q", "-b", "main", main], { env })
+      git(main, "commit", "-q", "--allow-empty", "-m", "first")
+      process.env["PATH"] = `${bin}:${oldPath}`
+      await body(main, worktrunk({ roots: [join(root, "*")] }))
+    } finally {
+      process.env["PATH"] = oldPath
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+
+  it("lists the description of a branch that has one, and none for one that has not", async () => {
+    const list = JSON.stringify({
+      schema: 2,
+      items: [
+        {
+          branch: "main",
+          head: { sha: "a" },
+          worktree: { path: "$ROOT/demo", main: true },
+        },
+        {
+          branch: "other",
+          head: { sha: "b" },
+          worktree: { path: "$ROOT/demo", main: false },
+        },
+      ],
+    })
+    await withFakeWt(`#!/bin/sh\necho '${list}'\n`, async (main, adapter) => {
+      git(main, "config", "branch.main.description", "Fix login\nsecond")
+      const listed = await adapter.list("demo")
+      expect(listed[0]?.description).toBe("Fix login\nsecond")
+      expect(listed[1]).not.toHaveProperty("description")
+    })
+  })
+
+  it("sets the description before wt switch --create, and restores the old one when that fails", async () => {
+    const script = `#!/bin/sh\ngit -C "$ROOT/demo" config --get branch.feat.description > "$ROOT/seen"\nexit 1\n`
+    await withFakeWt(script, async (main, adapter) => {
+      git(main, "config", "branch.feat.description", "Old")
+      await expect(
+        adapter.create!("demo", "feat", undefined, { description: "Add feat" }),
+      ).rejects.toThrow()
+      const root = join(main, "..")
+      expect(readFileSync(join(root, "seen"), "utf8").trim()).toBe("Add feat")
+      expect(git(main, "config", "--get", "branch.feat.description").trim()).toBe("Old")
+    })
+  })
+
+  it("unsets the description when a failed create had none to restore", async () => {
+    await withFakeWt(`#!/bin/sh\nexit 1\n`, async (main, adapter) => {
+      await expect(
+        adapter.create!("demo", "feat", undefined, { description: "Add feat" }),
+      ).rejects.toThrow()
+      expect(() => git(main, "config", "--get", "branch.feat.description")).toThrow()
+    })
+  })
+
+  it("watch() hints after a branch description is edited", async () => {
+    await withFakeWt(`#!/bin/sh\nexit 1\n`, async (main, adapter) => {
+      const hints = adapter.watch!()[Symbol.asyncIterator]()
+      try {
+        const next = hints.next()
+        git(main, "config", "branch.main.description", "Edited")
+        let timer: ReturnType<typeof setTimeout> | undefined
+        const late = new Promise<"late">(
+          (resolve) => (timer = setTimeout(() => resolve("late"), 5_000)),
+        )
+        const result = await Promise.race([next, late]).finally(() => clearTimeout(timer))
+        expect(result).toEqual({ done: false, value: { project: "demo" } })
+      } finally {
+        await hints.return?.()
+      }
+    })
+  })
+
+  it("switch writes the description only when the branch has none", async () => {
+    const script = `#!/bin/sh\necho '{"path":"$ROOT/x"}'\n`
+    await withFakeWt(script, async (main, adapter) => {
+      await adapter.switch!("demo", "a", { description: "New" })
+      expect(git(main, "config", "--get", "branch.a.description").trim()).toBe("New")
+      git(main, "config", "branch.b.description", "Keep")
+      await adapter.switch!("demo", "b", { description: "New" })
+      expect(git(main, "config", "--get", "branch.b.description").trim()).toBe("Keep")
+    })
   })
 })

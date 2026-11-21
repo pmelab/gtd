@@ -114,7 +114,7 @@ const limiter = (limit: number) => {
 }
 
 const keyOf = (w: Worktree, fp: string): string =>
-  JSON.stringify([w.head, w.branch ?? null, w.dirty ?? null, fp])
+  JSON.stringify([w.head, w.branch ?? null, w.dirty ?? null, w.description ?? null, fp])
 
 const stamp = async (path: string): Promise<string> => {
   try {
@@ -530,10 +530,12 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
           return {
             id,
             name: deps.settings().projects?.[id]?.name ?? id,
+            namesWorktrees: deps.settings().nameWorktree !== undefined,
             ...(project.failure !== undefined ? { failure: project.failure } : {}),
             worktrees: project.worktrees.map((w) => ({
               path: w.path,
               ...(w.branch !== undefined ? { branch: w.branch } : {}),
+              ...(w.description !== undefined ? { description: w.description } : {}),
               head: w.head,
               main: w.main,
               gate: gatePath(id, w),

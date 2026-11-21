@@ -148,6 +148,43 @@ describe("gtd workspace now", () => {
     await t.run
   })
 
+  it("shows a described worktree's title, then its branch, and drops the branch before cutting the title", async () => {
+    const t = await setup([
+      project(
+        wt("/w/feat-x", "error", { description: "Fix login\nsecond line", errorKind: "crashed" }),
+        wt("/w/feat-y", "error", {
+          description:
+            "A title that fills the whole row of the terminal screen right up to the edge",
+          errorKind: "crashed",
+        }),
+      ),
+    ])
+    await delay(20)
+    const rows = t
+      .last()
+      .split("\r\n")
+      // eslint-disable-next-line no-control-regex
+      .map((line) => line.replace(/\x1b\[[0-9;?]*[A-Za-z]/g, ""))
+    expect(rows[0]).toContain("Fix login feat-x error (crashed)")
+    expect(rows[1]).not.toContain("feat-y")
+    expect(rows[1]).toContain("A title that fills")
+    await t.key("q")
+    await t.run
+  })
+
+  it("shows the branch once when the description's first line is blank", async () => {
+    const t = await setup([
+      project(wt("/w/feat-x", "error", { description: "\nsecond line", errorKind: "crashed" })),
+    ])
+    await delay(20)
+    // eslint-disable-next-line no-control-regex
+    const screen = t.last().replace(/\x1b\[[0-9;?]*[A-Za-z]/g, "")
+    expect(screen).toContain("feat-x")
+    expect(screen).not.toContain("feat-x feat-x")
+    await t.key("q")
+    await t.run
+  })
+
   it("follows status changes without a key press", async () => {
     const t = await setup([project(wt("/w/plan", "working"))])
     await delay(20)
