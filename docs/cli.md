@@ -37,6 +37,7 @@ Inspect:
                             Pause dispatch
   workspace resume [project [feed]]
                             Resume dispatch
+  workspace paused          List the dispatch pauses
   workspace now             Show the Now view in the terminal
 
 Driver plumbing:
@@ -713,6 +714,30 @@ socket only you may open. An unknown project or feed exits 1; so does a
 supervisor that is not running.
 
 Options:
+  --config=<path>     Use this gtd.workspace.ts instead of the innermost one
+                      from the current directory
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd workspace paused`
+
+```
+Usage: gtd workspace paused [options]
+
+List every pause the running supervisor holds, one line each: workspace for the
+workspace pause, <project> for a project, <project> <feed> for a feed, in that
+order. A project or feed line pastes after `gtd workspace resume`. Nothing
+paused prints nothing and exits 0. --json prints a bare array of { project?,
+feed? }: {} is the workspace pause, [] means none. It changes nothing.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is
+innermost from the current directory, or the one --config names, through a unix
+socket only you may open. It exits 1 when no supervisor runs, never 0 with an
+empty list.
+
+Options:
+  --json[=<path>]     Print one entry of the array (--json=0), nothing past its
+                      end
   --config=<path>     Use this gtd.workspace.ts instead of the innermost one
                       from the current directory
   -v, --verbose       Narrate on stderr what gtd resolved

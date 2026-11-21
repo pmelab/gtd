@@ -63,11 +63,12 @@ histories written by an older or newer gtd.
   `repin`, `check`, `guide`, `bundle`, `summary`, `base`, `strays`,
   `history list`, `history show`, `history fetch`, `version`, `help`, `ui`,
   `workspace`, `workspace proceed`, `workspace retry`, `workspace note`,
-  `workspace pause`, `workspace resume`, `workspace now`, `lsp`, `judge`,
-  `judge answer`, `judge run`), option and argument in
+  `workspace pause`, `workspace resume`, `workspace paused`, `workspace now`,
+  `lsp`, `judge`, `judge answer`, `judge run`), option and argument in
   [CLI reference](docs/cli.md) — the bare `gtd start --json` and
-  `gtd history list --json` arrays (bare arrays with no `schema`), and
-  `gtd history show --json` (no `schema`; not a driver document).
+  `gtd history list --json` and `gtd workspace paused --json` arrays (bare
+  arrays with no `schema`), and `gtd history show --json` (no `schema`; not a
+  driver document).
 - **The error envelope and stream discipline** — `{ "state": "error", … }` on
   stderr with `--json`, stdout byte-empty on failure (`gtd ui` excepted). See
   [Error envelope](docs/cli.md#error-envelope).

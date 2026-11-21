@@ -120,6 +120,7 @@ const controlHandler =
   (endpoint: string) =>
   async (request: ControlRequest): Promise<ControlReply> => {
     if (request.command === "projects") return { ok: true, projects: deps.shared() }
+    if (request.command === "paused") return { ok: true, paused: deps.pauses.list() }
     if (request.command === "note") return noteRequest(deps, request, endpoint)
     if (isPause(request)) return pauseRequest(deps, request, endpoint)
     const { control } = deps

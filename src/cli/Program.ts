@@ -180,6 +180,11 @@ export type Command =
     }
   | {
       readonly kind: "workspaceControl"
+      readonly command: "paused"
+      readonly config?: string
+    }
+  | {
+      readonly kind: "workspaceControl"
       readonly command: "pause" | "resume"
       readonly project?: string
       readonly feed?: string
@@ -1182,7 +1187,7 @@ const stateHomeOf = (host: HostOps, paths: Path.Path): string =>
 type ControlCommand = Extract<Command, { kind: "workspaceControl" }>
 
 const controlRequestOf = (
-  command: Exclude<ControlCommand, { command: "now" }>,
+  command: Exclude<ControlCommand, { command: "now" | "paused" }>,
 ): WorkspaceControlRequest["request"] => {
   switch (command.command) {
     case "note":
@@ -1200,6 +1205,8 @@ const controlRequestOf = (
 /** `gtd workspace proceed|retry|note|pause|resume`: handed to the running supervisor. */
 const runWorkspaceControlCliCommand = (
   command: Extract<Command, { kind: "workspaceControl" }>,
+  json: JsonMode,
+  out: ArtifactOut,
 ): Effect.Effect<void, Error, ToolCommands | Host | Path.Path> =>
   Effect.gen(function* () {
     const host = yield* Host
@@ -1211,6 +1218,23 @@ const runWorkspaceControlCliCommand = (
         stateHome: stateHomeOf(host, paths),
         loadModule: (file) => evaluateModule(paths, file),
       })
+      return
+    }
+    if (command.command === "paused") {
+      const paused = yield* (yield* ToolCommands).workspaceControl({
+        request: { command: "paused" },
+        ...(command.config !== undefined ? { config: command.config } : {}),
+        cwd: host.root,
+        stateHome: stateHomeOf(host, paths),
+      })
+      if (yield* writeJson(json, out, paused)) return
+      out.write(
+        (paused ?? [])
+          .map(
+            ({ project, feed }) => `${[project ?? "workspace", feed].filter(Boolean).join(" ")}\n`,
+          )
+          .join(""),
+      )
       return
     }
     yield* (yield* ToolCommands).workspaceControl({
@@ -1329,7 +1353,7 @@ const dispatchVoidCommand = (
     case "workspace":
       return runWorkspaceCliCommand(command, out)
     case "workspaceControl":
-      return runWorkspaceControlCliCommand(command)
+      return runWorkspaceControlCliCommand(command, json, out)
     case "land":
       return runLandCommand(
         {

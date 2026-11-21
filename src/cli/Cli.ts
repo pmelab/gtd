@@ -84,6 +84,8 @@ interface FlagRow {
   /** One sentence for a command's help, wrapped when rendered; `helpFor` overrides it for a command the flag means something else on. */
   readonly help: string
   readonly helpFor?: Partial<Record<Command["kind"], string>>
+  /** Like `helpFor`, for one command whose kind it shares with others. Wins over `helpFor`. */
+  readonly helpForToken?: Readonly<Record<string, string>>
   /** Flag names this one may never appear alongside — checked generically after parsing (see `conflictViolation`), never as a bespoke `if`. Defaults to none. */
   readonly conflicts?: readonly string[]
 }
@@ -157,7 +159,7 @@ const FLAGS: readonly FlagRow[] = [
     name: "--json",
     arity: "optional",
     repeatable: false,
-    scope: (kind) => JSON_KINDS.has(kind),
+    scope: (kind, token) => JSON_KINDS.has(kind) || token === "workspace paused",
     decode: ([raw]) => Result.succeed(raw ?? ""),
     scopeError:
       "gtd: --json is only valid for `gtd next`/`gtd land`, the commands that print a script, and the listings whose help names it (e.g. `gtd strays`) — " +
@@ -168,6 +170,9 @@ const FLAGS: readonly FlagRow[] = [
       strays: "Print one entry of the array (--json=0), nothing past its end",
       ...Object.fromEntries([...SCRIPT_KINDS].map((kind) => [kind, SCRIPT_JSON_HELP])),
       start: `${SCRIPT_JSON_HELP}. Bare, print the list as a JSON array of { kind, name } (a door adds workflow and args)`,
+    },
+    helpForToken: {
+      "workspace paused": "Print one entry of the array (--json=0), nothing past its end",
     },
   },
   {
@@ -611,6 +616,16 @@ It reaches the running supervisor of the workspace whose gtd.workspace.ts is inn
 It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. An unknown project or feed exits 1; so does a supervisor that is not running.`,
   },
   {
+    token: "workspace paused",
+    kind: "workspaceControl",
+    arity: "none",
+    group: "Inspect",
+    summary: "List the dispatch pauses",
+    details: `List every pause the running supervisor holds, one line each: workspace for the workspace pause, <project> for a project, <project> <feed> for a feed, in that order. A project or feed line pastes after \`gtd workspace resume\`. Nothing paused prints nothing and exits 0. --json prints a bare array of { project?, feed? }: {} is the workspace pause, [] means none. It changes nothing.
+
+It reaches the running supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, through a unix socket only you may open. It exits 1 when no supervisor runs, never 0 with an empty list.`,
+  },
+  {
     token: "workspace now",
     kind: "workspaceControl",
     arity: "none",
@@ -802,7 +817,13 @@ const SHORT_USAGE = `Usage: gtd <command> [options]
 const renderCommandHelp = (row: CommandRow): string => {
   const options = FLAGS.filter(
     (f) => f.name !== "--verbose" && f.scope(row.kind, row.token),
-  ).flatMap((f) => definition(flagHeader(f), f.helpFor?.[row.kind] ?? f.help, OPTION_COLUMN))
+  ).flatMap((f) =>
+    definition(
+      flagHeader(f),
+      f.helpForToken?.[row.token] ?? f.helpFor?.[row.kind] ?? f.help,
+      OPTION_COLUMN,
+    ),
+  )
   const global = definition("-v, --verbose", "Narrate on stderr what gtd resolved", OPTION_COLUMN)
   return (
     `Usage: gtd ${synopsis(row)}${options.length > 0 ? " [options]" : ""}\n\n` +
@@ -1339,6 +1360,19 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
 
   if (kind === "workspaceControl" && row.token === "workspace note") {
     return buildNoteCommand(restPositionals, bag, json, verbose, jsonSeen)
+  }
+
+  if (row.token === "workspace paused") {
+    return {
+      kind: "command",
+      command: {
+        kind: "workspaceControl",
+        command: "paused",
+        ...(bag["--config"] !== undefined ? { config: bag["--config"] } : {}),
+      },
+      json,
+      verbose,
+    }
   }
 
   if (row.token === "workspace pause" || row.token === "workspace resume") {
