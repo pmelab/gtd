@@ -33,6 +33,16 @@ When(
   },
 )
 
+When(
+  "I create a worktree described {string} in {string}",
+  async (world: GtdWorld, description: string, project: string) => {
+    results.set(
+      world,
+      await bench(world).call("createWorktree", { project, description }, "mutation"),
+    )
+  },
+)
+
 const remove = async (world: GtdWorld, ref: string, confirmed: boolean) => {
   const b = bench(world)
   const input = { project: split(ref)[0], worktree: await b.pathOf(ref), confirmed }
@@ -56,6 +66,13 @@ Then("gtd asks to confirm:", (world: GtdWorld, reasons: string) => {
 Then("gtd made these adapter calls:", (world: GtdWorld, table: DataTable) => {
   assert.deepStrictEqual(bench(world).calls, table.hashes())
 })
+
+Then(
+  "the worktree {string} was created with the description {string}",
+  (world: GtdWorld, ref: string, description: string) => {
+    assert.strictEqual(bench(world).descriptions[ref], description)
+  },
+)
 
 Then("gtd made no adapter calls", (world: GtdWorld) => {
   assert.deepStrictEqual(bench(world).calls, [])

@@ -144,6 +144,8 @@ export class WorkspaceBench {
   readonly notifications = inMemoryNotifications()
   /** The changing calls the supervisor made to the worktrees, services and terminal adapters, in order. */
   readonly calls: { call: string; worktree: string }[] = []
+  /** The description each worktree was created with, by `project/branch`. */
+  readonly descriptions: Record<string, string> = {}
   private readonly answers = new Map<string, SpawnOutcome>()
   /** The worktree of each `gtd next` the supervisor ran, in order. */
   readonly nextRuns: string[] = []
@@ -266,8 +268,11 @@ export class WorkspaceBench {
     const adapter = this.worktrees.adapter
     return {
       ...adapter,
-      create: async (project, branch, base) => {
-        const path = await adapter.create!(project, branch, base)
+      create: async (project, branch, base, options) => {
+        const path = await adapter.create!(project, branch, base, options)
+        if (options?.description !== undefined) {
+          this.descriptions[`${project}/${branch}`] = options.description
+        }
         this.calls.push({
           call: "worktrees.create",
           worktree: `${project}/${branch}`,

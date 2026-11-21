@@ -6,16 +6,35 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/colla
 import { NoteLine } from "./NoteLine.js"
 import { Refused } from "./Press.js"
 import { StatusBadge } from "./Status.js"
-import { detailText, nowView, worktreeName, type Entry, type ProjectView } from "./view.js"
+import {
+  detailText,
+  nowView,
+  worktreeBranch,
+  worktreeSubtitle,
+  worktreeTitle,
+  type Entry,
+  type ProjectView,
+} from "./view.js"
 
 /** "Portal / plan": the project muted, the worktree in weight. */
-export const EntryTitle = ({ entry }: { readonly entry: Entry }) => (
-  <>
-    <span className="text-muted-foreground">{entry.project.name}</span>
-    <span className="px-1 text-muted-foreground">/</span>
-    <span className="font-semibold text-foreground">{worktreeName(entry.worktree)}</span>
-  </>
-)
+export const EntryTitle = ({ entry }: { readonly entry: Entry }) => {
+  const { worktree } = entry
+  const branch = worktreeBranch(worktree)
+  const subtitle = worktreeSubtitle(worktree)
+  return (
+    <>
+      <span className="text-muted-foreground">{entry.project.name}</span>
+      <span className="px-1 text-muted-foreground">/</span>
+      <span className="font-semibold text-foreground">{worktreeTitle(worktree)}</span>
+      {branch !== undefined && (
+        <span className="pl-2 text-xs font-normal text-muted-foreground">{branch}</span>
+      )}
+      {subtitle !== "" && (
+        <span className="block text-sm font-normal text-muted-foreground">{subtitle}</span>
+      )}
+    </>
+  )
+}
 
 const Card = ({
   entry,

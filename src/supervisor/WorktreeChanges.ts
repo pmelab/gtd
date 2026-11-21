@@ -71,6 +71,13 @@ export interface WorktreeChangesDeps {
   readonly refresh: (project: string) => Promise<void>
   /** Auto-clean removed the worktree; called before the project is read again. */
   readonly cleaned?: (project: string, worktree: Worktree) => void
+  /** `nameWorktree` from the config as last loaded. */
+  readonly nameWorktree?: () =>
+    | ((
+        text: string,
+        context: { project: string },
+      ) => Promise<{ branch: string; description: string }>)
+    | undefined
   readonly audit: AuditLog
   readonly now: () => number
 }
@@ -97,6 +104,7 @@ export interface WorktreeChanges {
     branch: string,
     base: string | undefined,
     caller: Caller,
+    description?: string,
   ) => Promise<{ readonly path: string; readonly failure?: string }>
   readonly remove: (
     project: string,
@@ -132,6 +140,27 @@ export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
       return await deps.worktrees.list(project)
     } catch {
       return refuse("notFound", `no project ${project}`)
+    }
+  }
+
+  // With a description, the hook (when configured) names the branch.
+  const named = async (
+    project: string,
+    requested: string,
+    description: string | undefined,
+  ): Promise<{ branch: string; described: string | undefined }> => {
+    if (description === undefined) return { branch: requested, described: undefined }
+    if (description.trim() === "") return refuse("invalid", "a description is required")
+    const name = deps.nameWorktree?.()
+    if (name === undefined) return { branch: requested, described: description }
+    try {
+      const result = await name(description, { project })
+      if (typeof result?.branch !== "string" || typeof result.description !== "string") {
+        return refuse("invalid", "the nameWorktree hook returned no branch and description")
+      }
+      return { branch: result.branch, described: result.description }
+    } catch (error) {
+      return refuse("invalid", messageOf(error))
     }
   }
 
@@ -190,9 +219,11 @@ export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
   }
 
   return {
-    create: async (project, branch, base, caller) => {
+    // fallow-ignore-next-line complexity
+    create: async (project, requested, base, caller, description) => {
       const create =
         deps.worktrees.create ?? refuse("unsupported", "the worktrees adapter creates no worktrees")
+      const { branch, described } = await named(project, requested, description)
       const problem = branchProblem(branch)
       if (problem !== undefined) refuse("invalid", problem)
       if (base !== undefined && (base === "" || base.startsWith("-"))) {
@@ -201,7 +232,13 @@ export const worktreeChanges = (deps: WorktreeChangesDeps): WorktreeChanges => {
       if ((await listed(project)).some((w) => w.branch === branch)) {
         refuse("invalid", `${project} has a worktree on ${branch} already`)
       }
-      const path = await create.call(deps.worktrees, project, branch, base)
+      const path = await create.call(
+        deps.worktrees,
+        project,
+        branch,
+        base,
+        described === undefined ? undefined : { description: described },
+      )
       audited(caller, project, branch, "createWorktree")
       let failure: string | undefined
       try {

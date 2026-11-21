@@ -16,7 +16,7 @@ import { PressButton, Refused } from "./Press.js"
 import { ServiceChips } from "./ServiceChips.js"
 import { StatusBadge } from "./Status.js"
 import { RemoveButton } from "./WorktreeChanges.js"
-import { reasonText, worktreeName, type Entry } from "./view.js"
+import { reasonText, worktreeTitle, type Entry } from "./view.js"
 
 type Tab = "gate" | "actions" | "retrospective"
 
@@ -142,7 +142,7 @@ export const Detail = ({
         "flex flex-col overflow-y-auto bg-background text-foreground",
         embedded ? "min-h-0 min-w-0 flex-1" : "pt-safe pb-safe fixed inset-0 z-10",
       )}
-      aria-label={`${project.name} / ${worktreeName(worktree)}`}
+      aria-label={`${project.name} / ${worktreeTitle(worktree)}`}
       data-testid="detail"
     >
       <DetailHeader

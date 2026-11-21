@@ -60,6 +60,8 @@ export interface Worktree {
    * count), `undefined` or absent when the adapter cannot tell.
    */
   readonly dirty?: boolean | undefined
+  /** The branch's description; absent when it has none or the HEAD is detached. */
+  readonly description?: string | undefined
 }
 
 /**
@@ -84,14 +86,25 @@ export interface WorktreesAdapter {
   /**
    * A new worktree on the new branch `branch`, made from `base` (default: the
    * default branch). Returns the worktree's path. Without it, the dashboard
-   * creates no worktree.
+   * creates no worktree. `options.description` is the branch's description;
+   * an adapter that ignores it drops the description.
    */
-  readonly create?: (project: string, branch: string, base?: string) => Promise<string>
+  readonly create?: (
+    project: string,
+    branch: string,
+    base?: string,
+    options?: { readonly description?: string },
+  ) => Promise<string>
   /**
    * A new worktree on the existing branch `branch`. Returns the worktree's
    * path. Without it, Retry creates no worktree on a leftover branch.
+   * `options.description` is written only when the branch has none.
    */
-  readonly switch?: (project: string, branch: string) => Promise<string>
+  readonly switch?: (
+    project: string,
+    branch: string,
+    options?: { readonly description?: string },
+  ) => Promise<string>
   /**
    * Whether `branch` has commits that are on no remote; `undefined` when there
    * is no such branch. Without it, Retry reuses no leftover.

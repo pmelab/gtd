@@ -44,7 +44,10 @@ const run = (
   })
 
 // Reads must not rewrite a stale index under `index.lock`: that could fail a landing.
-const readEnv = (): NodeJS.ProcessEnv => ({ ...process.env, GIT_OPTIONAL_LOCKS: "0" })
+const readEnv = (): NodeJS.ProcessEnv => ({
+  ...process.env,
+  GIT_OPTIONAL_LOCKS: "0",
+})
 const read = (command: string, args: readonly string[], cwd?: string): Promise<Ran> =>
   run(command, args, cwd, readEnv())
 
@@ -142,6 +145,24 @@ const dirtyOf = (item: ListItem): boolean | undefined => {
   return changes === undefined ? undefined : CHANGES.some((kind) => changes[kind] === true)
 }
 
+// One read of the repository's config gives every branch's description.
+const descriptionsOf = async (path: string): Promise<ReadonlyMap<string, string>> => {
+  const got = await read(
+    "git",
+    ["config", "-z", "--get-regexp", "^branch\\..*\\.description$"],
+    path,
+  )
+  const found = new Map<string, string>()
+  if (got.status !== 0) return found
+  // `-z`: entries end in NUL, each as `key\nvalue`, so a value may span lines.
+  for (const entry of got.stdout.split("\0")) {
+    const match = /^branch\.(.+)\.description\n(.*)$/s.exec(entry)
+    const text = match?.[2]?.replace(/\n+$/, "")
+    if (match !== null && text !== undefined && text !== "") found.set(match[1]!, text)
+  }
+  return found
+}
+
 const worktreesOf = async (project: Project): Promise<readonly Worktree[]> => {
   const listed = await read("wt", ["-C", project.path, "list", "--format=json"])
   if (listed.status !== 0) {
@@ -157,15 +178,21 @@ const worktreesOf = async (project: Project): Promise<readonly Worktree[]> => {
     throw failure("list", `wt list printed schema ${String(parsed.schema)}, not 2`)
   }
   const items = parsed.items.filter((item) => typeof item.worktree?.path === "string")
+  const descriptions = await descriptionsOf(project.path)
   return Promise.all(
-    items.map(async (item) => ({
-      path: item.worktree!.path!,
-      branch: typeof item.branch === "string" ? item.branch : undefined,
-      head: item.head?.sha ?? "",
-      main: item.worktree!.main === true,
-      integrated: await integratedOf(item, item.worktree!.path!),
-      dirty: dirtyOf(item),
-    })),
+    items.map(async (item) => {
+      const description =
+        typeof item.branch === "string" ? descriptions.get(item.branch) : undefined
+      return {
+        path: item.worktree!.path!,
+        branch: typeof item.branch === "string" ? item.branch : undefined,
+        head: item.head?.sha ?? "",
+        main: item.worktree!.main === true,
+        integrated: await integratedOf(item, item.worktree!.path!),
+        dirty: dirtyOf(item),
+        ...(description !== undefined ? { description } : {}),
+      }
+    }),
   )
 }
 
@@ -190,8 +217,8 @@ const refDirectories = (refs: string): readonly string[] => {
   ]
 }
 
-// The entries of a git dir whose change can move a worktree's HEAD or branch.
-const COMMON_ENTRIES = /^(HEAD|packed-refs|refs|worktrees|reftable)/
+// The entries of a git dir whose change can move a worktree's HEAD or branch, or edit a branch description.
+const COMMON_ENTRIES = /^(HEAD|packed-refs|refs|worktrees|reftable|config)/
 const WORKTREE_ENTRIES = /^(HEAD|refs)/
 
 /**
@@ -274,14 +301,39 @@ const refreshMain = async (path: string): Promise<RefreshResult> => {
   if (upstream.status !== 0) return { state: "ok" }
   const fetched = await run("git", ["fetch", "--quiet"], path)
   if (fetched.status !== 0) {
-    return { state: "stale", reason: `git fetch failed: ${fetched.stderr.trim()}` }
+    return {
+      state: "stale",
+      reason: `git fetch failed: ${fetched.stderr.trim()}`,
+    }
   }
   const merged = await run("git", ["merge", "--ff-only", "--quiet", "@{upstream}"], path)
   if (merged.status !== 0) {
     const ref = upstream.stdout.trim()
-    return { state: "stale", reason: `does not fast-forward to ${ref}: ${merged.stderr.trim()}` }
+    return {
+      state: "stale",
+      reason: `does not fast-forward to ${ref}: ${merged.stderr.trim()}`,
+    }
   }
   return { state: "ok" }
+}
+
+// Sets the branch description; the returned function puts the previous value back.
+const setDescription = async (
+  cwd: string,
+  key: string,
+  description: string | undefined,
+): Promise<() => Promise<void>> => {
+  if (description === undefined) return async () => {}
+  const old = (await read("git", ["config", "--get", key], cwd)).stdout
+  const set = await run("git", ["config", key, description], cwd)
+  if (set.status !== 0) throw failure("create", `git config ${key} failed`, set.stderr.trim())
+  return async () => {
+    await run(
+      "git",
+      old === "" ? ["config", "--unset", key] : ["config", key, old.replace(/\n$/, "")],
+      cwd,
+    )
+  }
 }
 
 /** The bundled worktrees adapter: worktrunk (`wt`) for the worktrees, `git` for the branch history. */
@@ -313,8 +365,10 @@ export const worktrunk = (options: WorktrunkOptions): WorktreesAdapter => {
     list: async (id) => worktreesOf(await projectOf(id, "list")),
     refresh: async (id) => refreshMain((await projectOf(id, "refresh")).path),
     // The person's worktrunk config decides where the worktree goes, and its hooks run.
-    create: async (id, branch, base) => {
+    create: async (id, branch, base, options) => {
       const project = await projectOf(id, "create")
+      const key = `branch.${branch}.description`
+      const restore = await setDescription(project.path, key, options?.description)
       const args = ["-C", project.path, "switch", "--create", branch, "--yes", "--no-cd"]
       const created = await run("wt", [
         ...args,
@@ -322,6 +376,7 @@ export const worktrunk = (options: WorktrunkOptions): WorktreesAdapter => {
         "--format=json",
       ])
       if (created.status !== 0) {
+        await restore()
         throw failure("create", `wt switch --create ${branch} failed`, created.stderr.trim())
       }
       try {
@@ -330,8 +385,15 @@ export const worktrunk = (options: WorktrunkOptions): WorktreesAdapter => {
         throw failure("create", "wt switch printed no JSON", created.stdout)
       }
     },
-    switch: async (id, branch) => {
+    switch: async (id, branch, options) => {
       const project = await projectOf(id, "switch")
+      const key = `branch.${branch}.description`
+      if (options?.description !== undefined) {
+        const has = await read("git", ["config", "--get", key], project.path)
+        if (has.stdout.trim() === "") {
+          await run("git", ["config", key, options.description], project.path)
+        }
+      }
       const switched = await run("wt", [
         "-C",
         project.path,

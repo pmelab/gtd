@@ -8,10 +8,12 @@ import type { WorktreeView } from "./view.js"
 
 const NewWorktreeForm = ({
   project,
+  describe,
   onCreated,
   onCancel,
 }: {
   readonly project: string
+  readonly describe: boolean
   readonly onCreated: (failure: string | undefined) => void
   readonly onCancel: () => void
 }) => {
@@ -27,11 +29,12 @@ const NewWorktreeForm = ({
       className="flex w-full flex-col gap-2 px-3 py-2"
       onSubmit={(e) => {
         e.preventDefault()
-        create.mutate({ project, branch })
+        if (describe) create.mutate({ project, branch: "", description: branch })
+        else create.mutate({ project, branch })
       }}
     >
       <Label htmlFor={id} className="font-medium">
-        Branch
+        {describe ? "Description" : "Branch"}
       </Label>
       <Input id={id} value={branch} autoFocus onChange={(e) => setBranch(e.target.value)} />
       {create.error !== null && (
@@ -40,7 +43,7 @@ const NewWorktreeForm = ({
         </span>
       )}
       <div className="flex gap-2">
-        <Button type="submit" variant="primary" disabled={create.isPending || branch === ""}>
+        <Button type="submit" variant="primary" disabled={create.isPending || branch.trim() === ""}>
           Create
         </Button>
         <Button variant="ghost" onClick={onCancel}>
@@ -52,7 +55,13 @@ const NewWorktreeForm = ({
 }
 
 /** New worktree on a project: a branch name, then gtd creates the worktree and starts its services. */
-export const NewWorktree = ({ project }: { readonly project: string }) => {
+export const NewWorktree = ({
+  project,
+  describe = false,
+}: {
+  readonly project: string
+  readonly describe?: boolean
+}) => {
   const [open, setOpen] = useState(false)
   // The worktree stays when its services do not start: this says why.
   const [failure, setFailure] = useState<string | undefined>(undefined)
@@ -60,6 +69,7 @@ export const NewWorktree = ({ project }: { readonly project: string }) => {
     return (
       <NewWorktreeForm
         project={project}
+        describe={describe}
         onCreated={(failed) => {
           setOpen(false)
           setFailure(failed)

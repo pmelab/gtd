@@ -1,7 +1,13 @@
 import { dirname } from "node:path"
 import { Effect } from "effect"
 import { UiError } from "../ui/index.js"
-import { nowView, reasonText, statusText, worktreeName } from "../workspace/internal.js"
+import {
+  nowView,
+  reasonText,
+  statusText,
+  worktreeBranch,
+  worktreeTitle,
+} from "../workspace/internal.js"
 import type { NowEntry } from "../workspace/internal.js"
 import type { TerminalAdapter } from "../workspace/index.js"
 import { findWorkspaceModule, loadWorkspace } from "./Config.js"
@@ -51,14 +57,19 @@ const row = (entry: Entry, index: number, selected: boolean, columns: number): s
   const lead = `${selected ? ">" : " "} ${index < 9 ? String(index + 1) : " "} `
   const status = statusText(worktree)
   const reason = reasonText(worktree)
-  const name = worktreeName(worktree)
+  const title = worktreeTitle(worktree)
+  const branch = worktreeBranch(worktree)
+  const names = branch === undefined ? [title] : [`${title} ${branch}`, title]
   const fixed = lead.length + project.name.length + 1 + 1 + status.length
-  const spare = room - fixed - name.length
-  if (reason === "" ? spare >= 0 : spare >= 2) {
-    const tail = reason === "" ? "" : ` ${fit(reason, spare - 1)}`
-    return `${lead}${project.name} ${name} ${status}${tail}`
+  // The reason shrinks first, then the branch goes, then the title is cut.
+  for (const name of names) {
+    const spare = room - fixed - name.length
+    if (reason === "" ? spare >= 0 : spare >= 2) {
+      const tail = reason === "" ? "" : ` ${fit(reason, spare - 1)}`
+      return `${lead}${project.name} ${name} ${status}${tail}`
+    }
   }
-  const shortName = fit(name, Math.max(room - fixed, 1))
+  const shortName = fit(title, Math.max(room - fixed, 1))
   return `${lead}${project.name} ${shortName} ${status}`
 }
 

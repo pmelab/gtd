@@ -58,6 +58,11 @@ export interface WorkspaceSettings {
   readonly notify?: NotifySettings
   readonly clean?: { readonly every: Duration }
   readonly ui?: WorkspaceUiSettings
+  /** Names a worktree from a person's description; the New worktree form then asks for one. */
+  readonly nameWorktree?: (
+    text: string,
+    context: { readonly project: string },
+  ) => Promise<{ readonly branch: string; readonly description: string }>
 }
 
 export interface WorkspaceProblem {
@@ -163,6 +168,7 @@ const settings = object({
   ),
   notify,
   clean: object({ every: duration }, ["every"]),
+  nameWorktree: rule((v) => typeof v === "function", "must be a function"),
   ui: object({
     port: rule(Number.isInteger, "must be an integer"),
     host: text,

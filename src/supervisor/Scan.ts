@@ -15,6 +15,7 @@ import type { WorktreeStatus } from "./Status.js"
 export interface WorktreeView extends WorktreeStatus {
   readonly path: string
   readonly branch?: string
+  readonly description?: string
   readonly head: string
   readonly main: boolean
   /** The worktree's services, once the services adapter has listed them. */
@@ -41,6 +42,8 @@ export interface ProjectView {
   readonly id: string
   /** `projects.<id>.name`, else the id. */
   readonly name: string
+  /** `nameWorktree` is configured: New worktree asks for a description. */
+  readonly namesWorktrees?: boolean
   readonly worktrees: readonly WorktreeView[]
   /** The worktrees adapter could not list this project. */
   readonly failure?: AdapterFailure

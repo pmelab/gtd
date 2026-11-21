@@ -366,6 +366,7 @@ export const runWorkspaceCommand = (
         starting: dispatch.starting,
         refresh: snapshot.refresh,
         errorNote: noted.errorNote,
+        nameWorktree: () => current.nameWorktree,
         cleaned: (project, worktree) => {
           const view = noted
             .withNotes(snapshot.projects())
