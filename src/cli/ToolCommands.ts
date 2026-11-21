@@ -31,6 +31,12 @@ interface WorkspaceRequest {
   readonly loadModule: (path: string) => Promise<Readonly<Record<string, unknown>>>
 }
 
+/** No fields means the workspace pause. */
+interface PauseScope {
+  readonly project?: string
+  readonly feed?: string
+}
+
 /** `gtd workspace proceed|retry|note|pause|resume`: a request for the running supervisor. */
 export interface WorkspaceControlRequest {
   readonly request:
@@ -49,6 +55,7 @@ export interface WorkspaceControlRequest {
           readonly notify?: boolean
         } | null
       }
+    | { readonly command: "paused" }
     | {
         readonly command: "pause" | "resume"
         readonly project?: string
@@ -91,7 +98,9 @@ export class ToolCommands extends Context.Service<
       request: WorkspaceRequest,
       out: { readonly write: (chunk: string) => void; readonly flush: () => void },
     ) => Effect.Effect<void, Error>
-    readonly workspaceControl: (request: WorkspaceControlRequest) => Effect.Effect<void, Error>
+    readonly workspaceControl: (
+      request: WorkspaceControlRequest,
+    ) => Effect.Effect<readonly PauseScope[] | undefined, Error>
     /** `gtd workspace now`: the Now view in the terminal. */
     readonly workspaceNow: (request: WorkspaceNowRequest) => Effect.Effect<void, Error>
     /** `gtd` runs THIS gtd, so the LSP never reads a different version's state than the one it ships with. */

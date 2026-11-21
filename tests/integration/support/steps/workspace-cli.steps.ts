@@ -60,6 +60,14 @@ const exitsPrinting = async (world: GtdWorld, code: number, expected: string) =>
   assert.ok(run.stderr.includes(expected.trim()), `stderr was:\n${run.stderr}`)
 }
 
+Then("the command printed exactly:", async (world: GtdWorld, expected: string) => {
+  await bench(world).runningCommand
+  assert.strictEqual(
+    bench(world).lastCommand?.stdout,
+    expected.trim() === "" ? "" : `${expected}\n`,
+  )
+})
+
 Then("the command exits {int}, printing:", exitsPrinting)
 
 Then("the command run beside the supervisor exited {int}, printing:", exitsPrinting)

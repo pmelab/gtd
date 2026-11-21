@@ -15,12 +15,13 @@ import { Effect } from "effect"
 import { UiError } from "../ui/index.js"
 import { findWorkspaceModule } from "./Config.js"
 import { stateDirectory } from "./Lock.js"
-import { pauseScope } from "./Pauses.js"
+import { pauseScope, type PauseScope } from "./Pauses.js"
 import type { ProjectView, WorktreeView } from "./Scan.js"
 
 /** One request per connection: a JSON line in, a JSON line back. */
 export type ControlRequest =
   | { readonly command: "projects" }
+  | { readonly command: "paused" }
   | {
       readonly command: "proceed" | "retry"
       /** The worktree's path. */
@@ -54,7 +55,11 @@ export type SharedProject = Omit<ProjectView, "worktrees"> & {
 }
 
 export type ControlReply =
-  | { readonly ok: true; readonly projects?: readonly SharedProject[] }
+  | {
+      readonly ok: true
+      readonly projects?: readonly SharedProject[]
+      readonly paused?: readonly PauseScope[]
+    }
   | { readonly ok: false; readonly message: string }
 
 export const socketPath = (directory: string): string => join(directory, "socket")
@@ -76,7 +81,7 @@ const parseRequest = (line: string): ControlRequest | undefined => {
   const value = parseJson(line)
   if (!isRecord(value)) return undefined
   const { command } = value
-  if (command === "projects") return { command }
+  if (command === "projects" || command === "paused") return { command }
   if (command === "pause" || command === "resume") return parsePause(command, value)
   return parseWorktreeRequest(value)
 }
@@ -267,12 +272,12 @@ export const send = (
           reply = undefined
         }
         if (isRecord(reply) && reply["ok"] === true) {
-          const { projects } = reply
-          return answered(
-            Array.isArray(projects)
-              ? { ok: true, projects: projects as readonly SharedProject[] }
-              : { ok: true },
-          )
+          const { projects, paused } = reply
+          return answered({
+            ok: true,
+            ...(Array.isArray(projects) ? { projects: projects as readonly SharedProject[] } : {}),
+            ...(Array.isArray(paused) ? { paused: paused as readonly PauseScope[] } : {}),
+          })
         }
         if (isRecord(reply) && typeof reply["message"] === "string") {
           return answered({ ok: false, message: reply["message"] })
@@ -308,7 +313,9 @@ const resolvePath = (cwd: string, path: string): string => {
  * `gtd workspace proceed|retry|note|pause|resume`: hands the request to the running
  * supervisor. With none running, a note waits in the spool.
  */
-export const runControlCommand = (command: ControlCommand): Effect.Effect<void, UiError> =>
+export const runControlCommand = (
+  command: ControlCommand,
+): Effect.Effect<readonly PauseScope[] | undefined, UiError> =>
   Effect.tryPromise({
     try: async () => {
       const prefix = `gtd workspace ${command.request.command}`
@@ -322,11 +329,18 @@ export const runControlCommand = (command: ControlCommand): Effect.Effect<void, 
       const reply = await send(path, request).catch((error: unknown) => {
         throw new UiError(`${prefix}: ${error instanceof Error ? error.message : String(error)}`)
       })
-      if (reply === undefined && request.command === "note") return spool(directory, request)
+      if (reply === undefined && request.command === "note") {
+        spool(directory, request)
+        return undefined
+      }
       if (reply === undefined) {
         throw new UiError(`${prefix}: supervisor not running for ${dirname(file)}`)
       }
       if (!reply.ok) throw new UiError(`${prefix}: ${reply.message}`)
+      if (request.command === "paused" && reply.paused === undefined) {
+        throw new UiError(`${prefix}: reply has no paused list`)
+      }
+      return reply.paused
     },
     catch: (error) =>
       error instanceof UiError

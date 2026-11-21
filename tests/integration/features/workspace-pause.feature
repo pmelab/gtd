@@ -298,3 +298,55 @@ Feature: pause and resume dispatch
     Then the command exits 0
     And the Inbox reports these pauses:
       | project | feed |
+
+  Scenario: paused lists every pause, the workspace first
+    When I start gtd workspace
+    And I run "gtd workspace pause api board" in the workspace
+    And I run "gtd workspace pause portal" in the workspace
+    And I run "gtd workspace pause" in the workspace
+    And I run "gtd workspace paused" in the workspace
+    Then the command exits 0
+    And the command printed exactly:
+      """
+      workspace
+      api board
+      portal
+      """
+    When I run "gtd workspace paused --json" in the workspace
+    Then the command printed exactly:
+      """
+      [{},{"project":"api","feed":"board"},{"project":"portal"}]
+      """
+
+  Scenario: paused prints nothing when nothing is paused
+    When I start gtd workspace
+    And I run "gtd workspace paused" in the workspace
+    Then the command exits 0
+    And the command printed exactly:
+      """
+      """
+    When I run "gtd workspace paused --json" in the workspace
+    Then the command printed exactly:
+      """
+      []
+      """
+
+  Scenario: paused shows a pause stored before a restart
+    When I start gtd workspace
+    And I run "gtd workspace pause api" in the workspace
+    And I stop gtd workspace
+    And I start gtd workspace
+    And I run "gtd workspace paused" in the workspace
+    Then the command printed exactly:
+      """
+      api
+      """
+
+  Scenario: paused exits 1 when no supervisor runs and 2 for an argument
+    When I run "gtd workspace paused" in the workspace
+    Then the command exits 1, printing:
+      """
+      gtd workspace paused: supervisor not running for
+      """
+    When I run "gtd workspace paused portal" in the workspace
+    Then the command exits 2

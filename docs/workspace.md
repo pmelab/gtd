@@ -35,6 +35,7 @@ work as for `gtd ui`.
 | `gtd workspace note <worktree> --clear`                        | [Notes](#notes)                             |
 | `gtd workspace pause [project [feed]] [--wait]`                | [Pause](#pause)                             |
 | `gtd workspace resume [project [feed]]`                        | [Pause](#pause)                             |
+| `gtd workspace paused [--json]`                                | [Pause](#pause)                             |
 | `gtd workspace now`                                            | [Now in the terminal](#now-in-the-terminal) |
 
 Each finds the workspace like `gtd workspace` does, or uses the
@@ -417,6 +418,7 @@ gtd workspace pause portal           # the project portal
 gtd workspace pause portal bugs      # the feed bugs of portal
 gtd workspace pause portal --wait    # and wait until no driver runs in portal
 gtd workspace resume portal          # take the pause of portal off
+gtd workspace paused                 # list every pause
 ```
 
 An item that a pause holds waits, queued, with the reason. Feeds go on polling,
@@ -425,8 +427,12 @@ and starts the items that can start now; a pause of a wider scope still holds
 them. With `--wait`, `pause` returns once no driver runs in that scope and no
 item is starting in it; for a feed, that is the worktrees of its items. A ship
 script can then deploy, and resume after. The pauses stay when the supervisor
-restarts. The query `inbox` gives them as `paused: [{ project?, feed? }]`. An
-unknown project or feed, or a supervisor that is not running, exits 1.
+restarts. The query `inbox` gives them as `paused: [{ project?, feed? }]`.
+`gtd workspace paused` lists every pause, one line each: `workspace`,
+`<project>` or `<project> <feed>`; nothing paused prints nothing. `--json`
+prints a bare array of `{ project?, feed? }`, `{}` for the workspace. An unknown
+project or feed, or a supervisor that is not running, exits 1 (also for
+`paused`).
 
 ## Worktree status
 
