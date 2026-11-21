@@ -434,7 +434,7 @@ describe("a run step's exit code", () => {
     expect(landed(dir)).toContain("Gtd-Exit: 4")
   })
 
-  it("lands a ship with the recorded exit code, or 0 without a body, and Gtd-Shipped", () => {
+  it("lands a ship with the recorded exit code, or 0 without a body, as a merge of the ship", () => {
     for (const [body, code] of [
       ["exit 5", "5"],
       [undefined, "0"],
@@ -448,7 +448,8 @@ describe("a run step's exit code", () => {
       if (body !== undefined) sh(dir, recordExitScript(body))
       sh(dir, shipCommit("target", parent, "shipped", "gtd(check): a → b"))
       expect(landed(dir)).toContain(`Gtd-Exit: ${code}`)
-      expect(landed(dir)).toContain("Gtd-Shipped:")
+      expect(landed(dir)).not.toContain("Gtd-Shipped")
+      expect(git("rev-parse", "HEAD^2")).toBe(git("rev-parse", "target"))
     }
   })
 

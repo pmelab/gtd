@@ -158,9 +158,8 @@ judge question), `Gtd-Var:` (a process setting), `Gtd-Cost:` (a
 branch from `/gtd throw` as is) and `Gtd-Version:` (both only on the landing
 that finishes a process), `Gtd-Mark:` (`<name>=<value>`, one per `mark()` call),
 `Gtd-Kept:` (only on the marker a `keep` step lands, see
-[Step options](#step-options)), `Gtd-Shipped:` (only on a `ship` step's landing:
-the commit it put on the user's branch), `Gtd-Approved:` (only on the landing
-that completes an `approve` gate: one JSON object with the `step`, the git
+[Step options](#step-options)), `Gtd-Approved:` (only on the landing that
+completes an `approve` gate: one JSON object with the `step`, the git
 `user.name` and `user.email`), `Gtd-Exit:` (only on a `run` or `ship` step's
 landing: the exit code of the step's body; absent on older commits). Every
 commit gtd writes also carries `Gtd-Format:` (see
@@ -204,10 +203,10 @@ commit, while the process itself runs on `gtd/<b>`. It rests like a `run` step
 whose script only prints; landing it:
 
 1. commits the tree being landed, with `.gtd/` as `<b>` has it, as one commit on
-   `<b>` whose message is `message` alone — nothing on `<b>` names gtd — points
-   the local ref `refs/gtd/shipped/<commit>` at HEAD, and moves `<b>` there.
-   HEAD stays on `gtd/<b>`;
-2. lands the step with a `Gtd-Shipped: <commit>` trailer, writes
+   `<b>` whose message is `message` alone — nothing on `<b>` names gtd — and
+   moves `<b>` there. HEAD stays on `gtd/<b>`;
+2. lands the step as a merge commit whose second parent is that commit (when
+   nothing shipped, a plain one-parent commit), writes
    `refs/gtd/history/<entry>` at it, and force-pushes that ref to
    `historyRemote` when one is set (a failed push exits non-zero after landing
    and prints the retry).
@@ -754,9 +753,12 @@ repin's `Gtd-Anchor` (see
 reads only format 2 would replay the commits it sets aside. Format 4 renames the
 pin beats from `pin` and `unpin` to `gtd:pin` and `gtd:unpin` in commit
 subjects: a gtd that reads only format 3 would read them as steps. Commits in
-formats 2 and 3 keep their old names. The current format is 5, whose steering
-files are [widget documents](./steering.md), which no earlier gtd reads. The
-retained tip is versioned by that same trailer on the commit it points at.
+formats 2 and 3 keep their old names. Format 5 writes steering files as
+[widget documents](./steering.md), which no earlier gtd reads. The current
+format is 6: a ship step's landing is a merge whose second parent is the ship,
+where earlier formats name it in a `Gtd-Shipped` trailer, which gtd still reads
+on those commits. The retained tip is versioned by that same trailer on the
+commit it points at.
 
 The format changes only when one of those encodings does, independently of gtd's
 own version. A gtd reads its current format and, after a change, at least the

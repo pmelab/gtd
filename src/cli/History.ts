@@ -115,6 +115,11 @@ export const runHistoryShowCommand = (
     const lines = [`${entry.ref} (branch ${entry.branch ?? "-"}, tip ${seven(entry.tip)})`]
     for (const step of trail.steps) {
       lines.push(`${seven(step.hash)} ${step.subject}`)
+      if (step.shipped !== undefined) {
+        lines.push(
+          `  shipped ${seven(step.shipped.hash)}${step.shipped.subject === undefined ? "" : ` ${step.shipped.subject}`}`,
+        )
+      }
       for (const v of step.verdicts) lines.push(`  judge ${v.id} = ${v.answer} (p=${v.p})`)
       if (step.approval !== undefined) {
         lines.push(

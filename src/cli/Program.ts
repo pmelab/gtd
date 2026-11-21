@@ -61,7 +61,7 @@ import {
   noProcessUnderway,
   restIsIdle,
   reviewBaseFor,
-  shipTip,
+  shipLinked,
   snapshotFromRest,
   stalledAt,
   summaryFor,
@@ -795,8 +795,7 @@ const abandonTarget = (current: Option.Option<string>, tip: string, startParent:
       return { leaves: undefined, rewindTo: startParent }
     }
     if (userTip.value === startParent) return { leaves: userBranch, rewindTo: startParent }
-    const shipped = yield* shipTip(git, userTip.value)
-    return shipped !== undefined && (yield* git.isAncestor(shipped, tip))
+    return (yield* shipLinked(git, userTip.value, tip))
       ? { leaves: userBranch, rewindTo: userTip.value }
       : { leaves: undefined, rewindTo: startParent }
   })
@@ -929,8 +928,7 @@ const runRestoreCommand = (
 
     const headHash = yield* git.resolveRef("HEAD")
     // Abandon after a ship leaves HEAD on `<b>` at the bare ship commit: its process tip is on the retained tip.
-    const shippedTip = yield* shipTip(git, headHash)
-    const atShip = shippedTip !== undefined && (yield* git.isAncestor(shippedTip, tip))
+    const atShip = yield* shipLinked(git, headHash, tip)
     const check = atShip ? { ok: true as const } : yield* restorability(git, headHash, tip)
     if (!check.ok) {
       return yield* Effect.fail(

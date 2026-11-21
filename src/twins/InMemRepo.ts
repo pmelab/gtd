@@ -1,7 +1,6 @@
 // No real filesystem/git.
 import { createHash } from "node:crypto"
 import { CHANGED_SINCE_LAND } from "../emit/index.js"
-import { shippedRef } from "../platform/index.js"
 
 /** Embedded in every value this fake reaches (see also `strictGitOperations`'s default message) so `scripts/assert-no-test-doubles.mjs` can catch a leak into the shipped bundle by string search. */
 export const TEST_DOUBLE_SENTINEL = "gtd:test-double:never-ship"
@@ -11,6 +10,8 @@ interface Commit {
   message: string
   files: Map<string, string> // full tree snapshot (path → UTF-8 content)
   parent: string | null
+  /** A merge's second parent: the ship a ship landing links. */
+  parent2?: string
   /** Creation order — the twin's stand-in for a committer date. */
   seq: number
   readonly signed: boolean
@@ -124,8 +125,15 @@ export class InMemRepo {
   // fallow-ignore-next-line complexity
   resolveRef(ref: string): string | null {
     if (ref.endsWith("^{commit}")) return this.resolveRef(ref.slice(0, -"^{commit}".length))
+    if (ref === "MERGE_HEAD") return this.mergeHead
     if (/^[0-9a-f]{40}$/.test(ref)) {
       return this.commits.has(ref) ? ref : null
+    }
+
+    const second = /^(HEAD|[0-9a-f]{40})\^2$/.exec(ref)
+    if (second) {
+      const c = this.getCommit(second[1] === "HEAD" ? (this.head ?? "") : second[1]!)
+      return c?.parent2 ?? null
     }
 
     const tildeMatch = /^(HEAD|[0-9a-f]{40})(~(\d+)|\^)?$/.exec(ref)
@@ -494,15 +502,21 @@ export class InMemRepo {
   /** Seeded: a pre-commit hook writing and staging this file. */
   hookStages: { readonly path: string; readonly content: string } | undefined = undefined
 
+  /** Twin of `.git/MERGE_HEAD`: the next commit takes it as second parent; a rejected commit leaves it. */
+  private mergeHead: string | null = null
+
   private writeCommit(message: string): void {
     const tree = new Map(this.index)
     const parent = this.head
-    const hash = makeHash(message, parent, tree)
+    const parent2 = this.mergeHead ?? undefined
+    this.mergeHead = null
+    const hash = makeHash(parent2 === undefined ? message : `${message}\n${parent2}`, parent, tree)
     const commit: Commit = {
       hash,
       message,
       files: new Map(tree),
       parent,
+      ...(parent2 !== undefined ? { parent2 } : {}),
       seq: this.nextSeq++,
       signed: this.signingEnabled,
     }
@@ -617,8 +631,7 @@ export class InMemRepo {
       ...kept.filter(([path]) => path.startsWith(".gtd/")),
     ])
     const shipped = `${shipMessage}\n`
-    const tip = this.head
-    const hash = makeHash(`${shipped}${tip}`, parent, tree)
+    const hash = makeHash(`${shipped}${this.head}`, parent, tree)
     if (this.branches.get(branch) !== parent) {
       return `fatal: update_ref failed for ref 'refs/heads/${branch}': cannot lock ref 'refs/heads/${branch}': is at ${this.branches.get(branch) ?? "nothing"} but expected ${parent}`
     }
@@ -630,9 +643,9 @@ export class InMemRepo {
       seq: this.nextSeq++,
       signed: this.signingEnabled,
     })
-    this.refs.set(shippedRef(hash), tip)
     this.branches.set(branch, hash)
-    return this.commitAsIs(`${this.withExit(message, 0)}\nGtd-Shipped: ${hash}`)
+    this.mergeHead = hash
+    return this.commitAsIs(this.withExit(message, 0))
   }
 
   /** Discard every pending change, tracked or untracked: stage everything, then hard-reset (which drops the freshly-staged untracked paths too). */
@@ -767,13 +780,17 @@ export class InMemRepo {
     this.index = new Map(this.getCommit(hash)?.files ?? new Map())
   }
 
-  /** `hash` and its first-parent ancestors, nearest first. */
+  /** `hash` and all its ancestors, newest first. */
   private chainFrom(hash: string): string[] {
-    const chain: string[] = []
-    for (let cur: string | null = hash; cur !== null; cur = this.getCommit(cur)?.parent ?? null) {
-      chain.push(cur)
+    const seen = new Set<string>()
+    const todo = [hash]
+    for (let cur = todo.pop(); cur !== undefined; cur = todo.pop()) {
+      if (seen.has(cur)) continue
+      seen.add(cur)
+      const c = this.getCommit(cur)
+      for (const p of [c?.parent, c?.parent2]) if (p) todo.push(p)
     }
-    return chain
+    return [...seen].sort((a, b) => (this.getCommit(b)?.seq ?? 0) - (this.getCommit(a)?.seq ?? 0))
   }
 
   /** The nearest commit on both first-parent chains, or `null`. */
@@ -785,17 +802,11 @@ export class InMemRepo {
     return this.chainFrom(hb).find((hash) => onA.has(hash)) ?? null
   }
 
-  /** True iff `a` is an ancestor of (or equal to) `b` on the first-parent chain. */
+  /** True iff `a` is an ancestor of (or equal to) `b`. */
   isAncestor(a: string, b: string): boolean {
     const ha = this.resolveRef(a)
     const hb = this.resolveRef(b)
-    if (!ha || !hb) return false
-    let cur: string | null = hb
-    while (cur !== null) {
-      if (cur === ha) return true
-      cur = this.getCommit(cur)?.parent ?? null
-    }
-    return false
+    return !!ha && !!hb && this.chainFrom(hb).includes(ha)
   }
 }
 

@@ -166,6 +166,8 @@ export interface RetroStep {
   readonly costs: readonly RetroCost[]
   readonly verdicts: readonly RetroVerdict[]
   readonly approvedBy: string | undefined
+  /** The ship a ship step put on the user's branch; no subject when that commit is gone. */
+  readonly shipped: { readonly hash: string; readonly subject: string | undefined } | undefined
   /** A check step's exit code; `undefined` when the commit has none. */
   readonly exit: number | undefined
   readonly ticked: readonly string[]
@@ -203,6 +205,7 @@ interface Message {
   readonly pin: boolean
   readonly exit: number | undefined
   readonly approvedBy: string | undefined
+  readonly shipped: string | undefined
   readonly cost: RetroCost[]
   readonly judge: { id: string; answer: string | number | boolean; p: number }[]
 }
@@ -238,6 +241,7 @@ const parseCommitMessage = (message: string): Message => {
     pin: boolean
     exit?: number
     approvedBy?: string
+    shipped?: string
     cost: RetroCost[]
     judge: Message["judge"]
   } = { pin: false, cost: [], judge: [] }
@@ -248,6 +252,7 @@ const parseCommitMessage = (message: string): Message => {
     if (key === "Gtd-Workflow" && value !== "") out.workflow ??= value
     else if (key === "Gtd-Branch" && value !== "") out.branch ??= value
     else if (key === "Gtd-Pin") out.pin = true
+    else if (key === "Gtd-Shipped" && /^[0-9a-f]{40}$/.test(value)) out.shipped ??= value
     else if (key === "Gtd-Exit" && /^[0-9]{1,3}$/.test(value)) out.exit ??= Number(value)
     else if (key === "Gtd-Cost") {
       const c = /^([0-9]+(?:\.[0-9]+)?)(?:[ \t]+(.+))?$/.exec(value)
@@ -357,6 +362,15 @@ const addTo = (into: Record<string, number>, costs: readonly RetroCost[]): numbe
   return sum
 }
 
+/** A landing's ship: its second parent, or the trailer an older gtd wrote. */
+const shippedOf = async (git: Git, cwd: string, hash: string, trailer: string | undefined) => {
+  const ship =
+    (await tryGit(git, cwd, ["rev-parse", "--verify", "-q", `${hash}^2`])).trim() || trailer
+  if (ship === undefined || ship === "") return undefined
+  const subject = (await tryGit(git, cwd, ["log", "-1", "--format=%s", ship])).trim()
+  return { hash: ship, subject: subject === "" ? undefined : subject }
+}
+
 // fallow-ignore-next-line complexity
 const processOf = async (
   git: Git,
@@ -401,6 +415,7 @@ const processOf = async (
       costs: m.cost,
       verdicts: m.judge.map((v) => ({ ...v, sentBack })),
       approvedBy: m.approvedBy,
+      shipped: await shippedOf(git, cwd, commit.hash, m.shipped),
       exit: m.exit,
       ticked,
       written,

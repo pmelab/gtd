@@ -42,10 +42,14 @@ Feature: ship() squashes the process onto the user's branch
       process only
       """
     And gtd lands "gtd(agent): building → shipping"
+    And I mark the current commit as "before"
     When I run the script beat
     Then it succeeds
     And the last commit subject is "gtd(check): shipping → shipped"
-    And the last commit body contains "Gtd-Shipped: "
+    And the last commit's first parent is at "before"
+    And the last commit's second parent is the tip of "main"
+    And the branch "main" tip message does not contain "Gtd-"
+    And no ref starts with "refs/gtd/shipped/"
     And the process rests at "shipped"
     And the current branch is "gtd/main"
     And the branch "main" tip's parent is at "base"
@@ -109,6 +113,7 @@ Feature: ship() squashes the process onto the user's branch
     When I run the script beat
     Then it succeeds
     And the last commit subject is "gtd(check): shipping → unshipped"
+    And the last commit has no second parent
     And the process rests at "unshipped"
     And the branch "main" is at "base"
 
@@ -241,6 +246,34 @@ Feature: ship() squashes the process onto the user's branch
     Then it succeeds
     And stdout contains "State: idle"
 
+  Scenario: history show names the ship at its ship step
+    Given a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
+    And a file "src/a.ts" with:
+      """
+      export const a = 1
+      """
+    And gtd lands "gtd(agent): building → shipping"
+    And I run the script beat
+    And a file "src/b.ts" with:
+      """
+      export const b = 2
+      """
+    And gtd lands "gtd(agent): shipped → gtd:unpin"
+    And I run the script beat
+    When I run gtd with args "history show main"
+    Then it succeeds
+    And stdout contains "  shipped "
+    And stdout contains " feat: a thing"
+    When I run gtd with args "history show main --json"
+    Then it succeeds
+    And stdout contains "\"shipped\""
+    And stdout contains "feat: a thing"
+
   Scenario: abandoning after a ship rewinds to the last ship and switches back to <b>
     Given a file "NOTE.md" with:
       """
@@ -264,6 +297,37 @@ Feature: ship() squashes the process onto the user's branch
     And the branch "gtd/main" does not exist
     And the git status contains "src/b.ts"
     And the git status does not contain "src/a.ts"
+
+  Scenario: abandoning after a ship only the older ref links rewinds to that ship
+    Given a file "NOTE.md" with:
+      """
+      Build a thing.
+      """
+    And gtd lands "gtd(human): idle → building"
+    And I run the pin beat
+    And a file "src/a.ts" with:
+      """
+      export const a = 1
+      """
+    And gtd lands "gtd(agent): building → shipping"
+    And I mark the current commit as "process-tip"
+    And the branch "main" is checked out
+    And a file "src/a.ts" with:
+      """
+      export const a = 1
+      """
+    And the working tree is committed as "feat: old ship"
+    And I mark the current commit as "old-ship"
+    And the branch "gtd/main" is checked out
+    And an older gtd linked the ship "old-ship" to the process commit "process-tip"
+    And a file "src/b.ts" with:
+      """
+      export const b = 2
+      """
+    When I run gtd with args "abandon"
+    Then it succeeds
+    And the current branch is "main"
+    And the git status contains "src/b.ts"
 
   Scenario: restore after abandoning following a ship returns to the retained process tip
     Given a file "NOTE.md" with:
@@ -326,7 +390,7 @@ Feature: ship() squashes the process onto the user's branch
     When I run the script beat
     Then it succeeds
     And the last commit subject is "gtd(check): shipping → shipped"
-    And the last commit body contains "Gtd-Shipped: "
+    And the last commit's second parent is the tip of "main"
     And the process rests at "shipped"
 
   Scenario: retrying a hook-rejected landing after an edit ships the edit
@@ -373,7 +437,7 @@ Feature: ship() squashes the process onto the user's branch
     When I run the script beat
     Then it succeeds
     And the last commit subject is "gtd(check): shipping → shipped"
-    And the last commit body contains "Gtd-Shipped: "
+    And the last commit's second parent is the tip of "main"
     And the branch "main" holds "run.sh" as executable
 
   Scenario: a mode change on <b> the ship would revert stalls the step

@@ -39,7 +39,7 @@ describe("planStep — commit", () => {
     expect(outcome.steps).toEqual([
       {
         kind: "gitWrite",
-        write: { kind: "commitAll", message: "gtd(agent): await-answers\n\nGtd-Format: 5" },
+        write: { kind: "commitAll", message: "gtd(agent): await-answers\n\nGtd-Format: 6" },
       },
       { kind: "outcome", outcome: { kind: "commit", subject: "gtd(agent): await-answers" } },
     ])
@@ -74,7 +74,7 @@ describe("planStep — commit", () => {
       kind: "gitWrite",
       write: {
         kind: "commitAll",
-        message: "gtd(human): building → done\n\nGtd-Step: building#1\nGtd-Format: 5",
+        message: "gtd(human): building → done\n\nGtd-Step: building#1\nGtd-Format: 6",
       },
     })
     expect(outcome.steps.at(-1)).toEqual({
@@ -115,7 +115,7 @@ describe("planStep — commit", () => {
     expect(trailers[1]).toBe("Gtd-Cost: 1.5 m")
     expect(trailers[2]).toBe('Gtd-Judge: {"id":"q1","answer":true,"p":0.9}')
     expect(trailers[3]).toBe('Gtd-Judge: {"id":"q2","answer":"x","p":0.4}')
-    expect(trailers[4]).toBe("Gtd-Format: 5")
+    expect(trailers[4]).toBe("Gtd-Format: 6")
     expect(trailers).toHaveLength(5)
   })
 })
@@ -198,7 +198,7 @@ describe("planStep — keepTurn", () => {
       write: {
         kind: "keepTurn",
         ref: kept,
-        message: "gtd(agent): building → checking\n\nGtd-Step: building#1\nGtd-Format: 5",
+        message: "gtd(agent): building → checking\n\nGtd-Step: building#1\nGtd-Format: 6",
       },
     })
   })

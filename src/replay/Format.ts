@@ -4,8 +4,9 @@
 // format 3 adds the anchor, whose set-aside commits format 2 would replay;
 // format 4 renames the pin beats `gtd:pin`/`gtd:unpin`, which format 3 would
 // read as steps; format 5 writes steering files as widgets, which no earlier
-// gtd reads.
-export const HISTORY_FORMAT = 5
+// gtd reads; format 6 links a ship to its process by a second parent on the
+// landing, where earlier formats name it in a `Gtd-Shipped` trailer.
+export const HISTORY_FORMAT = 6
 const OLDEST_READABLE_FORMAT = 1
 
 const short = (hash: string): string => hash.slice(0, 7)

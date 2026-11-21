@@ -138,7 +138,7 @@ describe("retrospective", () => {
     const tip = commit(dir, "gtd(check): gtd:unpin → idle", [
       "Gtd-Pin: remove",
       "Gtd-Branch: feat",
-      "Gtd-Format: 5",
+      "Gtd-Format: 6",
     ])
     git(dir, ["update-ref", `refs/gtd/history/${entry}`, tip])
     const { processes } = await ask(dir, "gtd/feat")

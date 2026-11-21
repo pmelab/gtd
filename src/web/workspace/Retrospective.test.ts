@@ -17,6 +17,10 @@ describe("Retrospective", () => {
     expect(out).toContain("Exit unknown")
   })
 
+  it("shows the short hash and subject of a ship step's ship", () => {
+    expect(html()).toContain("Shipped a1b2c3d feat: add it")
+  })
+
   it("marks only the finished process", () => {
     expect(html().match(/ · finished/g)).toHaveLength(1)
   })

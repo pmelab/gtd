@@ -46,10 +46,11 @@ histories written by an older or newer gtd.
   before a repin that carries it, which an older gtd would replay, so it moved
   `Gtd-Format` to 3. Renaming the pin beats to `gtd:pin` and `gtd:unpin` in
   commit subjects moved it to 4: an older gtd reads those names as steps. gtd no
-  longer writes `Gtd-Config:` and ignores it on older commits. A ship no longer
-  writes `Gtd-History:` or `Gtd-Tip:` on the user's branch; its process tip is
-  the local `refs/gtd/shipped/<ship>` ref, and gtd still reads `Gtd-Tip:` on
-  older ships.
+  longer writes `Gtd-Config:` and ignores it on older commits. A ship writes no
+  gtd trailer on the user's branch; the ship step's landing on `gtd/<b>` is a
+  merge whose second parent is the ship, which moved `Gtd-Format` to 6. gtd
+  still reads `Gtd-Shipped:` on older landings, and `Gtd-Tip:` or the
+  `refs/gtd/shipped/<ship>` ref on older ships.
 - **Pin format** — what the `gtd` on `PATH` reads to hand a pinned process over:
   the `gtdpin <format> gtd <version>` header line of `.gtd/process.gtdpin`, then
   one gzipped ES module, in [Pinned processes](docs/cli.md#pinned-processes).

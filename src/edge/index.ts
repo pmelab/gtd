@@ -12,7 +12,7 @@ export {
   stalledAt,
   noProcessUnderway,
   restIsIdle,
-  shipTip,
+  shipLinked,
   previewLanding,
   snapshotFromRest,
   summaryFor,

@@ -568,6 +568,47 @@ describe("replay", () => {
   })
 })
 
+describe("replay: a ship step's value", () => {
+  const SHIP = hashOf(99)
+  const shipFlow = (seen: { value?: string | undefined }) => async () => {
+    seen.value = await ship("shipping", "feat: a thing")
+    await human("after")
+  }
+  const landing = (message: string, mergeParent?: string) => {
+    const h = new History().raw(message)
+    return mergeParent === undefined
+      ? h
+      : Object.assign(h, {
+          commits: h.commits.map((c) => ({ ...c, mergeParent })),
+        })
+  }
+  const ship6 = formatCommitMessage({
+    actor: "check",
+    from: "shipping",
+    to: "after",
+    step: { name: "shipping", occurrence: 1 },
+  })
+
+  it("is the second parent in format 6", async () => {
+    const seen: { value?: string | undefined } = {}
+    await replayOf(shipFlow(seen), landing(ship6, SHIP))
+    expect(seen.value).toBe(SHIP)
+  })
+
+  it("is undefined when the landing has one parent", async () => {
+    const seen: { value?: string | undefined } = { value: "x" }
+    await replayOf(shipFlow(seen), landing(ship6))
+    expect(seen.value).toBeUndefined()
+  })
+
+  it("is the Gtd-Shipped trailer in format 5", async () => {
+    const seen: { value?: string | undefined } = {}
+    const old = ship6.replace("Gtd-Format: 6", `Gtd-Format: 5\nGtd-Shipped: ${SHIP}`)
+    await replayOf(shipFlow(seen), landing(old, hashOf(98)))
+    expect(seen.value).toBe(SHIP)
+  })
+})
+
 describe("replay: keep", () => {
   let seen: { read?: string | undefined; changes?: number }
   beforeEach(() => {
