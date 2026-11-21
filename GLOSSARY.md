@@ -139,6 +139,12 @@ state, position
 or an abandonment. It does not return to where it started. _Avoid_: cycle, run,
 session
 
+**Process branch**: The branch `gtd/<b>` a process runs on, beside the user's
+branch `<b>`. Its first-parent history is the process's history. Each
+[ship](#ship) is a parent of the process branch, so the process branch holds the
+link to every ship and `<b>` holds no link back. _Avoid_: background branch,
+shadow branch
+
 **Episode**: The commits one run of the flow answers — first-parent history
 since the episode began. It ends when the flow returns or calls `restart()`; the
 next begins at the flow's first step on an ordinary start. _Avoid_: session, run
@@ -154,10 +160,11 @@ and the process rests at the step the new workflow reached there, on HEAD's tree
 — or ends, when the flow ended there. _Avoid_: migration, rebase, checkpoint
 
 **History format**: The version of everything replay reads back out of git —
-subject, `Gtd-*` trailers, committed steering files, the retained tip — written
-as `Gtd-Format: <n>` on every gtd commit, 1 when absent. A history in a format
-gtd does not read is refused as such, never as divergence. Independent of the
-package version. _Avoid_: schema version, gtd version
+subject, `Gtd-*` trailers, committed steering files, the retained tip, a ship
+landing's second parent — written as `Gtd-Format: <n>` on every gtd commit, 1
+when absent. A history in a format gtd does not read is refused as such, never
+as divergence. Independent of the package version. _Avoid_: schema version, gtd
+version
 
 **Flows protocol**: The version of the replay context a workflow's copy of
 `@pmelab/gtd/flows` and the running gtd share. A mismatch is refused as such,
