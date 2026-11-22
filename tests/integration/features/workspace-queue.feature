@@ -6,7 +6,7 @@ Feature: queue feeds dispatch their items within the limits
   time it first saw them. A drive is a worktree whose driver runs, or one an
   item is starting in. `limits.maxDrives` caps the drives in the workspace,
   `wip` (in `limits`, or per project) those in one project. At dispatch gtd
-  checks again that no item an item names in `blockedBy` is in the inbox, and
+  checks again that its `blockedBy` is empty, and
   runs the feed's `canStart`. An item that cannot start waits, queued, with the
   reason, and gtd tries again after the next poll. Scenarios run the supervisor
   in-process with the twins; the actions twin's argv is the action id.
@@ -210,7 +210,7 @@ Feature: queue feeds dispatch their items within the limits
       | web     | 2   | Add footer | queued   | portal: 1 of 1 drives in use (limits.wip) |
     And the Inbox counts "3" drives in use
 
-  Scenario: an item waits while an item of another feed that it names in blockedBy is in the inbox
+  Scenario: an item waits while its feed lists a blocker in blockedBy, until a poll drops it
     Given a workspace file "gtd.workspace.ts" with:
       """
       import { defineWorkspace, feed } from "@pmelab/gtd/workspace"
@@ -250,9 +250,9 @@ Feature: queue feeds dispatch their items within the limits
       | deploys | d1  | Deploy    | blocked  |
     And gtd opened these action panes:
       | worktree | argv |
-    Given the command "gh issue list" prints:
+    Given the command "gh pr list" prints:
       """
-      []
+      [{ "key": "d1", "title": "Deploy", "action": "start:feature", "priority": 0, "blockedBy": [] }]
       """
     When the clock advances "5m"
     Then gtd opened these action panes:

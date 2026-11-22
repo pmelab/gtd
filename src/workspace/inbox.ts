@@ -143,7 +143,7 @@ export const dismiss = (inbox: Inbox, feed: string, key: string): Inbox | undefi
   const id = idOf(feed, key)
   const entry = inbox.entries.get(id)
   if (entry === undefined) return undefined
-  const state = stateOf(entry, inbox)
+  const state = stateOf(entry)
   if (state !== "proposed" && state !== "failed") return undefined
   const entries = new Map(inbox.entries)
   entries.delete(id)
@@ -160,17 +160,12 @@ export const setDispatch = (inbox: Inbox, id: string, dispatch: Dispatch | undef
   return { entries, dismissed: inbox.dismissed }
 }
 
-const stateOf = (entry: Entry, inbox: Inbox): ItemState => {
+const stateOf = (entry: Entry): ItemState => {
   const dispatch = entry.dispatch?.state
   if (dispatch !== undefined && dispatch !== "approved") return dispatch
   if (entry.mode === "propose" && dispatch === undefined) return "proposed"
-  // A bare key names an item of the same feed first. A started item has left the inbox.
-  const inInbox = (id: string): boolean => {
-    const blocker = inbox.entries.get(id)
-    return blocker !== undefined && blocker.dispatch?.state !== "started"
-  }
-  const waiting = (ref: string): boolean => inInbox(idOf(entry.feed, ref)) || inInbox(ref)
-  return (entry.item.blockedBy ?? []).some(waiting) ? "blocked" : "queued"
+  // The feed lists only open blockers: any key left in `blockedBy` holds the item.
+  return (entry.item.blockedBy ?? []).length > 0 ? "blocked" : "queued"
 }
 
 const messageOf = (dispatch: Dispatch | undefined): string | undefined =>
@@ -180,7 +175,7 @@ const messageOf = (dispatch: Dispatch | undefined): string | undefined =>
       ? dispatch.waits
       : undefined
 
-const view = (entry: Entry, inbox: Inbox): InboxItem => {
+const view = (entry: Entry): InboxItem => {
   const { key, title, url, action, priority, blockedBy, branch, data } = entry.item
   const message = messageOf(entry.dispatch)
   return {
@@ -194,7 +189,7 @@ const view = (entry: Entry, inbox: Inbox): InboxItem => {
     blockedBy: blockedBy ?? [],
     ...(branch !== undefined ? { branch } : {}),
     data: data ?? null,
-    state: stateOf(entry, inbox),
+    state: stateOf(entry),
     firstSeen: new Date(entry.firstSeen).toISOString(),
     ...(message !== undefined ? { message } : {}),
   }
@@ -212,7 +207,7 @@ const startOrder = (inbox: Inbox): readonly Entry[] =>
 /** The items that have not started, in start order: priority, then poll order, then the time first seen. */
 export const inboxItems = (inbox: Inbox): readonly InboxItem[] =>
   startOrder(inbox)
-    .map((entry) => view(entry, inbox))
+    .map((entry) => view(entry))
     .filter((item) => item.state !== "started")
 
 /** The items a person started or a `queue` feed filed, unblocked, in start order. */
@@ -223,5 +218,5 @@ export const dispatchableItems = (inbox: Inbox): readonly InboxItem[] =>
         entry.dispatch?.state === "approved" ||
         (entry.mode === "queue" && entry.dispatch === undefined),
     )
-    .map((entry) => view(entry, inbox))
+    .map((entry) => view(entry))
     .filter((item) => item.state === "queued")
