@@ -358,6 +358,9 @@ Options:
                       per line, nothing for an absent field
   --cost=<n>          Record the token cost of the invocation that just finished
                       on the commit
+  --duration=<seconds>
+                      Record how long the turn that just finished took, in
+                      seconds, on the commit
   --model=<name>      With --cost: the model that cost was spent on — recorded
                       on the commit, nothing runs on it
   -v, --verbose       Narrate on stderr what gtd resolved

@@ -39,7 +39,10 @@ const gitWriteOf = (landing: Extract<Landing, { kind: "commit" }>, message: stri
 const writeIf = (value: string | undefined, write: (value: string) => GitWrite): LandStep[] =>
   value === undefined ? [] : [{ kind: "gitWrite", write: write(value) }]
 
-type CostPart = { readonly cost?: { readonly cost: number; readonly model?: string } }
+type CostPart = {
+  readonly cost?: { readonly cost: number; readonly model?: string }
+  readonly duration?: number
+}
 type Attempt = Extract<Landing, { kind: "attempt" }>
 type Committed = Extract<Landing, { kind: "commit" }>
 
@@ -121,6 +124,7 @@ export const planStep = (
   opts: {
     readonly cost?: number
     readonly model?: string
+    readonly duration?: number
     readonly judge?: readonly JudgeVerdict[]
   } = {},
 ): StepOutcome => {
@@ -129,10 +133,12 @@ export const planStep = (
   if (landing.kind === "noop") {
     return { kind: "noop", state: snapshot.state, settled: landing.settled }
   }
-  const cost =
-    opts.cost === undefined
+  const cost: CostPart = {
+    ...(opts.cost === undefined
       ? {}
-      : { cost: { cost: opts.cost, ...(opts.model !== undefined ? { model: opts.model } : {}) } }
+      : { cost: { cost: opts.cost, ...(opts.model !== undefined ? { model: opts.model } : {}) } }),
+    ...(opts.duration !== undefined ? { duration: opts.duration } : {}),
+  }
   if (landing.kind === "attempt") return planAttempt(snapshot, landing, cost)
   return planCommit(snapshot, landing, cost, opts.judge)
 }

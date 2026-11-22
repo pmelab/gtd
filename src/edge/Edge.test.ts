@@ -164,6 +164,7 @@ describe("currentRun", () => {
       diffBase: boundary,
       trace: [],
       costEntries: [],
+      durationEntries: [],
       judgeVerdicts: [],
       approvals: [],
       pinnedVars: {},
@@ -322,6 +323,26 @@ export const again = workflow(async () => {
       { cost: 120, model: "opus", hash: run.trace[0]!.hash },
       { cost: 50, model: UNATTRIBUTED_MODEL, hash: run.trace[1]!.hash },
       { cost: 300, model: "haiku", hash: run.trace[2]!.hash },
+    ])
+  })
+
+  it("collects every Gtd-Duration with the actor of the commit that carries it", async () => {
+    const repo = repoWith(LINEAR)
+    commit(repo, { actor: "human", to: "building", workflow: "linear" }, { "a.txt": "a\n" })
+    commit(
+      repo,
+      { actor: "agent", to: "checking", step: { name: "building", occurrence: 1 }, duration: 12.5 },
+      { "b.txt": "b\n" },
+    )
+    commit(
+      repo,
+      { actor: "check", to: "building", step: { name: "checking", occurrence: 1 }, duration: 3 },
+      { "c.txt": "c\n" },
+    )
+    const run = await provide(currentRun, repo)
+    expect(run.durationEntries).toEqual([
+      { actor: "agent", seconds: 12.5 },
+      { actor: "check", seconds: 3 },
     ])
   })
 
@@ -710,6 +731,8 @@ export default workflow(async () => {
     humanCommits: { hash: string; state: string }[]
     processCost: number
     processCostByModel: { model: string; cost: number }[]
+    processCheckSeconds: number
+    processPromptSeconds: number
     marks: Mark[]
   }
 
@@ -737,6 +760,17 @@ export default workflow(async () => {
     expect(whole.humanCommits.map((c) => c.hash)).toEqual([gate])
     expect(whole.processCost).toBe(1111)
     expect(whole.marks.length).toBeGreaterThan(0)
+  })
+
+  it("sums recorded durations per kind: check turns apart from every other turn", async () => {
+    const repo = repoWith(SUMMARISED_FLOW)
+    await landCost(repo, { "n.txt": "n\n" }, 1, "opus")
+    commit(repo, { actor: "agent", to: "gate", from: "building", duration: 10 }, { "a.txt": "a\n" })
+    commit(repo, { actor: "check", to: "gate", duration: 2.5 }, { "b.txt": "b\n" })
+    commit(repo, { actor: "agent", to: "checking", from: "gate", duration: 5 }, { "c.txt": "c\n" })
+    commit(repo, { actor: "check", to: "checking", duration: 1 }, { "d.txt": "d\n" })
+    const out = await render(repo)
+    expect([out.processCheckSeconds, out.processPromptSeconds]).toEqual([3.5, 15])
   })
 
   it("has nothing to render on an empty trace", async () => {

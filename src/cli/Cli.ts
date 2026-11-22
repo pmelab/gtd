@@ -323,6 +323,16 @@ const FLAGS: readonly FlagRow[] = [
     help: "Record the token cost of the invocation that just finished on the commit",
   },
   {
+    name: "--duration",
+    arity: 1,
+    repeatable: false,
+    scope: (kind) => kind === "land",
+    decode: ([raw]) => nonNegativeNumber(raw ?? "", "--duration"),
+    scopeError: "gtd: --duration is only valid for `gtd land`",
+    valueHint: "<seconds>",
+    help: "Record how long the turn that just finished took, in seconds, on the commit",
+  },
+  {
     name: "--model",
     arity: 1,
     repeatable: false,
@@ -1071,9 +1081,11 @@ const decodeFlags = (
 /** Assembles a `land` `Command` from its already-scope-checked flag bag — split out of `parseArgv` so its two independent, omit-when-absent optional fields don't inflate that function's own branching. */
 const buildLandCommand = (bag: {
   readonly "--cost"?: number
+  readonly "--duration"?: number
   readonly "--model"?: string
 }): Command => ({
   kind: "land",
+  ...(bag["--duration"] !== undefined ? { duration: bag["--duration"] } : {}),
   ...(bag["--cost"] !== undefined ? { cost: bag["--cost"] } : {}),
   ...(bag["--model"] !== undefined ? { model: bag["--model"] } : {}),
 })
@@ -1250,6 +1262,7 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--json"?: string
     readonly "--port"?: number
     readonly "--cost"?: number
+    readonly "--duration"?: number
     readonly "--model"?: string
     readonly "--var"?: Readonly<Record<string, string>>
     readonly "--write"?: boolean

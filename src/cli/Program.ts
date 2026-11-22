@@ -194,6 +194,7 @@ export type Command =
   | {
       readonly kind: "land"
       readonly cost?: number
+      readonly duration?: number
       readonly model?: string
     }
   | {
@@ -331,6 +332,7 @@ const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
  */
 interface LandOptions {
   readonly cost?: number
+  readonly duration?: number
   readonly model?: string
   readonly judge?: readonly JudgeVerdict[]
 }
@@ -1356,6 +1358,7 @@ const dispatchVoidCommand = (
       return runLandCommand(
         {
           ...(command.cost !== undefined ? { cost: command.cost } : {}),
+          ...(command.duration !== undefined ? { duration: command.duration } : {}),
           ...(command.model !== undefined ? { model: command.model } : {}),
         },
         json,

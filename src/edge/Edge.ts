@@ -173,6 +173,8 @@ export interface ProcessRun {
   readonly diffBase: string
   readonly trace: readonly TraceEntry[]
   readonly costEntries: readonly CostEntry[]
+  /** Seconds recorded by `Gtd-Duration`, by the actor of the commit that carries it. */
+  readonly durationEntries: readonly { readonly actor: string; readonly seconds: number }[]
   readonly judgeVerdicts: readonly JudgeVerdictEntry[]
   /** Whether a pin commit has landed in this process. */
   readonly pinCommitted: boolean
@@ -306,6 +308,11 @@ const buildRun = (
     diffBase: first?.reviewBase ?? startParentHash,
     trace: processCommits.map((c, i) => traceEntryOf(c.hash, parsed[i]!)),
     costEntries: parsed.flatMap((m, i) => costEntriesOf(processCommits[i]!.hash, m)),
+    durationEntries: parsed.flatMap((m) =>
+      m.duration !== undefined && m.parsed !== undefined
+        ? [{ actor: m.parsed.actor, seconds: m.duration }]
+        : [],
+    ),
     judgeVerdicts: answering.flatMap((m) => m.judge),
     pinCommitted: allParsed.some((m) => m.pin === "add"),
     marks: answering.flatMap((m) => m.marks),
@@ -1960,6 +1967,9 @@ const humanCommitsOf = (
     .filter((entry) => entry.actor === "human" && entry.hash !== entryCommit)
     .map((entry) => ({ hash: entry.hash, state: entry.state }))
 
+const secondsOf = (run: ProcessRun, pick: (actor: string) => boolean): number =>
+  run.durationEntries.filter((d) => pick(d.actor)).reduce((sum, d) => sum + d.seconds, 0)
+
 const summaryInput = (
   run: ProcessRun,
   settings: Pick<SummaryContext, "vars" | "env">,
@@ -1973,6 +1983,8 @@ const summaryInput = (
     humanCommits: humanCommitsOf(run.trace, entryCommit),
     processCost: total,
     processCostByModel: byModel,
+    processCheckSeconds: secondsOf(run, (actor) => actor === "check"),
+    processPromptSeconds: secondsOf(run, (actor) => actor !== "check"),
     marks: run.marks,
     ...settings,
   }
