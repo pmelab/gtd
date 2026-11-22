@@ -5,7 +5,14 @@ const worktrees = { projects: async () => [], list: async () => [] }
 const terminal = { run: async () => "h", status: async () => undefined, close: async () => {} }
 const services = { list: async () => [], up: async () => {}, down: async () => {} }
 const actions = { list: async () => [], argv: async () => [] }
-const notifications = { publish: async () => {} }
+const notifications = {
+  init: async () => {},
+  publicKey: async () => "key",
+  subscribe: async () => {},
+  unsubscribe: async () => {},
+  device: async () => undefined,
+  publish: async () => {},
+}
 
 describe("workspaceProblems", () => {
   it("accepts every documented key", () => {
@@ -72,10 +79,15 @@ describe("workspaceProblems", () => {
     ])
   })
 
-  it("names the publish a notifications adapter lacks", () => {
-    expect(workspaceProblems({ adapters: { notifications: {} } })).toEqual([
-      { path: ["adapters", "notifications", "publish"], message: "must be a function" },
-    ])
+  it("names each operation a notifications adapter lacks", () => {
+    expect(
+      workspaceProblems({ adapters: { notifications: { publish: notifications.publish } } }),
+    ).toEqual(
+      ["init", "publicKey", "subscribe", "unsubscribe", "device"].map((op) => ({
+        path: ["adapters", "notifications", op],
+        message: "must be a function",
+      })),
+    )
   })
 
   it("names each method a services adapter lacks", () => {

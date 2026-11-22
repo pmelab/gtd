@@ -1,6 +1,7 @@
 import { initTRPC, TRPCError } from "@trpc/server"
 import { parseFootnotes, parseWidgets } from "../steering/index.js"
 import { ActionRefusal, type ActionRuns } from "./Actions.js"
+import type { PushSubscription } from "../workspace/index.js"
 import type { PressAction, PressOutcome } from "./Controls.js"
 import type { Dispatcher } from "./Dispatch.js"
 import type { FeedRunner } from "./Feeds.js"
@@ -28,6 +29,17 @@ interface WorkspaceRouterContext {
   readonly git: (cwd: string, args: readonly string[]) => Promise<string>
   /** Who sent the request, and where, for the audit log. */
   readonly caller: Caller
+  /** The supervisor's gtd version. */
+  readonly version: string
+  /** The notifications adapter's devices, behind the tailnet check and the audit log. */
+  readonly push: {
+    readonly publicKey: () => Promise<string>
+    readonly device: (
+      endpoint: string,
+    ) => Promise<{ readonly kinds: readonly string[] } | undefined>
+    readonly subscribe: (subscription: PushSubscription, kinds: readonly string[]) => Promise<void>
+    readonly unsubscribe: (endpoint: string) => Promise<void>
+  }
 }
 
 const t = initTRPC.context<WorkspaceRouterContext>().create()
@@ -548,7 +560,37 @@ const tryLast = async (
 }
 
 /** The dashboard's API, served under `/trpc`. */
+const endpointInput = (value: unknown) => ({ endpoint: text(value, "endpoint") })
+
+const subscribeInput = (value: unknown) => {
+  const { subscription, kinds } = (value ?? {}) as Record<string, unknown>
+  const sub = subscription as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } }
+  if (
+    typeof sub?.endpoint !== "string" ||
+    typeof sub.keys?.p256dh !== "string" ||
+    typeof sub.keys.auth !== "string" ||
+    !Array.isArray(kinds) ||
+    !kinds.every((k) => typeof k === "string")
+  ) {
+    throw new TRPCError({ code: "BAD_REQUEST", message: "expected { subscription, kinds }" })
+  }
+  return { subscription: subscription as PushSubscription, kinds: kinds as string[] }
+}
+
 export const workspaceRouter = t.router({
+  version: t.procedure.query(({ ctx }) => ctx.version),
+  pushKey: t.procedure.query(({ ctx }) => ctx.push.publicKey()),
+  pushDevice: t.procedure
+    .input(endpointInput)
+    .query(async ({ ctx, input }) => (await ctx.push.device(input.endpoint)) ?? null),
+  pushSubscribe: t.procedure.input(subscribeInput).mutation(async ({ ctx, input }) => {
+    await ctx.push.subscribe(input.subscription, input.kinds)
+    return { ok: true as const }
+  }),
+  pushUnsubscribe: t.procedure.input(endpointInput).mutation(async ({ ctx, input }) => {
+    await ctx.push.unsubscribe(input.endpoint)
+    return { ok: true as const }
+  }),
   projects: t.procedure.query(({ ctx }) => ctx.projects()),
   banners: t.procedure.query(({ ctx }) => ctx.banners()),
   /** The action picker: the actions offered in the worktree's status now, with their fields. */

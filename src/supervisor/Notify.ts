@@ -1,6 +1,7 @@
 import { basename } from "node:path"
 import type {
   InboxItem,
+  NotificationKind,
   NotificationPriority,
   NotificationsAdapter,
   NotifySettings,
@@ -103,6 +104,7 @@ export const notifier = (deps: NotifierDeps): Notifier => {
   }
 
   const publish = (
+    kind: NotificationKind,
     key: string,
     title: string,
     body: string,
@@ -110,7 +112,7 @@ export const notifier = (deps: NotifierDeps): Notifier => {
     priority: NotificationPriority,
   ): void => {
     deps.adapter
-      .publish({ key, title, body, url: new URL(link, url).href, priority })
+      .publish({ key, kind, title, body, url: new URL(link, url).href, priority })
       .catch((error: unknown) => {
         const message =
           typeof error === "object" && error !== null && "message" in error
@@ -128,7 +130,8 @@ export const notifier = (deps: NotifierDeps): Notifier => {
     save()
     if (quiet) return
     for (const p of fresh) {
-      if (enabled(p.kind, p.project)) publish(p.key, p.title, p.body, p.link, PRIORITY[p.kind])
+      if (enabled(p.kind, p.project))
+        publish(p.kind, p.key, p.title, p.body, p.link, PRIORITY[p.kind])
     }
   }
 
@@ -155,7 +158,7 @@ export const notifier = (deps: NotifierDeps): Notifier => {
                 key,
                 title: `${where} needs you`,
                 body: label,
-                link: w.gate,
+                link: detailLink(w.path),
               }
             : {
                 kind: "error",
@@ -235,6 +238,7 @@ export const notifier = (deps: NotifierDeps): Notifier => {
         const where = `${project.id}/${nameOf(w)}`
         const deliver = (): void =>
           publish(
+            "note",
             `note:${where}:${deps.now()}`,
             note.error ? `${where}: error note` : `${where}: note`,
             note.message,
@@ -247,7 +251,7 @@ export const notifier = (deps: NotifierDeps): Notifier => {
       }
     },
     message: (m) => {
-      const deliver = (): void => publish(m.key, m.title, m.body, m.link, m.priority)
+      const deliver = (): void => publish("reaction", m.key, m.title, m.body, m.link, m.priority)
       if (url === undefined) waiting.push(deliver)
       else deliver()
     },

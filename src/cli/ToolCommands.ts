@@ -27,6 +27,8 @@ interface WorkspaceRequest {
   readonly cwd: string
   /** `$XDG_STATE_HOME`, else `~/.local/state`: the supervisor's state lives below it. */
   readonly stateHome: string
+  /** This gtd's version: the dashboard's service worker cache and reload check use it. */
+  readonly version: string
   /** Evaluates a TypeScript module the way `gtd.config.ts` is, `@pmelab/gtd/*` served by this gtd. */
   readonly loadModule: (path: string) => Promise<Readonly<Record<string, unknown>>>
 }

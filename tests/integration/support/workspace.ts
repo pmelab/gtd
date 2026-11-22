@@ -433,10 +433,7 @@ export class WorkspaceBench {
       defaultTerminal: () => this.loggedTerminal(),
       defaultServices: () => this.loggedServices(),
       defaultActions: () => this.actions.adapter,
-      defaultNotifications: () => ({
-        adapter: this.notifications.adapter,
-        subscribe: "https://ntfy.sh/gtd-topic-of-this-workspace",
-      }),
+      defaultNotifications: () => this.notifications.adapter,
       isPidAlive: (pid) => pid === process.pid,
       after: this.clock.after,
       watchFile: (path, changed) => {

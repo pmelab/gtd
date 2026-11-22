@@ -588,22 +588,67 @@ the supervisor restarts. The query `projects` gives a worktree's note as
 
 ## Notifications
 
+The dashboard is an installable app (a PWA), and the supervisor sends Web Push
+notifications to the devices that turned them on. A tap on a notification
+focuses an open dashboard window and moves it to the link, or opens the
+dashboard there. Each device is one browser or one installed dashboard app.
+
+The dashboard header opens a **Notifications** screen. It shows this device
+only, never the others. It has a switch for push and a tick for each kind; the
+default ticks are needs you and error. A change of ticks subscribes the device
+again. There is no test button. When push is not available, the screen says why:
+"Add gtd to your home screen first" (an iPhone or iPad outside the home screen),
+"This connection is not trusted" or "This browser has no Web Push". While no
+device is subscribed, the supervisor prints
+`notifications: turn on push in the dashboard at <url>` at each start.
+
 The supervisor sends a notification through the notifications adapter when:
 
-| Kind          | When                                                | Links to                 | Priority |
-| ------------- | --------------------------------------------------- | ------------------------ | -------- |
-| `needsYou`    | a worktree needs you                                | the worktree's gate page | high     |
-| `error`       | a worktree is in error                              | the worktree's detail    | high     |
-| `proposed`    | a feed proposes an item                             | the dashboard            | default  |
-| `feedFailing` | a feed's poll fails                                 | the dashboard            | low      |
-| `configError` | `gtd.workspace.ts` does not reload                  | the dashboard            | default  |
-| `mainStale`   | auto-clean cannot refresh a main checkout           | the dashboard            | default  |
-| note          | `gtd workspace note --notify` (high with `--error`) | the worktree's detail    | default  |
-| reaction      | a reaction's `ctx.notify`                           | the worktree's detail    | default  |
+| Kind          | When                                                | Links to              | Priority |
+| ------------- | --------------------------------------------------- | --------------------- | -------- |
+| `needsYou`    | a worktree needs you                                | the worktree's detail | high     |
+| `error`       | a worktree is in error                              | the worktree's detail | high     |
+| `proposed`    | a feed proposes an item                             | the dashboard         | default  |
+| `feedFailing` | a feed's poll fails                                 | the dashboard         | low      |
+| `configError` | `gtd.workspace.ts` does not reload                  | the dashboard         | default  |
+| `mainStale`   | auto-clean cannot refresh a main checkout           | the dashboard         | default  |
+| note          | `gtd workspace note --notify` (high with `--error`) | the worktree's detail | default  |
+| reaction      | a reaction's `ctx.notify`                           | the worktree's detail | default  |
+
+The detail opens on its Gate tab when the process waits for a person.
 
 `notify` in `workspace`, and in each project of `projects`, switches a kind off
-(`false`) or on. A project's own switch wins. A note sent with `--notify` always
-notifies. The worktree's detail is the dashboard at `/?worktree=<path>`.
+(`false`) or on; a kind that is off never pushes. A project's own switch wins. A
+device gets a worktree or workspace kind only when it ticked it. A note sent
+with `--notify` and a reaction's message go to every subscribed device. The
+worktree's detail is the dashboard at `/?worktree=<path>`.
+
+### What a device needs
+
+Push works only over a connection the device trusts: the dashboard must be
+served over HTTPS with a certificate the device accepts. The publish modes (see
+`gtd workspace --help`):
+
+- **`tailscale serve`** (the default): a public CA certificate. Push works.
+- **`--http` behind your own proxy**: push works when the proxy's certificate is
+  trusted. For a private CA, install the CA on the device first.
+- **`--self-signed`**: no push, as no device trusts the certificate.
+
+To trust a private CA on an iPhone or iPad: send the CA certificate to the
+device and open it; install the profile in Settings → General → VPN & Device
+Management; then turn it on in Settings → General → About → Certificate Trust
+Settings. Then open the dashboard in Safari, choose Share → Add to Home Screen,
+and turn push on from the app on the home screen.
+
+gtd gets no notifications to:
+
+- a workspace served with `--self-signed`;
+- a device that does not trust the proxy's CA;
+- an iPhone without the dashboard on its home screen;
+- a desktop whose browser is closed.
+
+A userland notifications adapter is the way out, for example one that sends to a
+chat service ([Adapters](#adapters)).
 
 Each notification has a key, and no key is sent twice, also after a restart:
 
@@ -635,13 +680,13 @@ that worktree at once.
 
 ## Adapters
 
-| Adapter         | Default   | Factory                          |
-| --------------- | --------- | -------------------------------- |
-| `worktrees`     | worktrunk | `worktrunk({ roots })`           |
-| `terminal`      | rex       | `rex({ server, shell })`         |
-| `services`      | pitchfork | `pitchfork({ publicPort })`      |
-| `actions`       | mise      | `mise()`                         |
-| `notifications` | ntfy      | `ntfy({ topic, server, token })` |
+| Adapter         | Default   | Factory                     |
+| --------------- | --------- | --------------------------- |
+| `worktrees`     | worktrunk | `worktrunk({ roots })`      |
+| `terminal`      | rex       | `rex({ server, shell })`    |
+| `services`      | pitchfork | `pitchfork({ publicPort })` |
+| `actions`       | mise      | `mise()`                    |
+| `notifications` | Web Push  | `webPush()`                 |
 
 The factories come from `@pmelab/gtd/workspace/adapters`. To use another tool,
 give an object that implements the adapter's interface from
@@ -786,19 +831,42 @@ flags (for example `--dry`) as that flag, so `mise()` refuses such a value.
 
 ### `notifications`
 
-- **`publish({ key, title, body, url, priority })`**: delivers one notification.
-  `url` is where a tap leads, or `undefined`. `priority` is `high`, `default` or
-  `low`. The supervisor sends each key once; the adapter may ignore `key`. Fails
-  with an adapter error.
+Every operation is required.
 
-`ntfy({ topic, server, token })` publishes to the ntfy topic `topic` on `server`
-(default `https://ntfy.sh`), with `token` as an access token for a protected
-topic. Anyone who knows a topic on a public server can read it. Without a
-`notifications` adapter, the supervisor publishes to a random topic on
-`https://ntfy.sh`, kept in the file `ntfy-topic` in its
-[state directory](#security). At each start, after the URL line, the supervisor
-prints the line `notifications: subscribe to <url>` with the topic's URL:
-subscribe to it in the ntfy app.
+- **`init({ stateDirectory })`**: called once when the supervisor starts.
+- **`publicKey()`**: the VAPID public key (URL-safe base64) the browser
+  subscribes with.
+- **`subscribe({ subscription, kinds, login })`**: keeps a device.
+  `subscription` is the browser's push subscription (`endpoint` and `keys`),
+  `kinds` the kinds it ticked, `login` its tailnet login. A second call with the
+  same endpoint replaces the old record. A change of kinds uses this call.
+- **`unsubscribe(endpoint)`**: forgets the device.
+- **`device(endpoint)`**: `{ kinds }`, or `undefined` when the adapter does not
+  know the endpoint.
+- **`publish({ key, kind, title, body, url, priority })`**: delivers one
+  notification. `kind` is `needsYou`, `error`, `proposed`, `feedFailing`,
+  `configError`, `mainStale`, `note` or `reaction`. `url` is where a tap leads,
+  or `undefined`. `priority` is `high`, `default` or `low`. The supervisor sends
+  each key once; the adapter may ignore `key`. Fails with an adapter error.
+
+The supervisor serves the routes for the public key, subscribe, unsubscribe and
+device behind the tailnet check, and adds one `audit.log` line for each
+subscribe and unsubscribe. A userland adapter that does not implement every
+operation is refused at load. A `gtd.workspace.ts` that imports an adapter gtd
+no longer bundles fails to load, and the supervisor reports a config error with
+the runtime's message. Web Push is the default, so delete that line.
+
+`webPush()` uses the `web-push` package. At the first start it makes a VAPID key
+pair and keeps it in the [state directory](#security) with mode 0600; the VAPID
+`sub` claim is the dashboard URL. It keeps each device there with its login, its
+kinds and its time: deleting the state directory makes each device opt in again.
+It maps the priorities `high`, `default` and `low` to the Web Push urgency
+`high`, `normal` and `low`, with a TTL of one day. The notification tag is the
+key without its commit, so a newer notification for the same worktree and kind
+replaces the older one on the device. `publish` tries every device that wants
+the kind. A 404 or 410 from the push service deletes that device and is not a
+failure. Any other failure makes `publish` fail after the last device, with one
+adapter error that names the failed devices by login; gtd does not send again.
 
 ## Security
 
@@ -816,8 +884,8 @@ below `~/.local/state/gtd/workspace/` (`$XDG_STATE_HOME/gtd/workspace/` when
 that is set). The directory's name is a hash of the workspace root. Nothing goes
 into your repositories. Deleting that state loses the dismissals, the notes, the
 pauses, the sent notification keys (the next start is a silent baseline), the
-default ntfy topic and what gtd knows of started and failed items; the next
-polls file every waiting item again.
+VAPID keys, the subscribed devices and what gtd knows of started and failed
+items; the next polls file every waiting item again.
 
 These state changes add one JSON line: Proceed, Retry, Dismiss, New worktree,
 Remove, Start and Retry of an item, Note, Pause and Resume, and each auto-clean

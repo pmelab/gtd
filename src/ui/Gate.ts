@@ -66,25 +66,35 @@ export const withTrpcEndpoint = (html: string, endpoint: string): string =>
     (head) => `${head}<meta name="gtd-trpc" content="${escapeAttribute(endpoint)}">`,
   )
 
-/** The workspace dashboard: the same client, which the `gtd-page` meta tag tells to open the dashboard. */
-export const dashboardPage = (endpoint: string, clientHtml = generatedClientHtml): string =>
+export const MANIFEST_PATH = "/manifest.webmanifest"
+export const SERVICE_WORKER_PATH = "/sw.js"
+
+/**
+ * The workspace dashboard: the same client, which the `gtd-page` meta tag tells
+ * to open the dashboard. `gtd-version` is the supervisor's version, which the
+ * dashboard compares with the one it asks for later.
+ */
+export const dashboardPage = (
+  endpoint: string,
+  version: string,
+  clientHtml = generatedClientHtml,
+): string =>
   withTrpcEndpoint(clientHtml, endpoint).replace(
     /<head[^>]*>/,
     (head) =>
-      `${head}<meta name="gtd-page" content="workspace"><link rel="manifest" href="${MANIFEST_PATH}">`,
+      `${head}<meta name="gtd-page" content="workspace"><meta name="gtd-version" content="${escapeAttribute(version)}"><link rel="manifest" href="${MANIFEST_PATH}">`,
   )
 
-export const MANIFEST_PATH = "/manifest.webmanifest"
-
 /** The dashboard's web app manifest; icons are the data URIs the client page already carries. */
-export const dashboardManifest = (clientHtml = generatedClientHtml): string => {
+export const dashboardManifest = (workspace: string, clientHtml = generatedClientHtml): string => {
   const icon = (match: RegExp): string | undefined => match.exec(clientHtml)?.[1]
   const png = icon(/<link rel="icon" type="image\/png" sizes="192x192" href="([^"]+)"/)
   const svg = icon(/<link rel="icon" type="image\/svg\+xml" href="([^"]+)"/)
   return JSON.stringify({
-    name: "gtd",
+    name: `gtd · ${workspace}`,
     short_name: "gtd",
     start_url: "/",
+    scope: "/",
     display: "standalone",
     theme_color: "#f4f4f1",
     background_color: "#f4f4f1",
@@ -94,6 +104,64 @@ export const dashboardManifest = (clientHtml = generatedClientHtml): string => {
     ],
   })
 }
+
+/**
+ * The dashboard's service worker. It caches the app shell only (the page, whose
+ * script, styles and icons are inline, and the manifest), never a worktree's
+ * data, which comes from the API. The version names the cache.
+ */
+export const dashboardServiceWorker = (version: string): string => `
+const CACHE = ${JSON.stringify(`gtd-shell-${version}`)}
+const SHELL = ["/", ${JSON.stringify(MANIFEST_PATH)}]
+self.addEventListener("install", (event) => {
+  self.skipWaiting()
+  event.waitUntil(caches.open(CACHE).then((cache) => cache.addAll(SHELL)))
+})
+self.addEventListener("activate", (event) => {
+  event.waitUntil(
+    caches
+      .keys()
+      .then((names) => Promise.all(names.filter((n) => n !== CACHE).map((n) => caches.delete(n))))
+      .then(() => self.clients.claim()),
+  )
+})
+self.addEventListener("fetch", (event) => {
+  const url = new URL(event.request.url)
+  if (event.request.method !== "GET" || url.origin !== self.location.origin) return
+  if (!SHELL.includes(url.pathname)) return
+  event.respondWith(
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone()
+          caches.open(CACHE).then((cache) => cache.put(url.pathname, copy))
+        }
+        return response
+      })
+      .catch(() => caches.match(url.pathname).then((hit) => hit ?? Response.error())),
+  )
+})
+self.addEventListener("push", (event) => {
+  const message = event.data ? event.data.json() : {}
+  event.waitUntil(
+    self.registration.showNotification(message.title ?? "gtd", {
+      body: message.body,
+      tag: message.tag,
+      data: { url: message.url ?? "/" },
+    }),
+  )
+})
+self.addEventListener("notificationclick", (event) => {
+  event.notification.close()
+  const url = event.notification.data.url
+  event.waitUntil(
+    self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((windows) => {
+      const open = windows.find((w) => new URL(w.url).origin === self.location.origin)
+      return open ? open.focus().then((w) => w.navigate(url)) : self.clients.openWindow(url)
+    }),
+  )
+})
+`
 
 const vanished: WriteResult = { ok: false, reason: "file-vanished" }
 

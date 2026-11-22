@@ -253,19 +253,61 @@ export interface ActionsAdapter {
 
 export type NotificationPriority = "high" | "default" | "low"
 
+/** What a notification is about: a worktree or workspace condition, a note or a reaction. */
+export type NotificationKind =
+  | "needsYou"
+  | "error"
+  | "proposed"
+  | "feedFailing"
+  | "configError"
+  | "mainStale"
+  | "note"
+  | "reaction"
+
 /** One message to a person's phone. */
 export interface Notification {
   /** gtd's own: no key is published twice. An adapter may ignore it. */
   readonly key: string
+  readonly kind: NotificationKind
   readonly title: string
   readonly body: string
-  /** Where a tap leads: the gate page or the worktree on the dashboard. */
+  /** Where a tap leads: the worktree on the dashboard. */
   readonly url: string | undefined
   readonly priority: NotificationPriority
 }
 
-/** The notifications adapter: delivers what gtd publishes. */
+/** A browser's Web Push subscription, as `PushManager.subscribe` returns it in JSON. */
+export interface PushSubscription {
+  readonly endpoint: string
+  readonly keys: { readonly p256dh: string; readonly auth: string }
+}
+
+/** The kinds a device chose; `note` and `reaction` always reach every device. */
+export type DeviceKind = Exclude<NotificationKind, "note" | "reaction">
+
+export interface DeviceSubscription {
+  readonly subscription: PushSubscription
+  readonly kinds: readonly DeviceKind[]
+  /** The tailnet login of the person, or `-` when gtd cannot know it. */
+  readonly login: string
+}
+
+/** The notifications adapter: delivers what gtd publishes, to the devices it keeps. */
 export interface NotificationsAdapter {
+  /** Called once when the supervisor starts. */
+  readonly init: (options: { readonly stateDirectory: string }) => Promise<void> | void
+  /** The VAPID public key (URL-safe base64) the browser subscribes with. */
+  readonly publicKey: () => Promise<string> | string
+  /** Keeps the device; a second call with the same endpoint replaces the old record. */
+  readonly subscribe: (device: DeviceSubscription) => Promise<void> | void
+  readonly unsubscribe: (endpoint: string) => Promise<void> | void
+  /** The device's kinds, or `undefined` when the adapter does not know the endpoint. */
+  readonly device: (
+    endpoint: string,
+  ) =>
+    | Promise<{ readonly kinds: readonly DeviceKind[] } | undefined>
+    | { readonly kinds: readonly DeviceKind[] }
+    | undefined
   /** Resolves once delivered; fails with an adapter error. */
   readonly publish: (notification: Notification) => Promise<void>
 }

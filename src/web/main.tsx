@@ -33,6 +33,11 @@ const page = (): ReactNode => {
   )
 }
 
+// The service worker makes the dashboard installable and shows pushes; a gate page needs none.
+if (isDashboard(document) && "serviceWorker" in navigator) {
+  void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {})
+}
+
 const container = document.getElementById("root")
 if (container) {
   createRoot(container).render(<StrictMode>{page()}</StrictMode>)

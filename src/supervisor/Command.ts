@@ -6,6 +6,8 @@ import {
   currentRest,
   humanRestOf,
   MANIFEST_PATH,
+  SERVICE_WORKER_PATH,
+  dashboardServiceWorker,
   dashboardManifest,
   dashboardPage,
   exposeHandler,
@@ -18,7 +20,6 @@ import {
   type UiOut,
   type UiShell,
 } from "../ui/index.js"
-import type { NotificationsAdapter, WorkspaceSettings } from "../workspace/index.js"
 import { actionRuns } from "./Actions.js"
 import { auditLog } from "./Audit.js"
 import { cleaner } from "./Clean.js"
@@ -29,12 +30,8 @@ import { driverPanes, drivers } from "./Drivers.js"
 import { gateOf, isGatePath } from "./Gate.js"
 import { acquireLock, stateDirectory } from "./Lock.js"
 import { feedRunner } from "./Feeds.js"
-import {
-  SupervisorClock,
-  SupervisorHost,
-  UserlandTools,
-  type DefaultNotifications,
-} from "./Ports.js"
+import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
+import { announceUrl, pushRoutes, startNotifications } from "./Push.js"
 import { openStore } from "./Store.js"
 import { workspaceRouter } from "./Router.js"
 import type { ProjectView } from "./Scan.js"
@@ -62,6 +59,7 @@ export interface WorkspaceCommand {
   readonly flags: ExposeOptions & { readonly config?: string }
   readonly cwd: string
   readonly stateHome: string
+  readonly version: string
   readonly loadModule: (path: string) => Promise<Readonly<Record<string, unknown>>>
 }
 
@@ -132,18 +130,6 @@ const controlHandler =
     })
     return outcome.outcome === "accepted" ? { ok: true } : { ok: false, message: outcome.message }
   }
-
-const notificationsOf = (
-  settings: WorkspaceSettings,
-  byDefault: () => DefaultNotifications,
-): { readonly adapter: NotificationsAdapter; readonly subscribe?: string } => {
-  const configured = settings.adapters?.notifications
-  return configured !== undefined ? { adapter: configured } : byDefault()
-}
-
-// The default topic is random: this line is the only way to learn it.
-const subscribeLine = (url: string | undefined): string =>
-  url === undefined ? "" : `notifications: subscribe to ${url}\n`
 
 const asUiError = (error: unknown): UiError =>
   error instanceof UiError
@@ -249,9 +235,15 @@ export const runWorkspaceCommand = (
         })
       }
       logRuns()
-      const notifications = notificationsOf(settings, () => host.defaultNotifications(directory))
+      const notifications = yield* Effect.tryPromise({
+        try: () => startNotifications(settings, host, directory),
+        catch: asUiError,
+      })
+      const push = pushRoutes(notifications, store, audit, () =>
+        new Date(clock.now()).toISOString(),
+      )
       const notify = notifier({
-        adapter: notifications.adapter,
+        adapter: notifications,
         store,
         settings: config,
         now: clock.now,
@@ -481,6 +473,7 @@ export const runWorkspaceCommand = (
 
       const handler: UiHandler = async (request, afterResponse, peer, identity) => {
         const path = new URL(request.url).pathname
+        const caller = { identity: identity ?? "-", endpoint: path }
         if (isGatePath(path)) return gatePage(request, afterResponse, peer, identity)
         if (path === TRPC || path.startsWith(`${TRPC}/`)) {
           return fetchRequestHandler({
@@ -515,22 +508,34 @@ export const runWorkspaceCommand = (
                   endpoint: path,
                 }),
               dispatch,
+              version: command.version,
+              push: {
+                publicKey: push.publicKey,
+                device: push.device,
+                subscribe: (subscription, kinds) => push.subscribe(caller, subscription, kinds),
+                unsubscribe: (endpoint) => push.unsubscribe(caller, endpoint),
+              },
               pauses: paused,
               worktreeChanges: changes,
               git: gitIn,
-              caller: { identity: identity ?? "-", endpoint: path },
+              caller,
             }),
           })
         }
         const html = (body: string): Response =>
           new Response(body, { headers: { "content-type": "text/html; charset=utf-8" } })
         if (path === MANIFEST_PATH) {
-          return new Response(dashboardManifest(), {
+          return new Response(dashboardManifest(basename(root)), {
             headers: { "content-type": "application/manifest+json" },
           })
         }
+        if (path === SERVICE_WORKER_PATH) {
+          return new Response(dashboardServiceWorker(command.version), {
+            headers: { "content-type": "text/javascript", "service-worker-allowed": "/" },
+          })
+        }
         if (path !== "/") return gatePage(request, afterResponse, peer, identity)
-        return html(dashboardPage(TRPC))
+        return html(dashboardPage(TRPC, command.version))
       }
 
       const { url, close } = yield* exposeHandler({
@@ -541,10 +546,11 @@ export const runWorkspaceCommand = (
         out,
       })
       lock.serving(url)
+      announceUrl(notifications, url)
       notify.begin(url, snapshot.projects())
       reactions.begin(noted.withNotes(snapshot.projects()))
       out.write(`${url}\n`)
-      out.write(subscribeLine(notifications.subscribe))
+      out.write(yield* Effect.promise(() => push.startLine(url)))
       out.write(spoolRefusals.map((refusal) => `spool ${refusal}\n`).join(""))
       out.flush()
       yield* Effect.promise(dispatch.resume)

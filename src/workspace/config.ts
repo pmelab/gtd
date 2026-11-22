@@ -153,7 +153,7 @@ const settings = object({
     terminal: adapter(["run", "status", "close"]),
     services: adapter(["list", "up", "down"]),
     actions: adapter(["list", "argv"]),
-    notifications: adapter(["publish"]),
+    notifications: adapter(["init", "publicKey", "subscribe", "unsubscribe", "device", "publish"]),
   }),
   limits: object({ maxDrives: positiveInt, wip: positiveInt }),
   pollEvery: duration,

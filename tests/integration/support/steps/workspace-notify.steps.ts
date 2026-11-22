@@ -1,4 +1,4 @@
-import { Given, Then, type DataTable } from "quickpickle"
+import { Given, Then, When, type DataTable } from "quickpickle"
 import assert from "node:assert"
 import type { GtdWorld } from "../world.js"
 import type { WorkspaceBench } from "../workspace.js"
@@ -29,6 +29,7 @@ Then("gtd sent these notifications:", async (world: GtdWorld, table: DataTable) 
     const url = n.url === undefined ? undefined : new URL(n.url)
     const fields: Record<string, string> = {
       key: n.key,
+      kind: n.kind,
       title: n.title,
       body: n.body,
       priority: n.priority,
@@ -52,4 +53,44 @@ Then("gtd sent no notification", (world: GtdWorld) => {
 Then("the supervisor printed:", (world: GtdWorld, text: string) => {
   const output = bench(world).output
   assert.ok(output.includes(text.trim()), output)
+})
+
+const subscription = (endpoint: string) => ({
+  endpoint,
+  keys: { p256dh: "BPk", auth: "auth" },
+})
+
+When(
+  "I subscribe the device {string} with kinds {string}",
+  async (world: GtdWorld, endpoint: string, kinds: string) => {
+    await bench(world).call(
+      "pushSubscribe",
+      { subscription: subscription(endpoint), kinds: kinds.split(",") },
+      "mutation",
+    )
+  },
+)
+
+When("I unsubscribe the device {string}", async (world: GtdWorld, endpoint: string) => {
+  await bench(world).call("pushUnsubscribe", { endpoint }, "mutation")
+})
+
+Then(
+  "the adapter knows the device {string} with kinds {string}",
+  async (world: GtdWorld, endpoint: string, kinds: string) => {
+    const known = await bench(world).notifications.adapter.device(endpoint)
+    assert.deepStrictEqual(known?.kinds, kinds.split(","))
+  },
+)
+
+Then("the adapter does not know the device {string}", async (world: GtdWorld, endpoint: string) => {
+  assert.strictEqual(await bench(world).notifications.adapter.device(endpoint), undefined)
+})
+
+Then("the dashboard's push key is {string}", async (world: GtdWorld, key: string) => {
+  assert.strictEqual(await bench(world).call("pushKey", undefined, "query"), key)
+})
+
+Then("the supervisor printed no push line", (world: GtdWorld) => {
+  assert.ok(!bench(world).output.includes("turn on push"), bench(world).output)
 })

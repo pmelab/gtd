@@ -1,12 +1,15 @@
 import { GtdWordmark } from "../GtdWordmark.js"
-import { FolderGit2, Inbox as InboxIcon, PanelRight, Zap } from "lucide-react"
+import { Bell, FolderGit2, Inbox as InboxIcon, PanelRight, Zap } from "lucide-react"
 import { useEffect, useState, useSyncExternalStore } from "react"
+import { Button } from "../Button.js"
 import { Notice } from "../Notice.js"
+import { staleVersion } from "../push.js"
 import { Skeleton } from "../ui/skeleton.js"
 import { workspaceTrpc } from "./api.js"
 import { Banners } from "./Banners.js"
 import { Detail } from "./Detail.js"
 import { Inbox, type PressFailure } from "./Inbox.js"
+import { Notifications } from "./Notifications.js"
 import { Now } from "./Now.js"
 import { Projects } from "./Projects.js"
 import { ProjectNav, ViewNav, type ViewTab } from "./TabBar.js"
@@ -62,7 +65,7 @@ const pressFailuresOf = (
     error !== null && variables !== undefined ? [{ ...variables, message: error.message }] : [],
   )
 
-const NEXT_STEP = "Check that gtd workspace is running, then reload."
+const NEXT_STEP = "Check that gtd workspace is running, then retry."
 
 /** Placeholder cards while the first read is on its way. */
 const Loading = ({ testId }: { readonly testId?: string }) => (
@@ -154,6 +157,19 @@ const Loaded = ({
     window.history.pushState({ inPage: true }, "", screenUrl(next))
     setScreen(next)
   }
+  const [notifying, setNotifying] = useState(false)
+  const bell = (
+    <Button
+      variant="ghost"
+      aria-label="Notifications"
+      data-testid="open-notifications"
+      onClick={() => {
+        setNotifying(true)
+      }}
+    >
+      <Bell aria-hidden="true" />
+    </Button>
+  )
   const [expanded, toggle] = useExpanded(projects)
   const [reveal, setReveal] = useState<string>()
   useEffect(() => {
@@ -199,8 +215,17 @@ const Loaded = ({
   const list = (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 lg:mx-0">
       <Banners banners={banners} />
-      {view === "now" && <Now projects={projects} selected={selected} onOpen={open} />}
-      {view === "projects" && (
+      {notifying && (
+        <Notifications
+          onClose={() => {
+            setNotifying(false)
+          }}
+        />
+      )}
+      {!notifying && view === "now" && (
+        <Now projects={projects} selected={selected} onOpen={open} />
+      )}
+      {!notifying && view === "projects" && (
         <Projects
           projects={projects}
           expanded={expanded}
@@ -209,7 +234,7 @@ const Loaded = ({
           onOpen={open}
         />
       )}
-      {view === "inbox" && <InboxView />}
+      {!notifying && view === "inbox" && <InboxView />}
     </div>
   )
   const nav = (
@@ -250,7 +275,10 @@ const Loaded = ({
       {!desktop && !detailOnly && (
         <header className="sticky top-0 z-10 flex min-h-12 items-center justify-between gap-3 border-b border-border bg-background/90 px-4 pt-safe backdrop-blur">
           <h1 className="text-lg font-semibold">{title}</h1>
-          <GtdWordmark className="h-5" />
+          <div className="flex items-center gap-1">
+            {bell}
+            <GtdWordmark className="h-5" />
+          </div>
         </header>
       )}
       <main className="flex min-w-0 flex-1">
@@ -264,8 +292,9 @@ const Loaded = ({
           >
             {desktop ? (
               <>
-                <header className="flex h-14 shrink-0 items-center border-b border-border px-6">
+                <header className="flex h-14 shrink-0 items-center justify-between border-b border-border px-6">
                   <h1 className="text-lg font-semibold">{title}</h1>
+                  {bell}
                 </header>
                 <div className="min-h-0 flex-1 overflow-y-auto p-4 xl:p-6">{list}</div>
               </>
@@ -301,14 +330,27 @@ export const Dashboard = () => {
   const banners = workspaceTrpc.banners.useQuery(undefined, {
     refetchInterval: REFRESH_MS,
   })
+  const supervisor = workspaceTrpc.version.useQuery(undefined, { refetchInterval: 10_000 })
+  const own = document.querySelector<HTMLMetaElement>('meta[name="gtd-version"]')?.content
+  const outdated = staleVersion(own, supervisor.data)
+  useEffect(() => {
+    if (outdated) window.location.reload()
+  }, [outdated])
   if (projects.error !== null) {
     return (
       <div className="min-h-dvh bg-background p-4">
         <Notice tone="error">
-          <p data-testid="dashboard-error">
-            Could not reach the supervisor: {projects.error.message}
-          </p>
+          <p data-testid="dashboard-error">Cannot reach the workspace</p>
           <p className="text-muted-foreground">{NEXT_STEP}</p>
+          <Button
+            variant="secondary"
+            data-testid="dashboard-retry"
+            onClick={() => {
+              void projects.refetch()
+            }}
+          >
+            Retry
+          </Button>
         </Notice>
       </div>
     )
