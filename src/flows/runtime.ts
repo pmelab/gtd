@@ -823,6 +823,10 @@ export interface SummaryContext {
   readonly humanCommits: readonly { readonly hash: string; readonly state: string }[]
   readonly processCost: number
   readonly processCostByModel: readonly { readonly model: string; readonly cost: number }[]
+  /** Seconds recorded by `gtd land --duration` on check turns. */
+  readonly processCheckSeconds: number
+  /** Seconds recorded by `gtd land --duration` on every other turn. */
+  readonly processPromptSeconds: number
   /** Every `Gtd-Mark` of the process's commits, oldest first. */
   readonly marks: readonly Mark[]
   readonly vars: Readonly<Record<string, string>>

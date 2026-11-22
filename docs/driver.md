@@ -645,6 +645,7 @@ cd "$(git rev-parse --show-toplevel)"
 beat=1
 while :; do
   cost=
+  start=
   model=
   judged_before="${judged:-}"
   judged=
@@ -700,10 +701,12 @@ while :; do
     script)
       # A `script` rest's plain output is prose, not pipeable into `sh` — the
       # raw script comes from `--json=content` instead.
+      start="$(date +%s)"
       content="$(gtd next --json=content)"
       log="$(gtd next --json=log)"
       sh -c "$content" >>"$log" 2>&1 || true ;;
     prompt)
+      start="$(date +%s)"
       session_id="$(gtd next --json=session.id)"
       resume="$(gtd next --json=session.resume)"
       model="$(gtd next --json=model)"
@@ -772,8 +775,10 @@ while :; do
   # before the script runs and changes the tree out from under them.
   settled="$(gtd land --json=settled)"
   idle="$(gtd land --json=idle)"
-  # A prompt beat's turns record their cost, tagged with the model that ran.
-  gtd land --json=script ${cost:+--cost="$cost"} ${cost:+${model:+--model="$model"}} | sh
+  # A prompt beat's turns record their cost, tagged with the model that ran;
+  # a script or prompt beat records how long it took.
+  gtd land --json=script ${cost:+--cost="$cost"} ${cost:+${model:+--model="$model"}} \
+    ${start:+--duration="$(( $(date +%s) - start ))"} | sh
   if [ "${settled:-}" = true ]; then
     [ "${idle:-}" = true ] && gtd next
     exit 0
@@ -828,10 +833,11 @@ alone.
 
 Each turn's `--output-format json` envelope goes to the log, and its
 `total_cost_usd` — failed and fix turns included — adds up into the `--cost`
-(and `--model`) the landing records. An envelope with `"is_error":true`, or one
-a hook stopped, fails the turn even at exit 0, so it never lands as work. A
-judge gate that comes straight back after the verdict the paste just landed is
-handed to you rather than answered again.
+(and `--model`) the landing records; a `script` or `prompt` beat's wall-clock
+seconds go in as `--duration`. An envelope with `"is_error":true`, or one a hook
+stopped, fails the turn even at exit 0, so it never lands as work. A judge gate
+that comes straight back after the verdict the paste just landed is handed to
+you rather than answered again.
 
 This paste passes `$system` on argv, and POSIX guarantees only 4 KB of argv
 (`ARG_MAX`) — real systems are far higher (roughly 1 MB on both macOS and

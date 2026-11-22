@@ -107,6 +107,8 @@ export interface CommitMessage {
   readonly vars: Readonly<Record<string, string>>
   readonly reviewBase: string | undefined
   readonly cost: readonly CostEntry[]
+  /** `Gtd-Duration`: seconds the turn took; a malformed value is skipped. */
+  readonly duration: number | undefined
   /** `Gtd-Exit`, on a run or ship landing: the body's exit code; a malformed value is skipped. */
   readonly exit: number | undefined
   /** Written only on a process's finishing landing. */
@@ -191,6 +193,7 @@ interface Trailers {
   readonly marks: Mark[]
   readonly vars: Record<string, string>
   readonly cost: CostEntry[]
+  duration: number | undefined
   format: number | undefined
 }
 
@@ -249,6 +252,9 @@ const TRAILER_READERS: Readonly<Record<string, (value: string, into: Trailers) =
   "Gtd-Exit": (value, into) => {
     if (/^[0-9]{1,3}$/.test(value)) into.exit ??= Number(value)
   },
+  "Gtd-Duration": (value, into) => {
+    if (/^[0-9]+(?:\.[0-9]+)?$/.test(value)) into.duration ??= Number(value)
+  },
   "Gtd-Cost": (value, into) => {
     const c = COST_RE.exec(value)
     if (c !== null) into.cost.push({ cost: Number(c[1]), model: c[2]?.trim() || undefined })
@@ -275,6 +281,7 @@ export const parseCommitMessage = (message: string): CommitMessage => {
     marks: [],
     vars: {},
     cost: [],
+    duration: undefined,
     format: undefined,
   }
   if (newline !== -1) {
@@ -294,6 +301,7 @@ export interface CommitSpec {
   readonly reviewBase?: string
   readonly vars?: Readonly<Record<string, string>>
   readonly cost?: { readonly cost: number; readonly model?: string }
+  readonly duration?: number
   readonly judge?: readonly JudgeVerdict[]
   /** Written after `Gtd-Judge`, before `Gtd-Approved`. */
   readonly marks?: readonly Mark[]
@@ -322,6 +330,7 @@ export const formatCommitMessage = (spec: CommitSpec): string => {
     ...trailer("Review-Base", spec.reviewBase),
     ...sortedEntries(spec.vars).map(([name, value]) => `Gtd-Var: ${name}=${value}`),
     ...trailer("Cost", costValue(spec.cost)),
+    ...trailer("Duration", spec.duration?.toString()),
     ...(spec.judge ?? []).map((verdict) => `Gtd-Judge: ${JSON.stringify(verdict)}`),
     ...(spec.marks ?? []).map((m) => `Gtd-Mark: ${m.name}=${m.value}`),
     ...trailer("Approved", spec.approved && encodeApproval(spec.approved)),

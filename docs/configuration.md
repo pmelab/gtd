@@ -838,7 +838,7 @@ exempt — it may do anything. Everything else follows
 
 A workflow's `summary` option sets the prompt `gtd summary` prints: a function
 receiving
-`{ entryCommit, processBase, processTip, humanCommits, processCost, processCostByModel, marks, vars, env }`
+`{ entryCommit, processBase, processTip, humanCommits, processCost, processCostByModel, processCheckSeconds, processPromptSeconds, marks, vars, env }`
 and returning a string. `humanCommits` lists every human-authored commit of the
 process as `{ hash, state }`; `marks` lists every `Gtd-Mark` of the process as
 `{ name, value }`, oldest first. Without `summary`, `gtd summary` refuses.
