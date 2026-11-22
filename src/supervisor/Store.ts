@@ -19,6 +19,9 @@ export interface Store {
   /** The notification keys sent, oldest first; `undefined` when no supervisor kept any yet. */
   readonly notified: () => readonly string[] | undefined
   readonly saveNotified: (keys: readonly string[]) => void
+  /** The endpoints of the devices that subscribed, for the start line. */
+  readonly pushed: () => readonly string[]
+  readonly savePushed: (endpoints: readonly string[]) => void
   /** The scopes where dispatch is paused, unchecked. */
   readonly paused: () => readonly unknown[]
   readonly savePaused: (scopes: readonly unknown[]) => void
@@ -75,6 +78,13 @@ export const openStore = (directory: string): Store => {
         : {}
     },
     saveNotes: (notes) => write({ ...read(), notes }),
+    pushed: () => {
+      const endpoints = read()["pushed"]
+      return Array.isArray(endpoints)
+        ? endpoints.filter((e): e is string => typeof e === "string")
+        : []
+    },
+    savePushed: (endpoints) => write({ ...read(), pushed: endpoints }),
     notified: () => {
       const keys = read()["notified"]
       return Array.isArray(keys)

@@ -49,3 +49,10 @@ Feature: the dashboard
     And the dashboard page links the manifest "/manifest.webmanifest"
     And the dashboard viewport has "viewport-fit=cover" and "interactive-widget=resizes-content"
     And the dashboard manifest is a standalone app named "gtd" with theme_color, background_color and 2 icons
+
+  Scenario: the dashboard is installable and works from a service worker of its own version
+    When I start gtd workspace
+    Then the dashboard manifest names the workspace directory, with the short name "gtd" and the scope "/"
+    And the dashboard serves a service worker that caches only the app shell under the gtd version
+    And the dashboard page carries the supervisor's version
+    And the dashboard tells its version

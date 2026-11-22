@@ -3,11 +3,11 @@
 `gtd workspace` uses five tools: a terminal multiplexer, a service manager, a
 worktree manager, a task runner and a push service. Each one sits behind a plain
 TypeScript interface (Promises and async iterables, no Effect). gtd bundles one
-default for each (rex, pitchfork, worktrunk, mise, ntfy), and `gtd.workspace.ts`
-can replace any of them with its own object. We chose this over building the
-supervisor on those five tools directly, so that a team on tmux, systemd, plain
-git or just can use the dashboard, and over shipping no defaults, so that a new
-user has a working workspace without writing an adapter.
+default for each (rex, pitchfork, worktrunk, mise, Web Push; see ADR 0016), and
+`gtd.workspace.ts` can replace any of them with its own object. We chose this
+over building the supervisor on those five tools directly, so that a team on
+tmux, systemd, plain git or just can use the dashboard, and over shipping no
+defaults, so that a new user has a working workspace without writing an adapter.
 
 ## Consequences
 

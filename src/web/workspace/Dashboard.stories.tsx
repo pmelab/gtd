@@ -329,9 +329,10 @@ export const UnreachableSupervisor: Story = {
   ],
   play: async ({ canvasElement }) => {
     const notice = await within(canvasElement).findByTestId("dashboard-error")
-    await expect(notice.textContent).toBe("Could not reach the supervisor: connection refused")
+    await expect(notice.textContent).toBe("Cannot reach the workspace")
+    await within(canvasElement).findByTestId("dashboard-retry")
     await expect(within(canvasElement).getByRole("alert").textContent).toContain(
-      "Check that gtd workspace is running, then reload.",
+      "Check that gtd workspace is running, then retry.",
     )
   },
 }

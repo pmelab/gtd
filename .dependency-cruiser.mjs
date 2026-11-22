@@ -127,6 +127,7 @@ const npmAllowList = [
     units: ["^src/steering/"],
   },
   { packages: ["rolldown"], units: ["^src/workflow/"] },
+  { packages: ["web-push"], units: ["^src/workspace-adapters/"] },
   {
     packages: [
       "react",

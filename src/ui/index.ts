@@ -10,6 +10,8 @@ export { UiError, UiHost, UiShell, UiUsageError, type UiHandler, type UiHostOps 
 export { liveUiHost } from "./Host.js"
 export {
   MANIFEST_PATH,
+  SERVICE_WORKER_PATH,
+  dashboardServiceWorker,
   currentRest,
   dashboardManifest,
   dashboardPage,

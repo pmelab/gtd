@@ -21,7 +21,7 @@ Feature: gtd workspace sends notifications
       | portal  | plan   |
       | api     | main   |
 
-  Scenario: a worktree that comes to need you sends one notification that links to its gate page
+  Scenario: a worktree that comes to need you sends one notification that links to its detail
     When I start gtd workspace
     And gtd next --json in "portal/plan" prints:
       """
@@ -31,8 +31,8 @@ Feature: gtd workspace sends notifications
     And 1 second passes
     And 30 seconds pass
     Then gtd sent these notifications:
-      | key                                       | title                  | body            | link              | priority |
-      | needsYou:portal/plan:<HEAD of portal/plan> | portal/plan needs you | Answer the plan | /portal/plan/gate | high     |
+      | key                                       | kind     | title                  | body            | link                             | priority |
+      | needsYou:portal/plan:<HEAD of portal/plan> | needsYou | portal/plan needs you | Answer the plan | /?worktree=<path of portal/plan> | high     |
 
   Scenario: a worktree in error sends a notification that links to its detail
     When I start gtd workspace
@@ -233,7 +233,7 @@ Feature: gtd workspace sends notifications
     Then gtd sent no notification
 
   Scenario: a notification that cannot be published is reported and not sent again
-    Given publishing a notification fails with "no route to ntfy.sh"
+    Given publishing a notification fails with "no route to the push service"
     When I start gtd workspace
     And gtd next --json in "portal/plan" prints:
       """
@@ -244,13 +244,59 @@ Feature: gtd workspace sends notifications
     And 30 seconds pass
     Then the supervisor printed:
       """
-      not sent: no route to ntfy.sh
+      not sent: no route to the push service
       """
     And gtd sent no notification
 
-  Scenario: with the default notifications, the supervisor prints where to subscribe
+  Scenario: while no device is subscribed, the supervisor prints where to turn on push
     When I start gtd workspace
     Then the supervisor printed:
       """
-      notifications: subscribe to https://ntfy.sh/gtd-topic-of-this-workspace
+      notifications: turn on push in the dashboard at
+      """
+
+  Scenario: the start line does not show once a device is subscribed
+    When I start gtd workspace
+    And I subscribe the device "https://push.example/phone" with kinds "needsYou,error"
+    And I stop gtd workspace
+    And I start gtd workspace
+    Then the supervisor printed no push line
+
+  Scenario: the dashboard gives the adapter's public key
+    When I start gtd workspace
+    Then the dashboard's push key is "twin-public-key"
+
+  Scenario: a device subscribes, changes its kinds with the same endpoint, and unsubscribes
+    When I start gtd workspace
+    And I subscribe the device "https://push.example/phone" with kinds "needsYou,error"
+    Then the adapter knows the device "https://push.example/phone" with kinds "needsYou,error"
+    When I subscribe the device "https://push.example/phone" with kinds "proposed"
+    Then the adapter knows the device "https://push.example/phone" with kinds "proposed"
+    When I unsubscribe the device "https://push.example/phone"
+    Then the adapter does not know the device "https://push.example/phone"
+    And the audit log reads:
+      | identity          | endpoint              | action      | outcome  |
+      | owner@example.com | /trpc/pushSubscribe   | subscribe   | accepted |
+      | owner@example.com | /trpc/pushSubscribe   | subscribe   | accepted |
+      | owner@example.com | /trpc/pushUnsubscribe | unsubscribe | accepted |
+
+  Scenario: a tailnet login that is not in ui.users cannot subscribe
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      export const workspace = { ui: { users: ["me@example.com"] } }
+      """
+    When I start gtd workspace
+    And "stranger@example.com" requests the dashboard
+    Then the dashboard answers 403
+
+  Scenario: a gtd.workspace.ts that imports ntfy is a config error with the runtime's message
+    Given a workspace file "gtd.workspace.ts" with:
+      """
+      import { ntfy } from "@pmelab/gtd/workspace/adapters"
+      export const workspace = { adapters: { notifications: ntfy({ topic: "x" }) } }
+      """
+    When I start gtd workspace
+    Then gtd workspace exits 1, printing:
+      """
+      ntfy
       """

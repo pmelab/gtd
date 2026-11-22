@@ -1175,6 +1175,7 @@ const runWorkspaceCliCommand = (
         flags,
         cwd: host.root,
         stateHome: stateHomeOf(host, paths),
+        version: GTD_VERSION,
         loadModule: (file) => evaluateModule(paths, file),
       },
       out,
