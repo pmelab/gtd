@@ -338,6 +338,10 @@ It decides nothing about a process. _Avoid_: daemon, server, orchestrator
 worktrees, actions or notifications. Each has a bundled default that a workspace
 can replace. _Avoid_: plugin, provider, backend
 
+**Device**: One browser, or one installed dashboard app, that opted in to Web
+Push notifications from a workspace, with the notification kinds it chose.
+_Avoid_: client, subscriber, endpoint (the push service's address of a device)
+
 **Driver command**: The command the supervisor starts in a worktree to drive its
 process — as the only command of a new terminal pane, never as its own child. It
 takes no arguments and answers `proceed <commit>`, `retry <commit>` and `quit`,
