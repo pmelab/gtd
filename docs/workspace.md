@@ -215,8 +215,10 @@ An item has these fields:
 - **`action`**: the start action that begins the work, for example
   `start:feature`;
 - **`priority`**: a number; a higher number starts first;
-- **`blockedBy`** (optional): keys of items that must start first. Use
-  `<feed>/<key>` for an item of another feed;
+- **`blockedBy`** (optional): keys of the blockers that hold the item. A key
+  blocks the item for as long as the feed lists it, whether or not the blocker
+  is in the inbox or has started. The feed drops a blocker when it is done; list
+  only open blockers;
 - **`branch`** (optional): start the work in the existing worktree of this
   branch;
 - **`data`** (optional): any JSON. gtd passes it on and never reads it.
@@ -346,7 +348,7 @@ runs, or where an item is starting.
 | -------- | --------------------------------------------------------------------------------------- |
 | proposed | A `propose` feed filed it; it waits for a person.                                       |
 | queued   | A `queue` feed filed it, or a person started it, and it waits to start.                 |
-| blocked  | It is queued, and an item it names in `blockedBy` is still in the inbox.                |
+| blocked  | It is queued, and its `blockedBy` is not empty.                                         |
 | starting | gtd dispatches it: its worktree, services and start action are on their way.            |
 | failed   | Its dispatch failed. It stays, with the reason, until a person retries or dismisses it. |
 
@@ -357,9 +359,8 @@ feed, and after each Start or Retry. It does not dispatch until every feed has
 polled once since the supervisor started, so that a blocker of another feed is
 in the inbox. An item waits, queued, with the reason, when:
 
-- an item it names in `blockedBy` is in the inbox (it shows as blocked). A
-  blocker that left the inbox no longer holds it: a feed that stops returning
-  the blocker, or a reload that removes the blocker's feed, lets it start,
+- its `blockedBy` is not empty (it shows as blocked). It starts after the first
+  poll that returns an empty `blockedBy`,
 - `limits.maxDrives` drives are in use in the workspace,
 - `wip` drives are in use in its project (`projects.<id>.wip`, else
   `limits.wip`),

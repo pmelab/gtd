@@ -188,7 +188,7 @@ Feature: gtd workspace reloads gtd.workspace.ts
       | issues | 1   | Add login  | proposed |
       | issues | 2   | Fix footer | proposed |
 
-  Scenario: a reload that removes the feed of a blocker lets the item that it blocked start
+  Scenario: a reload that removes the feed of a blocker keeps the item that it blocked blocked
     Given the actions adapter offers these actions:
       """
       [{ "id": "start:feature", "label": "Start a feature", "status": "idle", "fields": [] }]
@@ -239,6 +239,8 @@ Feature: gtd workspace reloads gtd.workspace.ts
         poll: async (ctx) => JSON.parse((await ctx.exec(["gh", "pr", "list"])).stdout),
       })
       """
-    Then gtd opened these action panes:
-      | worktree          | argv              |
-      | portal/deploys/d1 | ["start:feature"] |
+    Then the Inbox lists:
+      | feed    | key | title  | state   |
+      | deploys | d1  | Deploy | blocked |
+    And gtd opened these action panes:
+      | worktree | argv |
