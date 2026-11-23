@@ -1,4 +1,4 @@
-import { FileDiff } from "lucide-react"
+import { ExternalLink, File, FileDiff } from "lucide-react"
 import { createContext, useContext, useState, type ReactNode } from "react"
 import type { InlineNode } from "../../steering/index.js"
 
@@ -7,6 +7,12 @@ export const HUNK_HREF_RE = /^\.\/(.+)#(\d+)(?:-(\d+))?$/
 
 /** Set by the document screen: opens the by-hunk view at the tapped link. */
 export const HunkOpenContext = createContext<((target: HTMLElement) => void) | undefined>(undefined)
+
+/** A code span that names a repo file: a slash path, or a bare name with a known extension, optionally `:line`. */
+const PATH_RE =
+  /^(?:\.{1,2}\/)?[\w@.-]+(?:\/[\w@.-]+)+(?::\d+(?:-\d+)?)?$|^[\w.-]+\.(?:tsx?|jsx?|mjs|cjs|json|md|ya?ml|toml|sh|py|go|css|html|sql|graphql|feature)(?::\d+(?:-\d+)?)?$/
+
+const PATH = "font-mono text-[0.875em] text-path"
 
 const LINK =
   "text-link underline decoration-muted-foreground underline-offset-4 hover:decoration-foreground focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
@@ -18,20 +24,21 @@ const Link = ({ href, children }: { readonly href: string; readonly children: Re
       <a
         href={href}
         data-hunk={href}
-        className={LINK}
+        className={`${LINK} ${PATH} decoration-path`}
         onClick={(e) => {
           e.preventDefault()
           open(e.currentTarget)
         }}
       >
+        <FileDiff aria-hidden="true" className="mr-1 inline size-3.5 align-[-0.125em]" />
         {children}
-        <FileDiff aria-hidden="true" className="ml-0.5 inline size-3.5 align-[-0.125em]" />
       </a>
     )
   }
   return (
     <a href={href} target="_blank" rel="noreferrer" className={LINK}>
       {children}
+      <ExternalLink aria-hidden="true" className="ml-0.5 inline size-3.5 align-[-0.125em]" />
     </a>
   )
 }
@@ -73,12 +80,12 @@ const INLINE_RENDERERS: {
 } = {
   text: (node) => node.value,
   strong: (node, key) => (
-    <strong key={key}>
+    <strong key={key} className="font-bold text-heading">
       <InlineRun nodes={node.children} />
     </strong>
   ),
   emphasis: (node, key) => (
-    <em key={key}>
+    <em key={key} className="text-emphasis italic">
       <InlineRun nodes={node.children} />
     </em>
   ),
@@ -87,11 +94,20 @@ const INLINE_RENDERERS: {
       <InlineRun nodes={node.children} />
     </s>
   ),
-  code: (node, key) => (
-    <code key={key} className="rounded-sm bg-muted px-1 py-0.5 font-mono text-[0.875em]">
-      {node.value}
-    </code>
-  ),
+  code: (node, key) =>
+    PATH_RE.test(node.value) ? (
+      <code key={key} className={PATH}>
+        <File aria-hidden="true" className="mr-1 inline size-3.5 align-[-0.125em]" />
+        {node.value}
+      </code>
+    ) : (
+      <code
+        key={key}
+        className="rounded-sm border border-border bg-code-bg px-1 py-0.5 font-mono text-[0.875em] text-code"
+      >
+        {node.value}
+      </code>
+    ),
   link: (node, key) => (
     <Link key={key} href={node.href}>
       <InlineRun nodes={node.children} />

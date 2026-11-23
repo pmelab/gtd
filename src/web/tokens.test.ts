@@ -106,6 +106,9 @@ describe.each([
     "actor-agent",
     "actor-judge",
     "actor-check",
+    "heading",
+    "emphasis",
+    "path",
   ])("%s text clears 4.5:1 on background, card and muted", (name) => {
     for (const ground of ["background", "card", "muted"]) {
       expect(contrastRatio(tokens[name]!, tokens[ground]!), ground).toBeGreaterThanOrEqual(4.5)

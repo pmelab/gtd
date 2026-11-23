@@ -436,3 +436,44 @@ export const AFindingLocationOpensItsDiff: Story = {
     await expect(canvas.queryByTestId("hunk-tick")).toBeNull()
   },
 }
+
+const ELEMENTS = `# Heading one
+
+## Heading two
+
+Body with **bold**, *italic*, a \`code span\`, a repo path \`src/limit/bucket.ts\`
+and an [external link](https://example.com/docs).
+
+\`\`\`bash
+# comment
+echo 'single' "double" $HOME 42
+\`\`\`
+
+\`\`\`yaml
+name: 'portal' # note
+port: 8080
+\`\`\`
+
+\`\`\`mystery
+unknown language stays plain
+\`\`\`
+`
+
+export const EveryDocumentElement: Story = {
+  args: {
+    filePath: ".gtd/REVIEW.md",
+    context: { repo: "portal", branch: "rate-limit", label: "reviewing the change" },
+    isLoading: false,
+    view: widgetFormat.view(ELEMENTS),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByText("bold").tagName).toBe("STRONG")
+    await expect(canvas.getByText("italic").tagName).toBe("EM")
+    await expect(canvas.getByText("src/limit/bucket.ts").tagName).toBe("CODE")
+    await expect(canvas.getByRole("link", { name: /external link/ })).toHaveAttribute(
+      "href",
+      "https://example.com/docs",
+    )
+  },
+}

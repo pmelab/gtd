@@ -12,6 +12,7 @@ import {
   renameSync,
   rmSync,
   statSync,
+  utimesSync,
   writeFileSync,
   type Stats,
 } from "node:fs"
@@ -84,7 +85,12 @@ export const nodeSyncIo: SyncIo = {
 export const copyIndexToScratch = (index: string): { dir: string; copy: string } => {
   const dir = mkdtempSync(join(tmpdir(), "gtd-index-"))
   const copy = join(dir, "index")
-  if (isAbsolute(index) && existsSync(index)) copyFileSync(index, copy)
+  if (isAbsolute(index) && existsSync(index)) {
+    copyFileSync(index, copy)
+    // Git judges "racily clean" entries by the index's mtime; a fresh mtime hides a same-size edit.
+    const { atime, mtime } = statSync(index)
+    utimesSync(copy, atime, mtime)
+  }
   return { dir, copy }
 }
 
