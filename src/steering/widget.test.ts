@@ -270,3 +270,36 @@ describe("widgetFormat for the editor", () => {
     ])
   })
 })
+
+describe("annotate — existing note on a block", () => {
+  it("AC-5: rewrites the definition only when the marker is not on the first line", () => {
+    const content = ["Line one.", "The[^fn1] two.", "", "[^fn1]: old", ""].join("\n")
+    const result = widgetFormat.annotate(content, { kind: "paragraph", line: 0 }, "new text")
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    expect(applySteeringEdits(content, result.edits)).toBe(
+      ["Line one.", "The[^fn1] two.", "", "[^fn1]: new text", ""].join("\n"),
+    )
+  })
+
+  it("adds a new note instead of rewriting when the block holds two notes", () => {
+    const content = ["Text[^b] and[^a].", "", "[^b]: first", "[^a]: second", ""].join("\n")
+    const result = widgetFormat.annotate(content, { kind: "paragraph", line: 0 }, "third")
+    expect(result.ok).toBe(true)
+    if (!result.ok) return
+    const out = applySteeringEdits(content, result.edits)
+    expect(out).toContain("[^b]: first")
+    expect(out).toContain("[^a]: second")
+    expect(out).toContain("]: third")
+  })
+
+  it("view: a definition without a marker is on the page", () => {
+    const view = widgetFormat.view("# T\n\nText.\n\n[^lost]: orphan\n")
+    expect(view.nodes.map((n) => n.note)).toEqual([undefined, undefined, "orphan"])
+  })
+
+  it("view: a block with two notes reports how many", () => {
+    const view = widgetFormat.view("Text[^b] and[^a].\n\n[^b]: first\n[^a]: second\n")
+    expect(view.nodes[0]).toMatchObject({ note: "first\nsecond", noteCount: 2 })
+  })
+})

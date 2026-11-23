@@ -167,3 +167,30 @@ describe("blockNodesOf — block.text", () => {
     expect(nodes.map((n) => n.block?.kind)).toEqual(["paragraph", undefined, "paragraph"])
   })
 })
+
+describe("blockNodesOf — footnote marker anywhere in a block", () => {
+  it("AC-1: a marker on line 2 of a paragraph gives that paragraph its note", () => {
+    const content = ["First line.", "The[^fn1] second.", "", "[^fn1]: late note", ""].join("\n")
+    const nodes = blockNodesOf(content, parseMarkdown(content))
+    expect(nodes).toHaveLength(1)
+    expect(nodes[0]?.note).toBe("late note")
+  })
+
+  it("AC-2: two markers in one block show both notes, in marker order", () => {
+    const content = ["A[^b] and", "B[^a].", "", "[^a]: second", "", "[^b]: first", ""].join("\n")
+    expect(blockNodesOf(content, parseMarkdown(content))[0]?.note).toBe("first\nsecond")
+  })
+
+  it("AC-3: a list item with its marker on a continuation line shows the note", () => {
+    const content = ["- one", "  more[^fn1]", "- two", "", "[^fn1]: item note", ""].join("\n")
+    const items = blockNodesOf(content, parseMarkdown(content))[0]?.block?.items
+    expect(items?.[0]?.note).toBe("item note")
+    expect(items?.[1]?.note).toBeUndefined()
+  })
+
+  it("AC-4: a definition without a marker is shown as an orphan node", () => {
+    const content = ["Text.", "", "[^lost]: orphan body", ""].join("\n")
+    const nodes = blockNodesOf(content, parseMarkdown(content))
+    expect(nodes.map((n) => n.note)).toEqual([undefined, "orphan body"])
+  })
+})
