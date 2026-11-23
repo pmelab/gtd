@@ -1,6 +1,7 @@
 import { blockNodesOf } from "./Blocks.js"
 import { projectInline, type InlineNode } from "./Inline.js"
 import { eolOf } from "./Eol.js"
+import { findRefs } from "./Refs.js"
 import { footnoteAdditionEdits, footnotePointerAt, nextFootnoteName } from "./Footnotes.js"
 import { blockNodeAt, parseMarkdown, toLspPosition } from "./MarkdownTree.js"
 import type {
@@ -463,9 +464,18 @@ const actions: SteeringFormat["actions"] = (content, range) => [
   ...annotationAction(content, range.start.line),
 ]
 
+const refLinks = (content: string): SteeringLink[] =>
+  content.split(/\r?\n/).flatMap((text, line) =>
+    findRefs(text).map((r) => ({
+      range: { start: { line, character: r.start }, end: { line, character: r.end } },
+      path: r.path,
+      line: r.line - 1,
+    })),
+  )
+
 const documentLinks: SteeringFormat["documentLinks"] = (content) => {
   const lines = content.split(/\r?\n/)
-  return inputs(parseWidgets(content).widgets).flatMap((widget) =>
+  const hunkLinks = inputs(parseWidgets(content).widgets).flatMap((widget) =>
     widget.kind !== "review-checklist"
       ? []
       : widget.hunks.flatMap((hunk): SteeringLink[] => {
@@ -486,12 +496,25 @@ const documentLinks: SteeringFormat["documentLinks"] = (content) => {
           ]
         }),
   )
+  const seen = new Set(hunkLinks.map((l) => `${l.range.start.line}:${l.range.start.character}`))
+  return [
+    ...hunkLinks,
+    ...refLinks(content).filter(
+      (l) => !seen.has(`${l.range.start.line}:${l.range.start.character}`),
+    ),
+  ]
 }
 
 const pointerAt: SteeringFormat["pointerAt"] = (content, position) => {
   const footnote = footnotePointerAt(content, position)
   if (footnote !== undefined) return footnote.pointer
-  const link = documentLinks?.(content).find((l) => l.range.start.line === position.line)
+  const onLine = documentLinks?.(content).filter((l) => l.range.start.line === position.line) ?? []
+  const link =
+    onLine.find(
+      (l) =>
+        l.range.start.character <= position.character &&
+        position.character <= l.range.end.character,
+    ) ?? onLine[0]
   return link === undefined ? undefined : { path: link.path, line: link.line }
 }
 

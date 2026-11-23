@@ -40,7 +40,8 @@ import { RadioGroup, RadioGroupItem } from "../ui/radio-group.js"
 import { Skeleton } from "../ui/skeleton.js"
 import { cellKey, useWriteStore, WriteStoreProvider } from "../writeStore.js"
 import { Hunk } from "./Hunk.js"
-import { HUNK_HREF_RE, HunkOpenContext, Inline } from "./InlineRun.js"
+import { findRefs } from "../../steering/internal.js"
+import { HunkOpenContext, Inline, refOfHref } from "./InlineRun.js"
 import { NoteGestureHint, ProseBlocks } from "./ProseBlock.js"
 
 type TokenGuardedWrite = (tokens: CasTokens) => Promise<unknown>
@@ -77,23 +78,27 @@ const useHunkDiff = (node: SteeringViewNode) => {
 type Page = SteeringViewNode
 
 const hunkHref = (n: InlineNode): string[] =>
-  n.kind === "link" && HUNK_HREF_RE.test(n.href) ? [n.href] : []
+  n.kind === "link"
+    ? [refOfHref(n.href)?.href ?? []].flat()
+    : n.kind === "text" || n.kind === "code"
+      ? findRefs(n.value).map((r) => r.href)
+      : []
 
 const childrenOf = (n: InlineNode): readonly InlineNode[] => ("children" in n ? n.children : [])
 
 const inlineLinks = (inline: readonly InlineNode[]): string[] =>
-  inline.flatMap((n) => [...hunkHref(n), ...inlineLinks(childrenOf(n))])
+  inline.flatMap((n) => [...hunkHref(n), ...(n.kind === "link" ? [] : inlineLinks(childrenOf(n)))])
 
 const itemLinks = (items: readonly BlockListItem[]): string[] =>
   items.flatMap((i) => [...inlineLinks(i.inline ?? []), ...itemLinks(i.items ?? [])])
 
 const pageOfHref = (href: string, anchor: SteeringAnchor): Page => {
-  const m = HUNK_HREF_RE.exec(href)!
+  const r = refOfHref(href)!
   return {
-    title: href,
-    path: m[1]!,
-    line: Number(m[2]),
-    ...(m[3] !== undefined ? { endLine: Number(m[3]) } : {}),
+    title: r.href,
+    path: r.path,
+    line: r.line,
+    ...(r.endLine !== undefined ? { endLine: r.endLine } : {}),
     anchor,
   } as Page
 }

@@ -154,9 +154,11 @@ describe("structural findings", () => {
   })
 
   it("a review item that is not a hunk pointer", () => {
-    expect(messages("## 🔍 Chunk\n\n- [ ] src/a.ts#1-2\n- [ ] ./b.ts#9-3\n")).toEqual([
+    expect(
+      messages("## 🔍 Chunk\n\n- [ ] just words\n- [ ] src/a.ts#1-2\n- [ ] ./b.ts#9-3\n"),
+    ).toEqual([
       '3: "Chunk": a review checklist item must start with a hunk pointer like `./path/file.ts#10-20`',
-      '4: "Chunk": hunk range ./b.ts#9-3 ends before it starts',
+      '5: "Chunk": hunk range ./b.ts#9-3 ends before it starts',
     ])
   })
 

@@ -163,6 +163,29 @@ export interface DiffDeps {
   readonly run: RunInWorktree
 }
 
+/** A pointer at a file the change leaves alone: that file's lines around the pointer, as context rows. */
+const unchangedFileAt = async (
+  worktreePath: string,
+  path: string,
+  line: number | undefined,
+  endLine: number | undefined,
+  deps: DiffDeps,
+): Promise<DiffResult | undefined> => {
+  if (line === undefined || line === 0) return undefined
+  const outcome = await deps.run(worktreePath, `cat -- ${shellQuote(path)}`)
+  if (outcome.status !== 0 || outcome.stdout === "") return undefined
+  const rows = outcome.stdout.replace(/\n$/, "").split("\n")
+  if (line > rows.length) return undefined
+  const whole: DiffHunk = {
+    header: `@@ -1,${rows.length} +1,${rows.length} @@`,
+    newStart: 1,
+    newLines: rows.length,
+    lines: rows.map((r) => ` ${r}`),
+  }
+  const hunk = sliceHunk(whole, line, Math.min(endLine ?? line, rows.length))
+  return { kind: "hunk", diff: { path, hunks: [hunk] }, hunks: [hunk] }
+}
+
 /**
  * Resolves a review hunk pointer against `gtd base`, falling back to the
  * whole-file diff when the range lands on no hunk — never an empty result.
@@ -220,7 +243,9 @@ export const resolveDiff = async (
   // Its own kind, never `whole-file`: there is no whole diff to show behind
   // that banner, and a banner over an empty body is the forbidden empty screen.
   if (diff.hunks.length === 0) {
-    return { kind: "no-changes" }
+    return (
+      (await unchangedFileAt(worktreePath, path, line, endLine, deps)) ?? { kind: "no-changes" }
+    )
   }
 
   // No line, or a line with no `endLine`: half a range is nothing for

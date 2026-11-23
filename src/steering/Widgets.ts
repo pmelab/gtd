@@ -9,6 +9,7 @@ import type {
   RootContent,
 } from "mdast"
 import { headingText, parseMarkdown, sourceText } from "./MarkdownTree.js"
+import { findRefs } from "./Refs.js"
 import type { SteeringFinding } from "./SteeringFormat.js"
 
 export type WidgetKind =
@@ -130,7 +131,6 @@ export interface WidgetDocument {
   readonly findings: readonly SteeringFinding[]
 }
 
-const POINTER_RE = /^(\.\/\S+?)#(\d+)(?:-(\d+))?(?=\s|$)/
 const NOTE_SEPARATOR_RE = /^\s*[—–-]*\s*/
 
 const line0 = (node: Node): number => (node.position?.start.line ?? 1) - 1
@@ -197,8 +197,8 @@ const isTask = (item: ListItem): boolean => typeof item.checked === "boolean"
 
 const hunkOf = (ctx: InputContext, item: ListItem): Hunk | undefined => {
   const text = itemText(ctx.content, item)
-  const match = POINTER_RE.exec(text)
-  if (match === null) {
+  const ref = findRefs(text)[0]
+  if (ref === undefined || ref.start !== 0) {
     ctx.findings.push(
       finding(
         line0(item),
@@ -207,18 +207,19 @@ const hunkOf = (ctx: InputContext, item: ListItem): Hunk | undefined => {
     )
     return undefined
   }
-  const start = Number(match[2])
-  const end = match[3] === undefined ? start : Number(match[3])
+  const start = ref.line
+  const end = ref.endLine ?? start
+  const pointer = text.slice(0, ref.end)
   if (end < start)
     ctx.findings.push(
-      finding(line0(item), `"${ctx.title}": hunk range ${match[0]} ends before it starts`),
+      finding(line0(item), `"${ctx.title}": hunk range ${pointer} ends before it starts`),
     )
   return {
-    pointer: match[0],
-    path: match[1] ?? "",
+    pointer,
+    path: `./${ref.path}`,
     start,
     end,
-    note: text.slice(match[0].length).replace(NOTE_SEPARATOR_RE, ""),
+    note: text.slice(ref.end).replace(NOTE_SEPARATOR_RE, ""),
     checked: item.checked === true,
     line: line0(item),
   }

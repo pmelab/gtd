@@ -1,9 +1,16 @@
 import { ExternalLink, File, FileDiff } from "lucide-react"
 import { createContext, useContext, useState, type ReactNode } from "react"
 import type { InlineNode } from "../../steering/index.js"
+import { findRefs, type PathRef } from "../../steering/internal.js"
 
-/** `./path#a` or `./path#a-b`: a hunk pointer that opens in the by-hunk view. */
-export const HUNK_HREF_RE = /^\.\/(.+)#(\d+)(?:-(\d+))?$/
+/** The reference a whole link target is, or `undefined`: same rule as plain-text references. */
+export const refOfHref = (href: string): PathRef | undefined => {
+  const refs = findRefs(href)
+  const r = refs[0]
+  return refs.length === 1 && r !== undefined && r.start === 0 && r.end === href.length
+    ? r
+    : undefined
+}
 
 /** Set by the document screen: opens the by-hunk view at the tapped link. */
 export const HunkOpenContext = createContext<((target: HTMLElement) => void) | undefined>(undefined)
@@ -12,19 +19,33 @@ export const HunkOpenContext = createContext<((target: HTMLElement) => void) | u
 const PATH_RE =
   /^(?:\.{1,2}\/)?[\w@.-]+(?:\/[\w@.-]+)+(?::\d+(?:-\d+)?)?$|^[\w.-]+\.(?:tsx?|jsx?|mjs|cjs|json|md|ya?ml|toml|sh|py|go|css|html|sql|graphql|feature)(?::\d+(?:-\d+)?)?$/
 
+/** True inside a link: a plain reference there must not nest a second anchor. */
+const InLinkContext = createContext(false)
+
+const CODE =
+  "rounded-sm border border-border bg-code-bg px-1 py-0.5 font-mono text-[0.875em] text-code"
 const PATH = "font-mono text-[0.875em] text-path"
 
 const LINK =
   "text-link underline decoration-muted-foreground underline-offset-4 hover:decoration-foreground focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring"
 
-const Link = ({ href, children }: { readonly href: string; readonly children: ReactNode }) => {
+const Link = ({
+  href,
+  children,
+  code,
+}: {
+  readonly href: string
+  readonly children: ReactNode
+  readonly code?: boolean
+}) => {
   const open = useContext(HunkOpenContext)
-  if (open !== undefined && HUNK_HREF_RE.test(href)) {
+  const ref = refOfHref(href)
+  if (open !== undefined && ref !== undefined) {
     return (
       <a
-        href={href}
-        data-hunk={href}
-        className={`${LINK} ${PATH} decoration-path`}
+        href={ref.href}
+        data-hunk={ref.href}
+        className={`${LINK} ${code === true ? CODE + " " : PATH + " "}decoration-path`}
         onClick={(e) => {
           e.preventDefault()
           open(e.currentTarget)
@@ -41,6 +62,26 @@ const Link = ({ href, children }: { readonly href: string; readonly children: Re
       <ExternalLink aria-hidden="true" className="ml-0.5 inline size-3.5 align-[-0.125em]" />
     </a>
   )
+}
+
+/** `value` with each plain `./path#a-b` reference rendered as a hunk link; `code` keeps the code style around it. */
+const WithRefs = ({ value, code }: { readonly value: string; readonly code?: boolean }) => {
+  const inLink = useContext(InLinkContext)
+  const refs = inLink ? [] : findRefs(value)
+  if (refs.length === 0) return <>{value}</>
+  const parts: ReactNode[] = []
+  let at = 0
+  refs.forEach((r, i) => {
+    if (r.start > at) parts.push(value.slice(at, r.start))
+    parts.push(
+      <Link key={i} href={r.href} {...(code === undefined ? {} : { code })}>
+        {value.slice(r.start, r.end)}
+      </Link>,
+    )
+    at = r.end
+  })
+  if (at < value.length) parts.push(value.slice(at))
+  return <>{parts}</>
 }
 
 /**
@@ -78,7 +119,7 @@ const INLINE_RENDERERS: {
     key: number,
   ) => ReactNode
 } = {
-  text: (node) => node.value,
+  text: (node, key) => <WithRefs key={key} value={node.value} />,
   strong: (node, key) => (
     <strong key={key} className="font-bold text-heading">
       <InlineRun nodes={node.children} />
@@ -101,16 +142,15 @@ const INLINE_RENDERERS: {
         {node.value}
       </code>
     ) : (
-      <code
-        key={key}
-        className="rounded-sm border border-border bg-code-bg px-1 py-0.5 font-mono text-[0.875em] text-code"
-      >
-        {node.value}
+      <code key={key} className={CODE}>
+        <WithRefs value={node.value} code />
       </code>
     ),
   link: (node, key) => (
     <Link key={key} href={node.href}>
-      <InlineRun nodes={node.children} />
+      <InLinkContext.Provider value={true}>
+        <InlineRun nodes={node.children} />
+      </InLinkContext.Provider>
     </Link>
   ),
   image: (node, key) => <ProseImage key={key} src={node.src} alt={node.alt} />,
