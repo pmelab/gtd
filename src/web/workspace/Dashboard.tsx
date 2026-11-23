@@ -185,7 +185,9 @@ const Loaded = ({
     window.history.replaceState(null, "", screenUrl({ view }))
     setScreen({ view })
   }, [vanished, view])
+  const [opened, setOpened] = useState(0)
   const open = (e: Entry) => {
+    setOpened((n) => n + 1)
     go({ view, worktree: e.worktree.path })
   }
   const close = () => {
@@ -304,7 +306,13 @@ const Loaded = ({
           </div>
         )}
         {entry !== undefined ? (
-          <Detail key={entry.worktree.path} entry={entry} onClose={close} embedded={desktop} />
+          <Detail
+            key={entry.worktree.path}
+            entry={entry}
+            onClose={close}
+            embedded={desktop}
+            opened={opened}
+          />
         ) : (
           split && (
             <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 p-4 text-muted-foreground">

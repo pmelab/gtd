@@ -79,11 +79,16 @@ export const SelectingTextDoesNotOpen: Story = {
   },
 }
 
-/** Open takes the worktree to its detail, where the gate page is. */
-export const OpenShowsTheDetail: Story = {
+/** The whole card is one button named by its worktree and status; no Open button. */
+export const CardIsTheOnlyControl: Story = {
   play: async ({ canvasElement, args }) => {
-    const [, gate] = within(canvasElement).getAllByRole("button", { name: "Open" })
-    await userEvent.click(gate!)
+    const canvas = within(canvasElement)
+    await expect(canvas.queryByRole("button", { name: "Open" })).toBeNull()
+    const gate = canvas.getByRole("button", { name: /plan, / })
+    gate.focus()
+    await userEvent.keyboard("{Enter}")
+    await userEvent.keyboard(" ")
+    await expect(args.onOpen).toHaveBeenCalledTimes(2)
     await expect(args.onOpen).toHaveBeenCalledWith(
       expect.objectContaining({ worktree: expect.objectContaining({ branch: "plan" }) }),
     )
@@ -102,15 +107,12 @@ export const NoPressButtonOnACard: Story = {
   },
 }
 
-/** A click on the card body opens the detail; the Open button opens it once. */
+/** A click anywhere on the card opens the detail. */
 export const CardBodyOpensTheDetail: Story = {
   play: async ({ canvasElement, args }) => {
-    const canvas = within(canvasElement)
-    const [, gate] = canvas.getAllByTestId("now-card")
+    const [, gate] = within(canvasElement).getAllByTestId("now-card")
     await userEvent.click(within(gate!).getByRole("heading"))
     await expect(args.onOpen).toHaveBeenCalledTimes(1)
-    await userEvent.click(within(gate!).getByRole("button", { name: "Open" }))
-    await expect(args.onOpen).toHaveBeenCalledTimes(2)
   },
 }
 
@@ -154,9 +156,7 @@ export const ActionsKeepTheThumbFloor: Story = {
   play: async ({ canvasElement }) => {
     await viewport(390, 844)
     const card = within(canvasElement).getAllByTestId("now-card")[0]!
-    for (const button of within(card).getAllByRole("button")) {
-      await expect(button.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
-    }
+    await expect(card.getBoundingClientRect().height).toBeGreaterThanOrEqual(44)
     await expect(document.documentElement.scrollWidth).toBeLessThanOrEqual(
       document.documentElement.clientWidth,
     )

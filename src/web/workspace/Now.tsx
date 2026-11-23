@@ -1,6 +1,5 @@
-import { ChevronDown, ChevronRight, LoaderCircle } from "lucide-react"
+import { ChevronDown, LoaderCircle } from "lucide-react"
 import { GtdMark } from "../GtdMark.js"
-import { Button } from "../Button.js"
 import { cn } from "../cn.js"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible.js"
 import { NoteLine } from "./NoteLine.js"
@@ -50,13 +49,24 @@ const Card = ({
   return (
     <article
       className={cn(
-        "flex cursor-pointer flex-col gap-3 rounded-lg border bg-card p-4 shadow-[0_1px_2px_rgb(21_26_29/0.05)]",
+        "flex cursor-pointer flex-col focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring gap-3 rounded-lg border bg-card p-4 shadow-[0_1px_2px_rgb(21_26_29/0.05)]",
         selected ? "border-input" : "border-border",
         worktree.unavailable !== undefined && "opacity-60",
       )}
       aria-current={selected || undefined}
       data-testid="now-card"
-      onClick={() => {
+      role="button"
+      tabIndex={0}
+      aria-label={`${worktreeTitle(worktree)}, ${worktree.label}`}
+      onKeyDown={(event) => {
+        if (event.target !== event.currentTarget) return
+        if (event.key !== "Enter" && event.key !== " ") return
+        event.preventDefault()
+        onOpen()
+      }}
+      onClick={(event) => {
+        // Links and buttons inside the card keep their own click.
+        if ((event.target as Element).closest("a, button") !== null) return
         if (window.getSelection()?.isCollapsed === false) return
         onOpen()
       }}
@@ -70,18 +80,6 @@ const Card = ({
       {reason !== "" && <p className="max-w-prose text-sm text-foreground">{reason}</p>}
       <NoteLine worktree={worktree} />
       <Refused worktree={worktree} />
-      <div className="flex items-start gap-2">
-        <Button
-          variant="ghost"
-          onClick={(event) => {
-            event.stopPropagation()
-            onOpen()
-          }}
-        >
-          Open
-          <ChevronRight aria-hidden="true" />
-        </Button>
-      </div>
     </article>
   )
 }
