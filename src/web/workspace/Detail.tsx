@@ -117,6 +117,34 @@ const DetailHeader = ({
   )
 }
 
+const settled = (tab: Tab, atGate: boolean, byHand: boolean): Tab => {
+  if (!atGate) return tab === "gate" ? "actions" : tab
+  return byHand ? tab : "gate"
+}
+
+/** The selected tab: Gate while at a gate, unless the person picked one by hand. */
+const useTab = (atGate: boolean, opened: number): readonly [Tab, (tab: Tab) => void] => {
+  const [tab, setTab] = useState<Tab>(atGate ? "gate" : "actions")
+  // Set when the person picks a tab; a gate that arrives later leaves it alone.
+  const [byHand, setByHand] = useState(false)
+  const [seen, setSeen] = useState({ atGate, opened })
+  if (seen.opened !== opened || seen.atGate !== atGate) {
+    // A re-open forgets the hand pick; so does passing a gate.
+    const reopened = seen.opened !== opened
+    const forget = reopened || !atGate
+    setSeen({ atGate, opened })
+    setByHand(!forget && byHand)
+    setTab(settled(reopened ? "actions" : tab, atGate, byHand && !forget))
+  }
+  return [
+    tab,
+    (next) => {
+      setByHand(true)
+      setTab(next)
+    },
+  ]
+}
+
 /**
  * A worktree's detail: its status and press, then the gate page and Actions
  * as tabs. On a phone it covers the screen; on desktop it is the right pane.
@@ -125,17 +153,18 @@ export const Detail = ({
   entry,
   onClose,
   embedded = false,
+  opened = 0,
 }: {
   readonly entry: Entry
   readonly onClose: () => void
   /** Desktop: a pane beside the list instead of a screen over it. */
   readonly embedded?: boolean
+  /** Counts the list's opens, so a click on the shown worktree resets the tab. */
+  readonly opened?: number
 }) => {
   const { project, worktree } = entry
   const atGate = worktree.humanRest === true
-  const [tab, setTab] = useState<Tab>(atGate ? "gate" : "actions")
-  // Passing a gate forgets Gate, so the next gate leaves Actions selected.
-  if (!atGate && tab === "gate") setTab("actions")
+  const [tab, pick] = useTab(atGate, opened)
   return (
     <section
       className={cn(
@@ -153,7 +182,7 @@ export const Detail = ({
       <Tabs
         value={tab}
         onValueChange={(next) => {
-          setTab(next as Tab)
+          pick(next as Tab)
         }}
         className="flex-1 gap-4 px-4 pb-4 lg:px-6 lg:pb-6"
       >

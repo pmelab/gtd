@@ -382,6 +382,57 @@ export const GateFollowsTheRest: Story = {
   },
 }
 
+const GateComesAndGoes = (args: React.ComponentProps<typeof Detail>) => {
+  const [atGate, setAtGate] = useState(false)
+  const [opened, setOpened] = useState(0)
+  const [polls, setPolls] = useState(0)
+  return (
+    <>
+      <button style={{ minWidth: 44, minHeight: 44 }} onClick={() => setPolls((n) => n + 1)}>
+        poll
+      </button>
+      <button style={{ minWidth: 44, minHeight: 44 }} onClick={() => setAtGate((g) => !g)}>
+        toggle gate
+      </button>
+      <button style={{ minWidth: 44, minHeight: 44 }} onClick={() => setOpened((n) => n + 1)}>
+        reopen
+      </button>
+      <Detail
+        {...args}
+        opened={opened}
+        entry={{ ...plan, worktree: { ...plan.worktree, humanRest: atGate, head: `h${polls}` } }}
+      />
+    </>
+  )
+}
+
+const selectedTab = (canvas: ReturnType<typeof within>) =>
+  canvas.getByRole("tab", { selected: true }).textContent
+
+/** AC-5, AC-3, AC-4, AC-2: Actions without a gate; a gate that arrives switches to Gate unless the person picked a tab; a reopen goes to Gate. */
+export const GateTabFollowsTheGate: Story = {
+  render: (args) => <GateComesAndGoes {...args} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const toggle = () => userEvent.click(canvas.getByRole("button", { name: "toggle gate" }))
+    await expect(selectedTab(canvas)).toBe("Actions")
+    await toggle()
+    await expect(selectedTab(canvas)).toBe("Gate")
+    await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
+    await expect(selectedTab(canvas)).toBe("Actions")
+    await userEvent.click(canvas.getByRole("tab", { name: "Retrospective" }))
+    await userEvent.click(canvas.getByRole("button", { name: "reopen" }))
+    await expect(selectedTab(canvas)).toBe("Gate")
+    await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
+    await userEvent.click(canvas.getByRole("button", { name: "poll" }))
+    await expect(selectedTab(canvas)).toBe("Actions")
+    await toggle()
+    await userEvent.click(canvas.getByRole("tab", { name: "Retrospective" }))
+    await toggle()
+    await expect(selectedTab(canvas)).toBe("Retrospective")
+  },
+}
+
 /** Remove sits in Actions, below Run, never beside the press. */
 export const RemoveSitsInActions: Story = {
   play: async ({ canvasElement }) => {
@@ -528,7 +579,7 @@ const GateMoves = (args: React.ComponentProps<typeof Detail>) => {
   )
 }
 
-/** Reaching a gate enables Gate without selecting it; passing it while selected returns to Actions, and the next gate keeps Actions. */
+/** Reaching a gate enables Gate and selects it; passing it returns to Actions, and the next gate selects Gate again. */
 export const GateFollowsTheStatus: Story = {
   render: (args) => <GateMoves {...args} />,
   play: async ({ canvasElement }) => {
@@ -541,8 +592,7 @@ export const GateFollowsTheStatus: Story = {
     )
     await userEvent.click(canvas.getByRole("button", { name: "toggle" }))
     await expect(gate).toBeEnabled()
-    await expect(gate.getAttribute("aria-selected")).toBe("false")
-    await userEvent.click(gate)
+    await expect(gate.getAttribute("aria-selected")).toBe("true")
     await expect(canvas.getByTestId("gate-tab")).toBeVisible()
     await userEvent.click(canvas.getByRole("button", { name: "toggle" }))
     await expect(canvas.getByRole("tab", { name: "Actions" }).getAttribute("aria-selected")).toBe(
@@ -550,7 +600,7 @@ export const GateFollowsTheStatus: Story = {
     )
     await userEvent.click(canvas.getByRole("button", { name: "toggle" }))
     await expect(gate).toBeEnabled()
-    await expect(gate.getAttribute("aria-selected")).toBe("false")
+    await expect(gate.getAttribute("aria-selected")).toBe("true")
   },
 }
 

@@ -153,6 +153,43 @@ export const DetailIsAFullScreen: Story = {
   },
 }
 
+/** A click on the selected gated worktree brings its detail back to Gate, on desktop and phone. */
+export const ClickingAGatedWorktreeShowsItsGate: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const tab = () => canvas.getByRole("tab", { selected: true }).textContent
+    await viewport(1440, 900)
+    await userEvent.click(await canvas.findByRole("button", { name: /^Now/ }))
+    const card = async () =>
+      (await canvas.findAllByTestId("now-card")).find((c) => c.textContent?.includes("plan"))!
+    await userEvent.click(await card())
+    await expect(tab()).toBe("Gate")
+    await userEvent.click(canvas.getByRole("tab", { name: "Actions" }))
+    await userEvent.click(await card())
+    await expect(tab()).toBe("Gate")
+    await userEvent.click(canvas.getByRole("tab", { name: "Retrospective" }))
+    await userEvent.click(await card())
+    await expect(tab()).toBe("Gate")
+  },
+}
+
+/** AC-1 on a phone. */
+export const ClickingAGatedWorktreeShowsItsGateOnAPhone: Story = {
+  play: async ({ canvasElement }) => {
+    await viewport(360, 800)
+    const canvas = within(canvasElement)
+    window.history.replaceState(null, "", window.location.pathname)
+    window.dispatchEvent(new PopStateEvent("popstate"))
+    // The resize swaps the layout and remounts the cards, so look the card up
+    // again on each try instead of clicking one the swap detached.
+    await waitFor(async () => {
+      const card = canvas.getAllByTestId("now-card").find((c) => c.textContent?.includes("plan"))!
+      await userEvent.click(card)
+      await expect(canvas.getByRole("tab", { selected: true }).textContent).toBe("Gate")
+    })
+  },
+}
+
 /** Crossing 1024 px with a detail open keeps that detail mounted, so its local state survives. */
 export const ResizingKeepsTheOpenDetail: Story = {
   play: async ({ canvasElement }) => {
