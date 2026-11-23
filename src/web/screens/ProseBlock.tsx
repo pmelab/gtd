@@ -54,7 +54,7 @@ const HeadingBlock = ({ node }: { readonly node: SteeringViewNode }) => {
   const HeadingTag = headingTagFor(node.block?.depth ?? 2)
   return (
     <HeadingTag
-      className={`m-0 py-1 leading-tight font-semibold tracking-tight ${HEADING_CLASSES[HeadingTag]}`}
+      className={`m-0 py-1 leading-tight font-semibold tracking-tight text-heading ${HEADING_CLASSES[HeadingTag]}`}
     >
       <Inline inline={node.block?.inline} fallback={node.title} />
     </HeadingTag>
@@ -67,29 +67,23 @@ const ListBlock = ({ node }: { readonly node: SteeringViewNode }) => (
   </div>
 )
 
-/** Info strings that name no code: shown as written, without token colours. */
-const PLAIN = new Set(["text", "txt", "plain", "plaintext", "md", "markdown", "diff", "log"])
-
 const CodeBlock = ({ node }: { readonly node: SteeringViewNode }) => {
   const text = node.block?.text ?? ""
   const language = node.block?.language?.toLowerCase()
-  const plain = language !== undefined && PLAIN.has(language)
   return (
     <pre
       data-language={language}
       className="scrollbar-thin m-0 overflow-x-auto rounded-md border border-border bg-code-bg p-3 font-mono text-sm leading-relaxed text-foreground"
     >
       <code>
-        {plain
-          ? text
-          : tokenize(text).map((token, i) => (
-              <span
-                key={i}
-                className={token.className !== undefined ? TOKEN_COLOR[token.className] : undefined}
-              >
-                {token.text}
-              </span>
-            ))}
+        {tokenize(text, language ?? "").map((token, i) => (
+          <span
+            key={i}
+            className={token.className !== undefined ? TOKEN_COLOR[token.className] : undefined}
+          >
+            {token.text}
+          </span>
+        ))}
       </code>
     </pre>
   )

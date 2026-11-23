@@ -37,6 +37,9 @@
   --color-actor-agent: #6a2fb8;
   --color-actor-judge: #8a4b00;
   --color-actor-check: #00675a;
+  --color-heading: #3d2394;
+  --color-emphasis: #00675a;
+  --color-path: #1d4fb0;
 
   /* Code and diff set. */
   --color-code-bg: #fafaf7;
@@ -98,6 +101,9 @@
     --color-actor-agent: #c4a2ff;
     --color-actor-judge: #ffb454;
     --color-actor-check: #3fd6c0;
+    --color-heading: #baa7ff;
+    --color-emphasis: #3fd6c0;
+    --color-path: #7fb0ff;
 
     --color-code-bg: #151a1d;
     --color-code: #ffa057;

@@ -151,3 +151,42 @@ describe("numberSlicedLines", () => {
     expect(numberSlicedLines("@@ -1,1 +1,1 @@", [" a"], ["+z"])).toEqual([{}])
   })
 })
+
+describe("tokenize by language", () => {
+  const classes = (code: string, language: string | undefined) =>
+    new Set(tokenize(code, language).map((t) => t.className))
+
+  it.each([
+    ["ts", "const a = 'x' + `y` // c\nconst n = 1 as Foo", ["kw", "str", "com", "num", "typ"]],
+    ["bash", "# c\nif true; then echo 'x' $HOME 1; fi", ["com", "kw", "str", "typ", "num"]],
+    ["json", '{"a": 1, "b": null}', ["str", "num", "kw"]],
+    ["yaml", "# c\nkey: 'v'\nn: 2\nb: true", ["com", "typ", "str", "num", "kw"]],
+    ["toml", "# c\n[t]\nk = 'v'\nn = 3\nb = true", ["com", "typ", "str", "num", "kw"]],
+    ["graphql", '# c\ntype Foo { a: "x" b: 1 }', ["com", "kw", "typ", "str", "num"]],
+    ["python", "# c\ndef Foo(x): return 'a' + 1", ["com", "kw", "typ", "str", "num"]],
+    ["sql", "-- c\nSELECT 'a', 1 FROM Users", ["com", "kw", "str", "num", "typ"]],
+    ["go", "// c\nfunc Foo() { return `a` + 1 }", ["com", "kw", "typ", "str", "num"]],
+    ["css", "/* c */\n.a { margin: 4px; content: 'x' }", ["com", "typ", "kw", "num", "str"]],
+    ["html", '<!-- c --><a href="x">1</a>', ["com", "kw", "typ", "str", "num"]],
+    ["diff", "@@ -1 +1 @@\n-old\n+new", ["kw", "str", "typ"]],
+  ])("%s highlights each token class", (language, code, expected) => {
+    const found = classes(code, language)
+    for (const name of expected) expect(found, name).toContain(name)
+    expect(reassemble(tokenize(code, language))).toBe(code)
+  })
+
+  it("renders an unknown or missing language as one plain token", () => {
+    expect(tokenize("const x = 1", "klingon")).toEqual([{ text: "const x = 1" }])
+    expect(tokenize("const x = 1", "")).toEqual([{ text: "const x = 1" }])
+  })
+})
+
+describe("tokenize on a long word", () => {
+  it.each(["css", "html"])("stays linear in a %s fence", (lang) => {
+    const word = "a".repeat(20_000)
+    const start = performance.now()
+    const tokens = tokenize(word, lang)
+    expect(performance.now() - start).toBeLessThan(50)
+    expect(reassemble(tokens)).toBe(word)
+  })
+})
