@@ -660,7 +660,9 @@ const useInlineSlideScroll = (
   inline: boolean,
   open: boolean,
   screen: { readonly current: HTMLDivElement | null },
-  returnTo: { current: { readonly box: Element; readonly top: number } | undefined },
+  returnTo: {
+    current: { readonly box: Element; readonly top: number } | undefined
+  },
 ): void => {
   useLayoutEffect(() => {
     if (!inline) return
@@ -750,7 +752,13 @@ export const DocumentView = ({
       cell: cellKey(filePath, anchor, "value"),
       optimistic: value,
       ...(onSetMany !== undefined
-        ? { batch: { key: filePath, item: { anchor, ...value }, send: onSetMany } }
+        ? {
+            batch: {
+              key: filePath,
+              item: { anchor, ...value },
+              send: onSetMany,
+            },
+          }
         : { write: onSet === undefined ? undefined : onSet(anchor, value) }),
     }).catch(() => {})
   }
@@ -913,6 +921,7 @@ export const DocumentView = ({
       {noteAnchor !== undefined && (
         <NoteSheet
           anchor={noteAnchor}
+          {...startNote(view.nodes, noteAnchor)}
           onSave={(anchor, text) => {
             setNoteAnchor(undefined)
             saveNote(anchor, text)
@@ -922,6 +931,28 @@ export const DocumentView = ({
       )}
     </>
   )
+}
+
+/** The text a block's note sheet starts with: the one note it would rewrite, else empty so a save adds a note. */
+const startNote = (
+  nodes: readonly SteeringViewNode[],
+  anchor: SteeringAnchor,
+): { readonly note?: string } => {
+  if (anchor.kind !== "paragraph") return {}
+  const line = anchor.line
+  const find = (
+    items: readonly BlockListItem[],
+  ): { note?: string; noteCount?: number } | undefined => {
+    for (const item of items) {
+      if (item.line === line) return item
+      const nested = item.items === undefined ? undefined : find(item.items)
+      if (nested !== undefined) return nested
+    }
+    return undefined
+  }
+  const own = nodes.find((n) => n.anchor.kind === "paragraph" && n.anchor.line === line)
+  const target = own ?? nodes.map((n) => find(n.block?.items ?? [])).find((f) => f !== undefined)
+  return target?.note === undefined || target.noteCount !== undefined ? {} : { note: target.note }
 }
 
 const MessageCard = ({

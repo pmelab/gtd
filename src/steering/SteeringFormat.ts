@@ -97,6 +97,8 @@ export interface BlockListItem {
   readonly line?: number
   /** The note whose marker sits on `line`, as on a view node. */
   readonly note?: string
+  /** How many notes `note` joins; set only when more than one. */
+  readonly noteCount?: number
 }
 
 /**
@@ -119,6 +121,8 @@ export interface SteeringViewNode {
   readonly checked?: boolean
   /** The annotation attached to this node, when it carries one. */
   readonly note?: string
+  /** How many notes `note` joins; set only when more than one. */
+  readonly noteCount?: number
   /**
    * `detail`'s own inline counterpart, for the three compact rows (a chunk
    * card, a hunk's description row, a plan row): built server-side by

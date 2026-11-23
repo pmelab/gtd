@@ -551,3 +551,22 @@ export const InlineTheSliderOpensAtItsTopAndClosesWhereYouWere: Story = {
     await expect(pane.scrollTop).toBe(before)
   },
 }
+
+/** A marker on a later line of a paragraph still shows that paragraph's note. */
+export const AMarkerOnALaterLineShowsTheNote: Story = {
+  args: {
+    filePath: "REVIEW.md",
+    isLoading: false,
+    view: widgetFormat.view(
+      ["First line.", "The[^fn1] second line.", "", "[^fn1]: mount it in the admin menu", ""].join(
+        "\n",
+      ),
+    ),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent(
+      "mount it in the admin menu",
+    )
+  },
+}
