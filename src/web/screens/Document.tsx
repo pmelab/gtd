@@ -40,7 +40,7 @@ import { Skeleton } from "../ui/skeleton.js"
 import { cellKey, useWriteStore, WriteStoreProvider } from "../writeStore.js"
 import { linksOfItems, linksOfParagraph, plainText, type HunkLink } from "./explanation.js"
 import { Hunk } from "./Hunk.js"
-import { HUNK_HREF_RE, HunkOpenContext, Inline } from "./InlineRun.js"
+import { HunkOpenContext, Inline, refOfHref } from "./InlineRun.js"
 import { NoteGestureHint, ProseBlocks } from "./ProseBlock.js"
 
 type TokenGuardedWrite = (tokens: CasTokens) => Promise<unknown>
@@ -77,12 +77,12 @@ const useHunkDiff = (node: SteeringViewNode) => {
 type Page = SteeringViewNode
 
 const pageOfLink = ({ href, explanation }: HunkLink, anchor: SteeringAnchor): Page => {
-  const m = HUNK_HREF_RE.exec(href)!
+  const r = refOfHref(href)!
   return {
-    title: href,
-    path: m[1]!,
-    line: Number(m[2]),
-    ...(m[3] !== undefined ? { endLine: Number(m[3]) } : {}),
+    title: r.href,
+    path: r.path,
+    line: r.line,
+    ...(r.endLine !== undefined ? { endLine: r.endLine } : {}),
     ...(explanation !== undefined
       ? { detail: plainText(explanation), detailInline: explanation }
       : {}),

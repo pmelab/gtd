@@ -243,6 +243,28 @@ describe("documentLinksFor", () => {
     expect(documentLinksFor(widgetFormat, PLAN_DOC, "/repo")).toEqual([])
   })
 
+  it("links a plain reference and a Markdown link target in prose, not a URL", () => {
+    const content = "# T\n\nSee ./src/a.ts#7-9 and [x](src/b.ts#3) and https://x.io/a#1\n"
+    expect(documentLinksFor(widgetFormat, content, "/repo")).toEqual([
+      {
+        range: { start: { line: 2, character: 4 }, end: { line: 2, character: 18 } },
+        target: "file:///repo/src/a.ts#L7",
+      },
+      {
+        range: { start: { line: 2, character: 27 }, end: { line: 2, character: 37 } },
+        target: "file:///repo/src/b.ts#L3",
+      },
+    ])
+  })
+
+  it("resolves a definition for a plain reference in prose", () => {
+    const content = "# T\n\nSee ./src/a.ts#7-9\n"
+    expect(widgetFormat.pointerAt?.(content, { line: 2, character: 8 })).toEqual({
+      path: "src/a.ts",
+      line: 6,
+    })
+  })
+
   it("returns none for a document with no format", () => {
     expect(documentLinksFor(undefined, "anything", "/repo")).toEqual([])
   })

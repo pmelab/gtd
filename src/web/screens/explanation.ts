@@ -1,5 +1,6 @@
 import type { BlockListItem, InlineNode } from "../../steering/index.js"
-import { HUNK_HREF_RE } from "./InlineRun.js"
+import { findRefs } from "../../steering/internal.js"
+import { refOfHref } from "./InlineRun.js"
 
 export interface HunkLink {
   readonly href: string
@@ -74,17 +75,26 @@ const sentences = (inline: readonly InlineNode[]): InlineNode[][] => {
   return out
 }
 
-const hunkLinks = (inline: readonly InlineNode[]): InlineNode[] =>
-  inline.flatMap((n) => [
-    ...(n.kind === "link" && HUNK_HREF_RE.test(n.href) ? [n] : []),
-    ...hunkLinks(childrenOf(n)),
-  ])
+/** Links to a file range, and plain `./path#a-b` text or code, in file order. */
+const hunkLinks = (
+  inline: readonly InlineNode[],
+  explainLink: (l: InlineNode) => HunkLink,
+): HunkLink[] =>
+  inline.flatMap((n): HunkLink[] =>
+    n.kind === "link"
+      ? refOfHref(n.href) !== undefined
+        ? [explainLink(n)]
+        : hunkLinks(childrenOf(n), explainLink)
+      : n.kind === "text" || n.kind === "code"
+        ? findRefs(n.value).map((r) => ({ href: r.href }))
+        : hunkLinks(childrenOf(n), explainLink),
+  )
 
 const isPathText = (text: string, href: string): boolean =>
   text === href || text === href.replace(/^\.\//, "")
 
 const explain = (run: readonly InlineNode[], link: InlineNode, wholeRun: boolean): HunkLink => {
-  const href = (link as { href: string }).href
+  const href = refOfHref((link as { href: string }).href)!.href
   const scope = wholeRun ? run : (sentences(run).find((s) => hasLink(s, link)) ?? run)
   const rest = tidy(without(scope, link))
   if (plainText(rest).trim() !== "") return { href, explanation: rest }
@@ -96,11 +106,11 @@ const explain = (run: readonly InlineNode[], link: InlineNode, wholeRun: boolean
 
 /** Hunk links of a paragraph, each with its sentence. */
 export const linksOfParagraph = (inline: readonly InlineNode[]): HunkLink[] =>
-  hunkLinks(inline).map((l) => explain(inline, l, false))
+  hunkLinks(inline, (l) => explain(inline, l, false))
 
 /** Hunk links of a list, each with its item's own text. */
 export const linksOfItems = (items: readonly BlockListItem[]): HunkLink[] =>
   items.flatMap((i) => [
-    ...hunkLinks(i.inline ?? []).map((l) => explain(i.inline ?? [], l, true)),
+    ...hunkLinks(i.inline ?? [], (l) => explain(i.inline ?? [], l, true)),
     ...linksOfItems(i.items ?? []),
   ])

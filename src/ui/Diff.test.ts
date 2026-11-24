@@ -512,6 +512,21 @@ describe("resolveDiff", () => {
     expect(result).toEqual({ kind: "no-changes" })
   })
 
+  it("shows an unchanged file at the pointed line, dimming the padding", async () => {
+    const run: RunInWorktree = async (_cwd, command) =>
+      command === "gtd base"
+        ? ok(`${BASE}\n`)
+        : command.startsWith("cat")
+          ? ok("a\nb\nc\nd\ne\nf\ng\nh\ni\nj\n")
+          : ok("")
+    const result = await resolveDiff(WORKTREE, "README.md", 5, undefined, { run })
+    if (result.kind !== "hunk") throw new Error("expected hunk")
+    const hunk = result.hunks[0]!
+    expect(hunk.newStart).toBe(1)
+    expect(hunk.lines).toEqual([" b", " c", " d", " e", " f", " g", " h"])
+    expect(hunk.dimmed?.filter((d) => !d)).toHaveLength(1)
+  })
+
   it("returns 'no-changes' regardless of whether a line number was given at all", async () => {
     const result = await resolveDiff(WORKTREE, "old/path.ts", undefined, undefined, deps(ok("")))
     expect(result).toEqual({ kind: "no-changes" })

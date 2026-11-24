@@ -475,6 +475,34 @@ export const AReviewPageShowsWalkthroughHunkLinksBaseAndNotes: Story = {
   },
 }
 
+const PLAIN_REFS = [
+  "# Refs",
+  "",
+  "- ./src/a.ts#1-18",
+  "",
+  "Code `./src/b.ts#5` and [x](./src/c.ts#3) and https://x.io/a#1",
+  "",
+].join("\n")
+
+export const PlainPathReferencesInProseAreHunkLinks: Story = {
+  args: {
+    filePath: ".gtd/NOTES.md",
+    context: CONTEXT,
+    isLoading: false,
+    view: widgetFormat.view(PLAIN_REFS),
+  },
+  play: async ({ canvasElement }) => {
+    const hunks = Array.from(canvasElement.querySelectorAll("a[data-hunk]"))
+    await expect(hunks.map((a) => a.getAttribute("data-hunk"))).toEqual([
+      "./src/a.ts#1-18",
+      "./src/b.ts#5",
+      "./src/c.ts#3",
+    ])
+    await expect(hunks[1]!.className).toContain("font-mono")
+    await expect(canvasElement.querySelector('a[href="https://x.io/a#1"]')).not.toBeNull()
+  },
+}
+
 export const ASquashMessagePageShowsTheProposedMessage: Story = {
   args: {
     filePath: ".gtd/SQUASH_MESSAGE.md",
