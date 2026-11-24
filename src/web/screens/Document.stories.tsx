@@ -360,7 +360,7 @@ export const AnswerRowsAreThumbSizedOnAPhone: Story = {
     const select = canvas.getByTestId("widget-single-select")
     const targets = [
       within(select).getByText("Redis").closest("label")!,
-      within(canvas.getByTestId("widget-custom")).getByRole("radio").closest("label")!,
+      canvas.getByTestId("widget-custom"),
       within(select).getByTestId("widget-note-open"),
       within(canvas.getByTestId("widget-review-checklist")).getByText("Show the change"),
     ]

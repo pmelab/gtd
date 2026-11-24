@@ -192,7 +192,7 @@ const SAVE_DELAY_MS = 800
 
 /** A full-row label: the whole row is the hit area, at least 44px tall on a phone. */
 const ROW =
-  "-mx-2 flex min-h-11 cursor-pointer items-center gap-3 rounded-md px-2 py-1.5 transition-colors hover:bg-accent lg:min-h-9"
+  "-mx-2 flex min-h-11 cursor-pointer items-start gap-3 rounded-md px-2 py-2.5 transition-colors hover:bg-accent lg:min-h-9 lg:py-2"
 
 /** The tick a widget row carries: a radio inside a single select, a checkbox otherwise. */
 const Tick = ({
@@ -200,18 +200,25 @@ const Tick = ({
   value,
   checked,
   onCheckedChange,
+  className,
   ...rest
 }: {
   readonly type: "radio" | "checkbox"
   readonly value: string
   readonly checked: boolean
   readonly onCheckedChange: (checked: boolean) => void
+  readonly className?: string
   readonly "aria-label"?: string
 }) =>
   type === "radio" ? (
-    <RadioGroupItem value={value} {...rest} />
+    <RadioGroupItem value={value} className={className} {...rest} />
   ) : (
-    <Checkbox checked={checked} onCheckedChange={(c) => onCheckedChange(c === true)} {...rest} />
+    <Checkbox
+      checked={checked}
+      onCheckedChange={(c) => onCheckedChange(c === true)}
+      className={className}
+      {...rest}
+    />
   )
 
 const CustomAnswer = ({
@@ -253,16 +260,14 @@ const CustomAnswer = ({
     [],
   )
   return (
-    <li className="-ml-3 flex items-center gap-1 lg:-ml-2" data-testid="widget-custom">
-      <label className="grid size-11 shrink-0 cursor-pointer place-items-center rounded-md hover:bg-accent lg:size-9">
-        <Tick
-          type={type}
-          value={value}
-          aria-label="Your own answer"
-          checked={typedTick ?? actions.checkedOf(node)}
-          onCheckedChange={(checked) => actions.set(node, { checked, text })}
-        />
-      </label>
+    <li className="flex items-center gap-3 py-1" data-testid="widget-custom">
+      <Tick
+        type={type}
+        value={value}
+        aria-label="Your own answer"
+        checked={typedTick ?? actions.checkedOf(node)}
+        onCheckedChange={(checked) => actions.set(node, { checked, text })}
+      />
       <Input
         placeholder="Your own answer"
         aria-label="Your own answer text"
@@ -298,6 +303,7 @@ const OptionRow = ({
       <Tick
         type={type}
         value={value}
+        className="mt-0.5"
         checked={actions.checkedOf(node)}
         onCheckedChange={(checked) => actions.set(node, { checked })}
       />

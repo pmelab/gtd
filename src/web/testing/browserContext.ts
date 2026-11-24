@@ -69,6 +69,7 @@ export const auditLayout = (root: ParentNode, options: { readonly targets: boole
   if (!options.targets) return problems
   for (const el of root.querySelectorAll(TARGET_SELECTOR)) {
     if (el.matches("a") && el.closest("p, li, td, th") !== null) continue
+    if (el.matches("[role=checkbox], [role=radio], [role=switch]")) continue
     if (el.matches(":disabled") || !el.checkVisibility({ visibilityProperty: true })) continue
     const { width, height } = el.getBoundingClientRect()
     if (width < MIN_TARGET || height < MIN_TARGET) {

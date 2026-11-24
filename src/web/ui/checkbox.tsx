@@ -9,7 +9,7 @@ export const Checkbox = ({
   <CheckboxPrimitive.Root
     data-slot="checkbox"
     className={cn(
-      "peer size-11 shrink-0 rounded-lg lg:size-5 lg:rounded-[5px] border border-input bg-card transition-colors outline-none",
+      "peer size-5 shrink-0 rounded-[5px] border border-input bg-card transition-colors outline-none",
       "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring",
       "data-[state=checked]:border-foreground data-[state=checked]:bg-foreground data-[state=checked]:text-background",
       "disabled:cursor-not-allowed disabled:opacity-50",
@@ -21,7 +21,7 @@ export const Checkbox = ({
       data-slot="checkbox-indicator"
       className="grid place-content-center"
     >
-      <CheckIcon className="size-6 lg:size-3.5" strokeWidth={3} />
+      <CheckIcon className="size-3.5" strokeWidth={3} />
     </CheckboxPrimitive.Indicator>
   </CheckboxPrimitive.Root>
 )

@@ -104,9 +104,10 @@ export const Notifications = ({ onClose }: { readonly onClose: () => void }) => 
         </Notice>
       ) : (
         <>
-          <div className="flex items-center gap-3">
+          <div className="flex items-start gap-3">
             <Checkbox
               id="push-switch"
+              className="mt-0.5"
               role="switch"
               checked={on}
               disabled={endpoint === undefined || (!on && key.data === undefined)}
@@ -119,8 +120,9 @@ export const Notifications = ({ onClose }: { readonly onClose: () => void }) => 
           <fieldset className="flex flex-col gap-2" disabled={!on}>
             <legend className="mb-1 text-sm text-muted-foreground">Tell me about</legend>
             {KINDS.map(([kind, label]) => (
-              <div key={kind} className="flex items-center gap-3">
+              <div key={kind} className="flex items-start gap-3">
                 <Checkbox
+                  className="mt-0.5"
                   id={`push-${kind}`}
                   checked={kinds.includes(kind)}
                   disabled={!on}
