@@ -570,3 +570,39 @@ export const AMarkerOnALaterLineShowsTheNote: Story = {
     )
   },
 }
+
+const EXPLAINED = [
+  "# Review",
+  "",
+  "- [./src/a.ts#3-9](./src/a.ts#3-9) — validates the `invite` before it is sent, " +
+    "and refuses an expired one, and retries the lookup twice when the directory is slow, " +
+    "and logs every refusal with the invite id for later support requests, and more.",
+  "- [./src/b.ts#1-2](./src/b.ts#1-2)",
+  "",
+].join("\n")
+
+const explanationPlay =
+  (width: number): NonNullable<Story["play"]> =>
+  async ({ canvasElement }) => {
+    await viewport(width, 800)
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getAllByText("./src/a.ts#3-9")[0]!)
+    const description = canvas.getByTestId("hunk-description")
+    await expect(description).toHaveTextContent(/^validates the invite before it is sent/)
+    await expect(canvas.getAllByTestId("hunk-description")).toHaveLength(1)
+    await expect(description.getBoundingClientRect().height).toBeLessThan(90)
+    await expect(description).toHaveAttribute("title", expect.stringContaining("and more."))
+    await fireEvent.click(canvas.getByTestId("hunk-next"))
+    await expect(canvas.queryByTestId("hunk-description")).toBeNull()
+  }
+
+/** A long explanation sits in the sticky bar, wrapped to a few lines. */
+export const ASliderLongExplanationOnAPhone: Story = {
+  args: { filePath: ".gtd/REVIEW.md", isLoading: false, view: widgetFormat.view(EXPLAINED) },
+  play: explanationPlay(390),
+}
+
+export const ASliderLongExplanationOnDesktop: Story = {
+  args: { filePath: ".gtd/REVIEW.md", isLoading: false, view: widgetFormat.view(EXPLAINED) },
+  play: explanationPlay(1280),
+}
