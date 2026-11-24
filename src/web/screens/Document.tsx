@@ -18,7 +18,6 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import type {
   BlockListItem,
-  InlineNode,
   SteeringAnchor,
   SteeringView,
   SteeringViewNode,
@@ -39,6 +38,7 @@ import { Label } from "../ui/label.js"
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group.js"
 import { Skeleton } from "../ui/skeleton.js"
 import { cellKey, useWriteStore, WriteStoreProvider } from "../writeStore.js"
+import { linksOfItems, linksOfParagraph, plainText, type HunkLink } from "./explanation.js"
 import { Hunk } from "./Hunk.js"
 import { HUNK_HREF_RE, HunkOpenContext, Inline } from "./InlineRun.js"
 import { NoteGestureHint, ProseBlocks } from "./ProseBlock.js"
@@ -76,39 +76,30 @@ const useHunkDiff = (node: SteeringViewNode) => {
 /** One by-hunk page: a checklist item (tickable) or a prose link (diff only). */
 type Page = SteeringViewNode
 
-const hunkHref = (n: InlineNode): string[] =>
-  n.kind === "link" && HUNK_HREF_RE.test(n.href) ? [n.href] : []
-
-const childrenOf = (n: InlineNode): readonly InlineNode[] => ("children" in n ? n.children : [])
-
-const inlineLinks = (inline: readonly InlineNode[]): string[] =>
-  inline.flatMap((n) => [...hunkHref(n), ...inlineLinks(childrenOf(n))])
-
-const itemLinks = (items: readonly BlockListItem[]): string[] =>
-  items.flatMap((i) => [...inlineLinks(i.inline ?? []), ...itemLinks(i.items ?? [])])
-
-const pageOfHref = (href: string, anchor: SteeringAnchor): Page => {
+const pageOfLink = ({ href, explanation }: HunkLink, anchor: SteeringAnchor): Page => {
   const m = HUNK_HREF_RE.exec(href)!
   return {
     title: href,
     path: m[1]!,
     line: Number(m[2]),
     ...(m[3] !== undefined ? { endLine: Number(m[3]) } : {}),
+    ...(explanation !== undefined
+      ? { detail: plainText(explanation), detailInline: explanation }
+      : {}),
     anchor,
   } as Page
 }
 
 /** Every hunk link of the document in file order: prose links and review checklist items. */
-// fallow-ignore-next-line complexity
-const proseLinks = (node: SteeringViewNode): string[] => [
-  ...inlineLinks(node.block?.inline ?? []),
-  ...itemLinks(node.block?.items ?? []),
+const proseLinks = (node: SteeringViewNode): HunkLink[] => [
+  ...linksOfParagraph(node.block?.inline ?? []),
+  ...linksOfItems(node.block?.items ?? []),
   ...(node.body ?? []).flatMap(proseLinks),
 ]
 
 const pagesOf = (nodes: readonly SteeringViewNode[]): readonly Page[] =>
   nodes.flatMap((node): readonly Page[] => [
-    ...proseLinks(node).map((href) => pageOfHref(href, node.anchor)),
+    ...proseLinks(node).map((link) => pageOfLink(link, node.anchor)),
     ...(node.status === "review-checklist" ? (node.children ?? []) : []),
   ])
 
@@ -127,7 +118,7 @@ const HunkSlider = ({
 }) => {
   const [at, setIndex] = useState(start)
   const index = Math.min(at, pages.length - 1)
-  const node = pages[index]!
+  const { detail, detailInline, ...node } = pages[index]!
   const diff = useHunkDiff(node)
   const go = (i: number): void => setIndex(Math.max(0, Math.min(pages.length - 1, i)))
   return (
@@ -149,6 +140,15 @@ const HunkSlider = ({
             {index + 1} / {pages.length}
           </span>
         </div>
+        {detail !== undefined && detail.length > 0 && (
+          <p
+            data-testid="hunk-description"
+            title={detail}
+            className="mx-auto m-0 line-clamp-3 w-full max-w-5xl px-4 pb-2 text-sm text-muted-foreground"
+          >
+            <Inline inline={detailInline} fallback={detail} />
+          </p>
+        )}
       </div>
       <div className="mx-auto w-full max-w-5xl">
         <Hunk
