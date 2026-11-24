@@ -338,7 +338,8 @@ Spacing follows a 4px grid; 8, 12 and 16px do most of the work, 24px pads
 desktop headers and the wide list.
 
 **The Thumb Floor Rule.** Below 1024px every control is at least 44 by 44px,
-except a link inside a paragraph, list item or table cell. From 1024px buttons
+except a link inside a paragraph, list item or table cell, and checkboxes,
+radios and switches, which are exempt from the 44px minimum. From 1024px buttons
 and inputs drop to 36px, small buttons to 32px, tabs and sidebar rows to
 32-36px.
 

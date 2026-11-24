@@ -27,9 +27,10 @@ const Field = ({
   const help = field.help === undefined ? undefined : `${id}-help`
   if (field.type === "flag") {
     return (
-      <div className="flex min-h-11 items-center gap-3 lg:min-h-9">
+      <div className="flex items-start gap-3">
         <Checkbox
           id={id}
+          className="mt-0.5"
           checked={value === true}
           onCheckedChange={(checked) => {
             onChange(checked === true ? true : undefined)

@@ -66,6 +66,18 @@ describe("auditLayout", () => {
     host.remove()
   })
 
+  test("exempts 20px ticks, but fails a 20px plain button", async () => {
+    await viewport(360, 800)
+    const tick = (role: string) =>
+      `<button role="${role}" style="width:20px;height:20px">x</button>`
+    const host = mount(`${tick("checkbox")}${tick("radio")}${tick("switch")}`)
+    expect(auditLayout(host, { targets: true })).toEqual([])
+    host.remove()
+    const plain = mount('<button style="width:20px;height:20px">x</button>')
+    expect(auditLayout(plain, { targets: true })).toHaveLength(1)
+    plain.remove()
+  })
+
   test("fails a small target, but not a document-text link", async () => {
     await viewport(360, 800)
     const host = mount(

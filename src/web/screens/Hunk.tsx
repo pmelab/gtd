@@ -279,7 +279,7 @@ const ApproveRow = ({
   <label
     data-testid="hunk-approve-row"
     className={cn(
-      "flex min-h-14 cursor-pointer items-center gap-3 rounded-lg border px-4 py-3 transition-[background-color,border-color] duration-150 ease-out",
+      "flex cursor-pointer items-start gap-3 rounded-lg border px-4 py-3 transition-[background-color,border-color] duration-150 ease-out",
       checked ? "border-success/60 bg-success/10" : "border-border bg-card hover:bg-accent",
     )}
   >
@@ -291,7 +291,7 @@ const ApproveRow = ({
         onToggle(next)
         if (next) onApprove()
       }}
-      className="data-[state=checked]:border-success data-[state=checked]:bg-success data-[state=checked]:text-card"
+      className="mt-0.5 data-[state=checked]:border-success data-[state=checked]:bg-success data-[state=checked]:text-card"
     />
     <span className={cn("text-base font-medium", checked && "text-success")}>
       {checked ? "Approved" : "Approve this hunk"}
