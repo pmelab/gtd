@@ -1,7 +1,5 @@
-import { CircleAlert, CircleX, type LucideIcon } from "lucide-react"
+import type { LucideIcon } from "lucide-react"
 import { cn } from "../cn.js"
-import { Badge } from "../ui/badge.js"
-import { projectCounts, type ProjectView } from "./view.js"
 
 export interface ViewTab<Id extends string> {
   readonly id: Id
@@ -31,13 +29,15 @@ const CountBadge = ({
 )
 
 /**
- * The views: a bottom tab bar on a phone, a sidebar list on desktop. A
- * button's name carries its count, "Now (2)".
+ * The views: a bottom tab bar on a phone, an icon rail on desktop (titles
+ * as tooltips unless expanded). A button's name carries its count, "Now (2)".
  */
 interface ItemProps {
   readonly tab: ViewTab<string>
   readonly selected: boolean
   readonly onSelect: () => void
+  /** The desktop rail's icon-only form; the title shows as a tooltip. */
+  readonly collapsed?: boolean
 }
 
 const FOCUS = "focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
@@ -49,25 +49,52 @@ const SideItem = ({
   tab: { label, icon: Icon, count = 0, attention = false },
   selected,
   onSelect,
+  collapsed = false,
 }: ItemProps) => (
   <button
     type="button"
     aria-current={selected}
+    data-testid="rail-item"
     className={cn(
       FOCUS,
-      "flex min-h-9 items-center gap-3 rounded-md px-3 text-left text-sm",
+      "group relative flex min-h-10 items-center rounded-md text-left text-sm",
+      collapsed ? "w-10 justify-center self-center" : "gap-3 px-3",
       selected
         ? "bg-accent font-semibold text-foreground"
         : "text-muted-foreground hover:bg-accent/60 hover:text-foreground",
     )}
     onClick={onSelect}
   >
-    <Icon aria-hidden="true" className="size-4 shrink-0" />
-    <span className="flex-1">
-      {label}
-      <Spoken count={count} />
-    </span>
-    {count > 0 && <CountBadge count={count} attention={attention} />}
+    <Icon aria-hidden="true" className="size-5 shrink-0" />
+    {collapsed ? (
+      <>
+        <span className="sr-only">
+          {label}
+          <Spoken count={count} />
+        </span>
+        {count > 0 && (
+          <span className="absolute -top-1 -right-1">
+            <CountBadge count={count} attention={attention} />
+          </span>
+        )}
+        <span
+          role="tooltip"
+          aria-hidden="true"
+          data-testid="rail-tooltip"
+          className="pointer-events-none absolute top-1/2 left-full z-20 ml-2 -translate-y-1/2 rounded-md border border-border bg-popover px-2 py-1 text-xs font-medium whitespace-nowrap text-popover-foreground opacity-0 shadow-md transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100"
+        >
+          {label}
+        </span>
+      </>
+    ) : (
+      <>
+        <span className="flex-1">
+          {label}
+          <Spoken count={count} />
+        </span>
+        {count > 0 && <CountBadge count={count} attention={attention} />}
+      </>
+    )}
   </button>
 )
 
@@ -111,12 +138,14 @@ export const ViewNav = <Id extends string>({
   current,
   onSelect,
   vertical,
+  collapsed = false,
   className,
 }: {
   readonly tabs: readonly ViewTab<Id>[]
   readonly current: Id
   readonly onSelect: (id: Id) => void
   readonly vertical: boolean
+  readonly collapsed?: boolean
   readonly className?: string
 }) => (
   <nav
@@ -130,55 +159,11 @@ export const ViewNav = <Id extends string>({
           key={tab.id}
           tab={tab}
           selected={current === tab.id}
+          collapsed={vertical && collapsed}
           onSelect={() => {
             onSelect(tab.id)
           }}
         />
-      )
-    })}
-  </nav>
-)
-
-/** The sidebar's projects, each with how many of its worktrees need you and are in error. */
-export const ProjectNav = ({
-  projects,
-  onSelect,
-}: {
-  readonly projects: readonly ProjectView[]
-  readonly onSelect: (project: string) => void
-}) => (
-  <nav className="flex flex-col gap-0.5 px-3" aria-labelledby="sidebar-projects">
-    <h2 id="sidebar-projects" className="px-3 pt-4 pb-1 text-xs font-medium text-muted-foreground">
-      Projects
-    </h2>
-    {projects.map((project) => {
-      const { needsYou, error } = projectCounts(project)
-      return (
-        <button
-          type="button"
-          key={project.id}
-          data-testid="sidebar-project"
-          className="flex min-h-8 items-center gap-2 rounded-md px-3 text-left text-sm text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
-          onClick={() => {
-            onSelect(project.id)
-          }}
-        >
-          <span className="min-w-0 flex-1 truncate">{project.name}</span>
-          {needsYou > 0 && (
-            <Badge data-testid="sidebar-needs-you">
-              <CircleAlert aria-hidden="true" />
-              {needsYou}
-              <span className="sr-only"> need you</span>
-            </Badge>
-          )}
-          {error > 0 && (
-            <Badge variant="destructive" data-testid="sidebar-error">
-              <CircleX aria-hidden="true" />
-              {error}
-              <span className="sr-only"> in error</span>
-            </Badge>
-          )}
-        </button>
       )
     })}
   </nav>

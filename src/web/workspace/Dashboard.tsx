@@ -1,6 +1,14 @@
+import { GtdMark } from "../GtdMark.js"
 import { GtdWordmark } from "../GtdWordmark.js"
-import { Bell, FolderGit2, Inbox as InboxIcon, PanelRight, Zap } from "lucide-react"
-import { useEffect, useState, useSyncExternalStore } from "react"
+import {
+  Bell,
+  FolderGit2,
+  Inbox as InboxIcon,
+  PanelLeftClose,
+  PanelLeftOpen,
+  Zap,
+} from "lucide-react"
+import { useEffect, useRef, useState, useSyncExternalStore } from "react"
 import { Button } from "../Button.js"
 import { Notice } from "../Notice.js"
 import { staleVersion } from "../push.js"
@@ -12,7 +20,7 @@ import { Inbox, type PressFailure } from "./Inbox.js"
 import { Notifications } from "./Notifications.js"
 import { Now } from "./Now.js"
 import { Projects } from "./Projects.js"
-import { ProjectNav, ViewNav, type ViewTab } from "./TabBar.js"
+import { ViewNav, type ViewTab } from "./TabBar.js"
 import { useExpanded } from "./useExpanded.js"
 import {
   decisionCount,
@@ -28,7 +36,7 @@ import {
 
 const DESKTOP = "(min-width: 1024px)"
 
-/** From Tailwind's `lg` up there is room for a list and a detail side by side. */
+/** From Tailwind's `lg` up the views get a rail beside them instead of a bottom bar. */
 const useDesktop = (): boolean =>
   useSyncExternalStore(
     (notify) => {
@@ -40,6 +48,30 @@ const useDesktop = (): boolean =>
     },
     () => window.matchMedia(DESKTOP).matches,
   )
+
+const RAIL_KEY = "gtd.rail.expanded"
+
+/** The rail's expanded state, kept per browser; storage may be unavailable. */
+const useRailExpanded = (): [boolean, () => void] => {
+  const [expanded, set] = useState(() => {
+    try {
+      return window.localStorage.getItem(RAIL_KEY) === "1"
+    } catch {
+      return false
+    }
+  })
+  return [
+    expanded,
+    () => {
+      set(!expanded)
+      try {
+        window.localStorage.setItem(RAIL_KEY, expanded ? "0" : "1")
+      } catch {
+        // a convenience only
+      }
+    },
+  ]
+}
 
 // The supervisor keeps a snapshot; reading it is cheap.
 const REFRESH_MS = 2_000
@@ -171,12 +203,6 @@ const Loaded = ({
     </Button>
   )
   const [expanded, toggle] = useExpanded(projects)
-  const [reveal, setReveal] = useState<string>()
-  useEffect(() => {
-    if (reveal === undefined) return
-    document.querySelector(`[data-project-id="${CSS.escape(reveal)}"]`)?.scrollIntoView()
-    setReveal(undefined)
-  }, [reveal])
   const { view } = screen
   const entry = find(projects, screen.worktree)
   const vanished = screen.worktree !== undefined && entry === undefined
@@ -186,7 +212,10 @@ const Loaded = ({
     setScreen({ view })
   }, [vanished, view])
   const [opened, setOpened] = useState(0)
+  const listScroll = useRef<HTMLDivElement>(null)
+  const savedScroll = useRef(0)
   const open = (e: Entry) => {
+    savedScroll.current = listScroll.current?.scrollTop ?? 0
     setOpened((n) => n + 1)
     go({ view, worktree: e.worktree.path })
   }
@@ -199,6 +228,7 @@ const Loaded = ({
     }
   }
   const desktop = useDesktop()
+  const [railOpen, toggleRail] = useRailExpanded()
   const attention = nowView(projects).attention.length
   const decisions = decisionCount(useInbox().data?.items ?? [])
   const tabs: readonly ViewTab<View>[] = [
@@ -211,9 +241,15 @@ const Loaded = ({
     go({ view: next })
   }
   // One tree for both widths, so crossing 1024 px keeps Detail (and its tab) mounted.
-  const split = desktop && view !== "inbox"
-  const detailOnly = !desktop && entry !== undefined
-  const selected = desktop ? entry?.worktree.path : undefined
+  const detailOnly = entry !== undefined
+  // On desktop the list stays mounted behind the detail, so Back finds it as it was.
+  const listHidden = desktop && detailOnly
+  useEffect(() => {
+    if (desktop && entry === undefined && listScroll.current !== null) {
+      listScroll.current.scrollTop = savedScroll.current
+    }
+  }, [desktop, entry])
+  const selected = entry?.worktree.path
   const list = (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 lg:mx-0">
       <Banners banners={banners} />
@@ -242,11 +278,12 @@ const Loaded = ({
   const nav = (
     <ViewNav
       vertical={desktop}
+      collapsed={!railOpen}
       tabs={tabs}
       current={view}
       onSelect={onSelect}
       className={
-        desktop ? "px-3" : "fixed inset-x-0 bottom-0 z-10 border-t border-border bg-card pb-safe"
+        desktop ? "px-2" : "fixed inset-x-0 bottom-0 z-10 border-t border-border bg-card pb-safe"
       }
     />
   )
@@ -259,19 +296,30 @@ const Loaded = ({
       }
     >
       {desktop && (
-        <aside className="flex w-70 shrink-0 flex-col gap-2 overflow-y-auto border-r border-border bg-card pb-4">
-          <div className="flex h-14 shrink-0 items-center px-6">
-            <GtdWordmark className="h-7" />
+        <aside
+          className={`flex shrink-0 flex-col gap-3 border-r border-border bg-card pb-4 ${railOpen ? "w-56" : "w-16"}`}
+        >
+          <div
+            className={`flex h-14 shrink-0 items-center ${railOpen ? "gap-2 px-4" : "justify-center"}`}
+          >
+            <GtdMark className="size-7" />
+            {railOpen && <GtdWordmark className="h-6" />}
           </div>
           {nav}
-          <ProjectNav
-            projects={projects}
-            onSelect={(project) => {
-              toggle(project, true)
-              if (view !== "projects") go({ view: "projects" })
-              setReveal(project)
-            }}
-          />
+          <button
+            type="button"
+            data-testid="rail-toggle"
+            aria-expanded={railOpen}
+            aria-label={railOpen ? "Collapse sidebar" : "Expand sidebar"}
+            className={`mt-auto flex size-10 items-center justify-center rounded-md text-muted-foreground hover:bg-accent/60 hover:text-foreground focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring ${railOpen ? "mx-2 self-start" : "self-center"}`}
+            onClick={toggleRail}
+          >
+            {railOpen ? (
+              <PanelLeftClose aria-hidden="true" className="size-5" />
+            ) : (
+              <PanelLeftOpen aria-hidden="true" className="size-5" />
+            )}
+          </button>
         </aside>
       )}
       {!desktop && !detailOnly && (
@@ -284,11 +332,11 @@ const Loaded = ({
         </header>
       )}
       <main className="flex min-w-0 flex-1">
-        {!detailOnly && (
+        {(desktop || !detailOnly) && (
           <div
             className={
               desktop
-                ? `flex min-w-0 flex-col ${split ? "w-[28rem] shrink-0 border-r border-border xl:w-[32rem]" : "flex-1"}`
+                ? `min-w-0 flex-1 flex-col ${listHidden ? "hidden" : "flex"}`
                 : "flex min-w-0 flex-1 flex-col px-4 pt-4 pb-[calc(5rem+var(--safe-bottom,env(safe-area-inset-bottom)))]"
             }
           >
@@ -298,14 +346,16 @@ const Loaded = ({
                   <h1 className="text-lg font-semibold">{title}</h1>
                   {bell}
                 </header>
-                <div className="min-h-0 flex-1 overflow-y-auto p-4 xl:p-6">{list}</div>
+                <div ref={listScroll} className="min-h-0 flex-1 overflow-y-auto p-4 xl:p-6">
+                  {list}
+                </div>
               </>
             ) : (
               list
             )}
           </div>
         )}
-        {entry !== undefined ? (
+        {entry !== undefined && (
           <Detail
             key={entry.worktree.path}
             entry={entry}
@@ -313,13 +363,6 @@ const Loaded = ({
             embedded={desktop}
             opened={opened}
           />
-        ) : (
-          split && (
-            <div className="flex min-w-0 flex-1 flex-col items-center justify-center gap-2 p-4 text-muted-foreground">
-              <PanelRight aria-hidden="true" className="size-6" />
-              <p data-testid="detail-placeholder">Select a worktree to see its gate and actions.</p>
-            </div>
-          )
         )}
       </main>
       {!desktop && !detailOnly && nav}

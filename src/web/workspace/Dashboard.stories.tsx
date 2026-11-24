@@ -207,26 +207,70 @@ export const ResizingKeepsTheOpenDetail: Story = {
   },
 }
 
-/** From 1024 px a side navigation replaces the tabs, and a worktree opens beside its list. */
-export const DesktopSplitsListAndDetail: Story = {
+/** From 1024 px a collapsed rail replaces the tabs; a worktree replaces the list at full width and Close brings the list back. */
+export const DesktopShowsListOrDetail: Story = {
   play: async ({ canvasElement }) => {
     await viewport(1440, 900)
     const canvas = within(canvasElement)
     const nav = await canvas.findByRole("navigation", { name: "Views" })
     await expect(getComputedStyle(nav).flexDirection).toBe("column")
+    await expect(nav.closest("aside")!.getBoundingClientRect().width).toBeLessThan(80)
+    await expect(canvas.queryByTestId("detail-placeholder")).not.toBeInTheDocument()
     await userEvent.click(canvas.getByRole("button", { name: "Projects" }))
-    await expect(canvas.getByTestId("detail-placeholder")).toBeVisible()
     await userEvent.click(canvas.getByText("login"))
     await expect(canvas.getByTestId("detail")).toBeVisible()
-    await expect(canvas.getAllByTestId("project")).toHaveLength(2)
-    await expect(canvas.queryByTestId("detail-placeholder")).not.toBeInTheDocument()
+    await expect(
+      canvas.queryAllByTestId("project").filter((p) => p.checkVisibility()),
+    ).toHaveLength(0)
+    await userEvent.click(canvas.getByRole("button", { name: "Close" }))
+    await waitFor(() => expect(canvas.getAllByTestId("project")[0]).toBeVisible())
+    await expect(canvas.queryByTestId("detail")).not.toBeInTheDocument()
     await expect(document.documentElement.scrollWidth <= document.documentElement.clientWidth).toBe(
       true,
     )
   },
 }
 
-/** A worktree's address opens the split with that worktree selected. */
+/** Back returns to the list at the scroll position it had. */
+export const DesktopBackKeepsTheListScroll: Story = {
+  play: async ({ canvasElement }) => {
+    await viewport(1440, 300)
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: "Projects" }))
+    const scroller = canvas.getAllByTestId("project")[0]!.closest<HTMLElement>(".overflow-y-auto")!
+    scroller.scrollTop = 40
+    const top = scroller.scrollTop
+    // A plain click: userEvent would scroll the row into view first.
+    canvas.getByText("login").click()
+    await canvas.findByTestId("detail")
+    await userEvent.click(canvas.getByRole("button", { name: "Close" }))
+    await waitFor(() => expect(scroller.scrollTop).toBe(top))
+  },
+}
+
+/** The collapsed rail shows icons with counts and the title as a tooltip; the toggle expands it to titles and back. */
+export const RailCollapsesAndExpands: Story = {
+  play: async ({ canvasElement }) => {
+    window.localStorage.removeItem("gtd.rail.expanded")
+    await viewport(1440, 900)
+    const canvas = within(canvasElement)
+    const now = await canvas.findByRole("button", { name: "Now (2)" })
+    await expect(now).toHaveTextContent("2")
+    await expect(within(now).getByRole("tooltip", { hidden: true })).toHaveTextContent("Now")
+    await expect(canvas.queryByText("Collapse sidebar")).not.toBeInTheDocument()
+    const toggle = canvas.getByTestId("rail-toggle")
+    await expect(toggle).toHaveAttribute("aria-expanded", "false")
+    await userEvent.click(toggle)
+    await expect(toggle).toHaveAttribute("aria-expanded", "true")
+    await expect(within(now.closest("aside")!).getByText("Projects")).toBeVisible()
+    await expect(now.closest("aside")!.getBoundingClientRect().width).toBeGreaterThan(160)
+    await userEvent.click(toggle)
+    await expect(toggle).toHaveAttribute("aria-expanded", "false")
+    window.localStorage.removeItem("gtd.rail.expanded")
+  },
+}
+
+/** A worktree's address opens its detail. */
 export const DesktopOpensAWorktreeFromItsAddress: Story = {
   play: async ({ canvasElement }) => {
     await viewport(1440, 900)
@@ -237,7 +281,6 @@ export const DesktopOpensAWorktreeFromItsAddress: Story = {
     window.dispatchEvent(new PopStateEvent("popstate"))
     await expect(window.location.search).toContain("worktree=")
     await expect(canvas.getByTestId("detail")).toBeVisible()
-    await expect(canvas.getAllByTestId("project")).toHaveLength(2)
   },
 }
 
@@ -554,24 +597,5 @@ export const PhoneClearsTheInsets: Story = {
     } finally {
       clearInsets()
     }
-  },
-}
-
-/** The desktop sidebar lists each project with what needs you and what failed; a click opens it in Projects. */
-export const SidebarListsProjects: Story = {
-  play: async ({ canvasElement }) => {
-    await viewport(1440, 900)
-    const canvas = within(canvasElement)
-    const rows = await canvas.findAllByTestId("sidebar-project")
-    await expect(rows.map((r) => r.textContent)).toEqual(["api1 in error", "Portal1 need you"])
-    await expect(within(rows[0]!).getByTestId("sidebar-error")).toHaveClass("tabular-nums")
-    await expect(within(rows[1]!).queryByTestId("sidebar-error")).toBeNull()
-    await userEvent.click(canvas.getByRole("button", { name: "Projects" }))
-    await userEvent.click(canvas.getByRole("button", { name: "Portal" }))
-    await waitFor(() => expect(canvas.queryByText("login")).not.toBeInTheDocument())
-    await userEvent.click(canvas.getByRole("button", { name: /^Now/ }))
-    await userEvent.click(rows[1]!)
-    await expect(window.location.search).toBe("?view=projects")
-    await expect(await canvas.findByText("login")).toBeVisible()
   },
 }
