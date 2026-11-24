@@ -18,7 +18,6 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import type {
   BlockListItem,
-  InlineNode,
   SteeringAnchor,
   SteeringView,
   SteeringViewNode,
@@ -39,8 +38,8 @@ import { Label } from "../ui/label.js"
 import { RadioGroup, RadioGroupItem } from "../ui/radio-group.js"
 import { Skeleton } from "../ui/skeleton.js"
 import { cellKey, useWriteStore, WriteStoreProvider } from "../writeStore.js"
+import { linksOfItems, linksOfParagraph, plainText, type HunkLink } from "./explanation.js"
 import { Hunk } from "./Hunk.js"
-import { findRefs } from "../../steering/internal.js"
 import { HunkOpenContext, Inline, refOfHref } from "./InlineRun.js"
 import { NoteGestureHint, ProseBlocks } from "./ProseBlock.js"
 
@@ -77,43 +76,30 @@ const useHunkDiff = (node: SteeringViewNode) => {
 /** One by-hunk page: a checklist item (tickable) or a prose link (diff only). */
 type Page = SteeringViewNode
 
-const hunkHref = (n: InlineNode): string[] =>
-  n.kind === "link"
-    ? [refOfHref(n.href)?.href ?? []].flat()
-    : n.kind === "text" || n.kind === "code"
-      ? findRefs(n.value).map((r) => r.href)
-      : []
-
-const childrenOf = (n: InlineNode): readonly InlineNode[] => ("children" in n ? n.children : [])
-
-const inlineLinks = (inline: readonly InlineNode[]): string[] =>
-  inline.flatMap((n) => [...hunkHref(n), ...(n.kind === "link" ? [] : inlineLinks(childrenOf(n)))])
-
-const itemLinks = (items: readonly BlockListItem[]): string[] =>
-  items.flatMap((i) => [...inlineLinks(i.inline ?? []), ...itemLinks(i.items ?? [])])
-
-const pageOfHref = (href: string, anchor: SteeringAnchor): Page => {
+const pageOfLink = ({ href, explanation }: HunkLink, anchor: SteeringAnchor): Page => {
   const r = refOfHref(href)!
   return {
     title: r.href,
     path: r.path,
     line: r.line,
     ...(r.endLine !== undefined ? { endLine: r.endLine } : {}),
+    ...(explanation !== undefined
+      ? { detail: plainText(explanation), detailInline: explanation }
+      : {}),
     anchor,
   } as Page
 }
 
 /** Every hunk link of the document in file order: prose links and review checklist items. */
-// fallow-ignore-next-line complexity
-const proseLinks = (node: SteeringViewNode): string[] => [
-  ...inlineLinks(node.block?.inline ?? []),
-  ...itemLinks(node.block?.items ?? []),
+const proseLinks = (node: SteeringViewNode): HunkLink[] => [
+  ...linksOfParagraph(node.block?.inline ?? []),
+  ...linksOfItems(node.block?.items ?? []),
   ...(node.body ?? []).flatMap(proseLinks),
 ]
 
 const pagesOf = (nodes: readonly SteeringViewNode[]): readonly Page[] =>
   nodes.flatMap((node): readonly Page[] => [
-    ...proseLinks(node).map((href) => pageOfHref(href, node.anchor)),
+    ...proseLinks(node).map((link) => pageOfLink(link, node.anchor)),
     ...(node.status === "review-checklist" ? (node.children ?? []) : []),
   ])
 
@@ -132,7 +118,7 @@ const HunkSlider = ({
 }) => {
   const [at, setIndex] = useState(start)
   const index = Math.min(at, pages.length - 1)
-  const node = pages[index]!
+  const { detail, detailInline, ...node } = pages[index]!
   const diff = useHunkDiff(node)
   const go = (i: number): void => setIndex(Math.max(0, Math.min(pages.length - 1, i)))
   return (
@@ -154,6 +140,15 @@ const HunkSlider = ({
             {index + 1} / {pages.length}
           </span>
         </div>
+        {detail !== undefined && detail.length > 0 && (
+          <p
+            data-testid="hunk-description"
+            title={detail}
+            className="mx-auto m-0 line-clamp-3 w-full max-w-5xl px-4 pb-2 text-sm text-muted-foreground"
+          >
+            <Inline inline={detailInline} fallback={detail} />
+          </p>
+        )}
       </div>
       <div className="mx-auto w-full max-w-5xl">
         <Hunk
@@ -665,7 +660,9 @@ const useInlineSlideScroll = (
   inline: boolean,
   open: boolean,
   screen: { readonly current: HTMLDivElement | null },
-  returnTo: { current: { readonly box: Element; readonly top: number } | undefined },
+  returnTo: {
+    current: { readonly box: Element; readonly top: number } | undefined
+  },
 ): void => {
   useLayoutEffect(() => {
     if (!inline) return
@@ -755,7 +752,13 @@ export const DocumentView = ({
       cell: cellKey(filePath, anchor, "value"),
       optimistic: value,
       ...(onSetMany !== undefined
-        ? { batch: { key: filePath, item: { anchor, ...value }, send: onSetMany } }
+        ? {
+            batch: {
+              key: filePath,
+              item: { anchor, ...value },
+              send: onSetMany,
+            },
+          }
         : { write: onSet === undefined ? undefined : onSet(anchor, value) }),
     }).catch(() => {})
   }
@@ -918,6 +921,7 @@ export const DocumentView = ({
       {noteAnchor !== undefined && (
         <NoteSheet
           anchor={noteAnchor}
+          {...startNote(view.nodes, noteAnchor)}
           onSave={(anchor, text) => {
             setNoteAnchor(undefined)
             saveNote(anchor, text)
@@ -927,6 +931,28 @@ export const DocumentView = ({
       )}
     </>
   )
+}
+
+/** The text a block's note sheet starts with: the one note it would rewrite, else empty so a save adds a note. */
+const startNote = (
+  nodes: readonly SteeringViewNode[],
+  anchor: SteeringAnchor,
+): { readonly note?: string } => {
+  if (anchor.kind !== "paragraph") return {}
+  const line = anchor.line
+  const find = (
+    items: readonly BlockListItem[],
+  ): { note?: string; noteCount?: number } | undefined => {
+    for (const item of items) {
+      if (item.line === line) return item
+      const nested = item.items === undefined ? undefined : find(item.items)
+      if (nested !== undefined) return nested
+    }
+    return undefined
+  }
+  const own = nodes.find((n) => n.anchor.kind === "paragraph" && n.anchor.line === line)
+  const target = own ?? nodes.map((n) => find(n.block?.items ?? [])).find((f) => f !== undefined)
+  return target?.note === undefined || target.noteCount !== undefined ? {} : { note: target.note }
 }
 
 const MessageCard = ({

@@ -1,5 +1,5 @@
 import type { List, ListItem, RootContent, Root } from "mdast"
-import { noteLookup } from "./Footnotes.js"
+import { noteCountLookup, noteLookup, orphanDefinitions, parseFootnotes } from "./Footnotes.js"
 import type { Footnotes } from "./Footnotes.js"
 import { definitionsOf, joinInlineRuns, projectInline, type InlineNode } from "./Inline.js"
 import { headingText, sourceText, toLspPosition } from "./MarkdownTree.js"
@@ -128,19 +128,39 @@ const nodeInline = (
   return title.length > 0 ? [{ kind: "text", value: title }] : []
 }
 
-type NoteAt = ReturnType<typeof noteLookup>
+type NoteAt = (
+  first: number,
+  last: number,
+) => ReturnType<ReturnType<typeof noteLookup>> & { readonly noteCount?: number }
+
+/** The note lookup, plus `noteCount` when more than one marker falls in the range. */
+const noteWithCount = (content: string, footnotes: Footnotes | undefined): NoteAt => {
+  const note = noteLookup(content, footnotes)
+  const count = noteCountLookup(content, footnotes)
+  return (first, last) => {
+    const n = count(first, last)
+    return { ...note(first, last), ...(n > 1 ? { noteCount: n } : {}) }
+  }
+}
 
 /** One list item as a `BlockListItem`, recursing into a nested `list` child (there is at most one, CommonMark's own shape) as its own `items`. */
 const blockListItemOf = (content: string, item: ListItem, noteAt: NoteAt): BlockListItem => {
   const nested = item.children.filter((c): c is List => c.type === "list")
   const items = nested.flatMap((list) => blockListItemsOf(content, list.children, noteAt))
   const line = item.position === undefined ? undefined : toLspPosition(item.position.start).line
+  const nestedStart = nested[0]?.position?.start.line
+  const last =
+    item.position === undefined
+      ? undefined
+      : nestedStart !== undefined
+        ? nestedStart - 2
+        : toLspPosition(item.position.end).line
   return {
     text: listItemText(content, item),
     inline: listItemInline(content, item),
     ...(item.checked === true || item.checked === false ? { checked: item.checked } : {}),
     ...(items.length > 0 ? { items } : {}),
-    ...(line === undefined ? {} : { line, ...noteAt(line) }),
+    ...(line === undefined ? {} : { line, ...noteAt(line, last!) }),
   }
 }
 
@@ -220,7 +240,10 @@ const blockOf = (
         inline: nodeInline(content, node),
       }
     case "paragraph":
-      return { kind: "paragraph", inline: projectInline(node.children, definitionsOf(content)) }
+      return {
+        kind: "paragraph",
+        inline: projectInline(node.children, definitionsOf(content)),
+      }
     default:
       return undefined
   }
@@ -271,7 +294,7 @@ const visibleNodes = (
  * `footnoteDefinition` is skipped unconditionally: it is the note ITSELF,
  * surfaced below as a node's `note`, never document content of its own.
  *
- * A footnote marker on a node's start line becomes that node's `note`, so a
+ * A footnote marker anywhere inside a node becomes that node's `note`, so a
  * block already carrying one offers editing it rather than a second note.
  *
  * `options.footnotes`, when given, replaces this call's own
@@ -283,15 +306,16 @@ const blockNodesOfRun = (
   nodes: readonly RootContent[],
   options?: BlockWalkOptions,
 ): readonly SteeringView["nodes"][number][] => {
-  const noteAt = noteLookup(content, options?.footnotes)
+  const noteAt = noteWithCount(content, options?.footnotes)
   return visibleNodes(content, nodes, options).map((node) => {
     const startLine = toLspPosition(node.position!.start).line
+    const endLine = node.type === "list" ? startLine : toLspPosition(node.position!.end).line
     const block = blockOf(content, node, noteAt, options)
     return {
       title: blockTitle(content, node, options),
       anchor: { kind: "paragraph" as const, line: startLine },
       ...(block !== undefined ? { block } : {}),
-      ...noteAt(startLine),
+      ...noteAt(startLine, endLine),
     }
   })
 }
@@ -301,7 +325,21 @@ export const blockNodesOf = (
   content: string,
   tree: Root,
   options?: BlockWalkOptions,
-): readonly SteeringView["nodes"][number][] => blockNodesOfRun(content, tree.children, options)
+): readonly SteeringView["nodes"][number][] => [
+  ...blockNodesOfRun(content, tree.children, options),
+  ...orphanNodesOf(content, options),
+]
+
+/** A definition no marker refers to, as a view node of its own. */
+export const orphanNodesOf = (
+  content: string,
+  options?: BlockWalkOptions,
+): readonly SteeringView["nodes"][number][] =>
+  orphanDefinitions(options?.footnotes ?? parseFootnotes(content)).map((d) => ({
+    title: `[^${d.name}]`,
+    anchor: { kind: "paragraph" as const, line: d.line },
+    note: d.body,
+  }))
 
 /**
  * A run of sibling nodes' own inline structure, flattened and joined exactly

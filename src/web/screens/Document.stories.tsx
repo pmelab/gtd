@@ -579,3 +579,58 @@ export const InlineTheSliderOpensAtItsTopAndClosesWhereYouWere: Story = {
     await expect(pane.scrollTop).toBe(before)
   },
 }
+
+/** A marker on a later line of a paragraph still shows that paragraph's note. */
+export const AMarkerOnALaterLineShowsTheNote: Story = {
+  args: {
+    filePath: "REVIEW.md",
+    isLoading: false,
+    view: widgetFormat.view(
+      ["First line.", "The[^fn1] second line.", "", "[^fn1]: mount it in the admin menu", ""].join(
+        "\n",
+      ),
+    ),
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(canvas.getByTestId("paragraph-note-0")).toHaveTextContent(
+      "mount it in the admin menu",
+    )
+  },
+}
+
+const EXPLAINED = [
+  "# Review",
+  "",
+  "- [./src/a.ts#3-9](./src/a.ts#3-9) — validates the `invite` before it is sent, " +
+    "and refuses an expired one, and retries the lookup twice when the directory is slow, " +
+    "and logs every refusal with the invite id for later support requests, and more.",
+  "- [./src/b.ts#1-2](./src/b.ts#1-2)",
+  "",
+].join("\n")
+
+const explanationPlay =
+  (width: number): NonNullable<Story["play"]> =>
+  async ({ canvasElement }) => {
+    await viewport(width, 800)
+    const canvas = within(canvasElement)
+    await fireEvent.click(canvas.getAllByText("./src/a.ts#3-9")[0]!)
+    const description = canvas.getByTestId("hunk-description")
+    await expect(description).toHaveTextContent(/^validates the invite before it is sent/)
+    await expect(canvas.getAllByTestId("hunk-description")).toHaveLength(1)
+    await expect(description.getBoundingClientRect().height).toBeLessThan(90)
+    await expect(description).toHaveAttribute("title", expect.stringContaining("and more."))
+    await fireEvent.click(canvas.getByTestId("hunk-next"))
+    await expect(canvas.queryByTestId("hunk-description")).toBeNull()
+  }
+
+/** A long explanation sits in the sticky bar, wrapped to a few lines. */
+export const ASliderLongExplanationOnAPhone: Story = {
+  args: { filePath: ".gtd/REVIEW.md", isLoading: false, view: widgetFormat.view(EXPLAINED) },
+  play: explanationPlay(390),
+}
+
+export const ASliderLongExplanationOnDesktop: Story = {
+  args: { filePath: ".gtd/REVIEW.md", isLoading: false, view: widgetFormat.view(EXPLAINED) },
+  play: explanationPlay(1280),
+}

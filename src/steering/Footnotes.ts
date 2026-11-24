@@ -63,7 +63,10 @@ const orphanMarkers = (content: string, tree: Root): FootnoteMarker[] => {
     readonly children?: unknown
   }): void => {
     if (node.type === "text" && node.position) {
-      const { start, end } = node.position as { start: { offset: number }; end: { offset: number } }
+      const { start, end } = node.position as {
+        start: { offset: number }
+        end: { offset: number }
+      }
       const slice = content.slice(start.offset, end.offset)
       const re = new RegExp(ORPHAN_MARKER_RE)
       let match: RegExpExecArray | null
@@ -231,7 +234,10 @@ export const footnoteAdditionEdits = (
   const nextContentLine = firstNonBlankFrom(lines, insertLine)
   const atEof = nextContentLine >= lines.length
   const definitionEdit: SteeringEdit = {
-    range: { start, end: atEof ? start : { line: nextContentLine, character: 0 } },
+    range: {
+      start,
+      end: atEof ? start : { line: nextContentLine, character: 0 },
+    },
     newText: atEof ? `\n[^${name}]:\n` : `\n[^${name}]:\n\n`,
   }
 
@@ -277,15 +283,34 @@ export const footnotePointerAt = (
   return undefined
 }
 
-/** The note whose marker sits on a 0-based line, as a view node's `note`. */
+/** The notes whose markers sit on 0-based lines `from`..`to`, in marker order, joined into one view-node `note`. */
 export const noteLookup = (
   content: string,
   footnotes: Footnotes = parseFootnotes(content),
-): ((line: number) => { readonly note?: string }) => {
+): ((from: number, to?: number) => { readonly note?: string }) => {
   const bodies = new Map(footnotes.definitions.map((d) => [foldName(d.name), d.body]))
-  return (line) => {
-    const marker = footnotes.markers.find((m) => m.line === line)
-    const note = marker === undefined ? undefined : bodies.get(foldName(marker.name))
-    return note === undefined ? {} : { note }
+  return (from, to = from) => {
+    const notes = footnotes.markers
+      .filter((m) => m.line >= from && m.line <= to)
+      .map((m) => bodies.get(foldName(m.name)))
+      .filter((body): body is string => body !== undefined)
+    return notes.length === 0 ? {} : { note: notes.join("\n") }
   }
+}
+
+/** How many notes `noteLookup` joins for the same range. */
+export const noteCountLookup = (
+  content: string,
+  footnotes: Footnotes = parseFootnotes(content),
+): ((from: number, to?: number) => number) => {
+  const names = new Set(footnotes.definitions.map((d) => foldName(d.name)))
+  return (from, to = from) =>
+    footnotes.markers.filter((m) => m.line >= from && m.line <= to && names.has(foldName(m.name)))
+      .length
+}
+
+/** Definitions no marker refers to. */
+export const orphanDefinitions = (footnotes: Footnotes): readonly FootnoteDefinition[] => {
+  const used = new Set(footnotes.markers.map((m) => foldName(m.name)))
+  return footnotes.definitions.filter((d) => !used.has(foldName(d.name)))
 }

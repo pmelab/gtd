@@ -1,8 +1,14 @@
-import { blockNodesOf } from "./Blocks.js"
+import { blockNodesOf, orphanNodesOf } from "./Blocks.js"
 import { projectInline, type InlineNode } from "./Inline.js"
 import { eolOf } from "./Eol.js"
 import { findRefs } from "./Refs.js"
-import { footnoteAdditionEdits, footnotePointerAt, nextFootnoteName } from "./Footnotes.js"
+import {
+  footnoteAdditionEdits,
+  footnotePointerAt,
+  nextFootnoteName,
+  parseFootnotes,
+} from "./Footnotes.js"
+import type { List, ListItem } from "mdast"
 import { blockNodeAt, parseMarkdown, toLspPosition } from "./MarkdownTree.js"
 import type {
   SteeringAction,
@@ -219,6 +225,41 @@ const anchorLine = (content: string, anchor: SteeringAnchor): number | undefined
   return boxesOf(widget)[anchor.index]?.line
 }
 
+/** The definition of the first marker inside the block (or list item) holding `line`, when it has one. */
+const existingNote = (content: string, line: number) => {
+  const tree = parseMarkdown(content)
+  const top = blockNodeAt(tree, line)
+  if (top === undefined) return undefined
+  let range = {
+    from: top.position!.start.line - 1,
+    to: top.position!.end.line - 1,
+  }
+  if (top.type === "list") {
+    const items: ListItem[] = []
+    const collect = (list: List): void =>
+      list.children.forEach((item) => {
+        items.push(item)
+        item.children.forEach((c) => c.type === "list" && collect(c))
+      })
+    collect(top)
+    const own = items
+      .filter((i) => line >= i.position!.start.line - 1 && line <= i.position!.end.line - 1)
+      .pop()
+    if (own === undefined) return undefined
+    const nested = own.children.find((c) => c.type === "list")?.position?.start.line
+    range = {
+      from: own.position!.start.line - 1,
+      to: (nested ?? own.position!.end.line + 1) - 2,
+    }
+  }
+  const footnotes = parseFootnotes(content)
+  const inRange = footnotes.markers.filter((m) => m.line >= range.from && m.line <= range.to)
+  const marker = inRange.length === 1 ? inRange[0] : undefined
+  return marker === undefined
+    ? undefined
+    : footnotes.definitions.find((d) => d.name.toLowerCase() === marker.name.toLowerCase())
+}
+
 /** A marker at the end of the anchored line and a one-line note at the end of the file. */
 const annotate: SteeringFormat["annotate"] = (content, anchor, text) => {
   const line = anchorLine(content, anchor)
@@ -226,6 +267,21 @@ const annotate: SteeringFormat["annotate"] = (content, anchor, text) => {
   if (line === undefined || blockNodeAt(parseMarkdown(content), line) === undefined)
     return { ok: false, reason: "anchor-not-found" }
   const eol = eolOf(content)
+  const existing = existingNote(content, line)
+  if (existing !== undefined) {
+    const body = text.trim().split(/\r?\n/).join(`${eol}    `)
+    const range = {
+      start: { line: existing.line, character: 0 },
+      end: {
+        line: existing.endLine,
+        character: (lines[existing.endLine] ?? "").length,
+      },
+    }
+    return {
+      ok: true,
+      edits: [{ range, newText: `[^${existing.name}]: ${body}` }],
+    }
+  }
   const name = nextFootnoteName(content)
   const end = { line, character: (lines[line] ?? "").length }
   const last = lines.length - 1
@@ -266,7 +322,10 @@ const descriptionBlocks = (content: string, widget: InputWidget): readonly Steer
   if (offset < 0) return []
   return blockNodesOf(widget.description, parseMarkdown(widget.description)).map((block) =>
     block.anchor.kind === "paragraph"
-      ? { ...block, anchor: { ...block.anchor, line: block.anchor.line + offset } }
+      ? {
+          ...block,
+          anchor: { ...block.anchor, line: block.anchor.line + offset },
+        }
       : block,
   )
 }
@@ -344,7 +403,13 @@ const BASE_MARKER_RE = /^<!--\s*base:\s*([0-9a-fA-F]{4,64})\s*-->\s*$/
 const view: SteeringFormat["view"] = (content) => {
   const { widgets } = parseWidgets(content)
   const lines = content.split(/\r?\n/)
-  const all = blockNodesOf(content, parseMarkdown(content))
+  const orphans = orphanNodesOf(content)
+  const orphanLines = new Set(
+    orphans.map((o) => (o.anchor.kind === "paragraph" ? o.anchor.line : -1)),
+  )
+  const all = blockNodesOf(content, parseMarkdown(content)).filter(
+    (b) => !(b.anchor.kind === "paragraph" && orphanLines.has(b.anchor.line)),
+  )
   const markerLines = new Set(
     all.flatMap((b) =>
       b.anchor.kind === "paragraph" && BASE_MARKER_RE.test(lines[b.anchor.line]!.trim())
@@ -373,7 +438,10 @@ const view: SteeringFormat["view"] = (content) => {
     index += 1
     return [node]
   })
-  return { ...(base === undefined ? {} : { base: base.slice(0, 7) }), nodes }
+  return {
+    ...(base === undefined ? {} : { base: base.slice(0, 7) }),
+    nodes: [...nodes, ...orphans],
+  }
 }
 
 const lineRange = (lines: readonly string[], line: number) => ({
