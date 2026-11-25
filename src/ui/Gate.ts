@@ -3,6 +3,7 @@ import generatedClientHtml from "./client.generated.html"
 import { readStep, type BeatDeps, type StepRead } from "./Beat.js"
 import { resolveDiff } from "./Diff.js"
 import type { UiHandler, UiHostOps } from "./Ports.js"
+import { shellQuote } from "./Quote.js"
 import { readSteeringFile } from "./ReadSteeringFile.js"
 import { appRouter, type RouterContext } from "./Router.js"
 import {
@@ -166,6 +167,72 @@ self.addEventListener("notificationclick", (event) => {
 const vanished: WriteResult = { ok: false, reason: "file-vanished" }
 
 /** Serves one worktree's gate page and its API. */
+// Tools may not import core's commit codec, so read just the subject and the
+// two trailers a landing walk needs.
+const readLandingMessage = (
+  message: string,
+):
+  | {
+      readonly actor: string
+      readonly transition: boolean
+      readonly step: boolean
+      readonly branch: boolean
+    }
+  | undefined => {
+  const subject = /^gtd\(([^()]+)\): (.+)$/.exec((message.split("\n")[0] ?? "").trim())
+  if (subject === null) return undefined
+  return {
+    actor: subject[1]!,
+    transition: subject[2]!.includes(" → "),
+    step: /^Gtd-Step:/m.test(message),
+    branch: /^Gtd-Branch:/m.test(message),
+  }
+}
+
+type LandingEntry = { readonly hash: string; readonly message: string } | undefined
+
+const splitLogEntry = (entry: string): LandingEntry => {
+  const nl = entry.indexOf("\n")
+  return nl === -1 ? undefined : { hash: entry.slice(0, nl).trim(), message: entry.slice(nl + 1) }
+}
+
+const STOP = Symbol("stop")
+
+// One log entry: the file it left (a landing), STOP (the walk ends here) or
+// undefined (look further back).
+const readEntry = async (
+  host: UiHostOps,
+  cwd: string,
+  filePath: string,
+  entry: { readonly hash: string; readonly message: string },
+): Promise<string | typeof STOP | undefined> => {
+  const message = readLandingMessage(entry.message)
+  if (message === undefined || message.branch) return STOP
+  if (message.actor !== "human") return undefined
+  const shown = await host.run(cwd, `git show ${entry.hash}:${shellQuote(filePath)} 2>/dev/null`)
+  if (shown.status === 0) return shown.stdout
+  return message.transition || message.step ? undefined : STOP
+}
+
+// A landing is a `gtd(human)` commit of the current process (first-parent,
+// back to its opening or the last non-step / branch-finishing commit); the
+// file as the newest one holding it left it.
+const lastLanding = async (
+  host: UiHostOps,
+  cwd: string,
+  filePath: string,
+): Promise<string | undefined> => {
+  const log = await host.run(cwd, "git log --first-parent -z --format=%H%n%B")
+  if (log.status !== 0) return undefined
+  for (const raw of log.stdout.split("\0")) {
+    const entry = splitLogEntry(raw)
+    const found = entry === undefined ? undefined : await readEntry(host, cwd, filePath, entry)
+    if (found === STOP) return undefined
+    if (found !== undefined) return found
+  }
+  return undefined
+}
+
 export const gateHandler = (options: GateOptions): UiHandler => {
   const { root, host, endpoint } = options
   const page = withTrpcEndpoint(options.clientHtml ?? generatedClientHtml, endpoint)
@@ -201,14 +268,19 @@ export const gateHandler = (options: GateOptions): UiHandler => {
     resolveDiff: (path, line, endLine) => resolveDiff(root, path, line, endLine, host),
     readSteeringFile: async (request) =>
       (await isServed(request.filePath))
-        ? readSteeringFile({ ...request, worktreePath: root }, host)
+        ? readSteeringFile(
+            { ...request, worktreePath: root },
+            { ...host, lastLanding: (cwd, filePath) => lastLanding(host, cwd, filePath) },
+          )
         : { ok: false, reason: "file-vanished" },
   }
   return (request) => {
     const path = new URL(request.url).pathname
     if (path !== endpoint && !path.startsWith(`${endpoint}/`)) {
       return Promise.resolve(
-        new Response(page, { headers: { "content-type": "text/html; charset=utf-8" } }),
+        new Response(page, {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
       )
     }
     return fetchRequestHandler({

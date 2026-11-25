@@ -1,4 +1,4 @@
-import type { SteeringView } from "../steering/index.js"
+import type { SteeringView, SteeringViewNode } from "../steering/index.js"
 import { resolveWithinRoot } from "./SafePath.js"
 import { steeringViewFor } from "./View.js"
 import type { ReadFileResult } from "./Ports.js"
@@ -37,6 +37,29 @@ export interface ReadSteeringFileRequest {
 export interface ReadSteeringFileDeps {
   readonly headSha: (worktreePath: string) => Promise<string | undefined>
   readonly readFile: (absPath: string) => Promise<ReadFileResult>
+  /** The file's content at its last landing; `undefined` when it never landed. */
+  readonly lastLanding?: (worktreePath: string, filePath: string) => Promise<string | undefined>
+}
+
+/** A node's content without positions or notes, whitespace collapsed: only a real change differs. */
+const fingerprint = (node: SteeringViewNode): string =>
+  JSON.stringify(node, (key, value: unknown) =>
+    key === "anchor" || key === "line" || key === "endLine" || key === "note" || key === "noteCount"
+      ? undefined
+      : typeof value === "string"
+        ? value.replace(/\s+/g, " ").trim()
+        : value,
+  )
+
+/** Marks each top-level node whose content is absent from the last landing's view. */
+const markChanged = (view: SteeringView, landed: string): SteeringView => {
+  const before = new Set(steeringViewFor(landed).nodes.map(fingerprint))
+  return {
+    ...view,
+    nodes: view.nodes.map((node) =>
+      before.has(fingerprint(node)) ? node : { ...node, changed: true },
+    ),
+  }
 }
 
 /**
@@ -63,7 +86,9 @@ export const readSteeringFile = async (
   if (read.kind === "unreadable") return { ok: false, reason: "file-vanished" }
   const content = read.kind === "content" ? read.content : ""
 
-  const view = steeringViewFor(content)
+  const plain = steeringViewFor(content)
+  const landed = await deps.lastLanding?.(request.worktreePath, request.filePath)
+  const view = landed === undefined ? plain : markChanged(plain, landed)
 
   const headSha = await deps.headSha(request.worktreePath)
   if (headSha === undefined) return { ok: false, reason: "head-unresolved" }

@@ -161,7 +161,14 @@ const ProseBlock = ({
   const isCode = node.block?.kind === "code"
   const notable = !isCode && readOnly !== true
   return (
-    <div className={node.block?.kind === "heading" ? "mt-8 mb-1 first:mt-0" : "mt-2 first:mt-0"}>
+    <div
+      data-testid={node.changed ? "changed-block" : undefined}
+      className={cn(
+        node.block?.kind === "heading" ? "mt-8 mb-1 first:mt-0" : "mt-2 first:mt-0",
+        node.changed && "border-l-2 border-warning pl-2",
+      )}
+    >
+      {node.changed && <span className="sr-only">Changed since you last landed this file</span>}
       {/*
        * The note gesture is a DOUBLE TAP on the block itself — there is no
        * per-block control at all, because any control repeated once per
