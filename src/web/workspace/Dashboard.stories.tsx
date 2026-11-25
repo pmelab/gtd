@@ -138,6 +138,27 @@ export const OpensOnNow: Story = {
   },
 }
 
+/** The phone tab bar is iOS-sized: large icons, and a capsule over the selected tab's icon and label. */
+export const PhoneTabBarHasLargeIconsAndCapsule: Story = {
+  play: async ({ canvasElement }) => {
+    await viewport(360, 800)
+    const canvas = within(canvasElement)
+    const nav = await phoneNav(canvas)
+    const selected = within(nav).getByRole("button", { name: "Now (2)" })
+    await expect(selected).toHaveAttribute("aria-current", "true")
+    const icon = selected.querySelector("svg")!.getBoundingClientRect()
+    await expect(icon.width).toBeGreaterThanOrEqual(26)
+    await expect(icon.width).toBeLessThanOrEqual(28)
+    const capsule = selected.getBoundingClientRect()
+    const label = selected.lastElementChild!.getBoundingClientRect()
+    await expect(getComputedStyle(selected).backgroundColor).not.toBe("rgba(0, 0, 0, 0)")
+    await expect(capsule.top).toBeLessThanOrEqual(icon.top)
+    await expect(capsule.bottom).toBeGreaterThanOrEqual(label.bottom)
+    await expect(capsule.height).toBeGreaterThanOrEqual(44)
+    await viewport(1440, 900)
+  },
+}
+
 /** On a phone a worktree's detail is a full screen; Close returns to the view it came from. */
 export const DetailIsAFullScreen: Story = {
   play: async ({ canvasElement }) => {
@@ -348,7 +369,10 @@ export const InboxOffersNoRetryOfARemovedFeed: Story = {
         resolvers={{
           projects: () => workspace,
           banners: () => [],
-          inbox: () => ({ ...inbox, feeds: inbox.feeds.filter((f) => f.feed !== "boardReady") }),
+          inbox: () => ({
+            ...inbox,
+            feeds: inbox.feeds.filter((f) => f.feed !== "boardReady"),
+          }),
         }}
       >
         <Story />
@@ -510,7 +534,11 @@ export const InboxListsEveryItemState: Story = {
   decorators: [
     (Story) => (
       <WorkspaceTrpcTestProvider
-        resolvers={{ projects: () => fullWorkspace, banners: () => [], inbox: () => fullInbox }}
+        resolvers={{
+          projects: () => fullWorkspace,
+          banners: () => [],
+          inbox: () => fullInbox,
+        }}
       >
         <Story />
       </WorkspaceTrpcTestProvider>
