@@ -98,8 +98,9 @@ resting at `gtd:unpin`, marked `pin: "remove"` that deletes
 a turn. _Avoid_: thaw, unfreeze
 
 **Config export**: `gtd.config.ts`'s reserved `config` export, built with
-`defineConfig` — the repository settings a workflow does not own: modes, `ui`,
-per-scope skills and access. _Avoid_: `.gtdrc` (removed), rc config
+`defineConfig` — the repository settings a workflow does not own: modes,
+per-scope skills and access. Web settings (`ui`) live in `gtd.workspace.ts`.
+_Avoid_: `.gtdrc` (removed), rc config
 
 **Feature flag**: An env-only boolean, `GTD_FLAG_<NAME>`, a flag gtd knows; an
 unknown `GTD_FLAG_*` is ignored; no-promise tier. Distinct from a process or
@@ -333,6 +334,11 @@ dashboard), site
 **Supervisor**: The one long-running `gtd workspace` process of a workspace. It
 reads every worktree, serves the dashboard and the gate pages, and dispatches.
 It decides nothing about a process. _Avoid_: daemon, server, orchestrator
+
+**Gate page**: The web page where a person reads and answers the steering file
+of a worktree that rests at a [gate](#gate), and presses Proceed. Only the
+supervisor serves gate pages, one for every worktree. _Avoid_: gate UI, gate
+process, `gtd ui` (removed), the bare "the gate" (that is the step)
 
 **Adapter**: The workspace's link to one outside tool: terminal, services,
 worktrees, actions or notifications. Each has a bundled default that a workspace
