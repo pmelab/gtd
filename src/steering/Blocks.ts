@@ -238,6 +238,10 @@ const blockOf = (
         kind: "blockquote",
         text: blockTitle(content, node),
         inline: nodeInline(content, node),
+        paragraphs: node.children
+          .filter((c) => c.type !== "footnoteDefinition")
+          .map((c) => nodeInline(content, c))
+          .filter((run) => run.length > 0),
       }
     case "paragraph":
       return {

@@ -112,6 +112,22 @@ describe("blockNodesOf — default walk, no skip predicates", () => {
     expect(nodes[0]?.title).toBe("First line. Second para.")
   })
 
+  it("keeps each paragraph of a blockquote as its own inline run, formatting intact", () => {
+    const content = ["> **Problem:** a `x`", ">", "> **Severity:** medium", ""].join("\n")
+    const tree = parseMarkdown(content)
+    const block = blockNodesOf(content, tree)[0]?.block
+    expect(block?.paragraphs).toHaveLength(2)
+    expect(block?.paragraphs?.[0]?.[0]).toMatchObject({ kind: "strong" })
+    expect(block?.paragraphs?.[1]?.[0]).toMatchObject({ kind: "strong" })
+  })
+
+  it("gives a one-paragraph blockquote a single run equal to its inline", () => {
+    const content = ["> one **two**", ""].join("\n")
+    const tree = parseMarkdown(content)
+    const block = blockNodesOf(content, tree)[0]?.block
+    expect(block?.paragraphs).toEqual([block?.inline])
+  })
+
   it("keeps a literal '>' typed mid-prose inside a blockquote", () => {
     const content = ["> a > b", ""].join("\n")
     const tree = parseMarkdown(content)

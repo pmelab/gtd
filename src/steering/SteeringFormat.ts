@@ -171,6 +171,8 @@ export interface SteeringViewNode {
      * structure rather than literal markers.
      */
     readonly inline?: readonly InlineNode[]
+    /** A `blockquote`'s child blocks, one inline run each, so its paragraphs stay apart. `inline` still holds them joined. */
+    readonly paragraphs?: readonly (readonly InlineNode[])[]
   }
 }
 

@@ -634,3 +634,28 @@ export const ASliderLongExplanationOnDesktop: Story = {
   args: { filePath: ".gtd/REVIEW.md", isLoading: false, view: widgetFormat.view(EXPLAINED) },
   play: explanationPlay(1280),
 }
+
+const REVIEW_COMMENT = [
+  "# Review",
+  "",
+  "> **Problem:** The new block reads `/team/info` …",
+  ">",
+  "> **Impact:** A pool team's LiteLLM team is missing in a region …",
+  ">",
+  "> **Severity:** medium",
+  "",
+].join("\n")
+
+export const ABlockquoteKeepsItsParagraphs: Story = {
+  args: {
+    filePath: ".gtd/REVIEW.md",
+    context: CONTEXT,
+    isLoading: false,
+    view: widgetFormat.view(REVIEW_COMMENT),
+  },
+  play: async ({ canvasElement }) => {
+    const quote = canvasElement.querySelector("blockquote")!
+    await expect(quote.querySelectorAll("p")).toHaveLength(3)
+    await expect(quote.querySelectorAll("strong")).toHaveLength(3)
+  },
+}
