@@ -114,7 +114,14 @@ const limiter = (limit: number) => {
 }
 
 const keyOf = (w: Worktree, fp: string): string =>
-  JSON.stringify([w.head, w.branch ?? null, w.dirty ?? null, w.description ?? null, fp])
+  JSON.stringify([
+    w.head,
+    w.branch ?? null,
+    w.foreground ?? null,
+    w.dirty ?? null,
+    w.description ?? null,
+    fp,
+  ])
 
 const stamp = async (path: string): Promise<string> => {
   try {
@@ -204,7 +211,10 @@ const gateFacts = async (
   }
   if (typeof file !== "string" || file === "") return {}
   const base = widgetFormat.view((await read?.(join(path, file))) ?? "").base
-  return { gateKind: gateKind(file), ...(base !== undefined ? { gateBase: base } : {}) }
+  return {
+    gateKind: gateKind(file),
+    ...(base !== undefined ? { gateBase: base } : {}),
+  }
 }
 
 const statusOf = ({ next, driver }: Seen) => worktreeStatus(next, driver)
@@ -534,7 +544,9 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
             ...(project.failure !== undefined ? { failure: project.failure } : {}),
             worktrees: project.worktrees.map((w) => ({
               path: w.path,
-              ...(w.branch !== undefined ? { branch: w.branch } : {}),
+              ...((w.foreground ?? w.branch) !== undefined
+                ? { branch: (w.foreground ?? w.branch)! }
+                : {}),
               ...(w.description !== undefined ? { description: w.description } : {}),
               head: w.head,
               main: w.main,

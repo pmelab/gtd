@@ -163,6 +163,29 @@ const descriptionsOf = async (path: string): Promise<ReadonlyMap<string, string>
   return found
 }
 
+const headsOf = async (path: string): Promise<ReadonlySet<string>> => {
+  const got = await read("git", ["for-each-ref", "--format=%(refname:short)", "refs/heads"], path)
+  return new Set(got.status === 0 ? got.stdout.split("\n").filter((l) => l !== "") : [])
+}
+
+/** `gtd/<b>` shows as `<b>` when `<b>` is a branch of its own. */
+const foregroundOf = (
+  branch: string | undefined,
+  heads: ReadonlySet<string>,
+): string | undefined => {
+  const name = branch?.startsWith("gtd/") ? branch.slice(4) : undefined
+  return name !== undefined && heads.has(name) ? name : undefined
+}
+
+const describe = (
+  descriptions: ReadonlyMap<string, string>,
+  branch: string | undefined,
+  shown: string | undefined,
+): string | undefined => {
+  if (branch === undefined) return undefined
+  return descriptions.get(branch) ?? (shown === undefined ? undefined : descriptions.get(shown))
+}
+
 const worktreesOf = async (project: Project): Promise<readonly Worktree[]> => {
   const listed = await read("wt", ["-C", project.path, "list", "--format=json"])
   if (listed.status !== 0) {
@@ -179,10 +202,12 @@ const worktreesOf = async (project: Project): Promise<readonly Worktree[]> => {
   }
   const items = parsed.items.filter((item) => typeof item.worktree?.path === "string")
   const descriptions = await descriptionsOf(project.path)
+  const heads = await headsOf(project.path)
   return Promise.all(
     items.map(async (item) => {
-      const description =
-        typeof item.branch === "string" ? descriptions.get(item.branch) : undefined
+      const branch = typeof item.branch === "string" ? item.branch : undefined
+      const shown = foregroundOf(branch, heads)
+      const description = describe(descriptions, branch, shown)
       return {
         path: item.worktree!.path!,
         branch: typeof item.branch === "string" ? item.branch : undefined,
@@ -190,6 +215,7 @@ const worktreesOf = async (project: Project): Promise<readonly Worktree[]> => {
         main: item.worktree!.main === true,
         integrated: await integratedOf(item, item.worktree!.path!),
         dirty: dirtyOf(item),
+        ...(shown !== undefined ? { foreground: shown } : {}),
         ...(description !== undefined ? { description } : {}),
       }
     }),

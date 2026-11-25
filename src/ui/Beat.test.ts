@@ -18,8 +18,16 @@ import {
 } from "./Beat.js"
 import type { SpawnOutcome } from "./index.js"
 
-const ok = (stdout: string, stderr = ""): SpawnOutcome => ({ status: 0, stdout, stderr })
-const failed = (stderr: string, status = 1): SpawnOutcome => ({ status, stdout: "", stderr })
+const ok = (stdout: string, stderr = ""): SpawnOutcome => ({
+  status: 0,
+  stdout,
+  stderr,
+})
+const failed = (stderr: string, status = 1): SpawnOutcome => ({
+  status,
+  stdout: "",
+  stderr,
+})
 const spawnFailed = (message: string): SpawnOutcome => ({
   status: null,
   stdout: "",
@@ -102,8 +110,27 @@ describe("readStep — ok rows", () => {
     )
   })
 
+  it("shows <b> for a process on gtd/<b> while <b> exists, and gtd/<b> when it does not", async () => {
+    const onGtd = (user: boolean): FakeDeps => {
+      const deps = makeDeps()
+      const base = deps.run.getMockImplementation()!
+      deps.run.mockImplementation(async (cwd, command) => {
+        if (command === "git rev-parse --abbrev-ref HEAD") return ok("gtd/feat\n")
+        if (command.startsWith("git rev-parse --verify")) return user ? ok("abc\n") : failed("no")
+        return base(cwd, command)
+      })
+      return deps
+    }
+    const withUser = await readStep({ path: "/repos/gtd" }, onGtd(true))
+    const alone = await readStep({ path: "/repos/gtd" }, onGtd(false))
+    expect(withUser).toMatchObject({ branch: "feat" })
+    expect(alone).toMatchObject({ branch: "gtd/feat" })
+  })
+
   it("carries the beat-reported file verbatim, for the phone to open the steering screen", async () => {
-    const deps = makeDeps({ beatOutcome: ok(beatJson({ file: ".gtd/PLAN.md" })) })
+    const deps = makeDeps({
+      beatOutcome: ok(beatJson({ file: ".gtd/PLAN.md" })),
+    })
     const result = await readStep({ path: "/repos/gtd" }, deps)
     expect(result.status).toBe("ok")
     if (result.status === "ok") expect(result.file).toBe(".gtd/PLAN.md")
@@ -124,7 +151,9 @@ describe("readStep — ok rows", () => {
   })
 
   it("falls back to the state name when the beat has no label", async () => {
-    const deps = makeDeps({ beatOutcome: ok(beatJson({ label: undefined, state: "reviewing" })) })
+    const deps = makeDeps({
+      beatOutcome: ok(beatJson({ label: undefined, state: "reviewing" })),
+    })
     const result = await readStep({ path: "/repos/gtd" }, deps)
     expect(result.status).toBe("ok")
     if (result.status === "ok") expect(result.label).toBe("reviewing")
@@ -158,7 +187,9 @@ describe("readStep — the error taxonomy", () => {
   })
 
   it("a non-zero exit puts the row in Broken with stderr shown verbatim", async () => {
-    const deps = makeDeps({ beatOutcome: failed("gtd: refused, dirty tree\n") })
+    const deps = makeDeps({
+      beatOutcome: failed("gtd: refused, dirty tree\n"),
+    })
     const result = await readStep({ path: "/repos/gtd" }, deps)
     expect(result.status).toBe("broken")
     if (result.status === "broken") expect(result.detail).toBe("gtd: refused, dirty tree\n")
@@ -178,13 +209,17 @@ describe("readStep — the error taxonomy", () => {
   })
 
   it("valid JSON with no recognizable kind puts the row in Broken, not a blank ok row", async () => {
-    const deps = makeDeps({ beatOutcome: ok(JSON.stringify({ hello: "world" })) })
+    const deps = makeDeps({
+      beatOutcome: ok(JSON.stringify({ hello: "world" })),
+    })
     const result = await readStep({ path: "/repos/gtd" }, deps)
     expect(result.status).toBe("broken")
   })
 
   it("valid JSON with an unrecognized kind puts the row in Broken", async () => {
-    const deps = makeDeps({ beatOutcome: ok(beatJson({ kind: "not-a-real-kind" })) })
+    const deps = makeDeps({
+      beatOutcome: ok(beatJson({ kind: "not-a-real-kind" })),
+    })
     const result = await readStep({ path: "/repos/gtd" }, deps)
     expect(result.status).toBe("broken")
   })
@@ -208,7 +243,11 @@ describe("readStep [real git] — the spawned read never mutates the worktree", 
   const dirs: string[] = []
 
   const gitExecIn = (dir: string, ...args: string[]): string =>
-    execSync(`git ${args.join(" ")}`, { cwd: dir, encoding: "utf8", stdio: "pipe" }).trim()
+    execSync(`git ${args.join(" ")}`, {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim()
 
   afterEach(() => {
     while (dirs.length > 0) rmSync(dirs.pop()!, { recursive: true, force: true })
@@ -262,13 +301,20 @@ describe("liveHeadSha in a linked worktree", () => {
   const dirs: string[] = []
 
   const gitExecIn = (dir: string, ...args: string[]): string =>
-    execSync(`git ${args.join(" ")}`, { cwd: dir, encoding: "utf8", stdio: "pipe" }).trim()
+    execSync(`git ${args.join(" ")}`, {
+      cwd: dir,
+      encoding: "utf8",
+      stdio: "pipe",
+    }).trim()
 
   afterEach(() => {
     while (dirs.length > 0) rmSync(dirs.pop()!, { recursive: true, force: true })
   })
 
-  const makeMainAndLinkedWorktree = (): { readonly main: string; readonly linked: string } => {
+  const makeMainAndLinkedWorktree = (): {
+    readonly main: string
+    readonly linked: string
+  } => {
     const main = realpathSync(mkdtempSync(join(tmpdir(), "gtd-beat-main-")))
     dirs.push(main)
     gitExecIn(main, "init", "-q")

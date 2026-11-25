@@ -291,3 +291,58 @@ describe("worktrunk branch descriptions", () => {
     })
   })
 })
+
+describe("worktrunk foreground branch", () => {
+  const git = (cwd: string, ...args: string[]): string =>
+    execFileSync("git", args, { cwd, env, encoding: "utf8" })
+
+  const listOn = async (
+    branch: string,
+    setup: (main: string) => void,
+  ): Promise<Awaited<ReturnType<ReturnType<typeof worktrunk>["list"]>>[number]> => {
+    const root = realpathSync(mkdtempSync(join(tmpdir(), "gtd-worktrunk-fg-")))
+    const oldPath = process.env["PATH"]
+    try {
+      const bin = join(root, "bin")
+      mkdirSync(bin)
+      const list = JSON.stringify({
+        schema: 2,
+        items: [
+          {
+            branch,
+            head: { sha: "a" },
+            worktree: { path: `${root}/demo`, main: false },
+          },
+        ],
+      })
+      writeFileSync(join(bin, "wt"), `#!/bin/sh\necho '${list}'\n`, {
+        mode: 0o755,
+      })
+      const main = join(root, "demo")
+      execFileSync("git", ["init", "-q", "-b", "main", main], { env })
+      git(main, "commit", "-q", "--allow-empty", "-m", "first")
+      setup(main)
+      process.env["PATH"] = `${bin}:${oldPath}`
+      return (await worktrunk({ roots: [join(root, "*")] }).list("demo"))[0]!
+    } finally {
+      process.env["PATH"] = oldPath
+      rmSync(root, { recursive: true, force: true })
+    }
+  }
+
+  it("maps gtd/<b> to <b> and takes <b>'s description when gtd/<b> has none", async () => {
+    const w = await listOn("gtd/feat", (main) => {
+      git(main, "branch", "feat")
+      git(main, "branch", "gtd/feat")
+      git(main, "config", "branch.feat.description", "Add feat")
+    })
+    expect(w.branch).toBe("gtd/feat")
+    expect(w.foreground).toBe("feat")
+    expect(w.description).toBe("Add feat")
+  })
+
+  it("keeps a gtd/<b> branch that has no <b>", async () => {
+    const w = await listOn("gtd/solo", (main) => git(main, "branch", "gtd/solo"))
+    expect(w).not.toHaveProperty("foreground")
+  })
+})

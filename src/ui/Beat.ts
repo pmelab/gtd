@@ -27,7 +27,10 @@ const findOwnVersion = (): string => {
   for (let i = 0; i < 8; i++) {
     const pkgPath = join(dir, "package.json")
     if (existsSync(pkgPath)) {
-      const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { name?: string; version?: string }
+      const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as {
+        name?: string
+        version?: string
+      }
       if (pkg.name === "@pmelab/gtd" && typeof pkg.version === "string") {
         ownVersion = pkg.version
         return ownVersion
@@ -126,7 +129,12 @@ export const liveRunInWorktree: RunInWorktree = (cwd, command) =>
           resolve({ status: code, stdout, stderr })
           return
         }
-        resolve({ status: null, stdout: "", stderr: "", spawnError: error.message })
+        resolve({
+          status: null,
+          stdout: "",
+          stderr: "",
+          spawnError: error.message,
+        })
       },
     )
   })
@@ -156,13 +164,22 @@ export const isSupportedVersion = (
 const readGitMeta = async (
   path: string,
   run: RunInWorktree,
-): Promise<{ readonly repo: string; readonly branch: string; readonly rest: string }> => {
+): Promise<{
+  readonly repo: string
+  readonly branch: string
+  readonly rest: string
+}> => {
   const commonDir = await run(path, "git rev-parse --path-format=absolute --git-common-dir")
   const branch = await run(path, "git rev-parse --abbrev-ref HEAD")
   const rest = await run(path, "git log -1 --format=%cI HEAD")
+  const name = branch.status === 0 ? branch.stdout.trim() : ""
+  const user = name.startsWith("gtd/") ? name.slice(4) : undefined
+  const there =
+    user !== undefined &&
+    (await run(path, `git rev-parse --verify -q "refs/heads/${user}"`)).status === 0
   return {
     repo: commonDir.status === 0 ? basename(dirname(commonDir.stdout.trim())) : basename(path),
-    branch: branch.status === 0 ? branch.stdout.trim() : "",
+    branch: there ? user! : name,
     rest: rest.status === 0 ? rest.stdout.trim() : new Date(0).toISOString(),
   }
 }
@@ -201,7 +218,10 @@ const STEP_KINDS: readonly StepKind[] = ["capture", "message", "script", "prompt
  */
 const isValidBeat = (
   fields: ParsedBeatFields,
-): fields is ParsedBeatFields & { readonly kind: StepKind; readonly actor: string } =>
+): fields is ParsedBeatFields & {
+  readonly kind: StepKind
+  readonly actor: string
+} =>
   typeof fields.kind === "string" &&
   (STEP_KINDS as readonly string[]).includes(fields.kind) &&
   typeof fields.actor === "string" &&
@@ -209,8 +229,15 @@ const isValidBeat = (
 
 const okResult = (
   worktree: WorktreeRef,
-  meta: { readonly repo: string; readonly branch: string; readonly rest: string },
-  fields: ParsedBeatFields & { readonly kind: StepKind; readonly actor: string },
+  meta: {
+    readonly repo: string
+    readonly branch: string
+    readonly rest: string
+  },
+  fields: ParsedBeatFields & {
+    readonly kind: StepKind
+    readonly actor: string
+  },
 ): Step => {
   const state = typeof fields.state === "string" ? fields.state : ""
   const filePath = typeof fields.file === "string" ? fields.file : undefined
