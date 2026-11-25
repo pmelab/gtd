@@ -1,6 +1,6 @@
 import { Given, Then, When, type DataTable } from "quickpickle"
 import assert from "node:assert"
-import { join } from "node:path"
+import { basename, join } from "node:path"
 import { parseRawRequest, type GtdWorld } from "../world.js"
 import { settle } from "../../../../src/twins/index.js"
 import { WorkspaceBench } from "../workspace.js"
@@ -23,17 +23,22 @@ Given("a workspace file {string} with:", (world: GtdWorld, path: string, content
   bench(world).writeFile(path, content)
 })
 
+const checkoutOf = (root: string, project: string, branch: string, directory?: string): string =>
+  `${root}/${project}.wt/${directory ?? branch}`
+
 // Each project gets its main checkout on `main`; a row naming `main` adds nothing else.
 Given("the worktrees adapter reports these worktrees:", (world: GtdWorld, table: DataTable) => {
   const { root, worktrees } = bench(world)
   const known = new Set<string>()
-  for (const { project, branch } of table.hashes() as {
+  for (const { project, branch, directory } of table.hashes() as {
     project: string
     branch: string
+    directory?: string
   }[]) {
     if (!known.has(project)) worktrees.addProject(project, `${root}/${project}`)
     known.add(project)
-    if (branch !== "main") worktrees.addWorktree(project, branch)
+    if (branch !== "main")
+      worktrees.addWorktree(project, branch, checkoutOf(root, project, branch, directory))
   }
 })
 
@@ -236,7 +241,7 @@ Then("the Projects view links these gate pages:", async (world: GtdWorld, table:
   const rows = (await bench(world).projects()).flatMap((project) =>
     project.worktrees.map((w) => ({
       project: project.name,
-      worktree: w.branch ?? w.path,
+      worktree: basename(w.path),
       gate: w.gate,
     })),
   )

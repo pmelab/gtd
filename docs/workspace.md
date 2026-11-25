@@ -672,11 +672,12 @@ statuses and each feed's first poll send nothing.
 ## Gate pages
 
 The supervisor also serves the gate page of every worktree, at
-`/<project>/<worktree>/gate`. `<worktree>` is the branch, or the directory name
-of a worktree with a detached HEAD. A `/` in the project id or the branch is
-written `%2F`. The page is the page of `gtd ui` for the rest the worktree is at
-now. No `gtd ui` runs for it. An edit made on a gate page rechecks the status of
-that worktree at once.
+`/<project>/<worktree>/gate`. `<worktree>` is the directory name of the
+worktree. The branch has no effect on it, so the path stays the same when the
+branch changes or the HEAD is detached. A `/` in the project id is written
+`%2F`. The page is the page of `gtd ui` for the rest the worktree is at now. No
+`gtd ui` runs for it. An edit made on a gate page rechecks the status of that
+worktree at once.
 
 ## Adapters
 

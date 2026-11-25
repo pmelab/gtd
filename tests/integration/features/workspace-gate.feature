@@ -2,7 +2,8 @@
 Feature: gtd workspace serves every worktree's gate page
 
   The one supervisor serves each worktree's gate page at
-  /<project>/<worktree>/gate, where <worktree> is the branch. There is no
+  /<project>/<worktree>/gate, where <worktree> is the directory name of the
+  worktree, whatever its branch. There is no
   gate server per worktree. Gate pages pass the same identity and POST
   checks as the dashboard, and an edit made through a gate page starts a
   recheck of that worktree at once.
@@ -30,11 +31,34 @@ Feature: gtd workspace serves every worktree's gate page
     When I start gtd workspace
     Then the Projects view links these gate pages:
       | project | worktree | gate               |
-      | api     | main     | /api/main/gate     |
-      | portal  | main     | /portal/main/gate  |
+      | api     | api      | /api/api/gate      |
+      | portal  | portal   | /portal/portal/gate |
       | portal  | plan     | /portal/plan/gate  |
     And every listed gate page answers 200
     And the gate page of "portal/plan" shows the rest "Answer the plan"
+
+  Scenario: the gate page is named by the worktree directory, not its branch
+    Given the worktrees adapter reports these worktrees:
+      | project | branch      | directory |
+      | portal  | gtd/plan/x  | feature-x |
+    When I start gtd workspace
+    Then the Projects view links these gate pages:
+      | project | worktree  | gate                    |
+      | api     | api       | /api/api/gate           |
+      | portal  | portal    | /portal/portal/gate     |
+      | portal  | feature-x | /portal/feature-x/gate  |
+    And every listed gate page answers 200
+
+  Scenario: the branch-named gate path is answered like an unknown worktree
+    Given the worktrees adapter reports these worktrees:
+      | project | branch      | directory |
+      | portal  | gtd/plan/x  | feature-x |
+    When I start gtd workspace
+    And "owner@example.com" sends this request to gtd workspace:
+      """
+      GET /portal/gtd%2Fplan%2Fx/gate
+      """
+    Then gtd workspace answers 404
 
   Scenario: the worktree data names the gate kind and review base
     Given gtd next --json in "portal/plan" prints:
