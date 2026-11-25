@@ -3,8 +3,8 @@ name: run-gtd
 description:
   Test a gtd change by hand — build this checkout, start a process in a scratch
   repository, step it to the behaviour under test and observe it, with stand-ins
-  for the agent, `gh` and the browser. Use when asked to manually test, really
-  run, try out or prototype-test a gtd change or an acceptance criterion.
+  for the agent and the browser. Use when asked to manually test, really run,
+  try out or prototype-test a gtd change or an acceptance criterion.
 ---
 
 # Testing gtd by hand
@@ -150,27 +150,6 @@ echo '{"type":"result","is_error":false,"total_cost_usd":0}'
 EOF
 chmod +x "$shims/claude"
 ```
-
-**`gh`.** The gtd Claude Code mod opens and edits pull requests through `gh`. A
-shim records every call, and the body `--body-file -` sends on stdin, and
-answers with canned output:
-
-```bash
-cat > "$shims/gh" <<'EOF'
-#!/bin/sh
-log="$(dirname "$0")/gh-calls.log"
-echo "gh $*" >>"$log"
-case " $* " in *" --body-file - "*) cat >>"$log" ;; esac
-case "$1 $2" in
-  "pr view") echo "no pull requests found for branch" >&2; exit 1 ;;
-  "pr create") echo "https://github.com/example/repo/pull/1" ;;
-  *) echo '{}' ;;
-esac
-EOF
-chmod +x "$shims/gh"
-```
-
-Then read `$shims/gh-calls.log` to check what would have been sent.
 
 ## The web UI
 

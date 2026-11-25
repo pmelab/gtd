@@ -1,6 +1,6 @@
 const LABEL = /(?:^|\. )([A-Za-z][A-Za-z0-9_-]*): /g
 
-/** Mirrored in claude/hooks/judge.ts, which may not import it: text before the first label is dropped. */
+/** Text before the first label is dropped. */
 export const splitLabels = (criteria: string): [string, string][] => {
   const hits = [...criteria.matchAll(LABEL)]
   return hits.map((m, i) => {

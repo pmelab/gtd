@@ -1,28 +1,9 @@
-import { existsSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
-import { dirname, join } from "node:path"
+import { existsSync, readFileSync } from "node:fs"
 import { describe, expect, it } from "vitest"
 
 const json = (path: string) => JSON.parse(readFileSync(path, "utf8"))
 
-// Every file the hooks module reaches, as [file, specifier] import pairs.
-const importsFrom = (entry: string, seen = new Set<string>()): [string, string][] => {
-  if (seen.has(entry)) return []
-  seen.add(entry)
-  const source = readFileSync(entry, "utf8")
-  const specs = [
-    ...source.matchAll(/^import\s(?!type\s)(?:[^"]*\sfrom\s)?"([^"]+)"/gm),
-    ...source.matchAll(/^export\s(?!type\s)[^"]*\sfrom\s"([^"]+)"/gm),
-  ].map((m) => m[1]!)
-  return specs.flatMap((spec) => {
-    if (!spec.startsWith(".")) return [[entry, spec] as [string, string]]
-    const base = join(dirname(entry), spec).replace(/\.js$/, "")
-    const file = [".ts", ".tsx"].map((x) => base + x).find((f) => existsSync(f))
-    return file ? importsFrom(file, seen) : []
-  })
-}
-
-// The npm package is the Claude Code plugin: these pin what makes it one.
+// The npm package is a Claude Code plugin that carries the authoring skill only.
 describe("claude plugin", () => {
   const pkg = json("package.json")
 
@@ -33,31 +14,18 @@ describe("claude plugin", () => {
     expect(release).toContain(".claude-plugin/plugin.json")
   })
 
-  it("publishes every file the plugin loads", () => {
-    for (const part of [
-      ".claude-plugin/plugin.json",
-      "hooks/",
-      "bin/",
-      "claude/hooks/",
-      "claude/types/",
-    ]) {
+  it("publishes the manifest and the authoring skill, and no hooks module", () => {
+    for (const part of [".claude-plugin/plugin.json", "bin/", "skills/"]) {
       expect(pkg.files).toContain(part)
     }
-    expect(json("hooks/hooks.json").modules).toEqual(["../claude/hooks/register.tsx"])
+    expect(pkg.files.filter((f: string) => /hooks|claude\//.test(f))).toEqual([])
+    expect(existsSync("hooks")).toBe(false)
+    expect(existsSync("claude")).toBe(false)
+    expect(json(".claude-plugin/plugin.json").types).toBeUndefined()
   })
 
-  // The engine refuses to load the module otherwise ("a hooks module imports
-  // its own files by relative path and \"claude-code\", nothing else").
-  it("loads only relative files and claude-code from the hooks module", () => {
-    const outside = importsFrom("claude/hooks/register.tsx").filter(([, s]) => s !== "claude-code")
-    expect(outside).toEqual([])
-  })
-
-  it("follows re-exports when walking the hooks module", () => {
-    const dir = mkdtempSync(join(tmpdir(), "gtd-hooks-"))
-    writeFileSync(join(dir, "entry.ts"), 'export { x } from "./leaf.js"\nexport const y = "z"\n')
-    writeFileSync(join(dir, "leaf.ts"), 'export { sep as x } from "node:path"\n')
-    expect(importsFrom(join(dir, "entry.ts")).map(([, s]) => s)).toEqual(["node:path"])
+  it("ships the authoring skill", () => {
+    expect(readFileSync("skills/authoring/SKILL.md", "utf8")).toMatch(/^name: authoring$/m)
   })
 
   it("installs the plugin from this package", () => {

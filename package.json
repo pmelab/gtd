@@ -77,11 +77,7 @@
     "README.md",
     "LICENSE",
     ".claude-plugin/plugin.json",
-    "hooks/",
     "bin/",
-    "claude/hooks/",
-    "claude/types/",
-    "!claude/**/*.test.ts",
     "skills/"
   ],
   "publishConfig": {

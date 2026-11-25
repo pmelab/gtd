@@ -24,8 +24,6 @@
     // Vitest config for Stryker mutation testing — loaded by Stryker CLI, not imported.
     "vitest.stryker.config.ts",
 
-    // The Claude Code mod: Claude Code loads it by the path hooks/hooks.json names.
-    "claude/hooks/register.tsx",
     // Run by .releaserc.json's prepareCmd, which no package.json script names.
     "scripts/sync-plugin-version.mjs",
     // Run by vite.config.ts's run tasks, which fallow does not read.
@@ -54,8 +52,6 @@
   // `tests/tooling/vp-run.test.ts`'s own "keeps browser-only web-client packages out of
   // dependencies" test pins this the other way from fallow's own default heuristic.
   "ignoreDependencies": [
-    // The mod API Claude Code provides to a loaded mod; no package to install.
-    "claude-code",
     "jiti",
     "@stryker-mutator/core",
     "@stryker-mutator/vitest-runner",
@@ -83,16 +79,6 @@
         "files": ["src/web/**/*.tsx"],
         "maxCrap": 80,
         "reason": "The web client's components are covered by the Storybook play tests (test:web), which run in a browser and report no coverage, so fallow scores every branch as uncovered. Logic belongs in the unit-tested .ts modules beside them."
-      },
-      {
-        "files": ["claude/hooks/register.tsx"],
-        "maxCrap": 210,
-        "reason": "The mod's glue to Claude Code runs only inside Claude Code, so no vitest run covers it and every CRAP score here is the uncovered worst case. The ceiling stops it from growing; logic belongs in the tested modules beside it."
-      },
-      {
-        "files": ["claude/hooks/drive.ts", "claude/hooks/handoff.ts"],
-        "maxCrap": 60,
-        "reason": "claude/hooks/*.test.ts cover these helpers through their exported callers; fallow's estimate without coverage data counts only exports as reached."
       }
     ]
   }

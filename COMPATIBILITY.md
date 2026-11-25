@@ -127,7 +127,7 @@ Anything not listed above, e.g.:
 - **Plain output** — `gtd next` without `--json`, help layout, every message,
   narration and remediation line. See
   [Plain output is not a parsing surface](docs/cli.md#plain-output-is-not-a-parsing-surface).
-- **UI** — `gtd ui`, the Claude Code mod, and the example drivers in
+- **UI** — `gtd ui` and the example drivers in
   [Driver protocol](docs/driver.md).
 - **LSP features** — everything `gtd lsp` offers an editor.
 - **Pin content** — the module `gtd bundle` prints after its header line; only

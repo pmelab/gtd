@@ -27,11 +27,11 @@ const json = (path: string) => {
   return rest
 }
 
-// Type-aware: claude/ and .storybook/ sit outside every tsconfig, as for tsc;
+// Type-aware: .storybook/ sits outside every tsconfig, as for tsc;
 // gtd.config.ts imports a workflow checkout only the maintainer's machine has.
 const lintConfig = ({ ignorePatterns, ...rest }: { ignorePatterns: string[] }) => ({
   ...rest,
-  ignorePatterns: [...ignorePatterns, "claude", ".storybook", "gtd.config.ts"],
+  ignorePatterns: [...ignorePatterns, ".storybook", "gtd.config.ts"],
   options: { typeAware: true, typeCheck: true },
 })
 
@@ -177,7 +177,7 @@ export default defineConfig({
           "jiti scripts/generate-shell-corpus.ts --check && sh -c 'shellcheck -s sh tests/shell/corpus/*.sh'",
         cache: check,
       },
-      "lint:boundaries": { command: "depcruise src tests claude", cache: check },
+      "lint:boundaries": { command: "depcruise src tests", cache: check },
       analyze: { command: "fallow --summary --quiet", cache: check },
       "test:unit": {
         command: "vitest run --project unit",
