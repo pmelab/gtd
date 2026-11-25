@@ -89,11 +89,22 @@ const CodeBlock = ({ node }: { readonly node: SteeringViewNode }) => {
   )
 }
 
-const BlockquoteBlock = ({ node }: { readonly node: SteeringViewNode }) => (
-  <blockquote className="m-0 rounded-md border border-border bg-muted px-4 py-3 text-muted-foreground">
-    <Inline inline={node.block?.inline} fallback={node.block?.text ?? node.title} />
-  </blockquote>
-)
+const BlockquoteBlock = ({ node }: { readonly node: SteeringViewNode }) => {
+  const paragraphs = node.block?.paragraphs
+  return (
+    <blockquote className="m-0 rounded-md border border-border bg-muted px-4 py-3 text-muted-foreground">
+      {paragraphs !== undefined && paragraphs.length > 1 ? (
+        paragraphs.map((run, index) => (
+          <p key={index} className="m-0 leading-relaxed [&:not(:first-child)]:mt-3">
+            <Inline inline={run} fallback="" />
+          </p>
+        ))
+      ) : (
+        <Inline inline={node.block?.inline} fallback={node.block?.text ?? node.title} />
+      )}
+    </blockquote>
+  )
+}
 
 /** The fallback when `block` is absent or of a kind without its own renderer: `title` still shows. */
 const ParagraphBlock = ({ node }: { readonly node: SteeringViewNode }) => (
