@@ -1,4 +1,3 @@
-import { GtdMark } from "../GtdMark.js"
 import { GtdWordmark } from "../GtdWordmark.js"
 import {
   Bell,
@@ -300,10 +299,9 @@ const Loaded = ({
           className={`flex shrink-0 flex-col gap-3 border-r border-border bg-card pb-4 ${railOpen ? "w-56" : "w-16"}`}
         >
           <div
-            className={`flex h-14 shrink-0 items-center ${railOpen ? "gap-2 px-4" : "justify-center"}`}
+            className={`flex h-14 shrink-0 items-center ${railOpen ? "px-4" : "justify-center"}`}
           >
-            <GtdMark className="size-7" />
-            {railOpen && <GtdWordmark className="h-6" />}
+            <GtdWordmark className={railOpen ? "h-9" : "h-auto w-10"} />
           </div>
           {nav}
           <button
