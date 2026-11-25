@@ -60,6 +60,11 @@ export interface Worktree {
    * count), `undefined` or absent when the adapter cannot tell.
    */
   readonly dirty?: boolean | undefined
+  /**
+   * The branch the developer knows: `<b>` for a process on `gtd/<b>` while
+   * `refs/heads/<b>` exists. Absent when `branch` is already that.
+   */
+  readonly foreground?: string | undefined
   /** The branch's description; absent when it has none or the HEAD is detached. */
   readonly description?: string | undefined
 }
