@@ -770,3 +770,11 @@ Then("the commit count increased by {int}", (world: GtdWorld, n: number) => {
     `Expected commit count to increase by ${n} (from ${world.savedCommitCount} to ${expected}), got ${current}`,
   )
 })
+
+Then("the file {string} contains {string}", (world: GtdWorld, path: string, text: string) => {
+  const content = world.readRepoFile(path)
+  assert.ok(
+    content.includes(text),
+    `expected ${path} to contain ${JSON.stringify(text)}, got:\n${content}`,
+  )
+})

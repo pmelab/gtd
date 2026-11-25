@@ -1,5 +1,5 @@
 // gtd's own imports of the steering format: everything public, plus what only
-// the engine, the LSP and `gtd ui` use.
+// the engine, and the LSP use.
 export * from "./index.js"
 export { viewOf } from "./registry.js"
 export { steeringStepFindings } from "./SteeringStep.js"

@@ -1,10 +1,10 @@
 # Steering files
 
 A steering file is how an agent and a person talk during a process: the agent
-writes it, the person reads and answers it — on the phone (`gtd ui`), in an
-editor (`gtd lsp`), or by hand — and the next step reads the answers back. A
-step names it with its `file` option. Every steering file has the same format: a
-markdown document of **widgets**.
+writes it, the person reads and answers it — on the phone (a workspace gate
+page), in an editor (`gtd lsp`), or by hand — and the next step reads the
+answers back. A step names it with its `file` option. Every steering file has
+the same format: a markdown document of **widgets**.
 
 ## Widgets
 

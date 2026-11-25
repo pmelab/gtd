@@ -19,7 +19,6 @@ export const SETUP_FILES: readonly string[] = [
   "./tests/integration/support/steps/repo-snapshot.steps.ts",
   "./tests/integration/support/steps/signal-exit.steps.ts",
   "./tests/integration/support/steps/tmpdir-gitdir.steps.ts",
-  "./tests/integration/support/steps/ui-lifecycle.steps.ts",
   "./tests/integration/support/steps/workspace.steps.ts",
   "./tests/integration/support/steps/workspace-driver.steps.ts",
   "./tests/integration/support/steps/workspace-now.steps.ts",

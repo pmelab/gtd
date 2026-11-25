@@ -239,8 +239,8 @@ CONVENTION only — gtd never inspects or validates its shell dialect.
 A `script` beat's content is the whole script, rendered from values the flow
 already decided — checks that run a test command, scripts that reverse-apply
 patches to the working tree, `rm`/`mv` bookkeeping. gtd itself runs none of them
-and writes nothing but `gtd check --write`'s and `gtd ui`'s steering-file edits;
-what a script leaves is landed like any other check turn, by `gtd land`'s
+and writes nothing but `gtd check --write`'s and the gate page's steering-file
+edits; what a script leaves is landed like any other check turn, by `gtd land`'s
 script, whatever its exit code.
 
 - **The required half** is everything that decides what lands in git — the

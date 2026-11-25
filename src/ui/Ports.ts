@@ -15,7 +15,7 @@ export class UiError extends Error {
   }
 }
 
-/** A refusal the user can fix by invoking `gtd ui` differently — the CLI exits with its usage code. */
+/** A refusal the user can fix by invoking `gtd workspace` differently — the CLI exits with its usage code. */
 export class UiUsageError extends UiError {
   constructor(message: string, detail: readonly string[] = []) {
     super(message, detail)
@@ -79,7 +79,7 @@ export type UiHandler = (
 ) => Promise<Response>
 
 /**
- * Everything `gtd ui` reaches outside its process: the worktree it serves
+ * Everything the server reaches outside its process: the worktree it serves
  * and the machine it runs on. `UiHost.Live` is the real one; an in-memory
  * twin answers from a fake repository, and `tests/tooling/ui-host.test.ts`
  * holds the two to the same answers.
@@ -94,7 +94,7 @@ export interface UiHostOps {
   /** Creates the file's directory first. */
   readonly writeFile: (absPath: string, content: string) => Promise<void>
   readonly networkInterfaces: () => NodeJS.Dict<NetworkInterfaceInfo[]>
-  /** `~/.gtd/serve/<port>.json`: which `gtd ui` published which serve port. */
+  /** `~/.gtd/serve/<port>.json`: which server published which serve port. */
   readonly serveRecords: {
     readonly read: (servePort: number) => ServeRecord | undefined
     readonly write: (servePort: number, record: ServeRecord) => void

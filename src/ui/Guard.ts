@@ -56,9 +56,9 @@ const isAllowed = async (options: GuardOptions, identity: string | undefined): P
 
 const methodRefusal = (request: Request): Response | undefined => {
   if (request.method === "GET" || request.method === "HEAD") return undefined
-  if (request.method !== "POST") return refuse(405, "gtd ui: only GET and POST are allowed")
-  if (!isJson(request)) return refuse(415, "gtd ui: a POST needs a JSON content type")
-  if (!isSameOrigin(request)) return refuse(403, "gtd ui: a cross-site POST is refused")
+  if (request.method !== "POST") return refuse(405, "only GET and POST are allowed")
+  if (!isJson(request)) return refuse(415, "a POST needs a JSON content type")
+  if (!isSameOrigin(request)) return refuse(403, "a cross-site POST is refused")
   return undefined
 }
 
@@ -72,7 +72,7 @@ export const guard =
   async (request, afterResponse, peer) => {
     const identity = await identityOf(options, request, peer)
     if (!(await isAllowed(options, identity))) {
-      return refuse(403, "gtd ui: this tailnet identity is not in ui.users")
+      return refuse(403, "this tailnet identity is not in ui.users")
     }
     return methodRefusal(request) ?? handler(request, afterResponse, peer, identity)
   }

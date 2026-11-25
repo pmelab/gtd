@@ -54,7 +54,7 @@ const findOwnVersion = (): string => {
  */
 export type StepKind = "capture" | "message" | "script" | "prompt" | "stalled"
 
-/** The worktree `gtd ui` serves — the input `readStep` is keyed on. */
+/** The worktree a gate page serves — the input `readStep` is keyed on. */
 export interface WorktreeRef {
   readonly path: string
 }

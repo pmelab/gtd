@@ -14,8 +14,8 @@ interface CommandOutcome {
 /**
  * The subprocess port: run one shell command in the repo root, wait for it to
  * finish, and get its combined output back as one string (a workflow
- * `script:` is run by the DRIVER, never by gtd). Its remaining callers are `gtd ui`'s own helpers
- * (openssl, tailscale). `gtd ui`'s loop command is spawned by `Loop.ts`'s own
+ * `script:` is run by the DRIVER, never by gtd). Its remaining callers are the server's own helpers
+ * (openssl, tailscale). The loop command is spawned by `Loop.ts`'s own
  * port instead — it needs a per-worktree cwd, a shim-prepended `PATH`, real
  * OS signal control while the child is still running, and never-combined
  * stdout/stderr, none of which this port's single-shot "run to completion"

@@ -109,4 +109,4 @@ export {
   type WorkflowBuild,
   type WorkflowFactory,
 } from "./factory.js"
-export { defineConfig, type GtdConfig, type UiSettings } from "./config.js"
+export { defineConfig, type GtdConfig } from "./config.js"

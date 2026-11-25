@@ -54,8 +54,8 @@ export class GtdError extends Error {
 /**
  * A `GtdError` that names how gtd was INVOKED, not what it did — `Cli.ts`'s
  * `report` maps this to `EXIT_USAGE_ERROR` alongside `SelectorUsageError`,
- * rather than the `EXIT_RUNTIME_ERROR` every plain `GtdError` gets. `gtd ui`
- * refusing to start on a step it cannot render is the one constructor today
+ * rather than the `EXIT_RUNTIME_ERROR` every plain `GtdError` gets. `gtd workspace`
+ * refusing a bad --http bind host is the one constructor today
  * (see `ui/Server.ts`).
  */
 export class GtdUsageError extends GtdError {

@@ -179,14 +179,14 @@ const FLAGS: readonly FlagRow[] = [
     name: "--port",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "ui" || kind === "workspace",
+    scope: (kind) => kind === "workspace",
     decode: ([raw]) => {
       const n = Number(raw)
       return raw !== undefined && Number.isInteger(n) && n >= 0 && n <= 65535
         ? Result.succeed(n)
         : Result.fail(`gtd: --port must be an integer 0–65535 (got '${raw ?? ""}')`)
     },
-    scopeError: "gtd: --port is only valid for `gtd ui` and `gtd workspace`",
+    scopeError: "gtd: --port is only valid for `gtd workspace`",
     valueHint: "<n>",
     help: "The tailscale serve port (default: the first free of 8443, 10000, 443), or with --host or --http the port to bind (default: any free one)",
   },
@@ -194,12 +194,12 @@ const FLAGS: readonly FlagRow[] = [
     name: "--host",
     arity: 1,
     repeatable: false,
-    scope: (kind) => kind === "ui" || kind === "workspace",
+    scope: (kind) => kind === "workspace",
     decode: ([raw]) =>
       raw === undefined || raw.trim() === "" || /[\r\n]/.test(raw)
         ? Result.fail("gtd: --host must be a non-empty, single-line value")
         : Result.succeed(raw),
-    scopeError: "gtd: --host is only valid for `gtd ui` and `gtd workspace`",
+    scopeError: "gtd: --host is only valid for `gtd workspace`",
     valueHint: "<addr>",
     help: "Bind this address directly instead of publishing through tailscale serve",
   },
@@ -207,9 +207,9 @@ const FLAGS: readonly FlagRow[] = [
     name: "--self-signed",
     arity: 0,
     repeatable: false,
-    scope: (kind) => kind === "ui" || kind === "workspace",
+    scope: (kind) => kind === "workspace",
     decode: () => Result.succeed(true),
-    scopeError: "gtd: --self-signed is only valid for `gtd ui` and `gtd workspace`",
+    scopeError: "gtd: --self-signed is only valid for `gtd workspace`",
     valueHint: "",
     help: "Bind directly with a throwaway self-signed certificate instead of the configured ui.cert/ui.key",
   },
@@ -217,9 +217,9 @@ const FLAGS: readonly FlagRow[] = [
     name: "--http",
     arity: 0,
     repeatable: false,
-    scope: (kind) => kind === "ui" || kind === "workspace",
+    scope: (kind) => kind === "workspace",
     decode: () => Result.succeed(true),
-    scopeError: "gtd: --http is only valid for `gtd ui` and `gtd workspace`",
+    scopeError: "gtd: --http is only valid for `gtd workspace`",
     valueHint: "",
     help: "Serve plain HTTP for a local TLS-terminating proxy; binds 127.0.0.1 unless a loopback --host is given",
   },
@@ -275,16 +275,6 @@ const FLAGS: readonly FlagRow[] = [
     scopeError: "gtd: --wait is only valid for `gtd workspace pause`",
     valueHint: "",
     help: "Return once no driver runs in that scope",
-  },
-  {
-    name: "--dev",
-    arity: 0,
-    repeatable: false,
-    scope: (kind) => kind === "ui",
-    decode: () => Result.succeed(true),
-    scopeError: "gtd: --dev is only valid for `gtd ui`",
-    valueHint: "",
-    help: "Serve local development sources instead of the packaged build",
   },
   {
     name: "--provider",
@@ -560,20 +550,12 @@ Prints a sorted JSON array ([] when clean) and a summary on stderr; --verbose ad
   s=$(gtd history fetch --json=script) && sh -c "$s"`,
   },
   {
-    token: "ui",
-    kind: "ui",
-    arity: "none",
-    group: "Inspect",
-    summary: "Serve the web and phone client",
-    details: `Serve gtd's web and phone client for this worktree. By default it publishes through \`tailscale serve\`, reachable from anywhere on the tailnet, on the first of ports 8443, 10000 and 443 that works; when none does it serves HTTPS locally instead of refusing. Proceed is disabled here: it needs a driver, which \`gtd workspace\` gives its gate pages. The server exits when the worktree moves on to another step, or on a signal.`,
-  },
-  {
     token: "workspace",
     kind: "workspace",
     arity: "none",
     group: "Inspect",
     summary: "Serve the dashboard of a workspace",
-    details: `Run the supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, and serve its dashboard: every worktree of every project, each with its worktree status. It is published like \`gtd ui\`. Only one supervisor runs for a workspace: a second one exits 1 and prints the pid and URL of the first. It runs until a signal ends it.`,
+    details: `Run the supervisor of the workspace whose gtd.workspace.ts is innermost from the current directory, or the one --config names, and serve its dashboard: every worktree of every project, each with its worktree status. It is published through \`tailscale serve\` by default, or bound directly with --host or --http. Only one supervisor runs for a workspace: a second one exits 1 and prints the pid and URL of the first. It runs until a signal ends it.`,
   },
   {
     token: "workspace proceed",
@@ -1269,7 +1251,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--host"?: string
     readonly "--self-signed"?: boolean
     readonly "--http"?: boolean
-    readonly "--dev"?: boolean
     readonly "--provider"?: "fixed" | "jev" | "llm"
     readonly "--answers"?: string
     readonly "--config"?: string
@@ -1314,25 +1295,6 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
         ...(name !== undefined ? { name } : {}),
         args,
         vars: bag["--var"] ?? {},
-      },
-      json,
-      verbose,
-    }
-  }
-
-  if (kind === "ui") {
-    if (bag["--http"] === true && bag["--self-signed"] === true) {
-      return usagePlan("gtd: --http and --self-signed cannot be combined", jsonSeen)
-    }
-    return {
-      kind: "command",
-      command: {
-        kind: "ui",
-        ...(bag["--host"] !== undefined ? { host: bag["--host"] } : {}),
-        ...(bag["--port"] !== undefined ? { port: bag["--port"] } : {}),
-        selfSigned: bag["--self-signed"] ?? false,
-        ...(bag["--http"] === true ? { http: true } : {}),
-        dev: bag["--dev"] ?? false,
       },
       json,
       verbose,
@@ -1620,8 +1582,8 @@ const bufferedArtifactOut = (io: CliIo): ArtifactOut => {
  * `SelectorUsageError` (an unknown `--json=<path>` selector can only be
  * judged after the layer is built and the fields object it's reduced
  * against is fully resolved, so it fails HERE rather than in `parseArgv`)
- * and `GtdUsageError` (`gtd ui` refusing to start on a step it cannot
- * render — see `Commentary.ts`).
+ * and `GtdUsageError` (`gtd workspace` refusing a bad `--http` bind host —
+ * see `Commentary.ts`).
  */
 const report =
   (io: CliIo, json: boolean) =>

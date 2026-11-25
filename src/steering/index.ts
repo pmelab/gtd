@@ -1,5 +1,5 @@
 // `@pmelab/gtd/steering`, listed name by name. gtd's own code imports
-// `./internal.js`, which adds what only the engine, the LSP and `gtd ui` use.
+// `./internal.js`, which adds what only the engine and the LSP use.
 export { formatFinding } from "./SteeringFormat.js"
 export { applySteeringEdits } from "./Edits.js"
 

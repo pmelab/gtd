@@ -153,25 +153,27 @@ chmod +x "$shims/claude"
 
 ## The web UI
 
-`gtd ui` serves a phone client for the repository it runs in. It refuses while
-the process rests with an agent or a check, so step to a human rest first.
+Only `gtd workspace` serves gate pages, at `/<project>/<worktree>/gate`. Write a
+`gtd.workspace.ts` in a scratch directory that lists the scratch repository (see
+`docs/workspace.md`), step the repository to a human rest, then serve it:
 
 ```bash
-gtd ui --host 127.0.0.1 --self-signed   # prints the URL; Ctrl-C stops it (exit 130)
+gtd workspace --host 127.0.0.1 --self-signed --port 0   # prints the URL; Ctrl-C stops it
 ```
 
 `--host` skips `tailscale serve`; `--self-signed` needs no certificate. From
-this checkout (Playwright is a dev dependency), capture the screen at a phone
+this checkout (Playwright is a dev dependency), capture the gate page at a phone
 size — into a path outside both repositories:
 
 ```bash
 npx playwright screenshot --ignore-https-errors --wait-for-timeout 2000 \
-  --viewport-size 390,844 "https://127.0.0.1:<port>/" "$repo.png"
+  --viewport-size 390,844 "https://127.0.0.1:<port>/<project>/<worktree>/gate" "$repo.png"
 ```
 
 To click and type, drive the same URL with Playwright (or the `playwright-cli`
 skill) with HTTPS errors ignored, then check the steering file and
-`gtd next --json=state` changed as expected.
+`gtd next --json=state` changed as expected. Work on the web client itself with
+Storybook and `npm run build`.
 
 ## Worked example
 

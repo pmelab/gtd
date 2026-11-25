@@ -1,19 +1,6 @@
 import { Context } from "effect"
 import type { Effect } from "effect"
-import type { UiSettings } from "../flows/index.js"
 import type { HostOps } from "../platform/index.js"
-
-export interface UiRequest {
-  readonly flags: {
-    readonly host?: string
-    readonly port?: number
-    readonly selfSigned: boolean
-    readonly http?: boolean
-    readonly dev: boolean
-  }
-  readonly config: UiSettings | undefined
-  readonly root: string
-}
 
 interface WorkspaceRequest {
   readonly flags: {
@@ -92,10 +79,6 @@ interface JudgeRequest {
 export class ToolCommands extends Context.Service<
   ToolCommands,
   {
-    readonly ui: (
-      request: UiRequest,
-      out: { readonly write: (chunk: string) => void; readonly flush: () => void },
-    ) => Effect.Effect<void, Error>
     readonly workspace: (
       request: WorkspaceRequest,
       out: { readonly write: (chunk: string) => void; readonly flush: () => void },

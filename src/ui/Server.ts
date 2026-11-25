@@ -1,19 +1,12 @@
-import { existsSync, readFileSync } from "node:fs"
 import * as http from "node:http"
 import type { IncomingMessage, ServerResponse } from "node:http"
 import * as https from "node:https"
 import { isIP } from "node:net"
-import { dirname, join } from "node:path"
 import { Readable } from "node:stream"
-import { fileURLToPath } from "node:url"
-import { Context, Deferred, Effect, FileSystem, Layer } from "effect"
-import generatedClientHtml from "./client.generated.html"
-import { readStep, type Step, type StepRead } from "./Beat.js"
-import { beatDepsOf, gateHandler } from "./Gate.js"
+import { Context, Effect, FileSystem, Layer } from "effect"
 import { pickBindHost } from "./Bind.js"
 import { guard, type Exposure } from "./Guard.js"
 import { UiError, UiHost, UiShell, UiUsageError, type UiHandler } from "./Ports.js"
-import { iconNames, inlineIcons, inlineScript, inlineStyles } from "./scriptTag.mjs"
 import { parseServeStatus, publishServe, type ServeMapping, unpublishServe } from "./Serve.js"
 import {
   nodeOwnerCache,
@@ -24,9 +17,6 @@ import {
 } from "./Tailscale.js"
 import { generateSelfSignedCert, loadCertPair, obtainTailscaleCert, type CertPair } from "./Tls.js"
 
-/** `/trpc` prefix: everything under it is the tRPC API surface; everything else keeps serving the client HTML exactly as before. */
-const TRPC_PATH_PREFIX = "/trpc"
-
 export interface UiConfig {
   readonly port?: number | undefined
   readonly host?: string | undefined
@@ -35,22 +25,19 @@ export interface UiConfig {
   readonly users?: readonly string[] | undefined
 }
 
-/** Where `gtd ui` prints its URL; `flush` hands it to stdout before the server blocks. */
+/** Where the server prints its URL; `flush` hands it to stdout before the server blocks. */
 export interface UiOut {
   readonly write: (chunk: string) => void
   readonly flush: () => void
 }
 
-export interface UiCommandOptions {
+/** How a server is reached: the flags of `gtd workspace`. */
+export interface ExposeOptions {
   readonly host?: string
   readonly port?: number
   readonly selfSigned: boolean
   readonly http?: boolean
-  readonly dev: boolean
 }
-
-/** How a server is reached: the flags `gtd ui` and `gtd workspace` share. */
-export type ExposeOptions = Omit<UiCommandOptions, "dev">
 
 interface BoundServer {
   readonly port: number
@@ -71,7 +58,7 @@ export const resolveBindHost = (
   const resolved = host ?? config?.host ?? pickHost()
   return resolved === undefined
     ? Effect.fail(
-        new UiError("gtd ui: no Tailscale interface found to bind to, and no --host given", [
+        new UiError("no Tailscale interface found to bind to, and no --host given", [
           "join a tailnet, so a CGNAT (100.64.0.0/10) address is available",
           "or pass --host <address> to bind explicitly",
         ]),
@@ -83,7 +70,7 @@ export const resolveBindHost = (
  * `--self-signed`, then a configured pair, then a real `tailscale cert`, then
  * refusal. Having none of the three REFUSES rather than silently defaulting to
  * self-signed, which would mean an unexpected `openssl` on every plain
- * `gtd ui`. Tailscale is preferred because only its cert can match a tailnet
+ * the server. Tailscale is preferred because only its cert can match a tailnet
  * hostname; a self-signed cert for a CGNAT IP warns on every load.
  */
 export const resolveCertPair = (
@@ -115,7 +102,7 @@ export const resolveCertPair = (
   if (config?.cert !== undefined || config?.key !== undefined) {
     const missing = config.cert === undefined ? "ui.cert" : "ui.key"
     return Effect.fail(
-      new UiError(`gtd ui: ${missing} is not configured — both cert and key are required`, [
+      new UiError(`${missing} is not configured — both cert and key are required`, [
         `ui.${config.cert === undefined ? "key" : "cert"} is configured, but ${missing} is not`,
         "pass --self-signed for a throwaway certificate instead",
       ]),
@@ -131,7 +118,7 @@ export const resolveCertPair = (
     return obtainTailscaleCert(certDomain)
   }
   return Effect.fail(
-    new UiError("gtd ui: HTTPS is mandatory and no certificate is configured", [
+    new UiError("HTTPS is mandatory and no certificate is configured", [
       "pass --self-signed for a throwaway certificate",
       "or configure ui.cert and ui.key",
       "or join a tailnet with HTTPS certs enabled for an automatic one",
@@ -173,8 +160,8 @@ export class UiListener extends Context.Service<
           resume(
             Effect.fail(
               err.code === "EADDRINUSE"
-                ? new UiError(`gtd ui: port ${port} is already in use`)
-                : new UiError(`gtd ui: could not start the server: ${err.message}`),
+                ? new UiError(`port ${port} is already in use`)
+                : new UiError(`could not start the server: ${err.message}`),
             ),
           )
         })
@@ -233,196 +220,6 @@ const SERVE_PORT_CANDIDATES: readonly number[] = [8443, 10000, 443]
 /** `0` means "auto-pick" for both `--port`/`ui.port` — identical to giving no port at all, and kept out of `publishServe --https=0`, which cannot publish. */
 const normalizePort = (port: number | undefined): number | undefined =>
   port === 0 ? undefined : port
-
-/**
- * `--dev` rebuilds against the gtd SOURCE checkout, never the invoking
- * directory, which `ui` deliberately runs outside of. Walks up to the
- * `package.json` naming this package so it works from both the source and the
- * bundled shape without hardcoding a directory depth.
- */
-const findPackageRoot = (): Effect.Effect<string, UiError> =>
-  Effect.try({
-    try: () => {
-      let dir = dirname(fileURLToPath(import.meta.url))
-      for (let i = 0; i < 8; i++) {
-        const pkgPath = join(dir, "package.json")
-        if (existsSync(pkgPath)) {
-          const pkg = JSON.parse(readFileSync(pkgPath, "utf8")) as { name?: string }
-          if (pkg.name === "@pmelab/gtd") return dir
-        }
-        const parent = dirname(dir)
-        if (parent === dir) break
-        dir = parent
-      }
-      throw new Error("no @pmelab/gtd package.json found above this module")
-    },
-    catch: () =>
-      new UiError("gtd ui --dev: could not locate the gtd source checkout to rebuild the client", [
-        "--dev is for developing gtd's own web client: run it from a",
-        "checked-out gtd repository with devDependencies installed",
-      ]),
-  })
-
-/** `--dev`: the raw template, read once at startup — editing it needs a server restart, same as the rebuilt script it's inlined into (T5: the server lives for exactly one step, so a mid-step rebuild would have nothing left to reflect). */
-const readDevTemplate = (fs: FileSystem.FileSystem, root: string): Effect.Effect<string, UiError> =>
-  fs
-    .readFileString(join(root, "src/web/index.html"))
-    .pipe(
-      Effect.mapError(
-        (e) => new UiError(`gtd ui --dev: could not read src/web/index.html: ${e.message}`),
-      ),
-    )
-
-const readDevIcons = (
-  fs: FileSystem.FileSystem,
-  root: string,
-  template: string,
-): Effect.Effect<Record<string, string>, UiError> =>
-  Effect.forEach(iconNames(template), (name: string) =>
-    fs.readFile(join(root, "src/web/icons", name)).pipe(
-      Effect.map((bytes) => [name, Buffer.from(bytes).toString("base64")] as const),
-      Effect.mapError(
-        (e) => new UiError(`gtd ui --dev: could not read src/web/icons/${name}: ${e.message}`),
-      ),
-    ),
-  ).pipe(Effect.map((entries) => Object.fromEntries(entries)))
-
-/**
- * Rebuilds the browser bundle via the same pack config `npx vp run build` uses,
- * with the gtd package's OWN directory as cwd — the invoking directory has no
- * `vite.config.ts` to select against. Called exactly ONCE, ahead of
- * `listen`: the server lives for one step, so a mid-step rebuild would have
- * nothing left to reflect, and a build per unauthenticated request was
- * subprocess amplification for free.
- */
-const rebuildDevClientScript = (
-  runner: Context.Service.Shape<typeof UiShell>,
-  fs: FileSystem.FileSystem,
-  root: string,
-): Effect.Effect<string, UiError> =>
-  Effect.gen(function* () {
-    const outcome = yield* runner
-      .bash(`cd ${JSON.stringify(root)} && npx vp pack --filter web`)
-      .pipe(
-        Effect.mapError(
-          (e) => new UiError(`gtd ui --dev: could not rebuild the client: ${e.message}`),
-        ),
-      )
-    if (outcome.status !== 0) {
-      return yield* Effect.fail(
-        new UiError(
-          "gtd ui --dev: rebuilding the client failed",
-          outcome.output.trim().split("\n").filter(Boolean),
-        ),
-      )
-    }
-    return yield* fs
-      .readFileString(join(root, "dist/web/main.js"))
-      .pipe(
-        Effect.mapError(
-          (e) => new UiError(`gtd ui --dev: could not read the rebuilt client: ${e.message}`),
-        ),
-      )
-  })
-
-/**
- * `--dev`'s CSS sibling of `rebuildDevClientScript` — the packaged build's
- * own `npx vp run build` runs the Tailwind CLI as a step separate from tsdown
- * (see package.json), so `--dev` shells out to that same CLI rather than
- * teaching tsdown about CSS at all.
- */
-const rebuildDevClientCss = (
-  runner: Context.Service.Shape<typeof UiShell>,
-  fs: FileSystem.FileSystem,
-  root: string,
-): Effect.Effect<string, UiError> =>
-  Effect.gen(function* () {
-    const outcome = yield* runner
-      .bash(
-        `cd ${JSON.stringify(root)} && npx @tailwindcss/cli -i src/web/styles.css -o dist/web/main.css`,
-      )
-      .pipe(
-        Effect.mapError(
-          (e) => new UiError(`gtd ui --dev: could not rebuild the stylesheet: ${e.message}`),
-        ),
-      )
-    if (outcome.status !== 0) {
-      return yield* Effect.fail(
-        new UiError(
-          "gtd ui --dev: rebuilding the stylesheet failed",
-          outcome.output.trim().split("\n").filter(Boolean),
-        ),
-      )
-    }
-    return yield* fs
-      .readFileString(join(root, "dist/web/main.css"))
-      .pipe(
-        Effect.mapError(
-          (e) => new UiError(`gtd ui --dev: could not read the rebuilt stylesheet: ${e.message}`),
-        ),
-      )
-  })
-
-/** The one piece of content this server ever serves: the client HTML, with its JS AND CSS inlined — a build-time constant in production, resolved ONCE at startup under `--dev` too (T5) and held for the process's whole lifetime, never re-read or rebuilt per request. */
-export const resolveClientHtml = (
-  dev: boolean,
-  runner: Context.Service.Shape<typeof UiShell>,
-  fs: FileSystem.FileSystem,
-): Effect.Effect<string, UiError> =>
-  dev
-    ? findPackageRoot().pipe(
-        Effect.flatMap((root) =>
-          Effect.all([
-            readDevTemplate(fs, root),
-            rebuildDevClientScript(runner, fs, root),
-            rebuildDevClientCss(runner, fs, root),
-          ]).pipe(
-            Effect.flatMap(([template, script, css]) =>
-              readDevIcons(fs, root, template).pipe(
-                Effect.map((icons) =>
-                  inlineStyles(inlineScript(inlineIcons(template, icons), script), css),
-                ),
-              ),
-            ),
-          ),
-        ),
-      )
-    : Effect.succeed(generatedClientHtml)
-
-export type UiRequirements = UiShell | FileSystem.FileSystem | UiListener | UiHost
-
-/**
- * A rest is renderable iff its ACTOR is human and names a steering file. Not
- * `kind`: content kind
- * shifts under the human's own editing (a `message` rest turns `capture` the
- * moment the tree is dirtied), so it is the wrong axis whatever the list. Same
- * axis `verifyForWrite` gates writes on, so startup and write agree.
- */
-const isRenderable = (step: Step): step is Step & { readonly file: string } =>
-  step.actor === "human" && step.file !== undefined
-
-/**
- * The refusal named for whatever the served worktree actually rests at, in
- * order so the narrower cause always wins: unreadable, then a non-human
- * actor, then a human rest whose steering file isn't usable.
- */
-const refusalFor = (step: StepRead): UiUsageError => {
-  if (step.status !== "ok") {
-    return new UiUsageError(
-      `gtd ui: refuses to start — this worktree can't be read: ${step.status === "broken" ? step.detail : step.label}`,
-    )
-  }
-  if (step.actor !== "human") {
-    return new UiUsageError(
-      `gtd ui: refuses to start — "${step.label}" rests with the ${step.actor}, which has no phone screen`,
-    )
-  }
-  const hint = "gtd next --json reported no steering file for this rest"
-  return new UiUsageError(
-    `gtd ui: refuses to start — "${step.label}" rests with you, but names no steering file to show on the phone`,
-    [hint],
-  )
-}
 
 /**
  * Bundles bind/display host resolution with certificate resolution — pulled
@@ -484,7 +281,7 @@ const probeLiveServeMapping = (
  * Ownership, checked before publishing. A foreign live mapping is left
  * untouched, as is a probe that FAILED — an unreadable status proves nothing
  * about whether the port is free. A record naming a dead pid is stale and
- * cleared; one naming another LIVE gtd ui is left alone, since two instances
+ * cleared; one naming another LIVE server is left alone, since two instances
  * racing a port is what ownership exists to prevent.
  *
  * `"occupied"` and `"unknowable"` are both "don't publish", but the candidate
@@ -604,7 +401,7 @@ const attemptServe = (
  * Removes only a mapping THIS instance published. A diverged target means
  * another process took the port over — the record is deleted without touching
  * that mapping. A probe that FAILED proves nothing, so the record is left
- * exactly as it is: this instance's dead pid then lets the NEXT `gtd ui`'s
+ * exactly as it is: this instance's dead pid then lets the NEXT server's
  * orphan check clear it, rather than stranding a live mapping behind a deleted
  * record. Never fails — `Effect.ensuring` requires it.
  */
@@ -637,7 +434,7 @@ const httpBind = (
     const bindHost = explicitHost ?? "127.0.0.1"
     if (!isLoopbackHost(bindHost)) {
       return yield* Effect.fail(
-        new UiUsageError(`gtd ui: --http needs a loopback bind host, got ${bindHost}`, [
+        new UiUsageError(`--http needs a loopback bind host, got ${bindHost}`, [
           "use 127.0.0.0/8, ::1 or localhost, so only a local proxy can reach it",
         ]),
       )
@@ -730,88 +527,9 @@ const resolveListener = (args: {
       tried.length > 1
         ? `tried ${tried.map((t) => t.port).join(", ")} — ${last.reason}`
         : last.reason
-    out.write(`gtd ui: not using tailscale serve — ${reason}\n`)
+    out.write(`not using tailscale serve — ${reason}\n`)
     const { bound, url } = yield* directBind()
     return { bound, url, teardown: Effect.void }
-  })
-
-/**
- * `gtd ui`: binds an HTTPS server exposing the phone/web client for the ONE
- * worktree at `root` — never a fleet, never a spawned loop. The server
- * lives for exactly one step: `done` saves without ending it; it exits once
- * the outer loop moves the worktree on (the moved-on detection below) or
- * when the process is signalled (SIGINT/SIGTERM, handled by the runtime).
- */
-export const runUiCommand = (
-  options: UiCommandOptions,
-  config: UiConfig | undefined,
-  out: UiOut,
-  root: string,
-): Effect.Effect<void, UiError, UiRequirements> =>
-  Effect.gen(function* () {
-    // Read before resolving the bind host or the certificate, so a refusal
-    // never invokes openssl (T1's own acceptance bullet).
-    const host = yield* UiHost
-    const beatDeps = beatDepsOf(host)
-    const step = yield* Effect.promise(() => readStep({ path: root }, beatDeps))
-    if (step.status === "broken" || !isRenderable(step)) {
-      return yield* Effect.fail(refusalFor(step))
-    }
-    // Captured once, at startup — the served rest's own machine identity, so
-    // `step` (below) can tell "still the same rest" from "the outer loop
-    // moved on while we were up" without re-deriving anything from `label`,
-    // which a workflow edit can reword with the rest never actually moving.
-    const servedState = step.state
-    const servedLabel = step.label
-
-    const runner = yield* UiShell
-    const fs = yield* FileSystem.FileSystem
-
-    // T5: resolved ONCE, here, ahead of `uiListener.listen` — never inside
-    // the request handler. The server lives for exactly one step, so a
-    // mid-step `--dev` rebuild would have nothing left to reflect, and a
-    // build per unauthenticated HTTP request was subprocess amplification
-    // reachable by anything on the tailnet.
-    const clientHtml = yield* resolveClientHtml(options.dev, runner, fs)
-
-    // Resolved only by the moved-on detection below (the outer loop advanced
-    // while this server was up); a signal is the only other way out.
-    const movedOnDeferred = yield* Deferred.make<void>()
-    const endServer = (): void => {
-      Deferred.doneUnsafe(movedOnDeferred, Effect.void)
-    }
-
-    // The `step` query's actual resolver — every read after startup is
-    // compared against the rest captured above. A mismatched `state`, a read
-    // that's gone broken, or one that's no longer renderable all mean the
-    // outer loop moved on while this server was up: end it, exit 0
-    // (idempotent — repeated reads resolve the deferred once), and hand the client a
-    // `moved-on` read instead of a stale or now-unrenderable one. No polling
-    // timer drives this — it rides the `step` query the client already
-    // issues.
-    const readServedStep = async (): Promise<StepRead> => {
-      const read = await readStep({ path: root }, beatDeps)
-      const movedOn = read.status === "broken" || read.state !== servedState || !isRenderable(read)
-      if (!movedOn) return read
-      endServer()
-      return { status: "moved-on", label: read.status === "ok" ? read.label : servedLabel }
-    }
-
-    const handler = gateHandler({
-      root,
-      host,
-      endpoint: TRPC_PATH_PREFIX,
-      clientHtml,
-      readStep: readServedStep,
-      // Only the file the step named at startup.
-      servedFile: () => Promise.resolve(step.file),
-    })
-
-    const { url, close } = yield* exposeHandler({ options, config, handler, label: root, out })
-
-    out.write(`${url}\n`)
-    out.flush()
-    yield* Deferred.await(movedOnDeferred).pipe(Effect.ensuring(close))
   })
 
 /** A server listening, and how to stop it and undo its `tailscale serve` mapping. */
@@ -821,7 +539,7 @@ export interface Exposed {
 }
 
 /**
- * Serves `handler` the way `gtd ui` does: through `tailscale serve`, on the
+ * Serves `handler` the way `gtd workspace` does: through `tailscale serve`, on the
  * tailnet interface, or behind `--http`, with every request held to the
  * tailnet identity and same-origin checks (ADR 0014). `label` names the
  * server in its serve ownership record.

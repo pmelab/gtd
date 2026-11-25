@@ -133,19 +133,6 @@ type Rest = Effect.Success<typeof currentRest>
 export type Command =
   | { readonly kind: "lsp" }
   | {
-      readonly kind: "ui"
-      // `host`/`port` stay optional/undefined-when-absent: a resolved bind address/port is
-      // `ui: { host?, port? }` config-file values merged in downstream
-      // (`src/ui/Server.ts`), which the argv parser never
-      // reads — an absent flag here must not shadow a configured value with
-      // a parser-invented default.
-      readonly host?: string
-      readonly port?: number
-      readonly selfSigned: boolean
-      readonly http?: boolean
-      readonly dev: boolean
-    }
-  | {
       readonly kind: "workspace"
       readonly config?: string
       readonly host?: string
@@ -1129,36 +1116,6 @@ const gatherBeatDocument = (
   })
 
 /**
- * `gtd ui`: loads `ui:` config and hands it, alongside the parsed flags, to
- * the ui tool. `needs: "state"` (see `needsOf` above) means this shares the
- * repo-root/at-least-one-commit guard with every other workflow-state
- * command — `gtd ui` operates on the invoking directory's own worktree,
- * never a configured list of roots.
- */
-const runUiCliCommand = (
-  command: Extract<Command, { kind: "ui" }>,
-  out: ArtifactOut,
-): Effect.Effect<void, Error, CommandRequirements> =>
-  Effect.gen(function* () {
-    const config = yield* (yield* ConfigService).load
-    const { root } = yield* Host
-    yield* (yield* ToolCommands).ui(
-      {
-        flags: {
-          ...(command.host !== undefined ? { host: command.host } : {}),
-          ...(command.port !== undefined ? { port: command.port } : {}),
-          selfSigned: command.selfSigned,
-          ...(command.http === true ? { http: true } : {}),
-          dev: command.dev,
-        },
-        config: config.ui,
-        root,
-      },
-      out,
-    )
-  })
-
-/**
  * `gtd workspace` runs outside any repository: its config is
  * `gtd.workspace.ts`, found from the invoking directory up.
  */
@@ -1349,8 +1306,6 @@ const dispatchVoidCommand = (
   switch (command.kind) {
     case "lsp":
       return runLspCommand()
-    case "ui":
-      return runUiCliCommand(command, out)
     case "workspace":
       return runWorkspaceCliCommand(command, out)
     case "workspaceControl":

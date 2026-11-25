@@ -26,7 +26,7 @@ export default meta
 
 type Story = StoryObj<typeof App>
 
-/** `gtd ui` never binds on a step this client can't render, so `App` opens directly on the served worktree's one step: its steering file on the document screen. */
+/** A gate page only opens on a step this client can render, so `App` opens directly on the served worktree's one step: its steering file on the document screen. */
 export const Default: Story = {
   decorators: [
     (Story) => (

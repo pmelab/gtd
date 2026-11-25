@@ -52,7 +52,7 @@ export const parseTailscaleStatus = (json: string): TailscaleStatus | undefined 
  * requirements — no new port). Every empty case — the binary absent from
  * `$PATH`, a spawn failure, a non-zero exit — resolves to `undefined` rather
  * than failing the Effect: detection is a best-effort default, never a
- * reason for `gtd ui` to refuse.
+ * reason for the server to refuse.
  */
 export const probeTailscaleStatus = (): Effect.Effect<
   TailscaleStatus | undefined,

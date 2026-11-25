@@ -2,10 +2,10 @@
 
 A repository's configuration is one file, **`gtd.config.ts`**: a TypeScript
 module that says which steps a process goes through, with which settings, plus
-the repository settings in its [`config` export](#the-config-export) — `gtd ui`
-settings, per-scope skills and access. It is required: without one, every
-command that resolves workflow state fails, saying to run `gtd guide`. gtd ships
-no workflow: you write your own.
+the repository settings in its [`config` export](#the-config-export) — per-scope
+skills and access. It is required: without one, every command that resolves
+workflow state fails, saying to run `gtd guide`. gtd ships no workflow: you
+write your own.
 
 Settings that belong to a machine rather than a repository live outside it: the
 judge `gtd judge run` uses (see [Judge settings](#judge-settings)), plus
@@ -857,13 +857,12 @@ import { defineConfig } from "@pmelab/gtd/flows"
 export { default } from "./workflow.ts"
 
 export const config = defineConfig({
-  ui: { port: 8443 },
+  skills: { "feature.plan": ["tdd"] },
 })
 ```
 
 It has exactly these keys, all optional:
 
-- **`ui`** — `gtd ui`'s own settings. See [`ui`](#ui).
 - **`skills`** — a flat scope full-name -> skill-name array map, one entry per
   scope whose skill list you want to change. See [Skills](#skills).
 - **`access`** — a flat scope full-name -> `{ read?, write? }` glob-array map.
@@ -878,57 +877,18 @@ is installed for editor type-checking, and a load error naming the key either
 way — `defineConfig` throws while `gtd.config.ts` loads, and gtd checks a plain
 object exported as `config` the same way. A key that moved out of the repository
 config (`vars`, `env`, `judge`) therefore fails loudly instead of doing nothing,
-and so do the removed `modes` and `ui.format`, naming what replaced them:
+and so do the removed `modes` and `ui`, naming what replaced them:
 
 ```text
 gtd: config:
   - /repo/gtd.config.ts: config.env: is not a known key
   - /repo/gtd.config.ts: config.modes: was removed: every steering file is a widget document gtd checks itself
+  - /repo/gtd.config.ts: config.ui: was removed: only `gtd workspace` serves gate pages, at /<project>/<worktree>/gate — see docs/adr/0017-gate-pages-only-in-the-workspace.md
 ```
 
 Process and environment settings are not here: they are the workflow's, set as
 [factory options](#workflow-factories) or the `defaults`/`envDefaults` options
 of `workflow()` (see [Settings](#settings)).
-
-### `ui`
-
-`config.ui` holds `gtd ui`'s five settings, all optional — a flat struct, so an
-unknown sub-key is rejected the same way any other unknown config key is.
-`gtd ui` serves exactly the ONE worktree it is invoked in — there is no
-roots/discovery setting, because there is no fleet to discover:
-
-- **`port`** (integer, optional) — with neither this key nor `host` given, the
-  port `gtd ui` publishes through `tailscale serve`, walking 8443, then 10000,
-  then 443 until one publishes. When `host` (or `--host`, or `--http`) opts out
-  of serve, this is the bind port instead — with neither this key nor `--port`
-  given, the OS picks a free one. `0` (like `--port 0`) means the same auto-pick
-  as leaving it unset entirely.
-- **`host`** (string, optional) — opts out of the default `tailscale serve`
-  front door and binds this address directly instead, showing it in the printed
-  URL — the same effect as `--host`. With neither this key nor `--host` given,
-  `gtd ui` publishes through `tailscale serve` and falls back to binding a
-  Tailscale interface (a CGNAT `100.64.0.0/10` address, auto-detected) directly
-  whenever serve isn't available — it never refuses. With `--http`, serve is
-  skipped too: no host binds `127.0.0.1`, and a non-loopback host is refused.
-- **`cert`** / **`key`** (strings, optional) — paths to an existing certificate
-  and private key, used as-is. `--self-signed` always overrides these with a
-  freshly generated throwaway pair, even when both are configured. `--http`
-  ignores both: it serves plain HTTP on a loopback bind for a local
-  TLS-terminating proxy.
-- **`users`** (non-empty string array, optional) — the tailnet logins (for
-  example `"alice@example.com"`) allowed to use `gtd ui`. Without it, only the
-  user that owns the node is allowed. Every request from any other identity gets
-  `403`. Under `tailscale serve` the identity is the `Tailscale-User-Login`
-  header; on a direct bind it is what `tailscale whois` reports for the peer.
-  With `--http` the local proxy is trusted to check it, and this key is not
-  read.
-
-Every state change is a `POST` with a JSON content type that carries
-`Sec-Fetch-Site: same-origin` or an `Origin` that matches the host. `gtd ui`
-refuses any other `POST`, and a `GET` never changes state.
-
-Flags (`--host`, `--port`, `--self-signed`, `--http`) always override the
-matching `ui` value; see `docs/cli.md`'s `ui` row for the full flag list.
 
 ### Skills
 
@@ -1032,7 +992,7 @@ file and the config path:
 
 ```
 gtd: config:
-  - /path/to/repo/gtd.config.ts: config.ui.port: must be an integer
+  - /path/to/repo/gtd.config.ts: config.skills.a: must be an array of skill names
 ```
 
 A `config.skills` key that is not a scope running a turn fails the same way,
@@ -1177,7 +1137,7 @@ file and exits **1**. Move each key, then delete the file:
 | `env`        | A factory option in `gtd.config.ts` (`feature({ testCommand: "npm run ci" })`), or `envDefaults`; per machine, `GTD_<NAME>`                         |
 | `judge`      | `~/.config/gtd/judge.json` (`$XDG_CONFIG_HOME/gtd/judge.json`), or `GTD_JUDGE_PROVIDER` / `GTD_JUDGE_MODEL` — see [Judge settings](#judge-settings) |
 | `modes`      | Nothing: every steering file is a [widget document](./steering.md) gtd checks itself                                                                |
-| `ui`         | `config.ui` — see [`ui`](#ui); `--host`/`--port` still override it per run                                                                          |
+| `ui`         | The `ui` key of `gtd.workspace.ts` — see [the workspace](./workspace.md)                                                                            |
 | `skills`     | `config.skills` — see [Skills](#skills)                                                                                                             |
 | `access`     | `config.access` — see [File access](#file-access)                                                                                                   |
 | `$schema`    | Nothing: drop it. gtd no longer publishes `schema.json`; `defineConfig` types the config instead                                                    |

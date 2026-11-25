@@ -38,8 +38,6 @@ export interface ConfigOperations {
   readonly workflowNamed: (name: string) => ResolvedWorkflow | undefined
   /** Every door `gtd start` accepts. A door's `workflow` resolves through `workflowNamed`. */
   readonly doors: ReadonlyMap<string, Door>
-  /** `config.ui` (absent when unconfigured) — `gtd ui` and its CLI flags read it. */
-  readonly ui?: flows.UiSettings
   readonly historyRemote?: string
   /** Non-fatal findings, formatted through `formatDiagnostic` like an error. */
   readonly warnings: readonly Diagnostic[]
@@ -195,7 +193,6 @@ export const load: Effect.Effect<
       const entry = loaded.catalogue.get(name)
       return entry === undefined ? undefined : resolve(name, entry)
     },
-    ...(compiled.ui !== undefined ? { ui: compiled.ui } : {}),
     ...(compiled.historyRemote !== undefined ? { historyRemote: compiled.historyRemote } : {}),
     warnings: diagnostics.filter((d) => d.severity === "warning"),
     fingerprint:

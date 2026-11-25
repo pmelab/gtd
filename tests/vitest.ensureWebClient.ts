@@ -14,7 +14,7 @@ export const isGeneratedClientImport = (source: string): boolean =>
 export const fallbackBuildCommand = (): string => WEB_CLIENT_STEPS.join(" && ")
 
 /**
- * `src/ui/Server.ts` imports `./client.generated.html` — gitignored, produced
+ * `src/ui/Gate.ts` imports `./client.generated.html` — gitignored, produced
  * only by the `build` task. `vp run`'s test tasks depend on `build`; a bare
  * `vitest` or stryker run does not, so the first resolution builds it once if
  * missing.

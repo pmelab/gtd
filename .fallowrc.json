@@ -39,7 +39,7 @@
   // package.json's build script) — there is no src/web/main.css for fallow to
   // resolve, by design (same reason dist/web/main.js is never a source file
   // either).
-  // Same for src/ui/Server.ts's `import ... from "./client.generated.html"`: that
+  // Same for src/ui/Gate.ts's `import ... from "./client.generated.html"`: that
   // file is written by scripts/inline-web-client.mjs during `build` and is
   // gitignored, so it is absent on a fresh checkout when `analyze` runs.
   "ignoreUnresolvedImports": ["**/main.css", "**/client.generated.html"],

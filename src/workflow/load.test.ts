@@ -332,20 +332,6 @@ describe("ConfigService", () => {
     await expect(getConfig()).rejects.toThrow(`"x" declared in both "defaults" and "envDefaults"`)
   })
 
-  it("accepts a config built with defineConfig", async () => {
-    writeFileSync(
-      join(projectDir, "gtd.config.ts"),
-      [
-        `import { defineConfig } from "@pmelab/gtd/flows"`,
-        BASE_CONFIG,
-        `export const config = defineConfig({ ui: { port: 4173 } })`,
-        ``,
-      ].join("\n"),
-    )
-
-    expect((await getConfig()).ui).toEqual({ port: 4173 })
-  })
-
   it("defineConfig throws on a removed key, failing the load at gtd.config.ts", async () => {
     writeFileSync(
       join(projectDir, "gtd.config.ts"),
@@ -361,11 +347,11 @@ describe("ConfigService", () => {
   })
 
   it("rejects an unknown key in a plain `config` object too", async () => {
-    withConfig(`{ vars: { greeting: "hi" }, ui: { bogus: true } }`)
+    withConfig(`{ vars: { greeting: "hi" }, skills: 1 }`)
 
     const error = await getConfig().catch((e: Error) => e.message)
 
-    expect(error).toContain("gtd.config.ts: config.ui.bogus: is not a known key")
+    expect(error).toContain("gtd.config.ts: config.skills: must be an object of skill-name arrays")
     expect(error).toContain("gtd.config.ts: config.vars: is not a known key")
   })
 
@@ -784,16 +770,12 @@ describe("ConfigService", () => {
     })
   })
 
-  it("reads `config.ui` through as-is", async () => {
-    withConfig(`{ ui: { port: 4173, host: "0.0.0.0" } }`)
+  it("rejects `config.ui`, naming ADR 0017 and the workspace gate page", async () => {
+    withConfig(`{ ui: { port: 4173 } }`)
 
-    expect((await getConfig()).ui).toEqual({ port: 4173, host: "0.0.0.0" })
-  })
-
-  it("rejects a wrong-typed `config.ui` key", async () => {
-    withConfig(`{ ui: { port: "nope" } }`)
-
-    await expect(getConfig()).rejects.toThrow("config.ui.port: must be an integer")
+    await expect(getConfig()).rejects.toThrow(
+      /config\.ui: was removed: only `gtd workspace` serves gate pages.*0017/,
+    )
   })
 
   it("rejects a default entry that never reaches a step", async () => {
@@ -874,8 +856,8 @@ describe("ConfigService", () => {
     expect(existsSync(join(projectDir, ".gtd"))).toBe(false)
   })
 
-  it("refuses the removed `modes` and `ui.format`, saying what replaced them", async () => {
-    withConfig(`{ modes: {}, ui: { format: "oxfmt --write $GTD_FILE" } }`)
+  it("refuses the removed `modes`, saying what replaced it", async () => {
+    withConfig(`{ modes: {} }`)
 
     await expect(getConfig()).rejects.toThrow(
       "config.modes: was removed: every steering file is a widget document gtd checks itself",

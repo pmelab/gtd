@@ -25,7 +25,6 @@ Inspect:
   history list              List finished processes
   history show <ref>        Replay one finished process
   history fetch [remote]    Print a script that fetches finished processes
-  ui                        Serve the web and phone client
   workspace                 Serve the dashboard of a workspace
   workspace proceed <worktree> <commit>
                             Press Proceed on a worktree
@@ -130,7 +129,7 @@ included (see [Error envelope](#error-envelope) below). Any other, truly unknown
 subcommand is likewise a usage error exiting 2 without touching the repository;
 its message names the nearest command when it looks like a typo of one. The
 state commands (`land`, `start`, `abandon`, `restore`, `repin`, `next`,
-`summary`, `ui`, `judge`, `judge answer`, `history list`, `history show`,
+`summary`, `judge`, `judge answer`, `history list`, `history show`,
 `history fetch`) must run from the **repository root** — gtd derives the
 workflow, pending changes, and process history relative to cwd, so they refuse
 with a clear error from a subdirectory; `lsp`, `check` and `strays` are
@@ -177,8 +176,8 @@ other rest. `--json=judgeFile` prints it, or nothing.
 followed by an error.** Every command buffers everything it would print and
 flushes that buffer to stdout exactly once, only after it succeeds; on any
 failure the buffer is simply discarded, so stdout never carries a half-written
-prompt/script alongside a message about why it stopped. `gtd ui` is the one
-exception worth knowing: it flushes its served-URL line immediately, before
+prompt/script alongside a message about why it stopped. `gtd workspace` is the
+one exception worth knowing: it flushes its served-URL line immediately, before
 blocking on `Ctrl-C`, since a flush-on-success would never otherwise fire.
 
 Any invocation that carries `--json` (valid only for
@@ -284,10 +283,10 @@ that differ from the pinned ones:
 gtd: notice: the live config differs from the pinned one (lib/flow.ts); `gtd repin` to switch
 ```
 
-These never run on the pin: `ui`, `lsp`, `guide`, `bundle`, `repin`, `help`,
-`version` and the `history` commands. `gtd version` (and `-V`) adds the pin's
-version: `<version> (this process is pinned to gtd <version>)`. `--verbose`
-narrates the hand-over as `launcher: running the pin <path> (gtd <version>)`.
+These never run on the pin: `lsp`, `guide`, `bundle`, `repin`, `help`, `version`
+and the `history` commands. `gtd version` (and `-V`) adds the pin's version:
+`<version> (this process is pinned to gtd <version>)`. `--verbose` narrates the
+hand-over as `launcher: running the pin <path> (gtd <version>)`.
 
 `--live`, accepted before any command, runs the `gtd` on `PATH` instead of the
 pin. It replays the process under the live engine and config, so it may misread
@@ -559,33 +558,6 @@ Options:
   -v, --verbose       Narrate on stderr what gtd resolved
 ```
 
-### `gtd ui`
-
-```
-Usage: gtd ui [options]
-
-Serve gtd's web and phone client for this worktree. By default it publishes
-through `tailscale serve`, reachable from anywhere on the tailnet, on the first
-of ports 8443, 10000 and 443 that works; when none does it serves HTTPS locally
-instead of refusing. Proceed is disabled here: it needs a driver, which
-`gtd workspace` gives its gate pages. The server exits when the worktree moves
-on to another step, or on a signal.
-
-Options:
-  --port=<n>          The tailscale serve port (default: the first free of 8443,
-                      10000, 443), or with --host or --http the port to bind
-                      (default: any free one)
-  --host=<addr>       Bind this address directly instead of publishing through
-                      tailscale serve
-  --self-signed       Bind directly with a throwaway self-signed certificate
-                      instead of the configured ui.cert/ui.key
-  --http              Serve plain HTTP for a local TLS-terminating proxy; binds
-                      127.0.0.1 unless a loopback --host is given
-  --dev               Serve local development sources instead of the packaged
-                      build
-  -v, --verbose       Narrate on stderr what gtd resolved
-```
-
 ### `gtd workspace`
 
 ```
@@ -593,9 +565,10 @@ Usage: gtd workspace [options]
 
 Run the supervisor of the workspace whose gtd.workspace.ts is innermost from the
 current directory, or the one --config names, and serve its dashboard: every
-worktree of every project, each with its worktree status. It is published like
-`gtd ui`. Only one supervisor runs for a workspace: a second one exits 1 and
-prints the pid and URL of the first. It runs until a signal ends it.
+worktree of every project, each with its worktree status. It is published
+through `tailscale serve` by default, or bound directly with --host or --http.
+Only one supervisor runs for a workspace: a second one exits 1 and prints the
+pid and URL of the first. It runs until a signal ends it.
 
 Options:
   --port=<n>          The tailscale serve port (default: the first free of 8443,

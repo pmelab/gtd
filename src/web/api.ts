@@ -8,7 +8,7 @@ import type { AppRouter } from "../ui/index.js"
  */
 export const trpc = createTRPCReact<AppRouter>()
 
-/** Where the server said the page's API is: `gtd ui` serves it at `/trpc`, a workspace gate page under its own path. */
+/** Where the server said the page's API is: a workspace gate page under its own path. */
 export const trpcUrl = (doc: Document): string =>
   doc.querySelector<HTMLMetaElement>('meta[name="gtd-trpc"]')?.content ?? "/trpc"
 

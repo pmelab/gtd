@@ -1,8 +1,7 @@
-import { configProblems, type GtdConfig, type UiSettings } from "../flows/internal.js"
+import { configProblems, type GtdConfig } from "../flows/internal.js"
 import type { Diagnostic } from "./Diagnostic.js"
 
 export interface CompiledConfig {
-  readonly ui?: UiSettings
   readonly historyRemote?: string
   readonly skills: Readonly<Record<string, readonly string[]>>
   readonly access: GtdConfig["access"] & {}
@@ -30,7 +29,6 @@ export const compileConfig = (value: unknown, origin: string): CompiledConfig =>
   }
   const config = (value ?? {}) as GtdConfig
   return {
-    ...(config.ui !== undefined ? { ui: config.ui } : {}),
     ...(config.historyRemote !== undefined ? { historyRemote: config.historyRemote } : {}),
     // Null prototype: a `__proto__` key must stay an ordinary (reportable) entry.
     skills: Object.assign(Object.create(null), config.skills),

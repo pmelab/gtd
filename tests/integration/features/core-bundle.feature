@@ -42,5 +42,4 @@ Feature: the core bundle — the engine a pinned process runs
 
     Examples:
       | tool |
-      | ui   |
       | lsp  |
