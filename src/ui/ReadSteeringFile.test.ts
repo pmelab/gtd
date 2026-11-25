@@ -98,4 +98,38 @@ describe("readSteeringFile", () => {
     )
     expect(result).toEqual({ ok: false, reason: "head-unresolved" })
   })
+
+  describe("marks of blocks changed since the last landing", () => {
+    const LANDED = "# Doc\n\nFirst paragraph.\n\nSecond paragraph.\n"
+    const read = (content: string, landed: string | undefined) =>
+      readSteeringFile(
+        { worktreePath: "/repo", filePath: "d.md" },
+        {
+          ...depsFor({ "/repo/d.md": content }, "abc"),
+          lastLanding: () => Promise.resolve(landed),
+        },
+      )
+    const changedTitles = (result: Awaited<ReturnType<typeof read>>): string[] =>
+      result.ok ? result.view.nodes.filter((n) => n.changed).map((n) => n.title) : []
+
+    it("marks only the block that differs from the last landing", async () => {
+      const now = "# Doc\n\nFirst paragraph.\n\nSecond paragraph, reworded.\n"
+      expect(changedTitles(await read(now, LANDED))).toEqual(["Second paragraph, reworded."])
+    })
+
+    it("marks nothing for whitespace-only changes", async () => {
+      const now = "# Doc\n\nFirst   paragraph. \n\n\nSecond\nparagraph.\n"
+      expect(changedTitles(await read(now, LANDED))).toEqual([])
+    })
+
+    it("marks nothing at the first gate, when no landing exists", async () => {
+      expect(changedTitles(await read(LANDED, undefined))).toEqual([])
+    })
+
+    it("leaves the content and its hash untouched", async () => {
+      const now = "# Doc\n\nNew.\n"
+      const result = await read(now, LANDED)
+      expect(result).toMatchObject({ ok: true, content: now, contentHash: contentHashOf(now) })
+    })
+  })
 })

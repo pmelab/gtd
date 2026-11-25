@@ -531,8 +531,13 @@ const WidgetCard = ({
   readonly node: SteeringViewNode
   readonly actions: WidgetActions
 }) => (
-  <Card className="my-6">
+  <Card className={cn("my-6", node.changed && "border-l-2 border-l-warning")}>
     <section data-testid={`widget-${node.status ?? ""}`} className="p-4 lg:p-5">
+      {node.changed && (
+        <Badge data-testid="changed-block" variant="outline" className="mb-2">
+          Changed since you last landed this file
+        </Badge>
+      )}
       <WidgetHeader node={node} actions={actions} />
       <WidgetText node={node} />
       <WidgetOptions node={node} actions={actions} />

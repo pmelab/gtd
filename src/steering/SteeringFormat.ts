@@ -142,6 +142,8 @@ export interface SteeringViewNode {
   readonly endLine?: number
   /** Where `annotate` attaches a NEW note to this node. */
   readonly anchor: SteeringAnchor
+  /** Display only: this top-level block differs from the file's last landing. */
+  readonly changed?: true
   readonly children?: readonly SteeringViewNode[]
   /** Blocks rendered with a node, a sibling of `children` so they never render as checkboxes: a widget's description, as prose blocks anchored at their own lines. */
   readonly body?: readonly SteeringViewNode[]
