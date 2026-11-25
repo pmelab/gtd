@@ -39,7 +39,7 @@ const StatePage = ({
 const NOTICE = "mx-auto max-w-2xl"
 
 /**
- * `gtd ui` serves exactly one worktree resting on exactly one step, so there
+ * A gate page serves exactly one worktree resting on exactly one step, so there
  * is no list to go back to: the document screen opens the step's steering
  * file, and `proceed` moves the process on.
  *

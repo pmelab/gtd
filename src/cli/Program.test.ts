@@ -7,7 +7,7 @@
 import { Cause, Context, Effect, Exit } from "effect"
 import { describe, expect, it, vi } from "vitest"
 
-// `gtd ui`'s bind-host lookup reads the real `os.networkInterfaces()` — a host
+// The bind-host lookup reads the real `os.networkInterfaces()` — a host
 // on a tailnet would make the "no Tailscale interface" refusal below fail.
 vi.mock("node:os", async (importOriginal) => ({
   ...(await importOriginal<typeof import("node:os")>()),
@@ -1082,7 +1082,6 @@ describe("runCommand — refuses in a repository with no commits", () => {
   // gets an entry here and `stateKinds` picks it up.
   const commandFor: Record<Command["kind"], Command> = {
     lsp: { kind: "lsp" },
-    ui: { kind: "ui", selfSigned: false, dev: false },
     workspace: { kind: "workspace", selfSigned: false },
     workspaceControl: { kind: "workspaceControl", command: "proceed", worktree: ".", commit: "x" },
     land: { kind: "land" },
@@ -1124,7 +1123,6 @@ describe("runCommand — refuses in a repository with no commits", () => {
         "restore",
         "repin",
         "summary",
-        "ui",
         "judge",
         "judgeAnswer",
         "historyList",
@@ -1173,26 +1171,6 @@ describe("runCommand — refuses in a repository with no commits", () => {
 
     expect(Exit.isSuccess(exit)).toBe(true)
     expect(written.length).toBeGreaterThan(0)
-  })
-
-  it("gtd ui in a repository WITH commits reaches its own dispatch, past the guard", async () => {
-    const repo = seedIdle()
-    const out = { write: () => {}, flush: () => {} }
-    const requests: unknown[] = []
-    const ui = (request: unknown) => Effect.sync(() => void requests.push(request))
-
-    const exit = await Effect.runPromiseExit(
-      runCommand(
-        { kind: "ui", port: 3000, selfSigned: false, dev: false },
-        { kind: "off" },
-        out,
-      ).pipe(Effect.provide(testLayers(repo, { tools: { ui } }))),
-    )
-
-    expect(Exit.isSuccess(exit)).toBe(true)
-    expect(requests).toEqual([
-      { flags: { port: 3000, selfSigned: false, dev: false }, config: undefined, root: "/repo" },
-    ])
   })
 })
 

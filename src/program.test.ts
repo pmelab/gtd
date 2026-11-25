@@ -1,6 +1,5 @@
-import { Cause, Effect, Exit, FileSystem, Layer, Option } from "effect"
+import { Effect, FileSystem, Layer } from "effect"
 import { ChildProcessSpawner } from "effect/process"
-import { join } from "node:path"
 import { tmpdir } from "node:os"
 import { expect, it, vi } from "vitest"
 
@@ -19,7 +18,7 @@ vi.mock("./judges/index.js", () => {
 })
 
 import { runCli, ToolCommands } from "./cli/index.js"
-import { CommandRunner, GtdError, GtdUsageError } from "./platform/index.js"
+import { CommandRunner, GtdError } from "./platform/index.js"
 import { liveToolCommands } from "./program.js"
 import { InMemRepo, makeCapturingCliIo } from "./twins/index.js"
 import { EXIT_RUNTIME_ERROR } from "./wire/index.js"
@@ -53,28 +52,6 @@ it("gtd next loads no ui, lsp or judge module", async () => {
 
   expect(result().exitCode).toBe(0)
   expect([...loaded]).toEqual([])
-})
-
-it("gtd ui over a worktree that can't be read refuses as a usage error", async () => {
-  const exit = await Effect.runPromiseExit(
-    Effect.flatMap(ToolCommands, ({ ui }) =>
-      ui(
-        {
-          flags: { selfSigned: false, dev: false },
-          config: undefined,
-          root: join(tmpdir(), "gtd-no-such-worktree"),
-        },
-        { write: () => {}, flush: () => {} },
-      ),
-    ).pipe(Effect.provide(tools)),
-  )
-
-  const error = Exit.isFailure(exit)
-    ? Option.getOrUndefined(Cause.findErrorOption(exit.cause))
-    : undefined
-  expect(error).toBeInstanceOf(GtdUsageError)
-  expect(error?.message).toMatch(/^gtd ui: refuses to start — this worktree can't be read/)
-  expect([...loaded]).toEqual(["ui"])
 })
 
 it("a tool that fails to load fails its command as a GtdError, exit 1", async () => {

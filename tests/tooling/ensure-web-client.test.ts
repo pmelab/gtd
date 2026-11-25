@@ -6,8 +6,8 @@ import { fallbackBuildCommand, isGeneratedClientImport } from "../vitest.ensureW
 const REPO_ROOT = join(import.meta.dirname, "..", "..")
 
 describe("ensureWebClient's fallback build", () => {
-  it("triggers on the specifier src/ui/Server.ts actually imports the client page by", () => {
-    const server = readFileSync(join(REPO_ROOT, "src/ui/Server.ts"), "utf8")
+  it("triggers on the specifier src/ui/Gate.ts actually imports the client page by", () => {
+    const server = readFileSync(join(REPO_ROOT, "src/ui/Gate.ts"), "utf8")
     const specifier = /from "([^"]+\.html)"/.exec(server)?.[1]
 
     expect(specifier).toBeDefined()

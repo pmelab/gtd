@@ -9,9 +9,9 @@ function of the repository's history.
 
 ## Consequences
 
-- Helper commands a driver may call — `gtd judge run`, `gtd uncheck`, `gtd lsp`,
-  `gtd ui` — are bundled drivers or editors, not the engine. They never decide
-  what happens next.
+- Helper commands a driver may call — `gtd judge run`, `gtd uncheck`, `gtd lsp`
+  — are bundled drivers or editors, not the engine. They never decide what
+  happens next.
 - gtd does evaluate `gtd.config.ts`, which is code. It carries the same trust as
   any other script in the repository.
 - The environment belongs to the driver. Secrets, commit signing, the shell and
@@ -23,7 +23,7 @@ function of the repository's history.
 
 ## Amendment: the workspace supervisor
 
-`gtd workspace` is a bundled supervisor, like `gtd ui` is a bundled editor. It
+`gtd workspace` is a bundled supervisor, like `gtd lsp` is a bundled editor. It
 starts a configured driver command, runs configured actions, and dispatches
 inbox items by running the item's start action. It never decides what happens
 next in a process: the rest still comes only from replay, and only the driver

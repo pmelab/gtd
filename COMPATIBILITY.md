@@ -62,7 +62,7 @@ histories written by an older or newer gtd.
 
 - **CLI** — every command (`next`, `land`, `start`, `abandon`, `restore`,
   `repin`, `check`, `guide`, `bundle`, `summary`, `base`, `strays`,
-  `history list`, `history show`, `history fetch`, `version`, `help`, `ui`,
+  `history list`, `history show`, `history fetch`, `version`, `help`,
   `workspace`, `workspace proceed`, `workspace retry`, `workspace note`,
   `workspace pause`, `workspace resume`, `workspace paused`, `workspace now`,
   `lsp`, `judge`, `judge answer`, `judge run`), option and argument in
@@ -71,7 +71,7 @@ histories written by an older or newer gtd.
   arrays with no `schema`), and `gtd history show --json` (no `schema`; not a
   driver document).
 - **The error envelope and stream discipline** — `{ "state": "error", … }` on
-  stderr with `--json`, stdout byte-empty on failure (`gtd ui` excepted). See
+  stderr with `--json`, stdout byte-empty on failure. See
   [Error envelope](docs/cli.md#error-envelope).
 - **Entrypoint exports** — every subpath of the one package, each export's name,
   type and behaviour, step functions' options included (`keep` among them, and
@@ -108,8 +108,8 @@ histories written by an older or newer gtd.
 - **The steering file format** — the widget syntax, the rules gtd checks a
   steering file against and its canonical form. See
   [Steering files](docs/steering.md).
-- **The `config` export** — the keys `defineConfig` accepts (`ui`, `skills`,
-  `access`) and their values. See
+- **The `config` export** — the keys `defineConfig` accepts (`skills`, `access`)
+  and their values. See
   [The `config` export](docs/configuration.md#the-config-export).
 - **Settings** — the `GTD_*` variables gtd itself reads (not `GTD_FLAG_*`, nor a
   `GTD_<NAME>` override of a workflow's setting), how a `flag_<name>` setting a
@@ -127,7 +127,7 @@ Anything not listed above, e.g.:
 - **Plain output** — `gtd next` without `--json`, help layout, every message,
   narration and remediation line. See
   [Plain output is not a parsing surface](docs/cli.md#plain-output-is-not-a-parsing-surface).
-- **UI** — `gtd ui` and the example drivers in
+- **UI** — the workspace gate page and the example drivers in
   [Driver protocol](docs/driver.md).
 - **LSP features** — everything `gtd lsp` offers an editor.
 - **Pin content** — the module `gtd bundle` prints after its header line; only

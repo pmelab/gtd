@@ -566,7 +566,7 @@ const EmptyDocumentCapture = ({ onSave }: { readonly onSave: (text: string) => v
   )
 }
 
-/** Where the page rests, as `gtd ui`'s step reports it. */
+/** Where the page rests, as the gate page's step reports it. */
 export interface GateContext {
   readonly repo: string
   readonly branch: string

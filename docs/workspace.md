@@ -20,10 +20,10 @@ Only one supervisor can run for a workspace. A second one exits 1 and prints the
 pid and URL of the first. A signal (`SIGTERM`, `SIGINT`) stops it and closes the
 server.
 
-The dashboard is published like `gtd ui`: through `tailscale serve` by default,
-on the tailnet interface when serve is not available, or with `--http` on
-loopback behind your own proxy. `--host`, `--port`, `--self-signed` and `--http`
-work as for `gtd ui`.
+The dashboard and the gate pages are published through `tailscale serve` by
+default, on the tailnet interface when serve is not available, or with `--http`
+on loopback behind your own proxy. `--host` binds an address directly, `--port`
+chooses the port, `--self-signed` uses a throwaway certificate.
 
 ### Commands for your scripts
 
@@ -153,8 +153,9 @@ The one reserved export, made with `defineWorkspace`. Every key is optional.
   `mainStale`. See [Notifications](#notifications).
 - **`clean`**: `{ every: "<duration>" }` turns on [auto-clean](#auto-clean),
   with a pass each `every`. Without it, nothing is cleaned.
-- **`ui`**: `port`, `host`, `cert`, `key`, as for `gtd ui`, and `users` (the
-  tailnet logins that may use the dashboard; default: the owner of this node).
+- **`ui`**: `port`, `host`, `cert`, `key` (paths to an existing certificate and
+  private key) and `users` (the tailnet logins that may use the dashboard;
+  default: the owner of this node).
 
 ### Feeds
 
@@ -675,9 +676,8 @@ The supervisor also serves the gate page of every worktree, at
 `/<project>/<worktree>/gate`. `<worktree>` is the directory name of the
 worktree. The branch has no effect on it, so the path stays the same when the
 branch changes or the HEAD is detached. A `/` in the project id is written
-`%2F`. The page is the page of `gtd ui` for the rest the worktree is at now. No
-`gtd ui` runs for it. An edit made on a gate page rechecks the status of that
-worktree at once.
+`%2F`. The page shows the rest the worktree is at now. An edit made on a gate
+page rechecks the status of that worktree at once.
 
 ## Adapters
 

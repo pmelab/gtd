@@ -8,32 +8,6 @@ When("I send {word} to a spawned gtd next", async (world: GtdWorld, signal: stri
   await world.spawnGtdNextAndSignal(signal as NodeJS.Signals)
 })
 
-// ── gtd ui's own process lifecycle (`@live` only — see world.ts's `spawnGtdUiAndSignal`) ──
-
-When("I send SIGINT to a spawned gtd ui", async (world: GtdWorld) => {
-  await world.spawnGtdUiAndSignal("SIGINT")
-})
-
-When("I send SIGTERM to a spawned gtd ui", async (world: GtdWorld) => {
-  await world.spawnGtdUiAndSignal("SIGTERM")
-})
-
-// ── gtd ui's serve-path teardown on signal death (package 01, `@live` only — see world.ts's `spawnGtdUiServeAndSignal`) ──
-
-When(
-  "I send SIGINT to a spawned gtd ui using tailscale serve on port {int}",
-  async (world: GtdWorld, servePort: number) => {
-    await world.spawnGtdUiServeAndSignal(servePort, "SIGINT")
-  },
-)
-
-When(
-  "I send SIGTERM to a spawned gtd ui using tailscale serve on port {int}",
-  async (world: GtdWorld, servePort: number) => {
-    await world.spawnGtdUiServeAndSignal(servePort, "SIGTERM")
-  },
-)
-
 // The child is parked at the harness's `git log --first-parent` gate when signalled (`world.ts#spawnGtdNextAndSignal`).
 Then("the child was still alive when the signal landed", (world: GtdWorld) => {
   assert.notStrictEqual(

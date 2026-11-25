@@ -544,7 +544,11 @@ export const runWorkspaceCommand = (
         handler,
         label: root,
         out,
-      })
+      }).pipe(
+        Effect.mapError((error) =>
+          Object.assign(error, { message: `gtd workspace: ${error.message}` }),
+        ),
+      )
       lock.serving(url)
       announceUrl(notifications, url)
       notify.begin(url, snapshot.projects())

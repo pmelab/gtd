@@ -137,7 +137,7 @@ describe("unpublishServe", () => {
   })
 })
 
-// A port unlikely to collide with anything a live `gtd ui` run would publish
+// A port unlikely to collide with anything a live gtd run would publish
 // a record under, since these tests write/read/delete against the REAL
 // `~/.gtd/serve/` directory (there is no injected filesystem for this
 // scratch-file record, matching `Tls.ts`'s sync `node:fs` convention).

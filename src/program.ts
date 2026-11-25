@@ -1,16 +1,7 @@
 import { Effect, FileSystem, Layer } from "effect"
 import { ChildProcessSpawner } from "effect/process"
-import { ToolCommands, type LiveToolCommands, type UiRequest } from "./cli/index.js"
+import { ToolCommands, type LiveToolCommands } from "./cli/index.js"
 import { CommandRunner, GtdError, GtdUsageError } from "./platform/index.js"
-import type { UiConfig } from "./ui/index.js"
-
-/** `A`, or `never` when `A` has a key `B` lacks. */
-type KeysCoveredBy<A, B> = Exclude<keyof A, keyof B> extends never ? A : never
-
-// ui declares its own `UiConfig`; a `ui:` schema key it doesn't know fails here.
-const uiConfigOf = (
-  config: UiRequest["config"],
-): KeysCoveredBy<NonNullable<UiRequest["config"]>, UiConfig> | undefined => config
 
 // Each tool is imported only when its subcommand runs, so `gtd next` never
 // evaluates ui, lsp or judge code (the one-file bundle still carries it).
@@ -38,23 +29,6 @@ export const liveToolCommands = Layer.effect(
     const fs = yield* FileSystem.FileSystem
     const spawner = yield* ChildProcessSpawner.ChildProcessSpawner
     return {
-      ui: (request, out) =>
-        lazy("ui", async () => {
-          const { runUiCommand, UiListener, UiShell, UiUsageError, liveUiHost } =
-            await import("./ui/index.js")
-          return () =>
-            runUiCommand(request.flags, uiConfigOf(request.config), out, request.root).pipe(
-              Effect.provideService(UiShell, shell),
-              Effect.provideService(FileSystem.FileSystem, fs),
-              Effect.provide(UiListener.Live),
-              Effect.provide(liveUiHost),
-              Effect.mapError((error) =>
-                error instanceof UiUsageError
-                  ? new GtdUsageError(error.message, error.detail)
-                  : new GtdError(error.message, error.detail),
-              ),
-            )
-        }),
       workspace: (request, out) =>
         lazy("workspace", async () => {
           const { runWorkspaceCommand, SupervisorClock, SupervisorHost, UserlandTools } =

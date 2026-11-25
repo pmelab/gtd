@@ -429,7 +429,7 @@ follow in the same numbered list.
    https://github.com/pmelab/gtd/blob/main/docs/configuration.md, and
    https://github.com/pmelab/gtd/blob/main/docs/testing.md to test it.
 
-   Repository settings — steering-file modes, \`gtd ui\`, per-scope skills
+   Repository settings — per-scope skills
    and access — go in the config's \`config\` export; workflow settings are
    options of the workflow factory it exports.
 3. **Commit the config before the first drive, when it lives in the

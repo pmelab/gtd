@@ -5,8 +5,8 @@ primary_target: "src/web"
 related_targets: []
 ---
 
-Scope: every screen of `gtd ui` and `gtd workspace` (src/web). Mode: Operate.
-Phone first (390px), desktop list-detail from 1024px.
+Scope: every screen of `gtd workspace` (src/web). Mode: Operate. Phone first
+(390px), desktop list-detail from 1024px.
 
 Audience and job: one developer supervising AI-agent worktrees, mostly on a
 phone; decide at gates, review hunks, proceed or retry, then leave.

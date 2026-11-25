@@ -28,11 +28,11 @@ export interface GateOptions {
   readonly rest?: HumanRestCache
   /** Runs after each write that landed. */
   readonly onEdit?: () => void
-  /** Presses Proceed for this worktree; a standalone `gtd ui` gives none. */
+  /** Presses Proceed for this worktree. */
   readonly proceed?: RouterContext["proceed"]
 }
 
-export const beatDepsOf = (host: UiHostOps): BeatDeps => ({
+const beatDepsOf = (host: UiHostOps): BeatDeps => ({
   run: host.run,
   readLocalGtdVersion: host.readLocalGtdVersion,
   headSha: host.headSha,

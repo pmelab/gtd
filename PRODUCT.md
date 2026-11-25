@@ -16,11 +16,11 @@ many worktrees open at once.
 
 ## Product Purpose
 
-gtd derives an agentic workflow from git history. Its web UI (`gtd ui`,
-`gtd workspace`) is where the person acts at the steps only a human can take:
-gate pages (requirements, design, review with the by-hunk view, squash message)
-and the workspace dashboard (Now, Projects, Inbox, worktree detail). Success:
-the person sees at once what needs them, decides, and gets back to their day.
+gtd derives an agentic workflow from git history. Its web UI (`gtd workspace`)
+is where the person acts at the steps only a human can take: gate pages
+(requirements, design, review with the by-hunk view, squash message) and the
+workspace dashboard (Now, Projects, Inbox, worktree detail). Success: the person
+sees at once what needs them, decides, and gets back to their day.
 
 ## Positioning
 

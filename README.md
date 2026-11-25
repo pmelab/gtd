@@ -425,18 +425,15 @@ your own editor, every answer a commit. The agent writes it and says nothing
 anywhere else; you tick its boxes, edit it, or add footnote annotations that
 send it back.
 
-Prefer a phone or another device over your editor? `gtd ui` opens the file whose
-turn it is as a small web app, over Tailscale: its prose to read, and one
-control per widget — radio buttons with an optional own answer, checkboxes, and
-a review checklist that shows each hunk's diff. Double-tap any block, or tap a
-widget's Note, to add an annotation. It also binds on an idle worktree, opening
-`.gtd/TODO.md` with a bare textfield so you can sketch from your phone; the
-sketch stays on disk until you run `gtd` again, from anywhere, to pick it up.
-The page's Proceed saves your answers and moves the process on under
-`gtd workspace`; a standalone `gtd ui` has no driver, so Proceed is disabled
-there, and the server exits once the worktree moves on to another step. See
-[Configuration](https://github.com/pmelab/gtd/blob/main/docs/configuration.md)
-for its `ui:` settings.
+Prefer a phone or another device over your editor? `gtd workspace` serves the
+file whose turn it is as a small web app, over Tailscale, at
+`/<project>/<worktree>/gate`: its prose to read, and one control per widget —
+radio buttons with an optional own answer, checkboxes, and a review checklist
+that shows each hunk's diff. Double-tap any block, or tap a widget's Note, to
+add an annotation. The page's Proceed saves your answers and moves the process
+on. See the
+[workspace](https://github.com/pmelab/gtd/blob/main/docs/workspace.md) for its
+`ui` settings.
 
 The workflow itself is a plain async TypeScript function, and the
 `gtd.config.ts` at the repository root names it. A workflow may be a factory —
@@ -450,12 +447,12 @@ and remember gtd evaluates that file on every command. A shared workflow package
 bundling its own `@pmelab/gtd` is checked against the running gtd and refused,
 naming which side to upgrade, on a flows protocol mismatch.
 
-Everything else a repository configures — `gtd ui` settings, per-scope skills
-and file access — goes in the same file's `config` export, built with
-`defineConfig` from `@pmelab/gtd/flows`, which rejects an unknown key.
-`gtd.config.ts` is the only repository config: gtd 23 removed the `.gtdrc`
-files, and a leftover one — in the repository, above it, or in your home
-directory — fails every command until you delete it. See
+Everything else a repository configures — per-scope skills and file access —
+goes in the same file's `config` export, built with `defineConfig` from
+`@pmelab/gtd/flows`, which rejects an unknown key. `gtd.config.ts` is the only
+repository config: gtd 23 removed the `.gtdrc` files, and a leftover one — in
+the repository, above it, or in your home directory — fails every command until
+you delete it. See
 [Migrating from `.gtdrc`](https://github.com/pmelab/gtd/blob/main/docs/configuration.md#migrating-from-gtdrc).
 
 ## Large untracked trees
@@ -569,10 +566,10 @@ install for any of these but the testkit's: gtd resolves a `gtd.config.ts`'s
 
 The `gtd` bin's commands — `next`, `land`, `start`, `abandon`, `restore`,
 `repin`, `check`, `guide`, `bundle`, `summary`, `base`, `version`, `help`,
-`history list`, `history show`, `history fetch`, `strays`, the tools `ui`,
-`workspace` (`workspace proceed`, `workspace retry`, `workspace note`,
-`workspace pause`, `workspace resume`, `workspace paused`, `workspace now`),
-`lsp`, `judge` (`judge answer`, `judge run`) — are listed in the
+`history list`, `history show`, `history fetch`, `strays`, the tools `workspace`
+(`workspace proceed`, `workspace retry`, `workspace note`, `workspace pause`,
+`workspace resume`, `workspace paused`, `workspace now`), `lsp`, `judge`
+(`judge answer`, `judge run`) — are listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md). Every
 command that prints a script takes `--json=script`, and `--` ends the options.
 
@@ -592,16 +589,16 @@ take a name starting with `gtd:`.
 
 While a process is pinned, the `gtd` on your `PATH` hands every command over to
 the pin, so editing the workflow or upgrading gtd mid-process changes nothing;
-gtd notes on stderr when the live config differs from the pinned one. `ui`,
-`lsp`, `guide`, `bundle`, `repin`, `help`, `version` and the `history` commands
-always run live, and `gtd --live <command>` runs the live engine for any other,
-at the risk of misreading the process. To fix a workflow mid-process, edit it
-and run `gtd repin`: its script commits a fresh pin from the live engine and
-config, and the process continues on it. Where the edited workflow no longer
-replays the process, the repin continues from the divergence: the commits it
-cannot replay stay as files, and the process rests at the step the edited
-workflow reached (history format 3 or later). A pin in a format your gtd does
-not know is refused: upgrade gtd. See
+gtd notes on stderr when the live config differs from the pinned one. `lsp`,
+`guide`, `bundle`, `repin`, `help`, `version` and the `history` commands always
+run live, and `gtd --live <command>` runs the live engine for any other, at the
+risk of misreading the process. To fix a workflow mid-process, edit it and run
+`gtd repin`: its script commits a fresh pin from the live engine and config, and
+the process continues on it. Where the edited workflow no longer replays the
+process, the repin continues from the divergence: the commits it cannot replay
+stay as files, and the process rests at the step the edited workflow reached
+(history format 3 or later). A pin in a format your gtd does not know is
+refused: upgrade gtd. See
 [Pinned processes](https://github.com/pmelab/gtd/blob/main/docs/cli.md#pinned-processes).
 
 ## License

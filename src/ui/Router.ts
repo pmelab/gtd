@@ -48,7 +48,7 @@ export class WriteNoteRefusal extends Error {
     readonly reason: import("./Write.js").WriteRefusalReason,
     readonly moved?: "sha" | "content-hash",
   ) {
-    super(`gtd ui: write refused (${reason})`)
+    super(`write refused (${reason})`)
     this.name = "WriteNoteRefusal"
   }
 }
@@ -56,7 +56,7 @@ export class WriteNoteRefusal extends Error {
 /** One of `ReadSteeringFile.ts#ReadSteeringFileResult`'s two typed refusals, carried as a thrown `TRPCError`'s `cause` — read back on the client via `error.data.readRefusal.reason`, mirroring `WriteNoteRefusal`'s own pattern. */
 export class ReadSteeringFileRefusal extends Error {
   constructor(readonly reason: "file-vanished" | "head-unresolved") {
-    super(`gtd ui: read refused (${reason})`)
+    super(`read refused (${reason})`)
     this.name = "ReadSteeringFileRefusal"
   }
 }
@@ -291,7 +291,7 @@ export const appRouter = t.router({
     if (!result.ok) {
       throw new TRPCError({
         code: "CONFLICT",
-        message: `gtd ui: write refused (${result.reason})`,
+        message: `write refused (${result.reason})`,
         cause: new WriteNoteRefusal(result.reason, result.moved),
       })
     }
@@ -315,7 +315,7 @@ export const appRouter = t.router({
     if (!result.ok) {
       throw new TRPCError({
         code: "CONFLICT",
-        message: `gtd ui: write refused (${result.reason})`,
+        message: `write refused (${result.reason})`,
         cause: new WriteNoteRefusal(result.reason, result.moved),
       })
     }
@@ -331,7 +331,7 @@ export const appRouter = t.router({
     if (!result.ok) {
       throw new TRPCError({
         code: "CONFLICT",
-        message: `gtd ui: write refused (${result.reason})`,
+        message: `write refused (${result.reason})`,
         cause: new WriteNoteRefusal(result.reason, result.moved),
       })
     }
@@ -394,7 +394,7 @@ export const appRouter = t.router({
     if (!result.ok) {
       throw new TRPCError({
         code: result.reason === "file-vanished" ? "NOT_FOUND" : "BAD_REQUEST",
-        message: `gtd ui: read refused (${result.reason})`,
+        message: `read refused (${result.reason})`,
         cause: new ReadSteeringFileRefusal(result.reason),
       })
     }

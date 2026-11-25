@@ -15,7 +15,7 @@ export interface CertPair {
  * and the hostname, for whichever one a client dials. `ip` is OPTIONAL and
  * MUST be an actual IPv4/IPv6 literal, never a hostname — openssl's
  * `-addext subjectAltName=IP:...` rejects a non-literal value outright
- * (`gtd ui --host localhost --self-signed` puts a hostname where the
+ * (`gtd workspace --host localhost --self-signed` puts a hostname where the
  * default Tailscale-scan path always puts a literal). Callers with a
  * hostname `--host` pass `ip: undefined`; the SAN then carries DNS only.
  */
@@ -39,12 +39,12 @@ const issueInScratch = (
     return yield* host.scratch((dir, read) =>
       runner.bash(command(join(dir, "cert.pem"), join(dir, "key.pem"))).pipe(
         Effect.mapError(
-          (e) => new UiError(`gtd ui: could not run ${tool} to issue a certificate: ${e.message}`),
+          (e) => new UiError(`could not run ${tool} to issue a certificate: ${e.message}`),
         ),
         Effect.flatMap((outcome) =>
           outcome.status !== 0
             ? Effect.fail(
-                new UiError(`gtd ui: ${tool} exited without issuing a certificate`, [
+                new UiError(`${tool} exited without issuing a certificate`, [
                   `exit status: ${outcome.status ?? "signal"}`,
                   ...outcome.output.trim().split("\n").filter(Boolean),
                 ]),
@@ -53,7 +53,7 @@ const issueInScratch = (
                 try: (): CertPair => ({ cert: read("cert.pem"), key: read("key.pem") }),
                 catch: (e) =>
                   new UiError(
-                    `gtd ui: ${tool} reported success but its output could not be read: ${
+                    `${tool} reported success but its output could not be read: ${
                       e instanceof Error ? e.message : String(e)
                     }`,
                   ),
@@ -127,7 +127,7 @@ export const loadCertPair = (
     const read = (path: string) =>
       fs
         .readFileString(path)
-        .pipe(Effect.mapError((e) => new UiError(`gtd ui: could not read ${path}: ${e.message}`)))
+        .pipe(Effect.mapError((e) => new UiError(`could not read ${path}: ${e.message}`)))
     const cert = yield* read(certPath)
     const key = yield* read(keyPath)
     return { cert, key }

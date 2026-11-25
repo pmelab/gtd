@@ -228,7 +228,6 @@ const missingTool = (name: string) => () =>
   Effect.fail(new Error(`gtd ${name}: ToolCommands has no test double wired into testLayers()`))
 
 const missingToolCommands: ToolCommands["Service"] = {
-  ui: missingTool("ui"),
   workspace: missingTool("workspace"),
   workspaceControl: missingTool("workspace"),
   workspaceNow: missingTool("workspace"),
@@ -305,12 +304,10 @@ export function testLayers(
     // Drivers and tools are unit-tested in their own folders; a call reaching
     // one of these is a test gap, not silence. A test opts into one via `tools`.
     Layer.succeed(ToolCommands, { ...missingToolCommands, ...opts.tools }),
-    // The only `@inmem` scenarios that reach `gtd ui` refuse at a guard before
-    // its shell is touched (see `tests/integration/features/ui.feature`) — and
     // gtd itself spawns no subprocess any more, so there is deliberately no
     // scripted-command double to fall back on.
     CommandRunner.layer(() =>
-      Effect.fail(new Error("gtd ui: CommandRunner has no test double wired into testLayers()")),
+      Effect.fail(new Error("CommandRunner has no test double wired into testLayers()")),
     ),
   )
 }

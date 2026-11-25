@@ -1,18 +1,7 @@
 import type { ScopeAccess } from "./runtime.js"
 
-/** `gtd ui` settings; its `--host`/`--port` flags outrank `host`/`port`. */
-export interface UiSettings {
-  readonly port?: number
-  readonly host?: string
-  readonly cert?: string
-  readonly key?: string
-  /** The tailnet logins allowed to use `gtd ui`; the node owner when absent. */
-  readonly users?: readonly string[]
-}
-
 /** The repository settings a `gtd.config.ts` exports as `config`. */
 export interface GtdConfig {
-  readonly ui?: UiSettings
   readonly skills?: Readonly<Record<string, readonly string[]>>
   readonly access?: Readonly<Record<string, ScopeAccess>>
   /** A remote name: every finished or abandoned process force-pushes its history ref there. */
@@ -24,13 +13,12 @@ export interface ConfigProblem {
   readonly message: string
 }
 
-const CONFIG_KEYS = ["ui", "skills", "access", "historyRemote"] as const
-const UI_KEYS = ["port", "host", "cert", "key", "users"] as const
+const CONFIG_KEYS = ["skills", "access", "historyRemote"] as const
 
 /** Keys that once meant something, and what replaced them. */
 const REMOVED: Readonly<Record<string, string>> = {
   modes: "was removed: every steering file is a widget document gtd checks itself",
-  "ui.format": "was removed: gtd writes every steering file in its own canonical form",
+  ui: "was removed: only `gtd workspace` serves gate pages, at /<project>/<worktree>/gate — see docs/adr/0017-gate-pages-only-in-the-workspace.md",
 }
 
 const isRecord = (v: unknown): v is Record<string, unknown> =>
@@ -61,27 +49,6 @@ const recordOf = (
     ? Object.entries(value).flatMap(([key, v]) => entry(v, [...path, key]))
     : [{ path, message: `must be an object of ${shape}` }]
 
-const isLoginList = (v: unknown): boolean =>
-  Array.isArray(v) && v.length > 0 && v.every((entry) => typeof entry === "string" && entry !== "")
-
-const uiProblems = (value: unknown, path: readonly string[]): ConfigProblem[] => {
-  if (!isRecord(value)) return [{ path, message: "must be an object" }]
-  return [
-    ...unknownKeys(value, UI_KEYS, path),
-    ...UI_KEYS.flatMap((key) => {
-      const v = value[key]
-      if (v === undefined) return []
-      const [ok, message] =
-        key === "port"
-          ? [Number.isInteger(v), "must be an integer"]
-          : key === "users"
-            ? [isLoginList(v), "must be a non-empty array of tailnet login names"]
-            : [typeof v === "string", "must be a string"]
-      return ok ? [] : [{ path: [...path, key], message }]
-    }),
-  ]
-}
-
 const accessProblems = (value: unknown, path: readonly string[]): ConfigProblem[] => {
   if (!isRecord(value))
     return [{ path, message: "must be an object of { read?, write? } glob arrays" }]
@@ -100,7 +67,6 @@ export const configProblems = (value: unknown): readonly ConfigProblem[] => {
   if (!isRecord(value)) return [{ path: [], message: "must be an object" }]
   return [
     ...unknownKeys(value, CONFIG_KEYS, []),
-    ...(value.ui === undefined ? [] : uiProblems(value.ui, ["ui"])),
     ...(value.historyRemote === undefined ||
     (typeof value.historyRemote === "string" && value.historyRemote.trim() !== "")
       ? []

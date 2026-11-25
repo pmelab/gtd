@@ -11,5 +11,5 @@ export {
   type CliIo,
   type LiveToolCommands,
 } from "./Cli.js"
-export { ToolCommands, type UiRequest } from "./ToolCommands.js"
+export { ToolCommands } from "./ToolCommands.js"
 export { runLauncher } from "./Launch.js"
