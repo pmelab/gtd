@@ -106,22 +106,18 @@ const BottomItem = ({
   <button
     type="button"
     aria-current={selected}
+    data-testid="tab-item"
     className={cn(
       FOCUS,
-      "flex min-h-14 flex-1 flex-col items-center justify-center gap-1 text-xs",
-      selected ? "font-semibold text-foreground" : "text-muted-foreground",
+      "relative mx-1 mt-1 flex min-h-14 min-w-11 flex-1 flex-col items-center justify-center gap-0.5 rounded-2xl text-[10px] font-medium",
+      selected ? "bg-accent text-foreground" : "text-muted-foreground",
     )}
     onClick={onSelect}
   >
-    <span
-      className={cn(
-        "relative flex h-7 w-14 items-center justify-center rounded-full",
-        selected && "bg-accent",
-      )}
-    >
-      <Icon aria-hidden="true" className="size-5" />
+    <span className="relative flex items-center justify-center">
+      <Icon aria-hidden="true" className="size-7" />
       {count > 0 && (
-        <span className="absolute -top-1 left-8">
+        <span className="absolute -top-1.5 left-full -ml-3">
           <CountBadge count={count} attention={attention} />
         </span>
       )}
