@@ -27,7 +27,7 @@ jobs:
       # The unit map's rules live in .dependency-cruiser.mjs; this is the
       # picture of what they currently allow.
       - name: Generate the dependency graph
-        run: npx depcruise src claude --include-only "^(src|claude)/" --output-type archi > unit-map.dot
+        run: npx depcruise src --include-only "^src/" --output-type archi > unit-map.dot
 
       - uses: actions/upload-artifact@v4
         with:

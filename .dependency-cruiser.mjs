@@ -68,7 +68,7 @@ const units = {
   gherkin: "^src/gherkin/",
 }
 // What any import of repository code resolves to, as opposed to a package or builtin.
-const local = ["^(src|claude|tests|evals|scripts)/", "^[^/]+\\.[cm]?[jt]sx?$"]
+const local = ["^(src|tests|evals|scripts)/", "^[^/]+\\.[cm]?[jt]sx?$"]
 // Test support outside a test file: the web client's Storybook/Vitest browser helpers.
 const testSupport = [
   productionExcluded,
@@ -150,7 +150,6 @@ const npmAllowList = [
     packages: ["vscode-languageserver", "vscode-languageserver-textdocument"],
     units: ["^src/lsp/"],
   },
-  { packages: ["claude-code"], units: ["^claude/"] },
   { packages: ["promptfoo"], units: ["^evals/"] },
   {
     packages: [
@@ -320,22 +319,6 @@ export default {
       to: { path: local, pathNot: [units.kit, "^src/(flows|steering)/"] },
     },
     {
-      name: "drivers-import-only-contracts",
-      comment:
-        "Unit map, drivers import only contracts (tests included): claude/ reaches core only through the wire contract and the gtd binary they spawn.",
-      severity: "error",
-      from: { path: "^(claude)/", pathNot: "^claude/.+\\.test\\.tsx?$" },
-      to: { path: local, pathNot: ["^$1/", units.contracts] },
-    },
-    {
-      name: "claude-tests-import-only-contracts-and-judges",
-      comment:
-        "Unit map, drivers import only contracts (tests included): claude/'s tests may also read src/judges/, to pin the judge prompt the hooks mirror.",
-      severity: "error",
-      from: { path: "^claude/.+\\.test\\.tsx?$" },
-      to: { path: local, pathNot: ["^claude/", units.contracts, "^src/judges/"] },
-    },
-    {
       name: "tools-import-only-contracts",
       comment:
         "Unit map, tools import only contracts (tests included): src/ui/, src/lsp/ and src/judges/ import their own folder and the contracts — never core.",
@@ -443,7 +426,7 @@ export default {
       comment:
         "Unit map, only composition roots import drivers and tools: they reach the CLI as the ToolCommands port, provided in src/program.ts.",
       severity: "error",
-      from: { path: "^(src/[^/]+|claude)/", pathNot: [productionExcluded, "^src/supervisor/"] },
+      from: { path: "^(src/[^/]+)/", pathNot: [productionExcluded, "^src/supervisor/"] },
       to: {
         path: [units.drivers, units.tools],
         pathNot: "^$1/",
@@ -453,10 +436,10 @@ export default {
     {
       name: "pure-units-use-no-builtin",
       comment:
-        "Unit map, npm dependencies — a Node builtin is one too: src/flows/ and src/steering/ load standalone, the kit and claude/'s hooks run where Node's modules may be missing.",
+        "Unit map, npm dependencies — a Node builtin is one too: src/flows/ and src/steering/ load standalone, the kit runs where Node's modules may be missing.",
       severity: "error",
       from: {
-        path: ["^src/(flows|steering|workflow-kit|workspace|workspace-testkit)/", "^claude/"],
+        path: ["^src/(flows|steering|workflow-kit|workspace|workspace-testkit)/"],
         pathNot: productionExcluded,
       },
       to: { dependencyTypes: ["core"] },

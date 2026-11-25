@@ -13,7 +13,7 @@ export interface LlmOptions {
 const DEFAULT_MODEL = "sonnet"
 const TIMEOUT_MS = 180_000
 
-export const SYSTEM_PROMPT =
+const SYSTEM_PROMPT =
   "You are a strict, impartial judge. Answer each question from the supplied evidence alone.\n" +
   "Reply only with the structured answer; never use tools or ask questions."
 

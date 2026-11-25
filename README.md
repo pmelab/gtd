@@ -385,50 +385,6 @@ Neither guards an agent turn's context: a long turn relies on the agent
 harness's own compaction. Size the work before the sketch — a change too big for
 one process is several processes.
 
-### Or drive it from inside Claude Code
-
-The gtd mod runs the same loop inside an interactive Claude Code session
-(2.1.287 or later), without `claude -p`. The plugin is the npm package itself,
-so it brings its own gtd; it needs only `node` and `npm` on your `PATH`:
-
-```sh
-claude plugin marketplace add pmelab/gtd
-claude plugin install gtd@gtd
-```
-
-Then, in any repository:
-
-```
-/gtd Add a --json flag to the export command
-```
-
-That starts a process from your requirements and drives it until it needs you.
-The requirements go to the top of `.gtd/TODO.md`, above whatever it already
-holds. A long, multi-line requirements paste still starts a process; if Claude
-Code never expanded the paste, gtd says it could not read it, and you add the
-requirements to the top of `.gtd/TODO.md` and run `/gtd`. `/gtd <door> [args]`
-takes one of the doors a bare `gtd start` lists — those your workflows declare;
-text whose word count does not fit a door's args starts a process from that text
-as requirements. At every human rest Claude itself takes over: it walks you
-through the steering file's questions one at a time, answers your own questions
-about the plan or the diff, records what you decide in the steering file the way
-the step asks, and moves the process on only when you say so; a review you leave
-untouched signs off. While a step runs you can keep asking; requests for changes
-wait for the next rest. A process can change hands at any gate: ask Claude to
-hand it off (or run `/gtd throw @dev`) and it opens a draft pull request
-assigned to them, and `/gtd catch <pr>` picks it up exactly where it waits, so
-whoever wrote the requirements can hand the build to someone else. `/gtd pr`
-brings a pull request's unresolved review threads into the review: each becomes
-a 🔘 question in `.gtd/REVIEW.md` ticked "fix as suggested" (tick "won't fix"
-plus a reason, or write your own answer instead), the review door fixes them in
-place, and each thread then gets a reply naming the fixing commit (or your
-reason) and is resolved. Hand-off and throw answer at once and run in the
-background, with progress on the status line; they report by waking Claude, a
-toast, a transcript line and a push notification, and a failed push or `gh` call
-reports as a failure. While a hand-off runs or is queued, `/gtd catch`, the
-doors, `/gtd <requirements>` and bare `/gtd` wait for its report. See
-[Inside Claude Code](https://github.com/pmelab/gtd/blob/main/docs/driver.md#inside-claude-code-the-gtd-mod).
-
 ### Then let an agent build your own
 
 But lets be honest, who reads documentation these days. Paste this into your
