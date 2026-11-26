@@ -199,6 +199,7 @@ export const boardReady = feed({
   (items start without a person).
 - **`poll(ctx)`**: returns every item that matches now. gtd adds new keys,
   updates known ones, and removes waiting items that the poll no longer returns.
+  It may also return [signals](#signals).
 - **`canStart(item, ctx)`** (optional): return `false` to hold an item at
   dispatch. gtd runs it each time it tries to dispatch the item. An item it
   holds, or holds by a throw, waits with the reason.
@@ -228,6 +229,26 @@ gtd adds `feed` and `project` to each item. A poll that throws, or that returns
 something other than a list of such items with unique keys and no other fields,
 fails the feed (`feedFailing`): its items stay as they were, and the other feeds
 keep polling.
+
+### Signals
+
+A poll may return signals beside its items. A signal is news for the process on
+one branch of the feed's project; it continues that process instead of starting
+one:
+
+- **`kind`**: the signal kind, as a `wait()` step's `kinds` names it;
+- **`branch`**: the branch whose process the news is for;
+- **`fingerprint`**: changes when the news does, for example a review's id;
+- **`data`** (optional): any JSON. gtd passes it on and never reads it.
+
+gtd delivers a signal only when the process on that branch rests at a wait that
+accepts its kind, and its fingerprint differs from the last one delivered to
+that wait. Otherwise it drops the signal: return it again on the next poll, and
+keep the feed stateless. A paused project or feed delivers no signals. Delivery
+runs `gtd signal`, which writes `.gtd/SIGNAL.json` in the worktree; the driver
+lands it. A worktree at a wait shows **Waiting** on the dashboard, with the
+kinds it accepts and, when it accepts `person`, a **Continue** button with an
+optional note.
 
 ### Testing feeds
 

@@ -16,7 +16,7 @@ import { sectionBodies, sections } from "../steering/index.js"
 import { steeringStepFindings } from "../steering/internal.js"
 import { flowWidgets } from "./FlowWidgets.js"
 import { accessShapeFault, foldAccess, sameAccess } from "./Access.js"
-import { globMatches, PIN_PATH, RUN_FAILED_PATH } from "../wire/index.js"
+import { globMatches, PIN_PATH, RUN_FAILED_PATH, SIGNAL_PATH } from "../wire/index.js"
 import { refNameFault } from "./RefName.js"
 import { diffTrees, isEmptyDiff, withoutPath, type TreeView } from "./Tree.js"
 import {
@@ -87,7 +87,7 @@ export interface ReplayInput {
 
 export type StepKind = Exclude<StepRequest["kind"], "restart">
 
-type Actor = "agent" | "human" | "check" | "judge"
+type Actor = "agent" | "human" | "check" | "judge" | "signal"
 
 const actorOfKind = (kind: StepKind): Actor =>
   kind === "run" || kind === "ship"
@@ -96,7 +96,9 @@ const actorOfKind = (kind: StepKind): Actor =>
       ? "agent"
       : kind === "human"
         ? "human"
-        : "judge"
+        : kind === "wait"
+          ? "signal"
+          : "judge"
 
 /** One step replay reached, completed or not. */
 export interface ReachedStep {
@@ -338,6 +340,7 @@ const KNOWN_OPTIONS: Readonly<Record<StepKind, ReadonlySet<string>>> = {
   run: new Set(["label", "base", "onFail"]),
   ship: new Set(["label", "base"]),
   judge: new Set(["label", "base", "message", "judgeFile"]),
+  wait: new Set(["label", "base", "kinds", "timeout"]),
 }
 
 const validatorOptionFault = (
@@ -540,19 +543,30 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
     position = next
   }
 
+  const signalOf = (): unknown => {
+    const text = position.tree.read(SIGNAL_PATH)
+    try {
+      return text === undefined ? undefined : JSON.parse(text)
+    } catch {
+      return undefined
+    }
+  }
+
   const replyFor = (
     request: Exclude<StepRequest, { kind: "restart" }>,
     verdicts: readonly JudgeVerdict[],
     shipped: string | undefined,
   ): unknown =>
-    request.kind === "judge"
-      ? {
-          answers: answersFrom(verdicts, request.questions),
-          truncated: judgeCuts.get(request) ?? [],
-        }
-      : request.kind === "ship"
-        ? shipped
-        : undefined
+    request.kind === "wait"
+      ? signalOf()
+      : request.kind === "judge"
+        ? {
+            answers: answersFrom(verdicts, request.questions),
+            truncated: judgeCuts.get(request) ?? [],
+          }
+        : request.kind === "ship"
+          ? shipped
+          : undefined
 
   const judgeCuts = new WeakMap<object, readonly string[]>()
 
@@ -816,6 +830,21 @@ export const replay = async (raw: ReplayInput): Promise<ReplayOutcome> => {
     }
     if (request.kind === "run" && typeof request.body !== "string") {
       return `gtd: step "${scoped(request.name)}": a run() body is a shell script string — decide in flow code, then render the script (see checkScript and friends)`
+    }
+    return request.kind === "wait" ? waitFault(request) : undefined
+  }
+
+  const waitFault = (request: Extract<StepRequest, { kind: "wait" }>) => {
+    const { kinds, timeout } = request.options
+    if (
+      !Array.isArray(kinds) ||
+      kinds.length === 0 ||
+      kinds.some((k) => typeof k !== "string" || k === "")
+    ) {
+      return `gtd: step "${scoped(request.name)}": a wait() needs kinds, a non-empty list of signal kinds`
+    }
+    if (timeout !== undefined && !/^\d+(ms|s|m|h|d)$/.test(String(timeout))) {
+      return `gtd: step "${scoped(request.name)}": a wait() timeout is a duration like "30s", "5m", "1h" or "2d"`
     }
     return undefined
   }

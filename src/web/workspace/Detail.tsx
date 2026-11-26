@@ -12,7 +12,7 @@ import { ActionPicker } from "./ActionPicker.js"
 import { NoteLine } from "./NoteLine.js"
 import { EntryTitle } from "./Now.js"
 import { Retrospective } from "./Retrospective.js"
-import { PressButton, Refused } from "./Press.js"
+import { PressButton, Refused, Waiting } from "./Press.js"
 import { ServiceChips } from "./ServiceChips.js"
 import { StatusBadge } from "./Status.js"
 import { RemoveButton } from "./WorktreeChanges.js"
@@ -107,6 +107,7 @@ const DetailHeader = ({
           {reason}
         </p>
       )}
+      <Waiting worktree={worktree} />
       <NoteLine worktree={worktree} />
       <Refused worktree={worktree} className="max-w-prose" />
       <ServiceChips worktree={worktree} />

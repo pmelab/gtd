@@ -1,6 +1,14 @@
 import type { BeatKind, Demand, DemandSession } from "./Demand.js"
 import type { BeatStatus, NextMatch, StatusChange } from "./BeatStatus.js"
-import type { Actor, ApprovalEntry, ModelCost, PinMark, StateName, StepAccess } from "./types.js"
+import type {
+  Actor,
+  ApprovalEntry,
+  SignalWait,
+  ModelCost,
+  PinMark,
+  StateName,
+  StepAccess,
+} from "./types.js"
 import { WIRE_SCHEMA } from "./constants.js"
 
 /** `gtd next --json`'s `next` key — `null` when landing would commit nothing. */
@@ -83,6 +91,8 @@ export interface BeatDocument {
   readonly costByModel: readonly ModelCost[] | undefined
   readonly judge: string | undefined
   readonly judgeFile: string | undefined
+  /** On a wait step only: the signal kinds it accepts and its timeout. */
+  readonly signal: SignalWait | undefined
   readonly skills: readonly string[] | undefined
   readonly access: StepAccess | undefined
   readonly approvals: readonly ApprovalEntry[]
@@ -121,6 +131,7 @@ export const beatDocument = (demand: Demand, status: BeatStatus): BeatDocument =
     costByModel: hasCost ? status.costByModel : undefined,
     judge: status.judge,
     judgeFile: status.judgeFile,
+    signal: status.signal,
     skills,
     access,
     approvals: status.approvals,

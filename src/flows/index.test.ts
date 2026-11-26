@@ -55,6 +55,7 @@ describe("@pmelab/gtd/flows", () => {
         "skillsFor",
         "start",
         "unanswered",
+        "wait",
         "widgets",
         "workflow",
         "writeScript",

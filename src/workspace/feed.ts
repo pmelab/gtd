@@ -18,6 +18,22 @@ export interface FeedItem {
   readonly data?: unknown
 }
 
+/**
+ * What a feed's poll returns for news about a branch: delivered to the process
+ * resting at a wait step that accepts the kind. Return it on every poll while
+ * it holds; gtd drops one whose fingerprint it delivered to that wait already.
+ */
+export interface FeedSignal {
+  /** The signal kind, as a wait step's `kinds` names it. */
+  readonly kind: string
+  /** The branch whose process the news is for. */
+  readonly branch: string
+  /** Changes when the news does, such as a review's id. */
+  readonly fingerprint: string
+  /** Any JSON; the workflow reads it, gtd never does. */
+  readonly data?: unknown
+}
+
 export interface ExecResult {
   readonly status: number
   readonly stdout: string
@@ -44,7 +60,9 @@ export interface FeedSpec {
   /** `propose`: a person starts or dismisses each item; `queue`: items start without one. */
   readonly mode: FeedMode
   /** Every item that matches now. */
-  readonly poll: (ctx: FeedContext) => Promise<readonly FeedItem[]> | readonly FeedItem[]
+  readonly poll: (
+    ctx: FeedContext,
+  ) => Promise<readonly (FeedItem | FeedSignal)[]> | readonly (FeedItem | FeedSignal)[]
   /** Return `false` to hold an item at dispatch. */
   readonly canStart?: (item: FeedItem, ctx: FeedContext) => Promise<boolean> | boolean
 }
@@ -110,12 +128,25 @@ const ITEM_CHECKS: Readonly<Record<string, readonly [(v: unknown) => boolean, st
   data: [() => true, "", false],
 }
 
-/** Every way a poll result is not a list of items with unique keys. */
+const SIGNAL_CHECKS: Readonly<Record<string, readonly [(v: unknown) => boolean, string, boolean]>> =
+  {
+    kind: [isText, "must be a non-empty string", true],
+    branch: [isText, "must be a non-empty string", true],
+    fingerprint: [isText, "must be a non-empty string", true],
+    data: [() => true, "", false],
+  }
+
+// A signal has a kind and no key; an item has a key.
+const isSignal = (item: Record<string, unknown>): boolean =>
+  item["kind"] !== undefined && item["key"] === undefined
+
+/** Every way a poll result is not a list of items with unique keys and signals. */
 const pollProblems = (result: unknown): readonly string[] => {
-  if (!Array.isArray(result)) return ["poll must return an array of items"]
+  if (!Array.isArray(result)) return ["poll must return an array of items and signals"]
   const seen = new Set<string>()
   return result.flatMap((item: unknown, index) => {
     if (!isRecord(item)) return [`item ${index}: must be an object`]
+    if (isSignal(item)) return checkFields(item, SIGNAL_CHECKS).map((p) => `signal ${index}: ${p}`)
     const problems = checkFields(item, ITEM_CHECKS).map((p) => `item ${index}: ${p}`)
     if (typeof item["key"] === "string") {
       if (seen.has(item["key"]))
@@ -126,7 +157,9 @@ const pollProblems = (result: unknown): readonly string[] => {
   })
 }
 
-export type PollOutcome = { readonly items: readonly FeedItem[] } | { readonly failure: string }
+export type PollOutcome =
+  | { readonly items: readonly FeedItem[]; readonly signals: readonly FeedSignal[] }
+  | { readonly failure: string }
 
 /** One poll: its items, or why the feed fails (`feedFailing`) — a throw or a malformed result. */
 export const runPoll = async (feed: FeedSpec, ctx: FeedContext): Promise<PollOutcome> => {
@@ -139,5 +172,12 @@ export const runPoll = async (feed: FeedSpec, ctx: FeedContext): Promise<PollOut
   const problems = pollProblems(result)
   return problems.length > 0
     ? { failure: problems.join("; ") }
-    : { items: result as readonly FeedItem[] }
+    : {
+        items: (result as readonly Record<string, unknown>[]).filter(
+          (r) => !isSignal(r),
+        ) as unknown as readonly FeedItem[],
+        signals: (result as readonly Record<string, unknown>[]).filter(
+          isSignal,
+        ) as unknown as readonly FeedSignal[],
+      }
 }

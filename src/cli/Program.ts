@@ -1,4 +1,4 @@
-import { Effect, Option, Path, Schema } from "effect"
+import { Clock, Effect, Option, Path, Schema } from "effect"
 import {
   GtdError,
   GtdUsageError,
@@ -48,9 +48,11 @@ import {
   selectPath,
   EXIT_OK,
   PIN_PATH,
+  SIGNAL_PATH,
 } from "../wire/index.js"
 import {
   currentRest,
+  lastSignalFingerprint,
   refuseHugeUntracked,
   repinAnchor,
   startRefusal,
@@ -190,6 +192,16 @@ export type Command =
       readonly name?: string
       readonly args: readonly string[]
       readonly vars: Readonly<Record<string, string>>
+    }
+  | {
+      readonly kind: "signal"
+      /** The process's worktree; the live `gtd` has moved into it before this runs. */
+      readonly worktree: string
+      readonly signalKind: string
+      /** A file holding the signal's `data`, as JSON. */
+      readonly data?: string
+      /** Replaces the default, a hash of the kind and the data. */
+      readonly fingerprint?: string
     }
   | { readonly kind: "abandon" }
   | { readonly kind: "restore" }
@@ -340,7 +352,10 @@ const planLanding = (
     }
     if (outcome.kind === "noop") {
       const required = ScriptSurface.render([
-        { kind: "outcome", outcome: { kind: "note", text: noopText(outcome.state) } },
+        {
+          kind: "outcome",
+          outcome: { kind: "note", text: noopText(outcome.state) },
+        },
       ])
       return {
         state: outcome.state,
@@ -750,7 +765,10 @@ const runStartListCommand = (
         kind: "door",
         name,
         workflow: door.workflow,
-        args: (door.args ?? []).map((arg) => ({ name: arg.name, optional: arg.optional === true })),
+        args: (door.args ?? []).map((arg) => ({
+          name: arg.name,
+          optional: arg.optional === true,
+        })),
       })),
     ]
     if (yield* writeJson(json, out, document)) return
@@ -849,10 +867,21 @@ const runAbandonCommand = (
               kind: "gitWrite",
               command: deleteBranch(Option.getOrThrow(current)),
             } as const,
-            { kind: "gitWrite", command: updateRef(RESUME_BRANCH_REF, tip) } as const,
+            {
+              kind: "gitWrite",
+              command: updateRef(RESUME_BRANCH_REF, tip),
+            } as const,
           ]
-        : [{ kind: "gitWrite", command: deleteRef(RESUME_BRANCH_REF) } as const]),
-      { kind: "outcome", command: abandonedOutcome(restState, rewindTo, initial) },
+        : [
+            {
+              kind: "gitWrite",
+              command: deleteRef(RESUME_BRANCH_REF),
+            } as const,
+          ]),
+      {
+        kind: "outcome",
+        command: abandonedOutcome(restState, rewindTo, initial),
+      },
       ...(remote !== undefined
         ? [{ kind: "gitWrite", command: pushRef(remote, historyRef) } as const]
         : []),
@@ -1031,6 +1060,74 @@ const runNextCommand = (
     }
   })
 
+/** A hash of text, the default fingerprint of a signal that names none. */
+const fingerprintOf = (text: string): string => {
+  let h = 0xcbf29ce484222325n
+  for (const byte of new TextEncoder().encode(text)) {
+    h = ((h ^ BigInt(byte)) * 0x100000001b3n) & 0xffffffffffffffffn
+  }
+  return h.toString(16).padStart(16, "0")
+}
+
+/**
+ * `gtd signal`: writes `.gtd/SIGNAL.json` when the process rests at a wait that
+ * accepts the kind and the fingerprint is new to it. Lands nothing: the driver
+ * lands the signal as the wait step's turn.
+ */
+const readSignalData = (path: string | undefined) =>
+  Effect.gen(function* () {
+    if (path === undefined) return null
+    const text = (yield* RepoFiles).atPath(path)
+    if (text === undefined) {
+      return yield* Effect.fail(new GtdError(`gtd signal: no such file: ${path}`))
+    }
+    try {
+      return JSON.parse(text) as unknown
+    } catch {
+      return yield* Effect.fail(new GtdError(`gtd signal: ${path} is not valid JSON`))
+    }
+  })
+
+const runSignalCommand = (
+  command: Extract<Command, { kind: "signal" }>,
+  out: ArtifactOut,
+): Effect.Effect<void, Error, CommandRequirements> =>
+  Effect.gen(function* () {
+    const rest = yield* currentRest
+    const accepts = rest.stepDef.signal?.kinds
+    if (accepts === undefined) {
+      return yield* Effect.fail(
+        new GtdError(`gtd signal: the process rests at "${rest.state}", which is no wait step`),
+      )
+    }
+    if (!accepts.includes(command.signalKind)) {
+      return yield* Effect.fail(
+        new GtdError(
+          `gtd signal: "${rest.state}" accepts ${accepts.join(", ")}, not ${command.signalKind}`,
+        ),
+      )
+    }
+    const repoFiles = yield* RepoFiles
+    const data = yield* readSignalData(command.data)
+    const fingerprint =
+      command.fingerprint ?? fingerprintOf(`${command.signalKind}\n${JSON.stringify(data)}`)
+    if (lastSignalFingerprint(rest) === fingerprint) {
+      out.write(`gtd signal: ${command.signalKind} was delivered to "${rest.state}" already\n`)
+      return
+    }
+    if (rest.changes.some((c) => c.path === SIGNAL_PATH && c.status !== "D")) {
+      return yield* Effect.fail(
+        new GtdError(
+          `gtd signal: a signal is pending at "${rest.state}"; the driver lands it first`,
+        ),
+      )
+    }
+    const at = new Date(yield* Clock.currentTimeMillis).toISOString()
+    const document = { kind: command.signalKind, fingerprint, at, data }
+    yield* repoFiles.writeAtPath(SIGNAL_PATH, `${JSON.stringify(document, null, 2)}\n`)
+    out.write(`gtd signal: ${command.signalKind} written to ${SIGNAL_PATH}\n`)
+  })
+
 /**
  * `gtd check <file>`: the widget format's structural findings; `--write`
  * first rewrites the file in its canonical form (landing scripts call this).
@@ -1149,14 +1246,22 @@ const controlRequestOf = (
 ): WorkspaceControlRequest["request"] => {
   switch (command.command) {
     case "note":
-      return { command: "note", worktree: command.worktree, note: command.note }
+      return {
+        command: "note",
+        worktree: command.worktree,
+        note: command.note,
+      }
     case "pause":
     case "resume": {
       const { kind: _kind, config: _config, ...request } = command
       return request
     }
     default:
-      return { command: command.command, worktree: command.worktree, commit: command.commit }
+      return {
+        command: command.command,
+        worktree: command.worktree,
+        commit: command.commit,
+      }
   }
 }
 
@@ -1322,6 +1427,8 @@ const dispatchVoidCommand = (
       )
     case "start":
       return runStartCommand(command, json, out)
+    case "signal":
+      return runSignalCommand(command, out)
     case "abandon":
       return runAbandonCommand(json, out)
     case "restore":
@@ -1384,7 +1491,10 @@ export const runCommand = (
     // narrate again.
     const narrator = yield* Narrator
     const config = yield* (yield* ConfigService).load.pipe(
-      Effect.provideService(Narrator, { narrate: () => Effect.void, warn: () => Effect.void }),
+      Effect.provideService(Narrator, {
+        narrate: () => Effect.void,
+        warn: () => Effect.void,
+      }),
     )
     for (const warning of config.warnings) {
       yield* narrator.warn(`gtd: warning: ${formatDiagnostic(warning)}`)

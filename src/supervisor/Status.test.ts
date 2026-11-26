@@ -1,10 +1,15 @@
 import { describe, expect, it } from "vitest"
 import type { StatusRecord } from "../workspace/index.js"
-import { worktreeStatus, type DriverState } from "./Status.js"
+import { isOrphan, worktreeStatus, type DriverState } from "./Status.js"
 
 const agentRest = {
   status: 0,
-  stdout: JSON.stringify({ kind: "prompt", actor: "agent", idle: false, label: "Build" }),
+  stdout: JSON.stringify({
+    kind: "prompt",
+    actor: "agent",
+    idle: false,
+    label: "Build",
+  }),
   stderr: "",
 }
 
@@ -36,11 +41,19 @@ describe("worktreeStatus", () => {
   it("flags a human rest only", () => {
     const humanRest = {
       status: 0,
-      stdout: JSON.stringify({ kind: "prompt", actor: "human", idle: false, label: "Plan" }),
+      stdout: JSON.stringify({
+        kind: "prompt",
+        actor: "human",
+        idle: false,
+        label: "Plan",
+      }),
       stderr: "",
     }
     const none: DriverState = { kind: "none" }
-    expect(worktreeStatus(humanRest, none)).toMatchObject({ status: "needsYou", humanRest: true })
+    expect(worktreeStatus(humanRest, none)).toMatchObject({
+      status: "needsYou",
+      humanRest: true,
+    })
     expect(worktreeStatus(agentRest, none).humanRest).toBeUndefined()
     expect(
       worktreeStatus(humanRest, {
@@ -64,5 +77,43 @@ describe("worktreeStatus", () => {
         },
       }).humanRest,
     ).toBeUndefined()
+  })
+
+  describe("a wait step", () => {
+    const none: DriverState = { kind: "none" }
+    const wait = (kind: string, path?: string) => ({
+      status: 0,
+      stdout: JSON.stringify({
+        kind,
+        actor: "signal",
+        idle: false,
+        label: "pr",
+        changes: path === undefined ? [] : [{ status: "A", path }],
+        signal: { kinds: ["review", "person"], timeout: "2d" },
+      }),
+      stderr: "",
+    })
+
+    it("shows waiting with the kinds it accepts, and needs no driver", () => {
+      expect(worktreeStatus(wait("message"), none)).toEqual({
+        status: "waiting",
+        label: "pr",
+        signal: { kinds: ["review", "person"], timeout: "2d" },
+      })
+      expect(isOrphan(wait("message"), none)).toBe(false)
+    })
+
+    it("keeps waiting when a stray edit, not a signal, is pending", () => {
+      expect(worktreeStatus(wait("capture", "notes.md"), none).status).toBe("waiting")
+      expect(isOrphan(wait("capture", "notes.md"), none)).toBe(false)
+    })
+
+    it("needs a driver once a signal is written, to land it", () => {
+      expect(isOrphan(wait("capture", ".gtd/SIGNAL.json"), none)).toBe(true)
+      expect(worktreeStatus(wait("capture", ".gtd/SIGNAL.json"), none)).toMatchObject({
+        status: "needsYou",
+        message: "no driver runs",
+      })
+    })
   })
 })

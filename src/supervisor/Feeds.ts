@@ -4,6 +4,7 @@ import {
   type Feed,
   type FeedContext,
   type FeedMode,
+  type FeedSignal,
   type InboxItem,
   type WorktreesAdapter,
 } from "../workspace/index.js"
@@ -61,6 +62,12 @@ export interface FeedDeps {
   readonly log: (line: string) => void
   /** Drops the items that ended, before a poll applies, so the poll can file their keys anew. */
   readonly ended?: (inbox: Inbox) => Inbox
+  /** Runs with the signals a poll returned, before the poll ends. */
+  readonly signaled?: (
+    feed: string,
+    project: string,
+    signals: readonly FeedSignal[],
+  ) => Promise<void>
   /** Runs after each successful poll; the poll ends when it returns. */
   readonly polled?: () => Promise<void>
   /** Runs after each poll, also one that failed. */
@@ -122,6 +129,7 @@ export const feedRunner = (deps: FeedDeps): FeedRunner => {
     const source = { feed: name, project: feed.project, mode: feed.mode }
     setInbox(applyPoll(deps.ended?.(inbox) ?? inbox, source, outcome.items, deps.now()))
     failing.delete(name)
+    await deps.signaled?.(name, feed.project, outcome.signals)
     await deps.polled?.()
   }
 

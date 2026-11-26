@@ -1,3 +1,4 @@
+import { useState } from "react"
 import { Ban, CircleX, Play, RotateCcw } from "lucide-react"
 import { Button } from "../Button.js"
 import { cn } from "../cn.js"
@@ -76,3 +77,47 @@ export const Refused = ({
       </p>
     </div>
   )
+
+/** A wait step: the kinds of signal it takes, and Continue with an optional note when it takes a `person`. */
+export const Waiting = ({ worktree }: { readonly worktree: WorktreeView }) => {
+  const utils = workspaceTrpc.useUtils()
+  const send = workspaceTrpc.continueWaiting.useMutation({
+    onSettled: () => utils.projects.invalidate(),
+  })
+  const [note, setNote] = useState("")
+  const kinds = worktree.signal?.kinds
+  if (worktree.status !== "waiting" || kinds === undefined) return null
+  return (
+    <div className="flex max-w-prose flex-col gap-2" data-testid="waiting">
+      <p className="text-base">
+        <span className="font-medium">Waiting</span> for a signal:{" "}
+        <span data-testid="waiting-kinds">{kinds.join(", ")}</span>
+      </p>
+      {kinds.includes("person") && (
+        <>
+          <input
+            className="rounded-md border bg-background px-3 py-2 text-sm"
+            aria-label="Note"
+            placeholder="Note (optional)"
+            value={note}
+            onChange={(event) => setNote(event.target.value)}
+          />
+          <Button
+            variant="warning"
+            className="sm:max-w-xs"
+            disabled={send.isPending}
+            onClick={() => send.mutate({ worktree: worktree.path, note })}
+          >
+            <Play aria-hidden="true" />
+            Continue
+          </Button>
+          {send.error !== null && (
+            <p className="text-sm text-destructive" role="alert">
+              {send.error.message}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}

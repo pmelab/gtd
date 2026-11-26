@@ -33,6 +33,7 @@ import { feedRunner } from "./Feeds.js"
 import { SupervisorClock, SupervisorHost, UserlandTools } from "./Ports.js"
 import { announceUrl, pushRoutes, startNotifications } from "./Push.js"
 import { openStore } from "./Store.js"
+import { signals } from "./Signals.js"
 import { workspaceRouter } from "./Router.js"
 import type { ProjectView } from "./Scan.js"
 import { liveSnapshot, type Banner } from "./Snapshot.js"
@@ -54,6 +55,8 @@ import { worktreeStatus } from "./Status.js"
 
 // `gtd next` costs a process and a replay each: two at a time per workspace.
 const NEXT_CAP = 2
+// How often waits are checked for a timeout.
+const TIMEOUT_CHECK_MS = 30_000
 
 export interface WorkspaceCommand {
   readonly flags: ExposeOptions & { readonly config?: string }
@@ -325,6 +328,7 @@ export const runWorkspaceCommand = (
         afterPoll: (feed) => notify.polled(feed, feeds.items(), feeds.feeds()),
         ended: (inbox) => dispatch.endStarted(inbox),
         polled: () => dispatch.pass(),
+        signaled: (feed, project, news) => signalRunner.fromFeed(feed, project, news),
       })
       const dispatch = dispatcher({
         feeds,
@@ -348,6 +352,42 @@ export const runWorkspaceCommand = (
         audit,
         now: clock.now,
       })
+      const signalRunner = signals({
+        exec: tools.exec,
+        drivers: driverRuns,
+        projects: () => snapshot.projects(),
+        refreshDriver: snapshot.refreshDriver,
+        holds: (scope) => paused.holds(scope),
+        now: clock.now,
+        log,
+      })
+      const continueWaiting = async (
+        worktree: string,
+        note: string | undefined,
+        caller: { readonly identity: string; readonly endpoint: string },
+      ): Promise<string | undefined> => {
+        const found = snapshot
+          .projects()
+          .flatMap((p) => p.worktrees.map((w) => ({ project: p.id, view: w })))
+          .find((e) => e.view.path === worktree)
+        if (found === undefined) return `no worktree at ${worktree}`
+        if (found.view.status !== "waiting" || found.view.signal?.kinds.includes("person") !== true)
+          return "this worktree does not wait for a person signal"
+        const sent = await signalRunner.deliver(found.project, worktree, {
+          kind: "person",
+          fingerprint: `person:${found.view.head}:${clock.now()}`,
+          data: note === undefined || note === "" ? null : { note },
+        })
+        audit.write({
+          time: new Date(clock.now()).toISOString(),
+          ...caller,
+          project: found.project,
+          worktree: found.view.branch ?? basename(worktree),
+          action: "continue",
+          outcome: sent ? "accepted" : "refused",
+        })
+        return sent ? undefined : "gtd did not deliver the signal; the wait may have moved on"
+      }
       const changes = worktreeChanges({
         worktrees,
         services,
@@ -500,6 +540,7 @@ export const runWorkspaceCommand = (
                   return dismissed
                 },
               },
+              continueWaiting: (worktree, note) => continueWaiting(worktree, note, caller),
               press: (action, input) =>
                 control.press({
                   action,
@@ -559,9 +600,11 @@ export const runWorkspaceCommand = (
       out.flush()
       yield* Effect.promise(dispatch.resume)
       feeds.start()
+      const stopTimeouts = clock.every(TIMEOUT_CHECK_MS, () => signalRunner.timeouts())
       clean.schedule()
       yield* Effect.never.pipe(
         Effect.ensuring(Effect.sync(feeds.stop)),
+        Effect.ensuring(Effect.sync(stopTimeouts)),
         Effect.ensuring(Effect.sync(clean.stop)),
         Effect.ensuring(Effect.sync(() => actions.stop())),
         Effect.ensuring(close),

@@ -26,3 +26,6 @@ export const PIN_PATH = ".gtd/process.gtdpin"
 
 /** Where a `run(…, { onFail: "rest" })` body's failure is recorded in the tree: the exit status and the output. */
 export const RUN_FAILED_PATH = ".gtd/run-failed.txt"
+
+/** Where a delivered signal is written, and so what a wait step's turn lands: `{ kind, fingerprint, at, data }`. */
+export const SIGNAL_PATH = ".gtd/SIGNAL.json"

@@ -1,4 +1,4 @@
-import { CircleAlert, CircleDashed, CircleX, LoaderCircle } from "lucide-react"
+import { CircleAlert, CircleDashed, CircleX, Hourglass, LoaderCircle } from "lucide-react"
 import { Badge } from "../ui/badge.js"
 import { cn } from "../cn.js"
 import { statusText, type StatusName, type WorktreeView } from "./view.js"
@@ -8,6 +8,7 @@ const ICON: Readonly<Record<StatusName, typeof CircleAlert>> = {
   working: LoaderCircle,
   error: CircleX,
   idle: CircleDashed,
+  waiting: Hourglass,
 }
 
 const VARIANT = {
@@ -15,6 +16,7 @@ const VARIANT = {
   working: "outline",
   error: "destructive",
   idle: "muted",
+  waiting: "outline",
 } as const
 
 /** A worktree's status as a badge: icon, word and colour, never colour alone. */

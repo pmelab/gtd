@@ -57,6 +57,7 @@ const STATUS_WORDS: Record<WorktreeView["status"], string> = {
   working: "is working",
   error: "is in error",
   idle: "is idle",
+  waiting: "is waiting for a signal",
 }
 const PURPOSE: Record<PressAction, string> = {
   proceed: "Proceed is for a worktree that needs you",
