@@ -38,6 +38,12 @@ export interface ApprovalEntry {
   readonly commit: string
 }
 
+/** What a wait step accepts: the signal kinds, and the native timeout it carries. */
+export interface SignalWait {
+  readonly kinds: readonly string[]
+  readonly timeout?: string
+}
+
 export interface RenderedDemandSource {
   readonly state: StateName
   readonly actor: Actor
@@ -52,6 +58,8 @@ export interface RenderedDemandSource {
   readonly skills?: readonly string[]
   readonly access?: StepAccess
   readonly pin?: PinMark
+  /** A wait step's accepted kinds and timeout. */
+  readonly signal?: SignalWait
   /** The recorded output of a failed `onFail: "rest"` run, shown at the stalled beat. */
   readonly failure?: string
   /** Why landing a ship step is refused, shown at the stalled beat. */

@@ -61,7 +61,7 @@ histories written by an older or newer gtd.
 ## Follows package SemVer
 
 - **CLI** — every command (`next`, `land`, `start`, `abandon`, `restore`,
-  `repin`, `check`, `guide`, `bundle`, `summary`, `base`, `strays`,
+  `repin`, `signal`, `check`, `guide`, `bundle`, `summary`, `base`, `strays`,
   `history list`, `history show`, `history fetch`, `version`, `help`,
   `workspace`, `workspace proceed`, `workspace retry`, `workspace note`,
   `workspace pause`, `workspace resume`, `workspace paused`, `workspace now`,

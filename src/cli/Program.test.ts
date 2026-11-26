@@ -1086,6 +1086,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
     workspaceControl: { kind: "workspaceControl", command: "proceed", worktree: ".", commit: "x" },
     land: { kind: "land" },
     start: { kind: "start", name: "fix", args: [], vars: {} },
+    signal: { kind: "signal", worktree: ".", signalKind: "review" },
     abandon: { kind: "abandon" },
     restore: { kind: "restore" },
     repin: { kind: "repin" },
@@ -1111,7 +1112,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
   const NO_COMMITS_MESSAGE =
     "gtd: the repository has no commits yet — make an initial commit, then run gtd again"
 
-  it("derives exactly the fifteen non-standalone kinds — a canary for the table-driven cases below", () => {
+  it("derives exactly the sixteen non-standalone kinds — a canary for the table-driven cases below", () => {
     expect(stateKinds.sort()).toEqual(
       [
         "abandon",
@@ -1122,6 +1123,7 @@ describe("runCommand — refuses in a repository with no commits", () => {
         "next",
         "restore",
         "repin",
+        "signal",
         "summary",
         "judge",
         "judgeAnswer",

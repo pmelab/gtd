@@ -364,6 +364,33 @@ const FLAGS: readonly FlagRow[] = [
   },
 
   {
+    name: "--data",
+    arity: 1,
+    repeatable: false,
+    scope: (kind) => kind === "signal",
+    decode: ([raw]) =>
+      raw === undefined || raw === ""
+        ? Result.fail("gtd: --data must be a non-empty path")
+        : Result.succeed(raw),
+    scopeError: "gtd: --data is only valid for `gtd signal`",
+    valueHint: "<file>",
+    help: "A JSON file holding the signal's data",
+  },
+  {
+    name: "--fingerprint",
+    arity: 1,
+    repeatable: false,
+    scope: (kind) => kind === "signal",
+    decode: ([raw]) =>
+      raw === undefined || raw === ""
+        ? Result.fail("gtd: --fingerprint must be a non-empty value")
+        : Result.succeed(raw),
+    scopeError: "gtd: --fingerprint is only valid for `gtd signal`",
+    valueHint: "<value>",
+    help: "Identify the signal by this instead of a hash of its kind and data",
+  },
+
+  {
     name: "--verbose",
     arity: 0,
     repeatable: false,
@@ -668,6 +695,14 @@ It reads the running supervisor of the workspace whose gtd.workspace.ts is inner
     details: `Answer a judgment: read the \`gtd judge --json\` document from stdin and print the verdict [{ id, answer, p }] \`gtd judge answer\` reads. Needs no repository.
 
 The fixed answerer reads --answers and leaves out the questions it does not cover; jev asks TypeSafe ($TYPESAFE_API_KEY); llm asks the \`claude\` CLI on PATH. jev and llm exit 1, printing nothing, when they cannot answer every question. A stdin that is not a judgment document is a usage error (exit 2).`,
+  },
+  {
+    token: "signal",
+    kind: "signal",
+    arity: { name: "worktree", second: "kind" },
+    group: "Driver plumbing",
+    summary: "Deliver a signal to a resting process",
+    details: `Deliver a signal of <kind> to the process resting at a wait step in <worktree>: write it to .gtd/SIGNAL.json, where the driver lands it as the wait step's turn. It delivers only when the process rests at a wait that accepts <kind> and the signal's fingerprint differs from the one last delivered to that wait; else it writes nothing and exits 1 (a repeat of the last signal exits 0). --data names a JSON file for the signal's data. --fingerprint replaces the default, a hash of the kind and the data. The workspace's supervisor, the dashboard and a person all deliver this way.`,
   },
   {
     token: "check",
@@ -1258,6 +1293,8 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
     readonly "--notify"?: boolean
     readonly "--clear"?: boolean
     readonly "--wait"?: boolean
+    readonly "--data"?: string
+    readonly "--fingerprint"?: string
   }
 
   // `present.has("--json")` alone can't distinguish bare `--json` (no value
@@ -1377,6 +1414,22 @@ export const parseArgv = (argv: readonly string[]): CliPlan => {
         worktree,
         commit,
         ...(bag["--config"] !== undefined ? { config: bag["--config"] } : {}),
+      },
+      json,
+      verbose,
+    }
+  }
+
+  if (kind === "signal") {
+    const [worktree = "", signalKind = ""] = restPositionals
+    return {
+      kind: "command",
+      command: {
+        kind: "signal",
+        worktree,
+        signalKind,
+        ...(bag["--data"] !== undefined ? { data: bag["--data"] } : {}),
+        ...(bag["--fingerprint"] !== undefined ? { fingerprint: bag["--fingerprint"] } : {}),
       },
       json,
       verbose,

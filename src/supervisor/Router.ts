@@ -22,6 +22,11 @@ interface WorkspaceRouterContext {
     action: PressAction,
     input: { readonly worktree: string; readonly commit: string },
   ) => Promise<PressOutcome>
+  /** Sends a `person` signal to the worktree's wait; the refusal, if any. */
+  readonly continueWaiting: (
+    worktree: string,
+    note: string | undefined,
+  ) => Promise<string | undefined>
   readonly dispatch: Dispatcher
   readonly pauses: Pauses
   readonly worktreeChanges: WorktreeChanges
@@ -623,6 +628,17 @@ export const workspaceRouter = t.router({
   retry: t.procedure
     .input(pressInput)
     .mutation(({ ctx, input }) => pressed(ctx.press("retry", input))),
+  continueWaiting: t.procedure
+    .input((input: unknown): { worktree: string; note?: string } => {
+      const { worktree, note } = (input ?? {}) as Record<string, unknown>
+      if (typeof worktree !== "string" || (note !== undefined && typeof note !== "string"))
+        throw new TRPCError({ code: "BAD_REQUEST", message: "expected { worktree, note? }" })
+      return { worktree, ...(note !== undefined ? { note } : {}) }
+    })
+    .mutation(async ({ ctx, input }) => {
+      const refusal = await ctx.continueWaiting(input.worktree, input.note)
+      if (refusal !== undefined) throw new TRPCError({ code: "CONFLICT", message: refusal })
+    }),
   /** New worktree: `failure` says why its services did not start. */
   createWorktree: t.procedure
     .input(createWorktreeInput)

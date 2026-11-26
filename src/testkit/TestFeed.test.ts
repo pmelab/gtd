@@ -144,4 +144,36 @@ describe("testFeed", () => {
       "testFeed: no exec given for gh issue list",
     )
   })
+
+  it("returns the signals of a poll beside its items, and files none of them in the inbox", async () => {
+    const run = testFeed(
+      feed({
+        project: "portal",
+        every: "5m",
+        mode: "queue",
+        poll: () => [
+          { kind: "review", branch: "feat", fingerprint: "r1", data: { pr: 7 } },
+          { key: "1", title: "One", action: "start:feature", priority: 1 },
+        ],
+      }),
+    )
+    const { items, signals, failure } = await run.poll()
+    expect(failure).toBeUndefined()
+    expect(items.map((i) => i.key)).toEqual(["1"])
+    expect(signals).toEqual([
+      { kind: "review", branch: "feat", fingerprint: "r1", data: { pr: 7 } },
+    ])
+  })
+
+  it("fails a poll whose signal names no fingerprint", async () => {
+    const run = testFeed(
+      feed({
+        project: "portal",
+        every: "5m",
+        mode: "queue",
+        poll: () => [{ kind: "review", branch: "feat" } as never],
+      }),
+    )
+    expect((await run.poll()).failure).toContain("signal 0: fingerprint: is required")
+  })
 })

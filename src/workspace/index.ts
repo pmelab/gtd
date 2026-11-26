@@ -44,6 +44,7 @@ export {
   type Feed,
   type FeedContext,
   type FeedItem,
+  type FeedSignal,
   type FeedMode,
   type FeedSpec,
 } from "./feed.js"

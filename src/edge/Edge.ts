@@ -61,7 +61,9 @@ import {
 } from "../emit/index.js"
 import {
   judgeJson,
+  parseSignal,
   PIN_PATH,
+  SIGNAL_PATH,
   RUN_FAILED_PATH,
   UNATTRIBUTED_MODEL,
   type ApprovalEntry,
@@ -80,7 +82,7 @@ export { UNATTRIBUTED_MODEL }
 // first commit.
 const EMPTY_TREE = "4b825dc642cb6eb9a060e54bf8d69288fbee4904"
 
-const ACTORS: ReadonlySet<string> = new Set(["agent", "human", "check", "judge"])
+const ACTORS: ReadonlySet<string> = new Set(["agent", "human", "check", "judge", "signal"])
 
 type History = ReadonlyArray<{
   readonly hash: string
@@ -822,6 +824,20 @@ const judgeDef = (common: StepCommon, request: RequestOf<"judge">, step: Reached
   }
 }
 
+const waitDef = (common: StepCommon, request: RequestOf<"wait">, step: ReachedStep): StepDef => ({
+  ...common,
+  kind: "message",
+  content: `Waiting for a signal (${request.options.kinds.join(", ")}) at ${step.name}`,
+  signal: {
+    // The native timeout is a kind the wait accepts, so the flow can branch on it.
+    kinds:
+      request.options.timeout === undefined || request.options.kinds.includes("timeout")
+        ? request.options.kinds
+        : [...request.options.kinds, "timeout"],
+    ...optional("timeout", request.options.timeout),
+  },
+})
+
 const messageDef = (
   common: StepCommon,
   request: RequestOf<"human">,
@@ -848,6 +864,8 @@ const stepDefOf = (step: ReachedStep): StepDef => {
       return judgeDef(common, request, step)
     case "human":
       return messageDef(common, request, step)
+    case "wait":
+      return waitDef(common, request, step)
   }
 }
 
@@ -886,6 +904,7 @@ export interface RestHints {
   readonly file?: string
   readonly judge?: string
   readonly judgeFile?: string
+  readonly signal?: NonNullable<StepDef["signal"]>
   readonly system?: string
   readonly skills?: readonly string[]
   readonly access?: StepAccess
@@ -897,6 +916,7 @@ const hintsOf = (def: StepDef): RestHints => ({
   ...optional("file", def.file),
   ...optional("judge", def.judge),
   ...optional("judgeFile", def.judgeFile),
+  ...optional("signal", def.signal),
   ...optional("system", def.system),
   ...optional("skills", def.skills),
   ...optional("access", def.access),
@@ -1442,6 +1462,7 @@ const cleanLanding = (rest: Rest): Landing | undefined => {
     }
   }
   if (rest.actor === "human" && def.acceptClean !== true) return { kind: "noop", settled: false }
+  if (rest.actor === "signal") return { kind: "noop", settled: false }
   return undefined
 }
 
@@ -1474,6 +1495,32 @@ const humanWidgetRefusal = (rest: Rest): Landing | undefined => {
     kind: "refusal",
     message: `gtd land: ${def.file} is not ready to land:\n${findings.map((f) => formatFinding(def.file, f)).join("\n")}`,
   }
+}
+
+/** The fingerprint of the signal last landed at this rest's wait step, read from history. */
+export const lastSignalFingerprint = (rest: Rest): string | undefined => {
+  for (const { hash, message } of [...rest.run.episode.commits].reverse()) {
+    const parsed = parseCommitMessage(message).parsed
+    if (parsed?.actor !== "signal" || (parsed.from ?? parsed.to) !== rest.state) continue
+    return parseSignal(rest.setup.repoFiles.readCommittedSync(SIGNAL_PATH, hash))?.fingerprint
+  }
+  return undefined
+}
+
+/** A wait step lands only a delivered signal of a kind it accepts. */
+const signalRefusal = (rest: Rest): Landing | undefined => {
+  const kinds = rest.stepDef.signal?.kinds
+  if (rest.actor !== "signal" || kinds === undefined) return undefined
+  const refuse = (why: string): Landing => ({
+    kind: "refusal",
+    message: `gtd land: ${rest.step.name} waits for a signal (${kinds.join(", ")}): ${why} — deliver one with \`gtd signal\``,
+  })
+  if (!rest.changes.some((c) => c.path === SIGNAL_PATH && c.status !== "D"))
+    return refuse(`${SIGNAL_PATH} is not written`)
+  const kind = parseSignal(rest.setup.repoFiles.readSync(SIGNAL_PATH))?.kind
+  return kind !== undefined && kinds.includes(kind)
+    ? undefined
+    : refuse(`${SIGNAL_PATH} holds no signal of those kinds`)
 }
 
 const multilineRefusal = (vars: Record<string, string>): Landing | undefined => {
@@ -1647,6 +1694,8 @@ const decideLanding = (
     if (unchanged !== undefined) return unchanged
     const unready = humanWidgetRefusal(rest)
     if (unready !== undefined) return unready
+    const unsignalled = signalRefusal(rest)
+    if (unsignalled !== undefined) return unsignalled
     if (rest.stepDef.kind === "prompt" && rest.stepDef.access?.write != null) {
       const message = accessRefusal(rest.changes, rest.stepDef.access.write)
       if (message !== undefined) return { kind: "refusal", message }

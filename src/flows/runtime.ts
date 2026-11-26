@@ -111,6 +111,24 @@ export type RunOptions = SteeringCommon &
     readonly onFail?: "rest" | undefined
   }
 
+/** News a feed delivered to a process resting at a wait step. */
+export interface Signal {
+  readonly kind: string
+  readonly fingerprint: string
+  /** When the feed saw it, as an ISO timestamp. */
+  readonly at: string
+  /** The feed's and the workflow's own; gtd never reads it. */
+  readonly data: unknown
+}
+
+export type WaitOptions = SteeringCommon &
+  NoSteeringFile & {
+    /** The signal kinds this wait accepts. */
+    readonly kinds: readonly string[]
+    /** gtd itself delivers a `timeout` signal once the wait has rested this long, like `"30s"`, `"5m"`, `"1h"` or `"2d"`. */
+    readonly timeout?: string | undefined
+  }
+
 /** A ship step rests on no steering file. */
 export type ShipOptions = SteeringCommon & NoSteeringFile
 
@@ -229,6 +247,7 @@ export type StepRequest =
       readonly body: string
       readonly options: RunOptions
     }
+  | { readonly kind: "wait"; readonly name: string; readonly options: WaitOptions }
   | {
       readonly kind: "ship"
       readonly name: string
@@ -477,6 +496,12 @@ export const human: Human = (
         ? { ...options, message: messageOrOptions }
         : (messageOrOptions ?? {}),
   }) as Promise<void>
+}
+
+/** A wait step: the process rests until a signal of one of `options.kinds` arrives, and resolves to it. */
+export const wait = (name: string, options: WaitOptions): Promise<Signal> => {
+  noValidatorStep("wait", name)
+  return ctx().step({ kind: "wait", name, options }) as Promise<Signal>
 }
 
 /** A check: `body` runs at the edge and its effect on the tree is committed. */

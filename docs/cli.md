@@ -45,6 +45,7 @@ Driver plumbing:
   judge                     Print the pending judgment
   judge answer              Land a verdict read from stdin
   judge run                 Answer a judgment with a model
+  signal <worktree> <kind>  Deliver a signal to a resting process
   check <file>              Check a steering file
   lsp                       Start the steering-file language server
   help [command]            Print help for gtd or one command
@@ -826,6 +827,28 @@ Options:
                       p }] (default: $GTD_JUDGE_ANSWERS, inline JSON)
   --model=<name>      The claude model the llm answerer uses (default:
                       $GTD_JUDGE_MODEL, then judge.json, then sonnet)
+  -v, --verbose       Narrate on stderr what gtd resolved
+```
+
+### `gtd signal`
+
+```
+Usage: gtd signal <worktree> <kind> [options]
+
+Deliver a signal of <kind> to the process resting at a wait step in <worktree>:
+write it to .gtd/SIGNAL.json, where the driver lands it as the wait step's turn.
+It delivers only when the process rests at a wait that accepts <kind> and the
+signal's fingerprint differs from the one last delivered to that wait; else it
+writes nothing and exits 1 (a repeat of the last signal exits 0). --data names a
+JSON file for the signal's data. --fingerprint replaces the default, a hash of
+the kind and the data. The workspace's supervisor, the dashboard and a person
+all deliver this way.
+
+Options:
+  --data=<file>       A JSON file holding the signal's data
+  --fingerprint=<value>
+                      Identify the signal by this instead of a hash of its kind
+                      and data
   -v, --verbose       Narrate on stderr what gtd resolved
 ```
 

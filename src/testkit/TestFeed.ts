@@ -1,4 +1,11 @@
-import type { ExecResult, Feed, FeedContext, FeedItem, InboxItem } from "../workspace/index.js"
+import type {
+  ExecResult,
+  Feed,
+  FeedContext,
+  FeedItem,
+  FeedSignal,
+  InboxItem,
+} from "../workspace/index.js"
 import { applyPoll, dismiss, emptyInbox, inboxItems, runPoll } from "../workspace/internal.js"
 
 export interface TestFeedOptions {
@@ -18,6 +25,8 @@ export interface TestFeedOptions {
 export interface FeedPollResult {
   /** The inbox after this poll, in start order. */
   readonly items: readonly InboxItem[]
+  /** The signals this poll returned, as the supervisor would deliver them. */
+  readonly signals: readonly FeedSignal[]
   /** Why the poll failed; the inbox then stays as it was. */
   readonly failure?: string
   /** What the poll passed to `ctx.log`. */
@@ -59,10 +68,11 @@ export const testFeed = (feed: Feed, options: TestFeedOptions = {}): TestFeed =>
     poll: async () => {
       logs = []
       const outcome = await runPoll(feed, ctx)
-      if ("failure" in outcome) return { items: inboxItems(inbox), failure: outcome.failure, logs }
+      if ("failure" in outcome)
+        return { items: inboxItems(inbox), signals: [], failure: outcome.failure, logs }
       const source = { feed: name, project: feed.project, mode: feed.mode }
       inbox = applyPoll(inbox, source, outcome.items, clock().getTime())
-      return { items: inboxItems(inbox), logs }
+      return { items: inboxItems(inbox), signals: outcome.signals, logs }
     },
     dismiss: (key) => {
       const next = dismiss(inbox, name, key)

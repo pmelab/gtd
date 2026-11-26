@@ -142,6 +142,15 @@ export interface TestRepo {
   /** The same as {@link TestRepo.start}. */
   door(name: string, ...args: string[]): Promise<CapturedCliResult>
   land(): Promise<CapturedCliResult>
+  /**
+   * Delivers a signal to the process resting at a wait step, as `gtd signal` does: it
+   * writes `.gtd/SIGNAL.json`, and the next `drive()` lands it as the wait's turn.
+   * `data` goes to the flow as the signal's `data`.
+   */
+  signal(
+    kind: string,
+    options?: { readonly data?: unknown; readonly fingerprint?: string },
+  ): Promise<CapturedCliResult>
   next(): Promise<BeatDocument>
   /**
    * Beat by beat, like a driver: a capture lands, a step with an actor runs it
@@ -582,6 +591,24 @@ export const testRepo = (options: TestRepoOptions): TestRepo => {
     start: (name, ...args) => begin(["start", name, ...args]),
     door: (name, ...args) => begin(["start", name, ...args]),
     land: () => runWrite(["land"]),
+    signal: async (kind, { data, fingerprint } = {}) => {
+      const file = ".gtd-testkit-signal-data.json"
+      if (data !== undefined) repo.writeFile(file, JSON.stringify(data))
+      try {
+        const args = [
+          "signal",
+          ".",
+          kind,
+          ...(data === undefined ? [] : ["--data", file]),
+          ...(fingerprint === undefined ? [] : ["--fingerprint", fingerprint]),
+        ]
+        const result = await gtd(...args)
+        if (result.exitCode !== EXIT_OK) throw failed(`gtd ${args.join(" ")}`, result)
+        return result
+      } finally {
+        if (data !== undefined) repo.deleteFile(file)
+      }
+    },
     next,
     drive: async (actors = {}, options = {}) => {
       const { maxBeats = 50 } = options

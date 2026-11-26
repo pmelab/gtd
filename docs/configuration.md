@@ -133,14 +133,29 @@ number as `FLOWS_PROTOCOL`.
 A step is one position a process can rest at. Each step function takes a
 **literal string name** first, and resolves once that step's turn has landed.
 
-| Step                           | Actor   | What the rest asks for                                                                                                                   |
-| ------------------------------ | ------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| `agent(name, prompt, opts?)`   | `agent` | An agent turn. `prompt` is printed as the beat's content; the driver hands it to an agent and lands whatever the agent left in the tree. |
-| `human(name, message?, opts?)` | `human` | A person. The process waits until someone edits and lands. `message` (or `opts.message`) is what gtd shows.                              |
-| `run(name, body, opts?)`       | `check` | A script. `body` is a POSIX `sh` string the driver runs verbatim.                                                                        |
-| `ship(name, message, opts?)`   | `check` | Squashes the process onto the user's branch when it lands. See [Shipping](#shipping).                                                    |
-| `judge(name, spec)`            | `judge` | A judgment. A `message` rest carrying typed questions; `gtd judge answer` records the verdict. See [Judges](#judges).                    |
-| `restart()`                    | —       | Ends the episode from any depth (see [Episodes](#episodes-replay-and-divergence)). Never rests.                                          |
+| Step                           | Actor    | What the rest asks for                                                                                                                   |
+| ------------------------------ | -------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `agent(name, prompt, opts?)`   | `agent`  | An agent turn. `prompt` is printed as the beat's content; the driver hands it to an agent and lands whatever the agent left in the tree. |
+| `human(name, message?, opts?)` | `human`  | A person. The process waits until someone edits and lands. `message` (or `opts.message`) is what gtd shows.                              |
+| `wait(name, opts)`             | `signal` | A wait. The process rests until a [signal](#waiting-for-signals) of one of `opts.kinds` arrives, and `wait` resolves to it.              |
+| `run(name, body, opts?)`       | `check`  | A script. `body` is a POSIX `sh` string the driver runs verbatim.                                                                        |
+| `ship(name, message, opts?)`   | `check`  | Squashes the process onto the user's branch when it lands. See [Shipping](#shipping).                                                    |
+| `judge(name, spec)`            | `judge`  | A judgment. A `message` rest carrying typed questions; `gtd judge answer` records the verdict. See [Judges](#judges).                    |
+| `restart()`                    | —        | Ends the episode from any depth (see [Episodes](#episodes-replay-and-divergence)). Never rests.                                          |
+
+### Waiting for signals
+
+`await wait(name, { kinds, timeout? })` rests the process until a signal of one
+of `kinds` arrives, and resolves to `{ kind, fingerprint, at, data }`. Branch on
+`signal.kind` in plain code. `data` belongs to the feed and the workflow; gtd
+never reads it. With `timeout` (`"30s"`, `"5m"`, `"1h"`, `"2d"`), gtd itself
+delivers a `timeout` signal once the wait has rested that long, and the wait
+accepts that kind too. A `person` signal comes from Continue on the dashboard.
+
+While a process waits, the driver exits and nothing runs; the process has not
+ended, so auto-clean keeps its worktree. The flow ends itself, for example when
+a `merged` signal arrives. A feed delivers signals ([Feeds](workspace.md)); a
+person or a script delivers one with `gtd signal <worktree> <kind>`.
 
 Flow code decides; a `run` body only carries the decision out. Render it from
 the values the flow computed — `check()` and the exported script renderers cover

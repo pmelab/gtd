@@ -1,4 +1,11 @@
-import type { ApprovalEntry, Actor, ModelCost, RenderedDemandSource, StateName } from "./types.js"
+import type {
+  ApprovalEntry,
+  Actor,
+  ModelCost,
+  RenderedDemandSource,
+  SignalWait,
+  StateName,
+} from "./types.js"
 
 /** One pending change — `gtd next --json`'s `changes` entries. */
 export interface StatusChange {
@@ -39,6 +46,7 @@ export interface BeatStatus {
   readonly costByModel: readonly ModelCost[]
   readonly judge: string | undefined
   readonly judgeFile: string | undefined
+  readonly signal: SignalWait | undefined
   readonly approvals: readonly ApprovalEntry[]
 }
 
@@ -80,6 +88,7 @@ export const statusOf = (input: {
     costByModel,
     judge: rendered.judge,
     judgeFile: rendered.judgeFile,
+    signal: rendered.signal,
     approvals,
   }
 }

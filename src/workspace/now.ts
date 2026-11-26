@@ -1,6 +1,6 @@
 /** What the Now view needs of a worktree: shared by the dashboard and the terminal. */
 export interface NowWorktree {
-  readonly status: "needsYou" | "working" | "error" | "idle"
+  readonly status: "needsYou" | "working" | "error" | "idle" | "waiting"
   readonly kind?: string | undefined
   readonly errorKind?: string | undefined
   readonly label?: string | undefined
@@ -52,6 +52,7 @@ const STATUS_TEXT: Readonly<Record<NowWorktree["status"], string>> = {
   working: "working",
   error: "error",
   idle: "idle",
+  waiting: "waiting",
 }
 
 /** The status in words: `needs you (question)`, `error (crashed)`. */

@@ -565,11 +565,11 @@ install for any of these but the testkit's: gtd resolves a `gtd.config.ts`'s
 `@pmelab/gtd/*` imports to its own copy.
 
 The `gtd` bin's commands — `next`, `land`, `start`, `abandon`, `restore`,
-`repin`, `check`, `guide`, `bundle`, `summary`, `base`, `version`, `help`,
-`history list`, `history show`, `history fetch`, `strays`, the tools `workspace`
-(`workspace proceed`, `workspace retry`, `workspace note`, `workspace pause`,
-`workspace resume`, `workspace paused`, `workspace now`), `lsp`, `judge`
-(`judge answer`, `judge run`) — are listed in the
+`repin`, `signal`, `check`, `guide`, `bundle`, `summary`, `base`, `version`,
+`help`, `history list`, `history show`, `history fetch`, `strays`, the tools
+`workspace` (`workspace proceed`, `workspace retry`, `workspace note`,
+`workspace pause`, `workspace resume`, `workspace paused`, `workspace now`),
+`lsp`, `judge` (`judge answer`, `judge run`) — are listed in the
 [CLI reference](https://github.com/pmelab/gtd/blob/main/docs/cli.md). Every
 command that prints a script takes `--json=script`, and `--` ends the options.
 

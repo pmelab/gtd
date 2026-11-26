@@ -35,6 +35,8 @@ export interface StepDef {
   readonly onFail?: "rest"
   readonly acceptClean?: boolean
   readonly approve?: boolean
+  /** A wait step: the signal kinds it accepts and its timeout. */
+  readonly signal?: { readonly kinds: readonly string[]; readonly timeout?: string }
   readonly skills?: readonly string[]
   readonly access?: StepAccess
 }

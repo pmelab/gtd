@@ -124,8 +124,15 @@ workflow configured by its options; gtd validates the options when it loads the
 config. _Avoid_: preset, template, builder
 
 **Actor**: Who is expected to act at a step — `agent`, `human`, `check` (a `run`
-step, executed by the driver) or `judge`. gtd itself executes nothing. _Avoid_:
-role, party, runner
+step, executed by the driver), `judge` or `signal` (a [wait step](#wait-step),
+`Awaits: signal`). gtd itself executes nothing. _Avoid_: role, party, runner
+
+**Wait step**: A step where a process rests until a [signal](#signal) it accepts
+arrives. `wait(name, { kinds, timeout? })` resolves to that signal.
+
+**Signal**: News a [feed](#feed) delivers to one resting process, which
+continues it. An item starts a process; a signal continues one. _Avoid_: event,
+feedback, wake
 
 **Outcome line**: The human-facing line an emitted script prints for what it
 just landed — a transition, a landing at the same step, an abandon, a restore.

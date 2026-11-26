@@ -3,6 +3,7 @@ export {
   summaryRun,
   restAt,
   currentRest,
+  lastSignalFingerprint,
   refuseHugeUntracked,
   repinAnchor,
   startRefusal,

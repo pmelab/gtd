@@ -1,7 +1,8 @@
 import type { SpawnOutcome } from "../ui/index.js"
+import { SIGNAL_PATH } from "../wire/index.js"
 import type { PaneStatus } from "../workspace/index.js"
 
-export type StatusName = "needsYou" | "working" | "error" | "idle"
+export type StatusName = "needsYou" | "working" | "error" | "idle" | "waiting"
 
 /** Why a worktree is in error. */
 export type ErrorKind = "stalled" | "crashed" | "driver" | "note"
@@ -18,6 +19,11 @@ export interface WorktreeStatus {
   readonly gated?: boolean | undefined
   /** The process rests on a person: the gate page has something to act on. */
   readonly humanRest?: boolean
+  /** The process rests at a wait step: the signal kinds it accepts and its timeout. */
+  readonly signal?: {
+    readonly kinds: readonly string[]
+    readonly timeout?: string
+  }
 }
 
 /** What gtd knows of a worktree's driver pane. */
@@ -36,6 +42,8 @@ interface NextFields {
   readonly label?: unknown
   readonly state?: unknown
   readonly content?: unknown
+  readonly signal?: unknown
+  readonly changes?: unknown
 }
 
 type Next =
@@ -45,6 +53,22 @@ type Next =
 // An allowlist: any other actor (a person, a judge, one a workflow invents)
 // waits for someone the driver cannot stand in for.
 const DRIVEN_ACTORS: ReadonlySet<unknown> = new Set(["agent", "check"])
+
+// Only a delivered signal file makes a signal rest the driver's to land; a
+// stray edit leaves the worktree waiting.
+const signalDelivered = (next: NextFields): boolean =>
+  Array.isArray(next.changes) &&
+  next.changes.some(
+    (c: { path?: unknown; status?: unknown }) => c.path === SIGNAL_PATH && c.status !== "D",
+  )
+
+const driven = (next: NextFields): boolean =>
+  DRIVEN_ACTORS.has(next.actor) || (next.actor === "signal" && signalDelivered(next))
+
+const signalOf = (next: NextFields): WorktreeStatus["signal"] =>
+  typeof next.signal === "object" && next.signal !== null
+    ? (next.signal as NonNullable<WorktreeStatus["signal"]>)
+    : undefined
 
 const failed = (message: string): Next => ({
   ok: false,
@@ -96,9 +120,18 @@ const restStatus = (next: NextFields, driver: DriverState): WorktreeStatus => {
     typeof next.label === "string" ? next.label : typeof next.state === "string" ? next.state : ""
   if (next.kind === "stalled") {
     const message = firstLine(next.content)
-    return { status: "error", errorKind: "stalled", label, ...(message ? { message } : {}) }
+    return {
+      status: "error",
+      errorKind: "stalled",
+      label,
+      ...(message ? { message } : {}),
+    }
   }
   if (next.idle === true) return { status: "idle", label }
+  const signal = signalOf(next)
+  if (next.actor === "signal" && !signalDelivered(next) && signal !== undefined) {
+    return { status: "waiting", label, signal }
+  }
   const record = driver.kind === "pane" ? driver.pane.record : undefined
   const code = crashed(driver)
   if (code !== undefined) {
@@ -123,10 +156,10 @@ const restStatus = (next: NextFields, driver: DriverState): WorktreeStatus => {
       status: "needsYou",
       label: record.title ?? label,
       ...(record.kind ? { kind: record.kind } : {}),
-      ...(DRIVEN_ACTORS.has(next.actor) ? {} : { humanRest: true }),
+      ...(driven(next) ? {} : { humanRest: true }),
     }
   }
-  if (!DRIVEN_ACTORS.has(next.actor)) return { status: "needsYou", label, humanRest: true }
+  if (!driven(next)) return { status: "needsYou", label, humanRest: true }
   if (live) return { status: "working", label }
   return { status: "needsYou", label, message: "no driver runs" }
 }
@@ -141,7 +174,7 @@ export const isOrphan = (outcome: SpawnOutcome, driver: DriverState): boolean =>
     next.ok &&
     next.kind !== "stalled" &&
     next.idle !== true &&
-    DRIVEN_ACTORS.has(next.actor) &&
+    driven(next) &&
     !driverRuns(driver) &&
     crashed(driver) === undefined
   )

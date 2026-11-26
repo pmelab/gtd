@@ -1,7 +1,7 @@
 import type { ActionValues, NotificationPriority } from "./adapters.js"
 import type { ExecResult } from "./feed.js"
 
-export type ReactionStatus = "needsYou" | "working" | "error" | "idle"
+export type ReactionStatus = "needsYou" | "working" | "error" | "idle" | "waiting"
 
 export type ReactionErrorKind = "stalled" | "crashed" | "driver" | "note"
 
