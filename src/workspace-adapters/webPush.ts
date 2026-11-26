@@ -4,6 +4,7 @@ import { join } from "node:path"
 import webpush from "web-push"
 import {
   AdapterError,
+  type DeviceState,
   type DeviceSubscription,
   type Notification,
   type NotificationPriority,
@@ -31,6 +32,59 @@ interface Vapid {
 
 interface StoredDevice extends DeviceSubscription {
   readonly time: string
+  readonly failure?: NonNullable<DeviceState["failure"]>
+  readonly broken?: boolean
+}
+
+// Statuses that a retry never fixes: the subscription or the VAPID key is wrong.
+const PERMANENT = new Set([400, 401, 403])
+const BROKEN_AFTER_MS = 24 * 60 * 60 * 1000
+
+const hostOf = (endpoint: string): string => {
+  try {
+    return new URL(endpoint).host
+  } catch {
+    return "unknown"
+  }
+}
+
+const isBroken = (status: number | undefined, since: string, now: Date): boolean =>
+  status !== undefined &&
+  PERMANENT.has(status) &&
+  now.getTime() - Date.parse(since) >= BROKEN_AFTER_MS
+
+const deviceName = (device: StoredDevice): string =>
+  [device.login === "-" ? "" : device.login, device.platform ?? ""]
+    .filter((x) => x !== "")
+    .join(" ") || "-"
+
+// web-push keeps the push service's reason in `body`; its message is fixed.
+const messageOf = (error: unknown): string => {
+  const base = error instanceof Error ? error.message : String(error)
+  const body = (error as { body?: unknown }).body
+  const reason = typeof body === "string" ? body.trim().slice(0, 200) : ""
+  return reason === "" ? base : `${base} ${reason}`
+}
+
+/** Stores the failure on the device, marks it broken once a permanent status persists, and names it for the error. */
+const recordFailure = (
+  device: StoredDevice,
+  error: unknown,
+  save: (device: StoredDevice) => void,
+): string => {
+  const status = (error as { statusCode?: number }).statusCode
+  const host = hostOf(device.subscription.endpoint)
+  const message = messageOf(error)
+  const now = new Date()
+  const same = device.failure?.status === (status ?? null)
+  const since = same ? device.failure!.since : now.toISOString()
+  const broken = same && isBroken(status, since, now)
+  save({
+    ...device,
+    failure: { host, status: status ?? null, message, since },
+    ...(broken ? { broken: true } : {}),
+  })
+  return `${deviceName(device)} (${host} ${status ?? "no status"}: ${message})`
 }
 
 const URGENCY: Readonly<Record<NotificationPriority, "high" | "normal" | "low">> = {
@@ -134,27 +188,44 @@ export const webPush = (
     },
     init: ({ stateDirectory }) => {
       directory = stateDirectory
-      mkdirSync(join(stateDirectory, "devices"), { recursive: true, mode: 0o700 })
+      mkdirSync(join(stateDirectory, "devices"), {
+        recursive: true,
+        mode: 0o700,
+      })
       keys()
     },
     publicKey: () => keys().publicKey,
     subscribe: (device) => {
       mkdirSync(devicesDir(), { recursive: true, mode: 0o700 })
-      const record: StoredDevice = { ...device, time: new Date().toISOString() }
-      writeFileSync(
-        join(devicesDir(), fileOf(device.subscription.endpoint)),
-        JSON.stringify(record),
-        {
-          mode: 0o600,
-        },
-      )
+      const file = join(devicesDir(), fileOf(device.subscription.endpoint))
+      // A kinds change is not a new subscription: keep the failure state.
+      const known = records().find((r) => r.subscription.endpoint === device.subscription.endpoint)
+      const same =
+        known !== undefined &&
+        known.subscription.keys.p256dh === device.subscription.keys.p256dh &&
+        known.subscription.keys.auth === device.subscription.keys.auth
+      const record: StoredDevice = {
+        ...device,
+        time: new Date().toISOString(),
+        ...(same && known.failure !== undefined ? { failure: known.failure } : {}),
+        ...(same && known.broken === true ? { broken: true } : {}),
+      }
+      writeFileSync(file, JSON.stringify(record), {
+        mode: 0o600,
+      })
     },
     unsubscribe: (endpoint) => {
       rmSync(join(devicesDir(), fileOf(endpoint)), { force: true })
     },
     device: (endpoint) => {
       const known = records().find((r) => r.subscription.endpoint === endpoint)
-      return known === undefined ? undefined : { kinds: known.kinds }
+      if (known === undefined) return undefined
+      return {
+        kinds: known.kinds,
+        ...(known.platform !== undefined ? { platform: known.platform } : {}),
+        ...(known.failure !== undefined ? { failure: known.failure } : {}),
+        ...(known.broken === true ? { broken: true } : {}),
+      }
     },
     publish: async (n) => {
       const payload = JSON.stringify({
@@ -164,26 +235,38 @@ export const webPush = (
         ...(n.url !== undefined ? { url: n.url } : {}),
       })
       const failed: string[] = []
-      const details: unknown[] = []
-      for (const device of records().filter((r) => wants(r, n))) {
+      const save = (device: StoredDevice): void =>
+        writeFileSync(
+          join(devicesDir(), fileOf(device.subscription.endpoint)),
+          JSON.stringify(device),
+          {
+            mode: 0o600,
+          },
+        )
+      for (const device of records().filter((r) => r.broken !== true && wants(r, n))) {
         try {
           await send(device.subscription, payload, {
             urgency: URGENCY[n.priority],
             TTL: ONE_DAY,
             vapid: keys(),
           })
+          if (device.failure !== undefined) {
+            const { failure: _failure, ...healthy } = device
+            save(healthy)
+          }
         } catch (error) {
           const status = (error as { statusCode?: number }).statusCode
           if (status === 404 || status === 410) {
-            rmSync(join(devicesDir(), fileOf(device.subscription.endpoint)), { force: true })
+            rmSync(join(devicesDir(), fileOf(device.subscription.endpoint)), {
+              force: true,
+            })
             continue
           }
-          failed.push(device.login)
-          details.push(error instanceof Error ? error.message : error)
+          failed.push(recordFailure(device, error, save))
         }
       }
       if (failed.length > 0) {
-        throw failure(`push failed for ${failed.join(", ")}`, details)
+        throw failure(`push failed for ${failed.join(", ")}`)
       }
     },
   }

@@ -4,7 +4,7 @@ import { Checkbox } from "../ui/checkbox.js"
 import { Label } from "../ui/label.js"
 import { Button } from "../Button.js"
 import { environmentOf, keyBytes, pushBlock, type PushBlock } from "../push.js"
-import type { PushSubscription } from "../../workspace/index.js"
+import type { DeviceState, PushSubscription } from "../../workspace/index.js"
 import { workspaceTrpc } from "./api.js"
 
 const KINDS = [
@@ -19,12 +19,35 @@ const KINDS = [
 type Kind = (typeof KINDS)[number][0]
 const DEFAULT_KINDS: readonly Kind[] = ["needsYou", "error"]
 
+const firstMatch = (ua: string, table: readonly (readonly [RegExp, string])[], none: string) =>
+  table.find(([pattern]) => pattern.test(ua))?.[1] ?? none
+
+const BROWSERS = [
+  [/Edg\//, "Edge"],
+  [/Firefox|FxiOS/, "Firefox"],
+  [/Chrome|CriOS/, "Chrome"],
+  [/Safari/, "Safari"],
+] as const
+
+const SYSTEMS = [
+  [/iPhone|iPad/, "iOS"],
+  [/Android/, "Android"],
+  [/Mac OS X/, "macOS"],
+  [/Windows/, "Windows"],
+  [/Linux/, "Linux"],
+] as const
+
+const platformOf = (ua: string): string =>
+  `${firstMatch(ua, SYSTEMS, "")} ${firstMatch(ua, BROWSERS, "browser")}`.trim()
+
 const registration = (): Promise<ServiceWorkerRegistration> => navigator.serviceWorker.ready
 
 const usePush = (block: PushBlock | undefined) => {
   const [endpoint, setEndpoint] = useState<string | null | undefined>(undefined)
   const [failure, setFailure] = useState<string>()
-  const key = workspaceTrpc.pushKey.useQuery(undefined, { enabled: block === undefined })
+  const key = workspaceTrpc.pushKey.useQuery(undefined, {
+    enabled: block === undefined,
+  })
   const device = workspaceTrpc.pushDevice.useQuery(
     { endpoint: endpoint ?? "" },
     { enabled: typeof endpoint === "string" },
@@ -51,6 +74,7 @@ const usePush = (block: PushBlock | undefined) => {
     await subscribe.mutateAsync({
       subscription: sub.toJSON() as PushSubscription,
       kinds: [...wanted],
+      platform: platformOf(navigator.userAgent),
     })
     await utils.pushDevice.invalidate()
   }
@@ -63,7 +87,10 @@ const usePush = (block: PushBlock | undefined) => {
     }
     const sub = await (
       await registration()
-    ).pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key.data) })
+    ).pushManager.subscribe({
+      userVisibleOnly: true,
+      applicationServerKey: keyBytes(key.data),
+    })
     setEndpoint(sub.endpoint)
     await save(kinds)
   }
@@ -83,13 +110,62 @@ const usePush = (block: PushBlock | undefined) => {
       setFailure(error instanceof Error ? error.message : String(error))
     })
   }
-  return { key, on, kinds, endpoint, failure, save, turnOn, turnOff, run }
+  return {
+    key,
+    on,
+    kinds,
+    endpoint,
+    failure,
+    save,
+    turnOn,
+    turnOff,
+    run,
+    device: device.data,
+  }
+}
+
+const DeviceFailure = ({
+  device,
+  onResubscribe,
+}: {
+  readonly device: {
+    readonly platform?: string | undefined
+    readonly failure?: DeviceState["failure"] | undefined
+    readonly broken?: boolean | undefined
+  }
+  readonly onResubscribe: () => void
+}) => {
+  const failure = device.failure
+  if (failure === undefined) return null
+  return (
+    <Notice tone="error">
+      <p data-testid="push-device-failure">
+        {device.platform ?? "This device"}: last push failed at {failure.host}
+        {failure.status !== null ? ` with ${failure.status}` : ""} — {failure.message}
+      </p>
+      {device.broken === true && (
+        <>
+          <p data-testid="push-broken">
+            This device is broken: the push service has refused it for a day. gtd no longer sends to
+            it.
+          </p>
+          <Button onClick={onResubscribe}>Subscribe again</Button>
+        </>
+      )}
+    </Notice>
+  )
 }
 
 /** This device's push settings: a switch and the kinds it wants. It lists no other device. */
 export const Notifications = ({ onClose }: { readonly onClose: () => void }) => {
   const block = pushBlock(environmentOf(window))
-  const { key, on, kinds, endpoint, failure, save, turnOn, turnOff, run } = usePush(block)
+  const { key, on, kinds, endpoint, failure, save, turnOn, turnOff, run, device } = usePush(block)
+  const resubscribe = () => {
+    run(async () => {
+      await turnOff()
+      await turnOn()
+    })
+  }
   return (
     <section className="flex flex-col gap-4" data-testid="notifications">
       <div className="flex items-center justify-between gap-3">
@@ -136,6 +212,9 @@ export const Notifications = ({ onClose }: { readonly onClose: () => void }) => 
               </div>
             ))}
           </fieldset>
+          {device?.failure !== undefined && (
+            <DeviceFailure device={device} onResubscribe={resubscribe} />
+          )}
           {failure !== undefined && (
             <Notice tone="error">
               <p data-testid="push-failure">{failure}</p>

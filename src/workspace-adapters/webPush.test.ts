@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, statSync, readdirSync } from "node:fs"
+import { mkdtempSync, readFileSync, readdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -188,5 +188,75 @@ describe("webPush()", () => {
     expect(error?.message).toContain("ann@example.com")
     expect(error?.message).toContain("cy@example.com")
     expect(error?.message).not.toContain("bob@example.com")
+  })
+
+  it("logs host, status and message for a 403, names the device, and keeps it", async () => {
+    const { adapter } = await fresh(async (s) => {
+      if (s.endpoint.includes("bad"))
+        throw Object.assign(new Error("Received unexpected response code"), {
+          statusCode: 403,
+          body: '{"reason":"BadJwtToken"}',
+        })
+    })
+    await adapter.subscribe({
+      ...device("https://web.push.apple.com/bad", "-"),
+      platform: "iOS Safari",
+    })
+    const error = await adapter.publish(note()).then(
+      () => undefined,
+      (e: unknown) => e as Error,
+    )
+    expect(error?.message).toContain("iOS Safari")
+    expect(error?.message).toContain("web.push.apple.com 403:")
+    expect(error?.message).toContain("BadJwtToken")
+    expect(error?.message).not.toContain("/bad")
+    expect(await adapter.device("https://web.push.apple.com/bad")).toMatchObject({
+      platform: "iOS Safari",
+      failure: {
+        host: "web.push.apple.com",
+        status: 403,
+        message: expect.stringContaining("BadJwtToken"),
+      },
+    })
+  })
+
+  it("marks a device broken after the same 403 for a day, and stops sending to it", async () => {
+    let calls = 0
+    const { adapter, dir } = await fresh(async () => {
+      calls++
+      throw Object.assign(new Error("BadJwtToken"), { statusCode: 403 })
+    })
+    const endpoint = "https://fcm.googleapis.com/x"
+    await adapter.subscribe(device(endpoint))
+    await adapter.publish(note()).catch(() => {})
+    expect((await adapter.device(endpoint))?.broken).toBeUndefined()
+    // Age the first failure by two days.
+    const file = join(dir, "devices", readdirSync(join(dir, "devices"))[0]!)
+    const record = JSON.parse(readFileSync(file, "utf8"))
+    record.failure.since = new Date(Date.now() - 2 * 86_400_000).toISOString()
+    writeFileSync(file, JSON.stringify(record))
+    await adapter.publish(note()).catch(() => {})
+    expect((await adapter.device(endpoint))?.broken).toBe(true)
+    await adapter.publish(note())
+    expect(calls).toBe(2)
+    await adapter.subscribe({ ...device(endpoint), kinds: ["needsYou", "error"] })
+    expect((await adapter.device(endpoint))?.broken).toBe(true)
+    await adapter.subscribe({
+      ...device(endpoint),
+      subscription: { endpoint, keys: { p256dh: "k2", auth: "a2" } },
+    })
+    expect((await adapter.device(endpoint))?.broken).toBeUndefined()
+  })
+
+  it("still delivers to a good device when another fails", async () => {
+    const reached: string[] = []
+    const { adapter } = await fresh(async (s) => {
+      if (s.endpoint.endsWith("bad")) throw Object.assign(new Error("no"), { statusCode: 403 })
+      reached.push(s.endpoint)
+    })
+    await adapter.subscribe(device("https://push/bad"))
+    await adapter.subscribe(device("https://push/good"))
+    await adapter.publish(note()).catch(() => {})
+    expect(reached).toEqual(["https://push/good"])
   })
 })

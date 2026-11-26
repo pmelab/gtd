@@ -28,11 +28,13 @@ export const pushRoutes = (
       caller: PushCaller,
       subscription: DeviceSubscription["subscription"],
       kinds: readonly string[],
+      platform?: string,
     ) => {
       await adapter.subscribe({
         subscription,
         kinds: kinds as DeviceSubscription["kinds"],
         login: caller.identity,
+        ...(platform !== undefined ? { platform } : {}),
       })
       store.savePushed([...new Set([...store.pushed(), subscription.endpoint])])
       written(caller, "subscribe")

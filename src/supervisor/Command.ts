@@ -553,7 +553,8 @@ export const runWorkspaceCommand = (
               push: {
                 publicKey: push.publicKey,
                 device: push.device,
-                subscribe: (subscription, kinds) => push.subscribe(caller, subscription, kinds),
+                subscribe: (subscription, kinds, platform) =>
+                  push.subscribe(caller, subscription, kinds, platform),
                 unsubscribe: (endpoint) => push.unsubscribe(caller, endpoint),
               },
               pauses: paused,
