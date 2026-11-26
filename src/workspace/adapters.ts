@@ -295,6 +295,22 @@ export interface DeviceSubscription {
   readonly kinds: readonly DeviceKind[]
   /** The tailnet login of the person, or `-` when gtd cannot know it. */
   readonly login: string
+  /** The platform the browser reports (`iOS Safari`, `Android Chrome`, …). */
+  readonly platform?: string
+}
+
+/** What a device reports back: the last push failure (never keys or the full endpoint). */
+export interface DeviceState {
+  readonly kinds: readonly DeviceKind[]
+  readonly platform?: string
+  readonly failure?: {
+    readonly host: string
+    readonly status: number | null
+    readonly message: string
+    readonly since: string
+  }
+  /** The same permanent failure for too long: the person must subscribe again. */
+  readonly broken?: boolean
 }
 
 /** The notifications adapter: delivers what gtd publishes, to the devices it keeps. */
@@ -307,12 +323,7 @@ export interface NotificationsAdapter {
   readonly subscribe: (device: DeviceSubscription) => Promise<void> | void
   readonly unsubscribe: (endpoint: string) => Promise<void> | void
   /** The device's kinds, or `undefined` when the adapter does not know the endpoint. */
-  readonly device: (
-    endpoint: string,
-  ) =>
-    | Promise<{ readonly kinds: readonly DeviceKind[] } | undefined>
-    | { readonly kinds: readonly DeviceKind[] }
-    | undefined
+  readonly device: (endpoint: string) => Promise<DeviceState | undefined> | DeviceState | undefined
   /** Resolves once delivered; fails with an adapter error. */
   readonly publish: (notification: Notification) => Promise<void>
 }

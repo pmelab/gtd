@@ -39,10 +39,25 @@ interface WorkspaceRouterContext {
   /** The notifications adapter's devices, behind the tailnet check and the audit log. */
   readonly push: {
     readonly publicKey: () => Promise<string>
-    readonly device: (
-      endpoint: string,
-    ) => Promise<{ readonly kinds: readonly string[] } | undefined>
-    readonly subscribe: (subscription: PushSubscription, kinds: readonly string[]) => Promise<void>
+    readonly device: (endpoint: string) => Promise<
+      | {
+          readonly kinds: readonly string[]
+          readonly platform?: string
+          readonly failure?: {
+            readonly host: string
+            readonly status: number | null
+            readonly message: string
+            readonly since: string
+          }
+          readonly broken?: boolean
+        }
+      | undefined
+    >
+    readonly subscribe: (
+      subscription: PushSubscription,
+      kinds: readonly string[],
+      platform?: string,
+    ) => Promise<void>
     readonly unsubscribe: (endpoint: string) => Promise<void>
   }
 }
@@ -52,7 +67,10 @@ const t = initTRPC.context<WorkspaceRouterContext>().create()
 const pauseInput = (value: unknown): PauseScope => {
   const scope = pauseScope(value ?? {})
   if (scope === undefined)
-    throw new TRPCError({ code: "BAD_REQUEST", message: "expected { project?, feed? }" })
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "expected { project?, feed? }",
+    })
   return scope
 }
 
@@ -64,7 +82,10 @@ const setPause = (ctx: WorkspaceRouterContext, scope: PauseScope, paused: boolea
 const text = (value: unknown, key: string): string => {
   const field = (value as Record<string, unknown> | null | undefined)?.[key]
   if (typeof field !== "string" || field === "") {
-    throw new TRPCError({ code: "BAD_REQUEST", message: `${key} must be a non-empty string` })
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${key} must be a non-empty string`,
+    })
   }
   return field
 }
@@ -98,7 +119,10 @@ const REFUSAL_CODES = {
 const optionalText = (value: unknown, key: string): string | undefined => {
   const field = (value as Record<string, unknown> | null | undefined)?.[key]
   if (field !== undefined && typeof field !== "string") {
-    throw new TRPCError({ code: "BAD_REQUEST", message: `${key} must be a string` })
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: `${key} must be a string`,
+    })
   }
   return field
 }
@@ -131,7 +155,10 @@ const refusals = async <A>(body: () => Promise<A>): Promise<A> => {
     return await body()
   } catch (error) {
     if (error instanceof ActionRefusal || error instanceof WorktreeRefusal) {
-      throw new TRPCError({ code: REFUSAL_CODES[error.reason], message: error.message })
+      throw new TRPCError({
+        code: REFUSAL_CODES[error.reason],
+        message: error.message,
+      })
     }
     throw error
   }
@@ -140,14 +167,20 @@ const refusals = async <A>(body: () => Promise<A>): Promise<A> => {
 const itemRef = (input: unknown): { feed: string; key: string } => {
   const { feed, key } = (input ?? {}) as Record<string, unknown>
   if (typeof feed !== "string" || typeof key !== "string")
-    throw new TRPCError({ code: "BAD_REQUEST", message: "expected { feed, key }" })
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "expected { feed, key }",
+    })
   return { feed, key }
 }
 
 const pressInput = (input: unknown): { worktree: string; commit: string } => {
   const { worktree, commit } = (input ?? {}) as Record<string, unknown>
   if (typeof worktree !== "string" || typeof commit !== "string")
-    throw new TRPCError({ code: "BAD_REQUEST", message: "expected { worktree, commit }" })
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "expected { worktree, commit }",
+    })
   return { worktree, commit }
 }
 
@@ -224,7 +257,11 @@ interface Message {
   readonly approvedBy: string | undefined
   readonly shipped: string | undefined
   readonly cost: RetroCost[]
-  readonly judge: { id: string; answer: string | number | boolean; p: number }[]
+  readonly judge: {
+    id: string
+    answer: string | number | boolean
+    p: number
+  }[]
 }
 
 const SUBJECT = /^gtd\(([^()]+)\): (.+)$/
@@ -565,21 +602,30 @@ const tryLast = async (
 }
 
 /** The dashboard's API, served under `/trpc`. */
-const endpointInput = (value: unknown) => ({ endpoint: text(value, "endpoint") })
+const endpointInput = (value: unknown) => ({
+  endpoint: text(value, "endpoint"),
+})
+
+const isText = (v: unknown): v is string => typeof v === "string"
+
+const isSubscription = (v: unknown): v is PushSubscription => {
+  const sub = v as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } } | undefined
+  return isText(sub?.endpoint) && isText(sub.keys?.p256dh) && isText(sub.keys.auth)
+}
 
 const subscribeInput = (value: unknown) => {
-  const { subscription, kinds } = (value ?? {}) as Record<string, unknown>
-  const sub = subscription as { endpoint?: unknown; keys?: { p256dh?: unknown; auth?: unknown } }
-  if (
-    typeof sub?.endpoint !== "string" ||
-    typeof sub.keys?.p256dh !== "string" ||
-    typeof sub.keys.auth !== "string" ||
-    !Array.isArray(kinds) ||
-    !kinds.every((k) => typeof k === "string")
-  ) {
-    throw new TRPCError({ code: "BAD_REQUEST", message: "expected { subscription, kinds }" })
+  const { subscription, kinds, platform } = (value ?? {}) as Record<string, unknown>
+  if (!isSubscription(subscription) || !Array.isArray(kinds) || !kinds.every(isText)) {
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message: "expected { subscription, kinds }",
+    })
   }
-  return { subscription: subscription as PushSubscription, kinds: kinds as string[] }
+  return {
+    subscription,
+    kinds: kinds as string[],
+    platform: isText(platform) ? platform.slice(0, 40) : undefined,
+  }
 }
 
 export const workspaceRouter = t.router({
@@ -589,7 +635,7 @@ export const workspaceRouter = t.router({
     .input(endpointInput)
     .query(async ({ ctx, input }) => (await ctx.push.device(input.endpoint)) ?? null),
   pushSubscribe: t.procedure.input(subscribeInput).mutation(async ({ ctx, input }) => {
-    await ctx.push.subscribe(input.subscription, input.kinds)
+    await ctx.push.subscribe(input.subscription, input.kinds, input.platform)
     return { ok: true as const }
   }),
   pushUnsubscribe: t.procedure.input(endpointInput).mutation(async ({ ctx, input }) => {
@@ -632,7 +678,10 @@ export const workspaceRouter = t.router({
     .input((input: unknown): { worktree: string; note?: string } => {
       const { worktree, note } = (input ?? {}) as Record<string, unknown>
       if (typeof worktree !== "string" || (note !== undefined && typeof note !== "string"))
-        throw new TRPCError({ code: "BAD_REQUEST", message: "expected { worktree, note? }" })
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "expected { worktree, note? }",
+        })
       return { worktree, ...(note !== undefined ? { note } : {}) }
     })
     .mutation(async ({ ctx, input }) => {

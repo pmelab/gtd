@@ -23,6 +23,7 @@ export {
   type Notification,
   type NotificationKind,
   type DeviceKind,
+  type DeviceState,
   type DeviceSubscription,
   type PushSubscription,
   type NotificationPriority,
