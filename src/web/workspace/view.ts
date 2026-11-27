@@ -29,6 +29,7 @@ export {
   worktreeSubtitle,
   worktreeTitle,
   statusText,
+  waitingText,
   detailText,
   reasonText,
 } from "../../workspace/internal.js"

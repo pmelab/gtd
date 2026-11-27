@@ -26,6 +26,8 @@ export interface WorktreeView extends WorktreeStatus {
   readonly gate: string
   /** The gate kind, from the steering file's name: "Review", "Requirements". */
   readonly gateKind?: string
+  /** When the wait at a wait step began, in ms since the epoch. */
+  readonly waitingSince?: number
   /** A review gate's base, as a short sha. */
   readonly gateBase?: string
   /** Why gtd or the driver refused the last Proceed or Retry at this HEAD. */

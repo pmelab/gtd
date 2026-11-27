@@ -35,6 +35,8 @@ export interface SnapshotDeps extends ScanDeps {
   readonly services?: ServicesAdapter
   /** The last action gtd ran in the worktree while this supervisor runs. */
   readonly lastAction?: (path: string) => ActionRun | undefined
+  /** When the worktree's HEAD was committed, in ms since the epoch: where a wait began. */
+  readonly committedAt?: (worktree: string) => Promise<number | undefined>
   /** Called after a worktree status may have changed. */
   readonly changed?: () => void
 }
@@ -73,6 +75,7 @@ const SERVICES_CONCURRENCY = 4
 interface GateFacts {
   readonly gateKind?: string
   readonly gateBase?: string
+  readonly waitingSince?: number
 }
 
 interface Seen {
@@ -217,6 +220,14 @@ const gateFacts = async (
   }
 }
 
+const isWaiting = (next: SpawnOutcome): boolean => {
+  try {
+    return (JSON.parse(next.stdout) as { actor?: unknown }).actor === "signal"
+  } catch {
+    return false
+  }
+}
+
 const statusOf = ({ next, driver }: Seen) => worktreeStatus(next, driver)
 
 export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
@@ -253,7 +264,9 @@ export const liveSnapshot = (deps: SnapshotDeps): Snapshot => {
     const next = await deps.next(path)
     const driver = await deps.drivers.state(path)
     if (restart && isOrphan(next, driver)) orphans.push({ project, path })
-    return { next, driver, gate: await gateFacts(path, next, deps.readFile) }
+    const gate = await gateFacts(path, next, deps.readFile)
+    const since = isWaiting(next) ? await deps.committedAt?.(path) : undefined
+    return { next, driver, gate: since === undefined ? gate : { ...gate, waitingSince: since } }
   }
 
   // Drivers outlive the supervisor: only an orphan is started, and a crashed driver waits for Retry.

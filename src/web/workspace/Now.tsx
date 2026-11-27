@@ -1,4 +1,4 @@
-import { ChevronDown, LoaderCircle } from "lucide-react"
+import { ChevronDown, Hourglass, LoaderCircle } from "lucide-react"
 import { GtdMark } from "../GtdMark.js"
 import { cn } from "../cn.js"
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "../ui/collapsible.js"
@@ -10,6 +10,7 @@ import {
   nowView,
   worktreeBranch,
   worktreeSubtitle,
+  waitingText,
   worktreeTitle,
   type Entry,
   type ProjectView,
@@ -123,6 +124,47 @@ const Working = ({
   </Collapsible>
 )
 
+const Waiting = ({
+  waiting,
+  onOpen,
+}: {
+  readonly waiting: readonly Entry[]
+  readonly onOpen: (entry: Entry) => void
+}) => (
+  <Collapsible className="group rounded-lg border border-border bg-card" data-testid="now-waiting">
+    <CollapsibleTrigger className="flex min-h-11 w-full items-center gap-2 rounded-lg px-4 text-sm text-muted-foreground hover:bg-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
+      <Hourglass aria-hidden="true" className="size-4" />
+      <span className="tabular-nums">{waiting.length} waiting</span>
+      <ChevronDown
+        aria-hidden="true"
+        className="ml-auto size-4 transition-transform group-data-[state=open]:rotate-180"
+      />
+    </CollapsibleTrigger>
+    <CollapsibleContent>
+      <ul className="border-t border-border">
+        {waiting.map((entry) => (
+          <li key={entry.worktree.path} className="border-b border-border last:border-b-0">
+            <button
+              type="button"
+              className="flex min-h-11 w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm hover:bg-accent focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring"
+              onClick={() => {
+                onOpen(entry)
+              }}
+            >
+              <span className="min-w-0">
+                <EntryTitle entry={entry} />
+              </span>
+              <span className="shrink-0 text-muted-foreground" data-testid="now-waiting-text">
+                {waitingText(entry.worktree, Date.now())}
+              </span>
+            </button>
+          </li>
+        ))}
+      </ul>
+    </CollapsibleContent>
+  </Collapsible>
+)
+
 /**
  * The Now view: only gates and errors, across all projects, each opening its
  * detail. Working worktrees fold into one row.
@@ -137,7 +179,7 @@ export const Now = ({
   readonly selected?: string | undefined
   readonly onOpen: (entry: Entry) => void
 }) => {
-  const { attention, working } = nowView(projects)
+  const { attention, working, waiting } = nowView(projects)
   return (
     <div className="flex flex-col gap-3">
       {attention.length === 0 && (
@@ -157,6 +199,7 @@ export const Now = ({
         />
       ))}
       {working.length > 0 && <Working working={working} onOpen={onOpen} />}
+      {waiting.length > 0 && <Waiting waiting={waiting} onOpen={onOpen} />}
     </div>
   )
 }

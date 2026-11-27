@@ -20,6 +20,7 @@ export {
   nowView,
   reasonText,
   statusText,
+  waitingText,
   worktreeName,
   worktreeBranch,
   worktreeSubtitle,
