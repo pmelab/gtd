@@ -880,15 +880,19 @@ the runtime's message. Web Push is the default, so delete that line.
 
 `webPush()` uses the `web-push` package. At the first start it makes a VAPID key
 pair and keeps it in the [state directory](#security) with mode 0600; the VAPID
-`sub` claim is the dashboard URL. It keeps each device there with its login, its
-kinds and its time: deleting the state directory makes each device opt in again.
-It maps the priorities `high`, `default` and `low` to the Web Push urgency
-`high`, `normal` and `low`, with a TTL of one day. The notification tag is the
-key without its commit, so a newer notification for the same worktree and kind
-replaces the older one on the device. `publish` tries every device that wants
-the kind. A 404 or 410 from the push service deletes that device and is not a
-failure. Any other failure makes `publish` fail after the last device, with one
-adapter error that names the failed devices by login; gtd does not send again.
+`sub` claim is the option `subject`
+(`webPush({ subject: "mailto:you@example.com" })`, an `https:` or `mailto:` URI;
+Apple's push service answers `403 BadJwtToken` to others), else the dashboard
+URL when it is `https:`, else `mailto:gtd@example.com`. It keeps each device
+there with its login, its kinds and its time: deleting the state directory makes
+each device opt in again. It maps the priorities `high`, `default` and `low` to
+the Web Push urgency `high`, `normal` and `low`, with a TTL of one day. The
+notification tag is the key without its commit, so a newer notification for the
+same worktree and kind replaces the older one on the device. `publish` tries
+every device that wants the kind. A 404 or 410 from the push service deletes
+that device and is not a failure. Any other failure makes `publish` fail after
+the last device, with one adapter error that names the failed devices by login;
+gtd does not send again.
 
 ## Security
 
