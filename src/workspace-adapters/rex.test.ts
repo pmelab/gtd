@@ -448,3 +448,71 @@ exit 0
     await expect(rex({ bin: fake.bin }).focus!("blk-1")).rejects.toThrow("rex: no such block")
   })
 })
+
+describe("run labels the driver's window", () => {
+  const made: string[] = []
+  afterEach(() => {
+    for (const dir of made.splice(0)) rmSync(dir, { recursive: true, force: true })
+  })
+  const setup = (
+    renameFails: boolean,
+    description?: string,
+    branch = "feat/x",
+    described = branch,
+  ) => {
+    const dir = realpathSync(mkdtempSync(join(tmpdir(), "gtd-rex-run-")))
+    made.push(dir)
+    const worktree = join(dir, "feat-x")
+    mkdirSync(worktree)
+    execFileSync("git", ["init", "-q", "-b", branch], { cwd: worktree })
+    if (description !== undefined) {
+      execFileSync("git", ["config", `branch.${described}.description`, description], {
+        cwd: worktree,
+      })
+    }
+    const log = join(dir, "calls")
+    const bin = join(dir, "rex")
+    writeFileSync(
+      bin,
+      `#!/bin/sh
+printf '%s\n' "$*" >> ${log}
+case "$*" in
+  *"session ls"*) echo '{"sessions":[{"label":"proj"}]}' ;;
+  *"block inspect"*) echo '{"block":{"window_id":"W1"}}' ;;
+  *"window rename"*) ${renameFails ? "echo boom >&2; exit 1" : "exit 0"} ;;
+  "run "*|*" run "*) echo '{"block_ids":["B1"]}' ;;
+esac
+exit 0
+`,
+      { mode: 0o755 },
+    )
+    return { bin, log, worktree }
+  }
+  const rename = (log: string): string | undefined =>
+    readFileSync(log, "utf8")
+      .split("\n")
+      .find((l) => l.includes("window rename"))
+
+  it("renames the new window to the description's first line", async () => {
+    const f = setup(false, "Mail safe links\nsecond line")
+    expect(await rex({ bin: f.bin }).run("proj", f.worktree, ["true"], {})).toBe("B1")
+    expect(rename(f.log)).toBe("--autostart=false window rename -s proj W1 Mail safe links")
+  })
+
+  it("uses the description of <b> when the worktree is on gtd/<b>", async () => {
+    const f = setup(false, "Mail safe links", "gtd/feat/x", "feat/x")
+    await rex({ bin: f.bin }).run("proj", f.worktree, ["true"], {})
+    expect(rename(f.log)).toBe("--autostart=false window rename -s proj W1 Mail safe links")
+  })
+
+  it("uses the directory name without a description", async () => {
+    const f = setup(false)
+    await rex({ bin: f.bin }).run("proj", f.worktree, ["true"], {})
+    expect(rename(f.log)).toBe("--autostart=false window rename -s proj W1 feat-x")
+  })
+
+  it("still returns the block id when the rename fails", async () => {
+    const f = setup(true, "Name")
+    expect(await rex({ bin: f.bin }).run("proj", f.worktree, ["true"], {})).toBe("B1")
+  })
+})

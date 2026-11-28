@@ -26,7 +26,10 @@ interface Outcome {
 interface RexProcess {
   readonly child?: { readonly pid: number } | null
   readonly foreground?: { readonly pid: number } | null
-  readonly last_exit?: { readonly exit_code: number; readonly error?: string } | null
+  readonly last_exit?: {
+    readonly exit_code: number
+    readonly error?: string
+  } | null
 }
 
 interface RexRecord extends StatusRecord {
@@ -100,7 +103,10 @@ const BLOCK_EVENTS: ReadonlySet<string> = new Set([
 
 /** The pane handle a `rex events --json` line names, when the line changes a pane's status. */
 export const changedPane = (line: string): string | undefined => {
-  let event: { type?: string; payload?: { event?: { type?: string; payload?: unknown } } }
+  let event: {
+    type?: string
+    payload?: { event?: { type?: string; payload?: unknown } }
+  }
   try {
     event = JSON.parse(line) as typeof event
   } catch {
@@ -194,6 +200,24 @@ const clientsToSwitch = (
   return latest === undefined ? [] : [latest]
 }
 
+// Line 1 of the branch description (the dashboard's name; or that of <b> on gtd/<b>), else the directory name.
+const displayName = async (worktree: string): Promise<string> => {
+  const git = (...args: string[]): Promise<string> =>
+    new Promise((resolve) =>
+      execFile("git", ["-C", worktree, ...args], { encoding: "utf8" }, (error, stdout) =>
+        resolve(error === null ? stdout.trim() : ""),
+      ),
+    )
+  const branch = await git("branch", "--show-current")
+  const describe = async (name: string): Promise<string> =>
+    name === "" ? "" : ((await git("config", `branch.${name}.description`)).split("\n")[0] ?? "")
+  // gtd works on `gtd/<b>`; the description lives on `<b>`.
+  const first =
+    (await describe(branch)).trim() ||
+    (branch.startsWith("gtd/") ? (await describe(branch.slice(4))).trim() : "")
+  return first || basename(worktree)
+}
+
 export const rex = (options: RexOptions = {}): TerminalAdapter => {
   const bin = options.bin ?? "rex"
   const global = (autostart: boolean): string[] => [
@@ -205,7 +229,12 @@ export const rex = (options: RexOptions = {}): TerminalAdapter => {
       execFile(
         bin,
         [...global(autostart), ...args],
-        { encoding: "utf8", timeout: 30_000, maxBuffer: 16 * 1024 * 1024, env: scopeFreeEnv() },
+        {
+          encoding: "utf8",
+          timeout: 30_000,
+          maxBuffer: 16 * 1024 * 1024,
+          env: scopeFreeEnv(),
+        },
         (error, stdout, stderr) => {
           const code = error === null ? 0 : typeof error.code === "number" ? error.code : -1
           resolve({ code, stdout, stderr: stderr || (error?.message ?? "") })
@@ -240,7 +269,7 @@ export const rex = (options: RexOptions = {}): TerminalAdapter => {
   return {
     run: async (project, worktree, argv, env) => {
       const command = ["--", ...withEnv(argv, env)]
-      const label = basename(worktree)
+      const label = await displayName(worktree)
       const { sessions } = json<{ sessions: readonly { label: string }[] }>(
         "run",
         await call(["session", "ls", "--json"], true),
@@ -263,9 +292,26 @@ export const rex = (options: RexOptions = {}): TerminalAdapter => {
             true,
           ),
         )
-        return created.block_ids?.[0] ?? fail("run", { code: 0, stdout: "", stderr: "no block id" })
+        const block =
+          created.block_ids?.[0] ?? fail("run", { code: 0, stdout: "", stderr: "no block id" })
+        // `--label` names the block; the window needs its own name. Best-effort.
+        try {
+          const found = json<{ block?: { window_id?: string } }>(
+            "run",
+            await call(["block", "inspect", block, "--json"]),
+          )
+          const window = found.block?.window_id
+          if (window !== undefined) {
+            await call(["window", "rename", "-s", project, window, label])
+          }
+        } catch {
+          // the block id is still the handle
+        }
+        return block
       }
-      const created = json<{ initial_windows?: readonly { block_ids?: readonly string[] }[] }>(
+      const created = json<{
+        initial_windows?: readonly { block_ids?: readonly string[] }[]
+      }>(
         "run",
         await call(
           ["new", project, "--window", label, ...terminalFlags(worktree), ...command],
