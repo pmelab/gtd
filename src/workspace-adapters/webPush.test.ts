@@ -150,7 +150,65 @@ describe("webPush()", () => {
     await adapter.publish(note())
     adapter.serving("https://gtd.example")
     await adapter.publish(note())
-    expect(subjects).toEqual(["mailto:gtd@localhost", "https://gtd.example"])
+    expect(subjects).toEqual(["mailto:gtd@example.com", "https://gtd.example"])
+  })
+
+  it("signs a JWT with a non-loopback sub, the push service as aud and an exp under 24 h", async () => {
+    let vapid: Parameters<Send>[2]["vapid"] | undefined
+    const adapter = webPush({
+      send: async (_s, _p, o) => {
+        vapid = o.vapid
+      },
+    })
+    await adapter.init({ stateDirectory: mkdtempSync(join(tmpdir(), "gtd-webpush-")) })
+    adapter.serving("http://127.0.0.1:7490/")
+    await adapter.subscribe(device("https://push/a"))
+    await adapter.publish(note())
+    const headers = webpush.getVapidHeaders(
+      "https://push.example",
+      vapid!.subject,
+      vapid!.publicKey,
+      vapid!.privateKey,
+      "aes128gcm",
+    )
+    const jwt = /t=([^,]+)/.exec(headers.Authorization)![1]!.split(".")[1]!
+    const claims = JSON.parse(Buffer.from(jwt, "base64url").toString())
+    expect(claims.sub).toMatch(/^(https:|mailto:)/)
+    expect(claims.sub).not.toMatch(/localhost|127\.0\.0\.1/)
+    expect(claims.aud).toBe("https://push.example")
+    const ahead = claims.exp - Date.now() / 1000
+    expect(ahead).toBeGreaterThan(0)
+    expect(ahead).toBeLessThan(24 * 60 * 60)
+  })
+
+  it("names the subject option when the push service answers 403", async () => {
+    const adapter = webPush({
+      send: async () => {
+        throw Object.assign(new Error("Received unexpected response code"), {
+          statusCode: 403,
+          body: "BadJwtToken",
+        })
+      },
+    })
+    await adapter.init({ stateDirectory: mkdtempSync(join(tmpdir(), "gtd-webpush-")) })
+    await adapter.subscribe(device("https://push/a"))
+    await expect(adapter.publish(note())).rejects.toThrow(/subject/)
+  })
+
+  it("passes a configured subject through unchanged, whatever URL the dashboard serves", async () => {
+    const subjects: string[] = []
+    const adapter = webPush({
+      subject: "mailto:ops@example.com",
+      send: async (_s, _p, o) => {
+        subjects.push(o.vapid.subject)
+      },
+    })
+    await adapter.init({ stateDirectory: mkdtempSync(join(tmpdir(), "gtd-webpush-")) })
+    adapter.serving("https://gtd.example")
+    adapter.serving("http://127.0.0.1:7490/")
+    await adapter.subscribe(device("https://push/a"))
+    await adapter.publish(note())
+    expect(subjects).toEqual(["mailto:ops@example.com"])
   })
 
   it("keeps a key without a commit as its tag", () => {

@@ -12,6 +12,8 @@ import {
 } from "../workspace/index.js"
 
 export interface WebPushOptions {
+  /** The VAPID `sub` claim: an `https:` or `mailto:` URI. Push services such as Apple's refuse others; this wins over the dashboard URL. */
+  readonly subject?: string
   /** The push call; the default sends through the `web-push` package. */
   readonly send?: (
     subscription: DeviceSubscription["subscription"],
@@ -63,7 +65,12 @@ const messageOf = (error: unknown): string => {
   const base = error instanceof Error ? error.message : String(error)
   const body = (error as { body?: unknown }).body
   const reason = typeof body === "string" ? body.trim().slice(0, 200) : ""
-  return reason === "" ? base : `${base} ${reason}`
+  const text = reason === "" ? base : `${base} ${reason}`
+  const hint =
+    (error as { statusCode?: number }).statusCode === 403
+      ? " (check the webPush `subject` option: an https: or mailto: URI on a real domain)"
+      : ""
+  return text + hint
 }
 
 /** Stores the failure on the device, marks it broken once a permanent status persists, and names it for the error. */
@@ -118,7 +125,7 @@ export const webPush = (
   options: WebPushOptions = {},
 ): NotificationsAdapter & { readonly serving: (url: string) => void } => {
   // The VAPID `sub` claim is the dashboard URL, known once the server listens.
-  let subject = "mailto:gtd@localhost"
+  let subject = options.subject ?? "mailto:gtd@example.com"
   let directory: string | undefined
   let vapid: Vapid | undefined
   const send =
@@ -182,7 +189,7 @@ export const webPush = (
   return {
     serving: (url) => {
       // web-push rejects any subject that is not https: or mailto:.
-      if (!url.startsWith("https:")) return
+      if (options.subject !== undefined || !url.startsWith("https:")) return
       subject = url
       if (vapid !== undefined) vapid = { ...vapid, subject: url }
     },
