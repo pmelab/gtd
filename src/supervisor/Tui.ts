@@ -5,6 +5,7 @@ import {
   nowView,
   reasonText,
   statusText,
+  waitingText,
   worktreeBranch,
   worktreeTitle,
 } from "../workspace/internal.js"
@@ -83,7 +84,7 @@ const screen = (
   notice: string | undefined,
   message: string | undefined,
 ): string => {
-  const { attention, working } = nowView(projects)
+  const { attention, working, waiting } = nowView(projects)
   const lines =
     attention.length === 0
       ? ["Nothing needs you."]
@@ -93,6 +94,15 @@ const screen = (
           return entry.worktree.path === selected ? `\x1b[7m${text}\x1b[0m` : text
         })
   lines.push(`${working.length} working`)
+  if (waiting.length > 0) lines.push(`${waiting.length} waiting`)
+  for (const { project, worktree } of waiting) {
+    lines.push(
+      fit(
+        `  ${project.name} / ${worktreeTitle(worktree)}: ${waitingText(worktree, Date.now())}`,
+        columns - 1,
+      ),
+    )
+  }
   if (notice !== undefined) lines.push(fit(notice, columns - 1))
   if (message !== undefined) lines.push(fit(message, columns - 1))
   return `\x1b[H\x1b[2J${lines.join("\r\n")}`
@@ -193,7 +203,12 @@ const runSession = (
     if (closed) return
     const rows = attention()
     selected = keepSelected(rows, selected)
-    const below = 2 + (notice === undefined ? 0 : 1) + (message === undefined ? 0 : 1)
+    const waitingRows = nowView(current).waiting.length
+    const below =
+      2 +
+      (waitingRows === 0 ? 0 : waitingRows + 1) +
+      (notice === undefined ? 0 : 1) +
+      (message === undefined ? 0 : 1)
     const height = Math.max((output.rows ?? 24) - below, 1)
     top = scrollTop(rows, selected, top, height)
     output.write(screen(current, selected, output.columns ?? 80, top, height, notice, message))

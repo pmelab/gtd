@@ -8,6 +8,7 @@ import {
   projectCounts,
   reasonText,
   screenUrl,
+  waitingText,
   waitText,
   statusText,
   worktreeName,
@@ -63,7 +64,41 @@ describe("nowView", () => {
     expect(nowView([{ id: "api", name: "api", worktrees: [worktree("main", {})] }])).toEqual({
       attention: [],
       working: [],
+      waiting: [],
     })
+  })
+
+  it("lists a worktree at a wait step as waiting, and not as working or needing anyone", () => {
+    const waiting = worktree("ci", { status: "waiting", signal: { kinds: ["checks"] } })
+    const view = nowView([{ id: "api", name: "api", worktrees: [waiting] }])
+    expect(names(view.waiting)).toEqual(["api/ci"])
+    expect(view.working).toEqual([])
+    expect(view.attention).toEqual([])
+  })
+})
+
+describe("waitingText", () => {
+  const now = 10_000_000
+  it("shows the label, the kinds and how long it has waited", () => {
+    const w = worktree("ci", {
+      status: "waiting",
+      label: "Waiting for CI",
+      signal: { kinds: ["checks", "timeout"] },
+      waitingSince: now - 90 * 60_000,
+    })
+    expect(waitingText(w, now)).toBe("Waiting for CI — checks, timeout — waiting 1h 30m")
+  })
+
+  it("adds when the timeout fires", () => {
+    const w = worktree("ci", {
+      status: "waiting",
+      label: "Waiting for a review",
+      signal: { kinds: ["review"], timeout: "2h" },
+      waitingSince: now - 30 * 60_000,
+    })
+    expect(waitingText(w, now)).toBe(
+      "Waiting for a review — review — waiting 30m — times out in 1h 30m",
+    )
   })
 })
 

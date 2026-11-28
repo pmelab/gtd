@@ -291,6 +291,11 @@ export const runWorkspaceCommand = (
         drivers: driverRuns,
         fingerprint: host.fingerprint,
         readFile: host.readFile,
+        committedAt: async (worktree) => {
+          const out = await tools.exec(["git", "log", "-1", "--format=%ct"], worktree)
+          const at = Number(out.stdout.trim()) * 1000
+          return out.status === 0 && Number.isFinite(at) ? at : undefined
+        },
         services,
         lastAction: actions.last,
         after: host.after,
